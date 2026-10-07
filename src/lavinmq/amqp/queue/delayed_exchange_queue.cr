@@ -42,12 +42,13 @@ module LavinMQ::AMQP
     end
 
     def delay(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if @closed
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      @message_ttl_change.send nil
+      @message_ttl_change.try_send? nil
+      ensure_expire_fiber # restart the release fiber if it died on a transient store error
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -57,8 +58,8 @@ module LavinMQ::AMQP
 
     # Overload to use our own store
     private def init_msg_store(data_dir)
-      replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      replicator = durable? ? @vhost.replicator : nil
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
@@ -83,9 +84,20 @@ module LavinMQ::AMQP
           end
         end
       end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     rescue ::Channel::ClosedError
     ensure
+      @message_expire_fiber_active.set(false, :release)
+      ensure_expire_fiber # restart if msg arrived during teardown
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Delayed exchange queues always need their expire fiber running
+    private def should_start_expire_fiber? : Bool
+      true
     end
 
     def expire_messages
@@ -126,7 +138,7 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+      @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
     end
@@ -142,9 +154,12 @@ module LavinMQ::AMQP
     private def queue_expire_loop
     end
 
-    def publish(message : Message) : Bool
-      # This queue should never be published too
-      false
+    def publish(message : Message) : PublishResult
+      PublishResult::Dropped
+    end
+
+    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+      PublishResult::Dropped
     end
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool

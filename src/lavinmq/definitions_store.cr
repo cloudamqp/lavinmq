@@ -1,0 +1,470 @@
+require "./logger"
+require "./filesystem"
+require "./schema"
+require "./event_type"
+require "./queue_factory"
+require "./amqp/exchange/*"
+require "./amqp/queue"
+require "./mqtt/exchange"
+
+module LavinMQ
+  class DefinitionsStore
+    Log = LavinMQ::Log.for "definitions_store"
+
+    @definitions_file : File
+
+    # The vhost's MQTT exchange. Created with the store rather than declared, so
+    # that it's always there when frames are applied — bindings with it as
+    # source would be dropped otherwise. It isn't durable, which is what keeps
+    # it out of the definitions file.
+    getter mqtt_exchange : MQTT::Exchange
+
+    def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
+      @exchanges = Hash(String, Exchange).new
+      @queues = Hash(String, AMQP::Queue).new
+      @sessions = Hash(String, MQTT::Session).new
+      @mqtt_exchange = MQTT::Exchange.new(@vhost, MQTT::EXCHANGE)
+      @exchanges[MQTT::EXCHANGE] = @mqtt_exchange
+      @definitions_lock = Mutex.new(:reentrant)
+      @definitions_file_path = File.join(@data_dir, "definitions.amqp")
+      # Unbuffered (sync) writes: replication offsets (store_definition) and a
+      # joining follower's cut + full_sync (Clustering::Server#snapshot_sizes,
+      # #files_with_hash) read this file's size and content through separate
+      # fds, so a frame must never sit in a user-space write buffer where they
+      # can't see it — a follower joining in that window would be marked
+      # synced while permanently missing the frame.
+      created = !File.exists?(@definitions_file_path)
+      @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
+      FileSystem.fsync_dir(@data_dir) if created
+      @replicator.try &.register_file(@definitions_file)
+      @definitions_deletes = 0
+    end
+
+    # Flush buffered definition writes to disk. Used after a bulk operation
+    # (e.g. import) that stored its definitions with fsync: false; the whole
+    # batch is acknowledged after this, so it waits for follower acks like
+    # the per-frame path does.
+    def fsync
+      @definitions_lock.synchronize do
+        @definitions_file.fsync
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
+      end
+    end
+
+    # Exchange accessors
+
+    def exchange?(name : String) : Exchange?
+      @exchanges[name]?
+    end
+
+    def exchange(name : String) : Exchange
+      @exchanges[name]
+    end
+
+    def exchange_exists?(name : String) : Bool
+      @exchanges.has_key?(name)
+    end
+
+    def each_exchange(& : Exchange ->) : Nil
+      @exchanges.each_value { |v| yield v }
+    end
+
+    def exchanges : Array(Exchange)
+      @exchanges.values
+    end
+
+    def exchanges_size : Int32
+      @exchanges.size
+    end
+
+    def exchanges_any?(& : {String, Exchange} -> Bool) : Bool
+      @exchanges.any? { |kv| yield kv }
+    end
+
+    # Insert a pre-built exchange (e.g. MQTT or other internal types that the
+    # frame-driven `apply` path can't construct). Locked; idempotent so callers
+    # like `init_delayed_queue` can re-register on exchange re-creation. Skips
+    # persistence and event ticks since these aren't replayed from frames.
+    def register_exchange(exchange : Exchange) : Nil
+      @definitions_lock.synchronize do
+        @exchanges[exchange.name] = exchange
+      end
+    end
+
+    # Queue accessors
+
+    def queue?(name : String) : AMQP::Queue?
+      @queues[name]?
+    end
+
+    def queue(name : String) : AMQP::Queue
+      @queues[name]
+    end
+
+    def queue_exists?(name : String) : Bool
+      @queues.has_key?(name)
+    end
+
+    def each_queue(& : AMQP::Queue ->) : Nil
+      @queues.each_value { |v| yield v }
+    end
+
+    def queues : Array(AMQP::Queue)
+      @queues.values
+    end
+
+    def queues_size : Int32
+      @queues.size
+    end
+
+    # Insert a pre-built queue (e.g. DelayedExchangeQueue) that the
+    # frame-driven `apply` path can't construct. Locked; idempotent so it can be
+    # called when an exchange is re-imported and a delayed queue with the same
+    # name already exists. Skips persistence and event ticks since these aren't
+    # replayed from frames.
+    def register_queue(queue : AMQP::Queue) : Nil
+      @definitions_lock.synchronize do
+        @queues[queue.name] = queue
+      end
+    end
+
+    def queues_clear : Nil
+      @queues.clear
+    end
+
+    # Session accessors
+
+    def session?(name : String) : MQTT::Session?
+      @sessions[name]?
+    end
+
+    def session(name : String) : MQTT::Session
+      @sessions[name]
+    end
+
+    def session_exists?(name : String) : Bool
+      @sessions.has_key?(name)
+    end
+
+    def each_session(& : MQTT::Session ->) : Nil
+      @sessions.each_value { |v| yield v }
+    end
+
+    def sessions : Array(MQTT::Session)
+      @sessions.values
+    end
+
+    def sessions_size : Int32
+      @sessions.size
+    end
+
+    def sessions_clear : Nil
+      @sessions.clear
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    def apply(f, loading = false, fsync = true) : Bool
+      @definitions_lock.synchronize do
+        case f
+        when AMQP::Frame::Exchange::Declare
+          return false if @exchanges.has_key? f.exchange_name
+          e = @exchanges[f.exchange_name] =
+            make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+          @vhost.apply_policies([e] of Exchange) unless loading
+          store_definition(f, fsync: fsync) if !loading && f.durable
+        when AMQP::Frame::Exchange::Delete
+          if x = @exchanges.delete f.exchange_name
+            unless @vhost.closed?
+              @exchanges.each_value do |ex|
+                ex.bindings_details.each do |binding|
+                  next unless binding.destination == x
+                  ex.unbind(x, binding.routing_key, binding.arguments)
+                end
+              end
+            end
+            x.delete
+            store_definition(f, dirty: true) if !loading && x.durable?
+          else
+            return false
+          end
+        when AMQP::Frame::Exchange::Bind
+          src = @exchanges[f.source]? || return false
+          dst = @exchanges[f.destination]? || return false
+          return false unless src.bind(dst, f.routing_key, f.arguments)
+          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
+        when AMQP::Frame::Exchange::Unbind
+          src = @exchanges[f.source]? || return false
+          dst = @exchanges[f.destination]? || return false
+          return false unless src.unbind(dst, f.routing_key, f.arguments)
+          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
+        when AMQP::Frame::Queue::Declare
+          return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          q = QueueFactory.make(@vhost, f)
+          if q.is_a?(MQTT::Session)
+            @sessions[f.queue_name] = q
+          else
+            @queues[f.queue_name] = q.as(AMQP::Queue)
+          end
+          @vhost.apply_policies([q] of Queue) unless loading
+          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
+          @vhost.event_tick(EventType::QueueDeclared) unless loading
+        when AMQP::Frame::Queue::Delete
+          if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
+            unless @vhost.closed?
+              @exchanges.each_value do |ex|
+                ex.bindings_details.each do |binding|
+                  next unless binding.destination == q
+                  ex.unbind(q, binding.routing_key, binding.arguments)
+                end
+              end
+            end
+            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
+            @vhost.event_tick(EventType::QueueDeleted) unless loading
+            q.delete
+          else
+            return false
+          end
+        when AMQP::Frame::Queue::Bind
+          x = @exchanges[f.exchange_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
+          return false unless x.bind(q, f.routing_key, f.arguments)
+          store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
+        when AMQP::Frame::Queue::Unbind
+          x = @exchanges[f.exchange_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
+          return false unless x.unbind(q, f.routing_key, f.arguments)
+          store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
+        else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
+        end
+        true
+      end
+    end
+
+    # Bindings are stored so they can be restored on boot. The MQTT exchange is
+    # not durable — it's created with the store, never declared — but bindings
+    # from durable sessions to it must survive a restart.
+    private def persist_binding?(x : Exchange, q : Queue) : Bool
+      q.durable? && !q.exclusive? && (x.durable? || x.same?(@mqtt_exchange))
+    end
+
+    def queue_bindings(queue : Queue)
+      default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
+      bindings = @exchanges.values.flat_map do |ex|
+        ex.bindings_details.select { |binding| binding.destination == queue }
+      end
+      [default_binding] + bindings
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    def load!
+      exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
+      queues = Hash(String, AMQP::Frame::Queue::Declare).new
+      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
+      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      should_compact = false
+      io = @definitions_file
+      if io.size.zero?
+        load_default_definitions
+        compact!
+        return
+      end
+
+      @log.info { "Loading definitions" }
+      @definitions_lock.synchronize do
+        @log.debug { "Verifying schema" }
+        SchemaVersion.verify(io, :definition)
+        stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
+        loop do
+          f = stream.next_frame
+          @log.trace { "Reading frame #{f.inspect}" }
+          case f
+          when AMQP::Frame::Exchange::Declare
+            exchanges[f.exchange_name] = f
+          when AMQP::Frame::Exchange::Delete
+            exchanges.delete f.exchange_name
+            exchange_bindings.delete f.exchange_name
+            should_compact = true
+          when AMQP::Frame::Exchange::Bind
+            exchange_bindings[f.destination] << f
+          when AMQP::Frame::Exchange::Unbind
+            exchange_bindings[f.destination].reject! do |b|
+              b.source == f.source &&
+                b.routing_key == f.routing_key &&
+                b.arguments == f.arguments
+            end
+            should_compact = true
+          when AMQP::Frame::Queue::Declare
+            queues[f.queue_name] = f
+          when AMQP::Frame::Queue::Delete
+            queues.delete f.queue_name
+            queue_bindings.delete f.queue_name
+            should_compact = true
+          when AMQP::Frame::Queue::Bind
+            queue_bindings[f.queue_name] << f
+          when AMQP::Frame::Queue::Unbind
+            queue_bindings[f.queue_name].reject! do |b|
+              b.exchange_name == f.exchange_name &&
+                b.routing_key == f.routing_key &&
+                b.arguments == f.arguments
+            end
+            should_compact = true
+          else
+            raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
+          end
+        rescue IO::EOFError
+          break
+        end
+      end
+
+      @log.info { "Applying #{exchanges.size} exchanges" }
+      exchanges.each_value &->self.load_apply(AMQP::Frame)
+      @log.info { "Applying #{queues.size} queues" }
+      queues.each_value &->self.load_apply(AMQP::Frame)
+      @log.info { "Applying #{exchange_bindings.each_value.sum(0, &.size)} exchange bindings" }
+      exchange_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
+      @log.info { "Applying #{queue_bindings.each_value.sum(0, &.size)} queue bindings" }
+      queue_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
+
+      @log.info { "Definitions loaded" }
+      compact! if should_compact
+    end
+
+    def close : Nil
+      @definitions_file.close
+    end
+
+    protected def load_apply(frame : AMQP::Frame)
+      apply frame, loading: true
+    rescue ex : LavinMQ::Error
+      @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
+    end
+
+    private def load_default_definitions
+      @log.info { "Loading default definitions" }
+      @exchanges[""] = AMQP::DefaultExchange.new(@vhost, "", true, false, false)
+      @exchanges["amq.direct"] = AMQP::DirectExchange.new(@vhost, "amq.direct", true, false, false)
+      @exchanges["amq.fanout"] = AMQP::FanoutExchange.new(@vhost, "amq.fanout", true, false, false)
+      @exchanges["amq.topic"] = AMQP::TopicExchange.new(@vhost, "amq.topic", true, false, false)
+      @exchanges["amq.headers"] = AMQP::HeadersExchange.new(@vhost, "amq.headers", true, false, false)
+      @exchanges["amq.match"] = AMQP::HeadersExchange.new(@vhost, "amq.match", true, false, false)
+    end
+
+    private def compact!
+      @definitions_lock.synchronize do
+        @log.info { "Compacting definitions" }
+        # sync = true for the same reason as in #initialize: this file becomes
+        # @definitions_file after the rename.
+        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
+        SchemaVersion.prefix(io, :definition)
+        # Durable only, which is what keeps the MQTT exchange out: it's created
+        # with the store, and `make_exchange` can't build its type from a frame.
+        @exchanges.each_value.select(&.durable?).each do |e|
+          f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
+            false, e.durable?, e.auto_delete?, e.internal?,
+            false, e.arguments)
+          io.write_bytes f
+        end
+        @queues.each_value.select(&.durable?).each do |q|
+          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
+            q.auto_delete?, false, q.arguments)
+          io.write_bytes f
+        end
+        @sessions.each_value.select(&.durable?).each do |s|
+          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
+            s.auto_delete?, false, s.arguments)
+          io.write_bytes f
+        end
+        # Not filtered on the source being durable: the bindings written here
+        # are the ones the incremental path in `apply` would have stored, which
+        # includes bindings from durable sessions to the (non-durable) MQTT exchange.
+        @exchanges.each_value do |e|
+          e.bindings_details.each do |binding|
+            args = binding.arguments || AMQP::Table.new
+            frame = case d = binding.destination
+                    when Queue
+                      if persist_binding?(e, d)
+                        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name,
+                          binding.routing_key, false, args)
+                      end
+                    when Exchange
+                      if e.durable? && d.durable?
+                        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, d.name, e.name,
+                          binding.routing_key, false, args)
+                      end
+                    end
+            if f = frame
+              io.write_bytes f
+            end
+          end
+        end
+        FileSystem.durable_rename(io, @definitions_file_path)
+        @replicator.try &.replace_file @definitions_file_path
+        @definitions_file.close
+        @definitions_file = io
+      end
+    end
+
+    private def store_definition(frame, dirty = false, fsync = true)
+      @log.debug { "Storing definition: #{frame.inspect}" }
+      bytes = frame.to_slice
+      offset = @definitions_file.size.to_i64
+      # The write goes straight to the file (sync = true), so by dispatch time
+      # the frame is readable at `offset` through any fd: a follower joining
+      # between write and dispatch gets it via its full_sync cut, and
+      # already_synced then skips (or tail-slices) this append against the
+      # baseline instead of duplicating it.
+      @definitions_file.write bytes
+      @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+      if fsync
+        @definitions_file.fsync
+        # The caller acknowledges the change to the client right after this
+        # returns (Declare-Ok etc.), so like a publish confirm it must be
+        # durable on every in-sync follower first — otherwise a leader crash
+        # could elect a follower lacking the acknowledged change. A follower
+        # that doesn't ack within its deadline is disconnected and its ISR
+        # removal committed before this returns.
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
+      end
+      if dirty
+        if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
+          compact!
+          @definitions_deletes = 0
+        end
+      end
+    end
+
+    private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
+      case type
+      when "direct"
+        if name.empty?
+          AMQP::DefaultExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        else
+          AMQP::DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        end
+      when "fanout"
+        AMQP::FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "topic"
+        AMQP::TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "headers"
+        AMQP::HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-delayed-message", "x-delayed-exchange"
+        arguments = arguments.clone
+        type = arguments.delete("x-delayed-type")
+        raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type
+        arguments["x-delayed-exchange"] = true
+        make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
+      when "x-federation-upstream"
+        AMQP::FederationExchange.new(vhost, name, arguments)
+      when "x-consistent-hash"
+        AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      else raise Error::ExchangeTypeError.new("unknown exchange type '#{type}'")
+      end
+    end
+  end
+end

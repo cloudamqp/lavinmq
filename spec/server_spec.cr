@@ -1,7 +1,69 @@
 require "./spec_helper"
 require "benchmark"
+require "log/spec"
 
 describe LavinMQ::Server do
+  it "closes idempotently" do
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    server.close
+    server.close
+    server.closed?.should be_true
+  end
+
+  it "replaces server stores on restart" do
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    users = server.users
+    vhosts = server.vhosts
+    parameters = server.parameters
+    authenticator = server.authenticator
+
+    begin
+      restart_server(server)
+
+      server.users.same?(users).should be_false
+      server.vhosts.same?(vhosts).should be_false
+      server.parameters.same?(parameters).should be_false
+      server.authenticator.same?(authenticator).should be_false
+      server.vhosts["/"]?.should_not be_nil
+      server.users["guest"]?.should_not be_nil
+    ensure
+      server.close unless server.closed?
+    end
+  end
+
+  it "removes the log exchange channel when closed" do
+    config = LavinMQ::Config.instance
+    config.log_exchange = true
+    server = LavinMQ::Server.new(config)
+
+    begin
+      server.start_log_exchange
+      log_channel = server.@log_exchange_channel.not_nil!
+      ::Log::InMemoryBackend.instance.channels.includes?(log_channel).should be_true
+
+      server.close
+
+      ::Log::InMemoryBackend.instance.channels.includes?(log_channel).should be_false
+      log_channel.closed?.should be_true
+    ensure
+      server.close unless server.closed?
+      config.log_exchange = false
+    end
+  end
+
+  it "logs kTLS=off for TLS connections without kernel offload" do
+    with_amqp_server(tls: true) do |s|
+      uri = URI.parse(s.amqp_server.url)
+      Log.capture("lmq.server", :info) do |logs|
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!, port: uri.port.not_nil!, tls: client_ctx).connect
+        conn.close
+        logs.check(:info, /connected with .* kTLS=off/)
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -41,7 +103,7 @@ describe LavinMQ::Server do
         m1 = q.get(no_ack: false)
         m1.try(&.reject)
         m1 = q.get(no_ack: false)
-        m1.should eq(nil)
+        m1.should be_nil
       end
     end
   end
@@ -193,8 +255,8 @@ describe LavinMQ::Server do
   it "can handle messages going to no queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.basic_publish_confirm("m1", "amq.direct", "none").should eq true
-        ch.basic_publish_confirm("m2", "amq.direct", "none").should eq true
+        ch.basic_publish_confirm("m1", "amq.direct", "none").should be_true
+        ch.basic_publish_confirm("m2", "amq.direct", "none").should be_true
       end
     end
   end
@@ -215,9 +277,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end
@@ -232,7 +294,7 @@ describe LavinMQ::Server do
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
@@ -250,7 +312,7 @@ describe LavinMQ::Server do
         msg.reject(requeue: true)
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(r_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
       end
     end
   end
@@ -278,7 +340,7 @@ describe LavinMQ::Server do
         tag = q.subscribe(no_ack: false) { |_| done.send nil }
         done.receive
         q.unsubscribe(tag)
-        s.vhosts["/"].queues["msg_q"].empty?.should be_true
+        s.vhosts["/"].queue("msg_q").empty?.should be_true
       end
     end
   end
@@ -369,25 +431,24 @@ describe LavinMQ::Server do
         args["x-max-length"] = 2
         q = ch.queue "", durable: false, exclusive: true, args: args
         mch = Channel(AMQP::Client::DeliverMessage).new(10)
+        ack = Channel(Nil).new
         ch.prefetch 1
         q.subscribe(no_ack: false) do |msg|
           mch.send msg
-          sleep 0.2.seconds
+          ack.receive
           msg.ack
         end
-        10.times do |i|
+        q.publish_confirm "0"
+        mch.receive.body_io.to_s.should eq "0"
+        1.upto(9) do |i|
           q.publish_confirm i.to_s
         end
-        mch.close
-        if m = mch.receive?
-          m.body_io.to_s.should eq "0"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "8"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "9"
-        end
+        wait_for { s.vhosts["/"].queue(q.name).message_count == 2 }
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "8"
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "9"
+        ack.send nil
       end
     end
   end
@@ -432,7 +493,7 @@ describe LavinMQ::Server do
         tag = q.subscribe { |msg| msgs << msg }
         q.unsubscribe(tag)
         sleep 10.milliseconds
-        ch.has_subscriber?(tag).should eq false
+        ch.has_subscriber?(tag).should be_false
       end
     end
   end
@@ -514,7 +575,7 @@ describe LavinMQ::Server do
         headers_x = ch.exchange("headers_exchange", "headers", passive: false)
         topic_x.bind(exchange: headers_x.name, routing_key: "", args: hdrs)
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue
         q.bind("topic_exchange", "#")
@@ -651,7 +712,7 @@ describe LavinMQ::Server do
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
         sleep 10.milliseconds
-        s.vhosts["/"].queues["mlq"].message_count.should eq 1
+        s.vhosts["/"].queue("mlq").message_count.should eq 1
       end
     end
   end
@@ -709,6 +770,27 @@ describe LavinMQ::Server do
     end
   end
 
+  it "refuses an exclusive consumer when the queue already has consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("exclusive_consumer_after_shared", auto_delete: true)
+        q.subscribe { }
+
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+          with_channel(s) do |ch2|
+            q2 = ch2.queue("exclusive_consumer_after_shared", passive: true)
+            q2.subscribe(exclusive: true) { }
+          end
+        end
+
+        # The refused exclusive consumer must not lock out further consumers
+        with_channel(s) do |ch3|
+          ch3.queue("exclusive_consumer_after_shared", passive: true).subscribe { }
+        end
+      end
+    end
+  end
+
   it "only allow one connection access an exlusive queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -734,7 +816,7 @@ describe LavinMQ::Server do
         end
         ch.wait_for_confirms
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue("durable_queue", durable: true)
         deleted_msgs = q.delete
@@ -759,7 +841,7 @@ describe LavinMQ::Server do
         end
         q.message_count.should eq 0
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue("q")
         q.message_count.should eq 0
@@ -823,7 +905,7 @@ describe LavinMQ::Server do
         ch.queue("test", args: args)
         sleep 5.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_false
+        s.vhosts["/"].queue_exists?("test").should be_false
       end
     end
   end
@@ -837,7 +919,7 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |_| }
         sleep 50.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_true
+        s.vhosts["/"].queue_exists?("test").should be_true
       end
     end
   end
@@ -869,6 +951,19 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs.size.should eq 1
+      end
+    end
+  end
+
+  it "allows any Int64 message timestamp" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        props = AMQP::Client::Properties.new(timestamp: Int64::MAX)
+        q.publish "m1", props: props
+        msg = q.get(no_ack: true).not_nil!
+        msg.body_io.to_s.should eq "m1"
+        msg.properties.timestamp_raw.should eq Int64::MAX
       end
     end
   end
@@ -980,7 +1075,7 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
+        s.vhosts["/"].queue("delivery_limit").empty?.should be_true
       end
     end
   end
@@ -1116,8 +1211,8 @@ describe LavinMQ::Server do
         count.should eq 0
 
         Fiber.yield
-        s.vhosts["/"].queues[qname].message_count.should eq 1
-        s.vhosts["/"].queues[qname].unacked_count.should eq 0
+        s.vhosts["/"].queue(qname).message_count.should eq 1
+        s.vhosts["/"].queue(qname).unacked_count.should eq 0
       end
     end
   end
@@ -1257,7 +1352,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports consumer timeouts" do
+  it "supports consumer timeouts", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("", exclusive: true, args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))
@@ -1269,7 +1364,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "restarts fast even with large messages" do
+  it "restarts fast even with large messages", tags: "slow" do
     with_amqp_server do |s|
       data = Bytes.new 128 * 1024**2
       with_channel(s) do |ch|
@@ -1280,7 +1375,7 @@ describe LavinMQ::Server do
       end
       restart_time = Benchmark.realtime do
         restart_memory = Benchmark.memory do
-          s.restart
+          restart_server(s)
         end
         restart_memory.should be < 1 * 1024**2
       end

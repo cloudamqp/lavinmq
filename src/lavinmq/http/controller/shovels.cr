@@ -1,4 +1,5 @@
 require "../controller.cr"
+require "../stats_helper"
 
 module LavinMQ
   module HTTP
@@ -7,20 +8,23 @@ module LavinMQ
 
       private def register_routes
         get "/api/shovels" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |v|
-            v.shovels.each_value
+          refuse_unless_policymaker(context, user(context))
+          arr = vhosts(user(context)).flat_map do |v|
+            v.shovels.values
           end
-          page(context, itrs)
+          page(context, arr)
         end
 
         get "/api/shovels/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            page(context, vhost.shovels.each_value)
+            refuse_unless_policymaker(context, user(context), vhost)
+            page(context, vhost.shovels.values)
           end
         end
 
         get "/api/shovels/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
             shovel_name = params["name"]
             if shovel = vhost.shovels[shovel_name]?
               shovel.to_json(context.response)
@@ -32,6 +36,7 @@ module LavinMQ
 
         put "/api/shovels/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
             shovel_name = params["name"]
             if current_shovel = vhost.shovels[shovel_name]?
               if !current_shovel.running?
@@ -48,9 +53,10 @@ module LavinMQ
 
         put "/api/shovels/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
             shovel_name = params["name"]
             if current_shovel = vhost.shovels[shovel_name]?
-              if !current_shovel.paused?
+              if !(current_shovel.paused? || current_shovel.aborted?)
                 context.response.status_code = 422
                 next
               end

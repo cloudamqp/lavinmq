@@ -12,27 +12,86 @@ require "./config/options"
 module LavinMQ
   class Config
     include Options
+
+    # Raised when the config file can't be parsed or is invalid. Aborts on
+    # boot, caught on SIGHUP reload to keep the running config.
+    class Error < Exception; end
+
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    @io : IO = STDERR
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize
+    private def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      parse_info_option(argv)
+      config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
-        File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
+        File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
       parse_config_from_cli(argv)
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
+      validate!
       setup_logger
+      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
+        Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    private def parse_info_option(argv)
+      return unless argv.size == 1
+
+      case argv.first
+      when "-v", "--version"
+        puts LavinMQ::VERSION
+        exit 0
+      when "--build-info"
+        puts LavinMQ::BUILD_INFO
+        exit 0
+      end
+    end
+
+    def oauth_mgmt_ui_enabled? : Bool
+      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
+      oauth_mgmt_base_url_allowed?(base_url)
+    end
+
+    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
+      return true if uri.scheme == "https"
+      return false unless uri.scheme == "http"
+      host = uri.host.try(&.downcase)
+      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+    end
+
+    private def oauth_mgmt_ui_disabled_reason : String
+      missing = [] of String
+      missing << "oauth.client_id" unless @oauth_client_id
+      missing << "oauth.issuer" unless @oauth_issuer_url
+      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
+      unless missing.empty?
+        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+      end
+      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
+    end
+
+    protected def validate!
+      unless @stats_interval.positive?
+        raise Error.new("stats_interval must be positive (got #{@stats_interval})")
+      end
+      # 0 is not "unlimited": the capacity gate would never open, so every MQTT
+      # session would accept publishes and deliver none of them.
+      unless @max_inflight_messages.positive?
+        raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
+      end
     end
 
     private def parse_config_from_cli(argv)
@@ -47,12 +106,33 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
+    # Assigns a parsed option value to its property. When `deprecation_message` is
+    # present the option is deprecated: the message is printed verbatim and the
+    # value is forwarded only if the (getter-less) deprecated property defines a
+    # setter. An option with no replacement defines no setter, so its value is
+    # dropped after the warning. Shared by `parse_cli` and `parse_section`.
+    private macro assign_option(var_name, value, transform, deprecation_message)
+      {% if deprecation_message %}
+        @io.puts "WARNING: {{ deprecation_message.id }}"
+        # Since deprecation_message is set, the variable is deprecated. It may
+        # be forwarded to another variable using a setter, but it may also be
+        # completley removed, therefore we need to check for a setter.
+        {% if @type.has_method?("#{var_name.id}=") %}
+          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+        {% end %}
+      {% else %}
+        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+      {% end %}
+    end
+
     private def parse_env
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
-        {% env_name, transform = ivar.annotation(EnvOpt).args %}
-        if v = ENV.fetch({{env_name}}, nil)
-          @{{ivar}} = parse_value(v, {{transform || ivar.type}})
-        end
+        {% for ann in ivar.annotations(EnvOpt) %}
+          {% env_name, transform = ann.args %}
+          if v = ENV.fetch({{ env_name }}, nil)
+            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }})
+          end
+        {% end %}
       {% end %}
     end
 
@@ -82,8 +162,8 @@ module LavinMQ
           %}
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
-          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
-            self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
+          sections[:{{ section_id }}][:options] << Option.new({{ parser_arg.splat }}) do |value|
+            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }})
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -101,73 +181,86 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
-    private def parse_ini(file)
+    protected def parse_ini(file)
       return if file.empty?
-      abort "Config could not be found" unless File.file?(file)
+      raise Error.new("Config could not be found") unless File.file?(file)
       ini = INI.parse(File.read(file))
       {% begin %}
       ini.each do |section, settings|
         case section
         {% for section in INI_SECTIONS %}
-        when {{section}}
-          parse_section({{section}}, settings)
+        when {{ section }}
+          parse_section({{ section }}, settings)
         {% end %}
+        when "http"
+          @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
+          parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
-          abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+          raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
-          raise "Unknown configuration section: #{section}"
+          raise Error.new("Unknown configuration section: #{section}")
         end
       end
       {% end %}
     rescue ex : ::INI::ParseException
-      abort "Failed to parse config file '#{file}'. " \
-            "Error on line #{ex.line_number}, column #{ex.column_number}"
+      raise Error.new("Failed to parse config file '#{file}'. " \
+                      "Error on line #{ex.line_number}, column #{ex.column_number}")
+    rescue ex : IO::Error
+      raise Error.new("Could not read config file '#{file}': #{ex.message}")
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def parse_sni(hostname : String, settings)
-      host = @sni_manager.get_host(hostname) || SNIHost.new(hostname)
+      host = @sni_manager.get_exact_host(hostname) || SNIHost.new(hostname)
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"        then host.tls_cert = v
-        when "tls_key"         then host.tls_key = v
-        when "tls_min_version" then host.tls_min_version = v
-        when "tls_ciphers"     then host.tls_ciphers = v
-        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"     then host.tls_ca_cert = v
-        when "tls_keylog_file" then host.tls_keylog_file = v
+        when "tls_cert"                  then host.tls_cert = v
+        when "tls_key"                   then host.tls_key = v
+        when "tls_min_version"           then host.tls_min_version = v
+        when "tls_ciphers"               then host.tls_ciphers = v
+        when "tls_ciphersuites"          then host.tls_ciphersuites = v
+        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
+        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"               then host.tls_ca_cert = v
+        when "tls_keylog_file"           then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"        then host.amqp_tls_cert = v
-        when "amqp_tls_key"         then host.amqp_tls_key = v
-        when "amqp_tls_min_version" then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"     then host.amqp_tls_ciphers = v
-        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
+        when "amqp_tls_key"                   then host.amqp_tls_key = v
+        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
+        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
+        when "amqp_tls_ciphersuites"          then host.amqp_tls_ciphersuites = v
+        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
+        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"         then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version" then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"     then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
+        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
+        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
+        when "mqtt_tls_ciphersuites"          then host.mqtt_tls_ciphersuites = v
+        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
+        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"        then host.http_tls_cert = v
-        when "http_tls_key"         then host.http_tls_key = v
-        when "http_tls_min_version" then host.http_tls_min_version = v
-        when "http_tls_ciphers"     then host.http_tls_ciphers = v
-        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when "http_tls_cert"                  then host.http_tls_cert = v
+        when "http_tls_key"                   then host.http_tls_key = v
+        when "http_tls_min_version"           then host.http_tls_min_version = v
+        when "http_tls_ciphers"               then host.http_tls_ciphers = v
+        when "http_tls_ciphersuites"          then host.http_tls_ciphersuites = v
+        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
+        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
         else
-          STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
+          @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
       end
       if host.tls_cert.empty?
-        STDERR.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
+        @io.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
       else
         @sni_manager.add_host(host)
       end
@@ -192,36 +285,32 @@ module LavinMQ
         end
     %}
 
-    # Generate a case branch for each INI setting in this section.
-    # If a setting is marked as deprecated, look up the replacement instance variable
-    # and redirect the value assignment to it instead, logging a deprecation warning.
+    # Generate a case branch for each INI setting in this section. Deprecated
+    # settings carry a verbatim warning message and are handled by `assign_option`,
+    # which forwards the value to the replacement when a setter exists.
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
-         when "{{var[:ini_name]}}"
-         {% if (deprecated = var[:deprecated]) %}
-           Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead" }
-         {% end %}
-         self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+          when "{{ var[:ini_name] }}"
+            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }})
         {% end %}
      else
-       Log.warn { "Unknown setting #{name} in section {{section.id}}" }
+       @io.puts "WARNING: Unknown setting '#{name}' in section [{{ section.id }}]"
       end
     rescue ex
-      Log.error { "Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}" }
-      abort
+      raise Error.new("Failed to handle value for '#{name}' in [{{ section.id }}]: #{ex.message}")
     end
   {% end %}
     end
 
     {% for int in [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64] %}
-      private def parse_value(value, type : {{int}}.class)
-        {{int}}.new(value)
+      private def parse_value(value, type : {{ int }}.class)
+        {{ int }}.new(value)
       end
 
-      private def parse_value(value, type : {{int}}?.class)
+      private def parse_value(value, type : {{ int }}?.class)
         if v = value
-          {{int}}.new(v)
+          {{ int }}.new(v)
         end
       end
     {% end %}
@@ -231,7 +320,7 @@ module LavinMQ
     end
 
     private def parse_value(value, type : Bool.class)
-      true?(value.downcase)
+      true?(value)
     end
 
     private def parse_value(value, type : Proc)
@@ -257,12 +346,43 @@ module LavinMQ
     private def parse_bind(value)
       @amqp_bind = value
       @http_bind = value
+      @mqtt_bind = value
     end
 
+    # Re-read the config file into a fresh copy and swap it in only if parsing
+    # and validation fully succeed. On failure the running config is untouched
+    # and it raises, so the SIGHUP handler can log and keep serving.
     def reload
-      @sni_manager.clear
-      parse_ini(@config_file)
+      new_config = dup
+      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.parse_ini(@config_file)
+      new_config.validate!
+      new_config.try_to_open_log_file
+      apply(new_config)
       setup_logger
+    end
+
+    # Try to open and immediately close the configured log file so an unopenable
+    # path raises a Config::Error before the config is applied
+    protected def try_to_open_log_file
+      if path = @log_file
+        File.open(path, "a") { }
+      end
+    rescue ex : File::Error
+      raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
+    end
+
+    protected def fresh_sni_manager
+      @sni_manager = SNIManager.new
+    end
+
+    # Copy every instance variable from the parsed config in one non-yielding
+    # loop, so no fiber sees a half-applied state. @@instance is a class
+    # variable and is untouched, keeping `Config.instance` references valid.
+    protected def apply(other : self)
+      {% for ivar in @type.instance_vars %}
+        @{{ ivar.id }} = other.@{{ ivar.id }}
+      {% end %}
     end
 
     private def setup_logger
@@ -280,6 +400,13 @@ module LavinMQ
       broadcast_backend.append(in_memory_backend, @log_level)
 
       ::Log.setup(@log_level, broadcast_backend)
+      # Federation and shovels use the embedded amqp-client, whose connection
+      # read loop logs routine teardown (EOF / failed CloseOk) at ERROR whenever
+      # a connection drops — unavoidable on broker shutdown and under connection
+      # churn. LavinMQ already reports those events through its own
+      # federation/shovel layers (lmq.*), so keep the library's redundant
+      # connection log out of the broker log.
+      ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
@@ -318,12 +445,14 @@ module LavinMQ
       end
     end
 
+    # Folded here, not at the call sites: the [sni:] branch passes raw ini
+    # values, so a capitalised TRUE read as false there but true in [main].
     private def false?(str : String?)
-      {"0", "false", "no", "off", "n"}.includes? str
+      {"0", "false", "no", "off", "n"}.includes? str.try &.downcase
     end
 
     private def true?(str : String?)
-      {"1", "true", "yes", "on", "y"}.includes? str
+      {"1", "true", "yes", "on", "y"}.includes? str.try &.downcase
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.
@@ -331,15 +460,15 @@ module LavinMQ
     struct Option
       include Comparable(Option)
 
-      def self.new(short_flag : String, long_flag : String, description : String, deprecation_warn_msg : String?, &block : Proc(String, Nil))
-        new(short_flag, long_flag, description, deprecation_warn_msg, block)
+      def self.new(short_flag : String, long_flag : String, description : String, &block : Proc(String, Nil))
+        new(short_flag, long_flag, description, block)
       end
 
-      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @deprecation_warn_msg : String?, @set_value : Proc(String, Nil))
+      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @set_value : Proc(String, Nil))
       end
 
       def <=>(other : Option)
-        self.compare_value <=> other.compare_value
+        compare_value <=> other.compare_value
       end
 
       # Sort options alphabetically by short flag. Options without short flags
@@ -362,9 +491,6 @@ module LavinMQ
 
       private def do_setup_parser(parser, *args)
         parser.on(*args) do |val|
-          if msg = @deprecation_warn_msg
-            Log.warn { msg }
-          end
           @set_value.call(val)
         end
       end

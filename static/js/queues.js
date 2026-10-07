@@ -43,7 +43,7 @@ const performMultiAction = (el) => {
         document.getElementById('multi-check-all').checked = false
         queuesTable.reload()
       }
-    }).catch(e => {
+    }).catch(() => {
       DOM.toast.error(`Failed to perform action on ${data.name}`)
       queuesTable.reload()
     })
@@ -87,32 +87,39 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     }
     const features = document.createElement('span')
     features.className = 'features'
-    if (item.durable) {
-      const durable = document.createElement('span')
-      durable.textContent = 'D '
-      durable.title = 'Durable'
-      features.appendChild(durable)
-    }
-    if (item.auto_delete) {
-      const autoDelete = document.createElement('span')
-      autoDelete.textContent = 'AD '
-      autoDelete.title = 'Auto Delete'
-      features.appendChild(autoDelete)
-    }
-    if (item.exclusive) {
-      const exclusive = document.createElement('span')
-      exclusive.textContent = 'E '
-      exclusive.title = 'Exclusive'
-      features.appendChild(exclusive)
-    }
-    if (Object.keys(item.arguments).length > 0) {
-      const argsTooltip = Object.entries(item.arguments)
-        .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-        .join('\n')
-      const argsSpan = document.createElement('span')
-      argsSpan.textContent = 'Args '
-      argsSpan.title = argsTooltip
-      features.appendChild(argsSpan)
+    if (item.internal) {
+      const internal = document.createElement('span')
+      internal.textContent = 'I'
+      internal.title = 'Internal'
+      features.appendChild(internal)
+    } else {
+      if (item.durable) {
+        const durable = document.createElement('span')
+        durable.textContent = 'D '
+        durable.title = 'Durable'
+        features.appendChild(durable)
+      }
+      if (item.auto_delete) {
+        const autoDelete = document.createElement('span')
+        autoDelete.textContent = 'AD '
+        autoDelete.title = 'Auto Delete'
+        features.appendChild(autoDelete)
+      }
+      if (item.exclusive) {
+        const exclusive = document.createElement('span')
+        exclusive.textContent = 'E '
+        exclusive.title = 'Exclusive'
+        features.appendChild(exclusive)
+      }
+      if (Object.keys(item.arguments).length > 0) {
+        const argsTooltip = Object.entries(item.arguments)
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+          .join('\n')
+        const argsSpan = document.createElement('span')
+        argsSpan.textContent = 'Args '
+        argsSpan.title = argsTooltip
+        features.appendChild(argsSpan)
+      }
     }
     const queueLink = document.createElement('a')
     const qType = item.arguments['x-queue-type']
@@ -165,13 +172,13 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: DOM.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then((response) => {
-      if (response?.is_error) { return }
+    .then(() => {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
       DOM.toast('Queue ' + queue + ' created')
     })
+    .catch(() => {})
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')

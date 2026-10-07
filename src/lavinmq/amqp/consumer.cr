@@ -21,6 +21,7 @@ module LavinMQ
       @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
+      @deliver_loop_running = Atomic(Bool).new(false)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -31,18 +32,23 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
-        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
       end
 
       def close
+        return if @closed
         @closed = true
         @notify_closed.close
         @has_capacity.close
         @flow_change.close
-        @queue.rm_consumer(self)
+      end
+
+      def ensure_deliver_loop
+        return if @closed
+        return if @deliver_loop_running.swap(true, :acquire_release)
+        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
+        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
       end
 
       @notify_closed = ::Channel(Nil).new
@@ -71,7 +77,15 @@ module LavinMQ
             raise ClosedError.new if @closed
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
-            next if wait_for_queue_ready
+            case wait_for_queue_ready
+            when :timeout
+              @log.debug { "deliver loop idle, exiting fiber" }
+              @deliver_loop_running.set(false, :release)
+              ensure_deliver_loop unless @queue.empty?
+              return
+            when :ready
+              next
+            end
             next if wait_for_paused_queue
             next if wait_for_flow
             break
@@ -81,7 +95,7 @@ module LavinMQ
           {% end %}
           queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
-            delivered_bytes &+= env.message.bytesize
+            delivered_bytes &+= env.segment_position.bytesize
             @channel.increment_deliver_count(env.redelivered, @no_ack)
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
@@ -91,6 +105,11 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+        @deliver_loop_running.set(false, :release)
+      rescue ex
+        @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
+        @deliver_loop_running.set(false, :release)
+        raise ex
       end
 
       private def wait_for_global_capacity
@@ -146,19 +165,22 @@ module LavinMQ
             break if higher_prio_consumers.empty?
             next
           end
-          return true
+          true
         end
       end
 
       private def wait_for_queue_ready
-        if @queue.empty?
-          @log.debug { "Waiting for queue not to be empty" }
-          flush
-          select
-          when @queue.empty.when_false.receive
-          when @notify_closed.receive
-          end
-          return true
+        return unless @queue.empty?
+        @log.debug { "Waiting for queue not to be empty" }
+        flush
+        select
+        when @queue.empty.when_false.receive
+          :ready
+        when @notify_closed.receive
+          raise ClosedError.new
+        when timeout Config.instance.deliver_loop_idle_timeout
+          @log.debug { "Deliver loop idle timeout" }
+          :timeout
         end
       end
 
@@ -171,7 +193,7 @@ module LavinMQ
             @log.debug { "Queue is not paused" }
           when @notify_closed.receive
           end
-          return true
+          true
         end
       end
 
@@ -181,7 +203,7 @@ module LavinMQ
           flush
           @flow_change.when_true.receive
           @log.debug { "Channel flow=true" }
-          return true
+          true
         end
       end
 
@@ -227,9 +249,7 @@ module LavinMQ
       end
 
       def cancel
-        @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, no_wait: true)
-        @channel.consumers.delete self
-        close
+        @channel.cancel_consumer(self)
       end
 
       private def consumer_priority(frame) : Int32

@@ -1,7 +1,6 @@
 require "mqtt-protocol"
 
-module LavinMQ
-  module MQTT
-    include ::MQTT::Protocol
-  end
+module LavinMQ::MQTT::Protocol
+  # Just "copy" ::MQTT::Protocol to LavinMQ::MQTT::Protocol
+  include ::MQTT::Protocol
 end

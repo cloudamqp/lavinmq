@@ -70,7 +70,7 @@ describe LavinMQ::Pidfile do
       pidfile.acquire.should be_false
     end
 
-    it "removes pidfile on graceful shutdown" do
+    it "removes pidfile on graceful shutdown", tags: "slow" do
       path = File.tempname("pidfile", ".pid")
       # Spawn a subprocess that acquires the pidfile and exits gracefully
       script = <<-CRYSTAL

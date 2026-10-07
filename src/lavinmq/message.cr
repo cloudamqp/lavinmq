@@ -1,9 +1,14 @@
 require "amq-protocol"
+require "./mfile"
 
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
   struct BytesMessage
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
+
+    def needs_sync? : Bool
+      false
+    end
 
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
@@ -27,12 +32,6 @@ module LavinMQ
 
     def dlrk : String?
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
-    end
-
-    def delay : UInt32?
-      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
-    rescue OverflowError
-      nil
     end
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
@@ -69,6 +68,9 @@ module LavinMQ
   struct Message
     property timestamp
     getter exchange_name, routing_key, properties, bodysize, body_io
+    # Set for publishes that are confirmed (AMQP confirm mode, MQTT QoS 1), so
+    # the segments they're written to are synced before the confirm
+    property? needs_sync = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,
@@ -110,8 +112,21 @@ module LavinMQ
   struct Envelope
     getter segment_position, message, redelivered
 
-    def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
-                   @redelivered = false)
+    # `segment` is the segment the message, body and headers both, is read from
+    def initialize(@segment_position : SegmentPosition, @message : BytesMessage, *,
+                   @segment : MFile, @redelivered = false)
+    end
+
+    # Keeps the segment mapped until #release, even if it's deleted or its
+    # store closed meanwhile. Use MessageStore#shift_with_lease? rather than
+    # calling these directly.
+    protected def lease : self
+      @segment.lease
+      self
+    end
+
+    protected def release : Nil
+      @segment.release_lease
     end
   end
 end

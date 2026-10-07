@@ -7,7 +7,7 @@ module LavinMQ
     class MainController < Controller
       include StatsHelpers
 
-      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
+      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject", "return_unroutable"}
       EXCHANGE_TYPES = {
         {name: "direct", human: "Direct"},
         {name: "fanout", human: "Fanout"},
@@ -19,10 +19,14 @@ module LavinMQ
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
 
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+        register_routes
+      end
+
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
@@ -38,27 +42,44 @@ module LavinMQ
           {{ name.id }}_rate = 0_f64
           {% end %}
 
+          unless x_vhost
+            deleted_stats = @server.vhosts.deleted_stats
+            {% for name in OVERVIEW_STATS %}
+            {{ name.id }}_count += deleted_stats.{{ name.id }}
+            {% end %}
+            {% for name in CHURN_STATS %}
+            {{ name.id }} += deleted_stats.{{ name.id }}
+            {% end %}
+          end
+
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
-            vhost.connections.each do |c|
+            vhost.each_connection do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
-              stats_details = c.stats_details
-              recv_rate += stats_details[:recv_oct_details][:rate]
-              send_rate += stats_details[:send_oct_details][:rate]
-              add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
-              add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
+              channels += c.channel_count
+              consumers += c.channels.sum &.consumers_size
             end
-            exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            exchanges += vhost.exchanges_size
+            queues += vhost.queues_size
+            queues += vhost.sessions_size
+            vhost.each_exchange { |e| bindings += e.binding_count }
+            vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
             end
+            vhost.each_session do |s|
+              ready += s.message_count
+              unacked += s.unacked_count
+              add_logs!(ready_log, s.message_count_log)
+              add_logs!(unacked_log, s.unacked_count_log)
+            end
             vhost_stats_details = vhost.stats_details
+            recv_rate += vhost_stats_details[:recv_oct_details][:rate]
+            send_rate += vhost_stats_details[:send_oct_details][:rate]
+            add_logs!(recv_rate_log, vhost_stats_details[:recv_oct_details][:log])
+            add_logs!(send_rate_log, vhost_stats_details[:send_oct_details][:log])
             {% for sm in OVERVIEW_STATS %}
               {{ sm.id }}_count += vhost_stats_details[:{{ sm.id }}]
               {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
@@ -73,13 +94,14 @@ module LavinMQ
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",
             node:            System.hostname,
-            uptime:          @amqp_server.uptime.to_i,
+            uptime:          @server.uptime.to_i,
             object_totals:   {
               channels:    channels,
               connections: connections,
               consumers:   consumers,
               exchanges:   exchanges,
               queues:      queues,
+              bindings:    bindings,
             },
             queue_totals: {
               messages:                    ready + unacked,
@@ -112,7 +134,7 @@ module LavinMQ
                 rate: {{ name.id }}_rate
               },
             {% end %} } {% end %},
-            listeners:      @amqp_server.listeners,
+            listeners:      @amqp_server.listeners + @mqtt_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context
@@ -133,29 +155,30 @@ module LavinMQ
               AMQP::Properties.new,
               4_u64,
               IO::Memory.new("test"))
-            ok = vhost.publish(msg)
-            env = nil
-            vhost.queues["aliveness-test"].basic_get(true) { |e| env = e }
-            ok = ok && env && String.new(env.message.body) == "test"
+            routed = vhost.publish(msg).routed?
+            # Compare inside the block, the segment can be deleted once it returns
+            body_ok = false
+            vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
+            ok = routed && body_ok
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end
 
         get "/api/federation-links" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |vhost|
+          arr = vhosts(user(context)).flat_map do |vhost|
             vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each
+              upstream.links
             end
           end
-          page(context, itrs)
+          page(context, arr)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = vhost.upstreams.not_nil!.map do |upstream|
-              upstream.links.each
+            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+              upstream.links
             end
-            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
+            page(context, arr)
           end
         end
 

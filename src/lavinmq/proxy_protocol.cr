@@ -14,14 +14,44 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
+    # Bound how long a pre-auth connection may keep the accept fiber (and its FD)
+    # parked while we wait for the first bytes. Without this the initial peek
+    # blocks forever on a peer that completes the handshake but sends nothing.
+    HANDSHAKE_TIMEOUT = 15.seconds
+
+    def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
+      io.read_timeout = timeout
+      # A single peek can return fewer bytes than the full signature on a TCP
+      # segment split (issue 2082), so we only need the bytes we have to match
+      # the *start* of a signature. No supported protocol (AMQP "AMQP\0\0\9\1",
+      # MQTT, HTTP) begins with "PROXY" or the V2 signature, so a prefix match
+      # is unambiguous; the V1/V2 parsers then read the rest of the header.
+      peeked = io.peek
+      if header_prefix?(peeked, "PROXY".to_slice)
+        ProxyProtocol::V1.parse(io)
+      elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
+        ProxyProtocol::V2.parse(io)
+      end
+    ensure
+      io.read_timeout = nil
+    end
+
+    # True if the bytes seen so far match the start of *signature* (comparing
+    # only the bytes we have, since a segment split may give us a partial peek).
+    private def self.header_prefix?(peeked : Bytes, signature : Bytes) : Bool
+      n = Math.min(peeked.size, signature.size)
+      return false if n.zero?
+      peeked[0, n] == signature[0, n]
+    end
+
     struct V1
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
       def self.parse(io)
-        io.read_timeout = 15.seconds
-        header = io.gets('\n', 107) || raise IO::EOFError.new
+        io.read_timeout = HANDSHAKE_TIMEOUT
+        header = io.gets('\n', 107, chomp: true) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
         dst_addr = "127.0.0.1"
@@ -32,7 +62,7 @@ module LavinMQ
         header.split(' ') do |v|
           case i
           when 0 then raise InvalidSignature.new(v) if v != "PROXY"
-          when 1 then nil
+          when 1 then raise InvalidFamily.new(v) unless v.in?("TCP4", "TCP6")
           when 2 then src_addr = v
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32
@@ -43,7 +73,7 @@ module LavinMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        ConnectionInfo.new(src, dst)
+        ConnectionInfo.new(src, dst, proxied: true)
       ensure
         io.read_timeout = nil
       end
@@ -94,9 +124,10 @@ module LavinMQ
       end
 
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        io.read_timeout = HANDSHAKE_TIMEOUT
         buffer = uninitialized UInt8[16]
-        io.read(buffer.to_slice)
+        # read_fully so a 16-byte header split across TCP segments isn't short-read (issue 2082)
+        io.read_fully(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
         unless signature == Signature.to_slice
           raise InvalidSignature.new(signature.to_s)
@@ -177,7 +208,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst), 12}
+          {ConnectionInfo.new(src, dst, proxied: true), 12}
         when Family::TCPv6
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
@@ -197,7 +228,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst), 36}
+          {ConnectionInfo.new(src, dst, proxied: true), 36}
         else
           raise InvalidFamily.new family.to_s
         end

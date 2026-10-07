@@ -51,23 +51,40 @@ module LavinMQ
       end
 
       private def do_delete_upstream(name)
-        @upstreams.delete(name).try(&.close)
+        @upstreams.delete(name).try(&.delete)
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
-            return false unless upstream.name == name
-            upstream.close
+            next false unless upstream.name == name
+            upstream.delete
             true
           end
         end
       end
 
-      def link(name, resource : Queue | Exchange)
+      def link(name, resource : AMQP::Queue | Exchange)
         @upstreams[name]?.try &.link(resource)
       end
 
-      def stop_link(resource : Queue | Exchange)
-        each do |upstream|
-          upstream.stop_link(resource)
+      def stop_link(resource : AMQP::Queue | Exchange)
+        each_linked_upstream &.stop_link(resource)
+      end
+
+      def binding_added(exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        each_linked_upstream &.binding_added(exchange, binding)
+      end
+
+      def binding_removed(exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        each_linked_upstream &.binding_removed(exchange, binding)
+      end
+
+      # Every upstream that can own links: the named upstreams, plus set
+      # entries with overrides, which are dups with their own link tables.
+      private def each_linked_upstream(&)
+        @upstreams.each_value { |upstream| yield upstream }
+        @upstream_sets.each_value do |set|
+          set.each do |upstream|
+            yield upstream unless @upstreams[upstream.name]?.same?(upstream)
+          end
         end
       end
 
@@ -78,16 +95,16 @@ module LavinMQ
           upstream = @upstreams[cfg["upstream"].as_s]
           if cfg.as_h.keys.size > 1
             upstream = upstream.dup
-            config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
-            config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
-            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
-            ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
+            cfg["uri"]?.try { |p| upstream.uri = URI.parse(p.as_s) }
+            cfg["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
+            cfg["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
+            ack_mode_str = cfg["ack-mode"]?.try(&.as_s.delete("-")).to_s
             AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
-            config["exchange"]?.try { |p| upstream.exchange = p.as_s }
-            config["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
-            config["expires"]?.try { |p| upstream.expires = p.as_i64 }
-            config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_i64 }
-            config["queue"]?.try { |p| upstream.queue = p.as_s }
+            cfg["exchange"]?.try { |p| upstream.exchange = p.as_s }
+            cfg["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
+            cfg["expires"]?.try { |p| upstream.expires = p.as_i64 }
+            cfg["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_i64 }
+            cfg["queue"]?.try { |p| upstream.queue = p.as_s }
           end
           upstreams << upstream
         end

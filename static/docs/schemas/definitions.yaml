@@ -22,6 +22,8 @@ definitions:
       "$ref": "../openapi.yaml#/components/schemas/parameters"
     global_parameters:
       "$ref": "../openapi.yaml#/components/schemas/global-parameters"
+    mqtt_permissions:
+      "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-groups"
 
 definitions-vhost:
   type: object
@@ -36,6 +38,8 @@ definitions-vhost:
       "$ref": "../openapi.yaml#/components/schemas/bindings"
     policies:
       "$ref": "../openapi.yaml#/components/schemas/policies"
+    mqtt_permissions:
+      "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-groups"
 
 lavinmq_version:
   type: string
@@ -115,6 +119,8 @@ PostDefinitionsRequestBody:
       "$ref": "../openapi.yaml#/components/schemas/parameters"
     global_parameters:
       "$ref": "../openapi.yaml#/components/schemas/global-parameters"
+    mqtt_permissions:
+      "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-groups"
 
 PostDefinitionsVhostRequestBody:
   type: object
@@ -129,6 +135,8 @@ PostDefinitionsVhostRequestBody:
       "$ref": "../openapi.yaml#/components/schemas/policies"
     parameters:
       "$ref": "../openapi.yaml#/components/schemas/parameters"
+    mqtt_permissions:
+      "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-groups"
 
 UploadDefinitionsRequestBody:
   type: object

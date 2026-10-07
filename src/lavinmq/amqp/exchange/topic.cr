@@ -113,12 +113,16 @@ module LavinMQ
         "topic"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |_rk, ds|
-          ds.each.map do |d, binding_key|
+      def bindings_details : Array(BindingDetails)
+        @bindings.flat_map do |_rk, ds|
+          ds.map do |d, binding_key|
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
+      end
+
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
       end
 
       def bind(destination : AMQP::Destination, routing_key, arguments = nil)
@@ -134,7 +138,7 @@ module LavinMQ
       def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rks = routing_key.split(".")
         rk = TopicBindingKey.new(rks)
-        bds = @bindings[rk]
+        bds = @bindings[rk]? || return false
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless bds.delete({destination, binding_key})
         @bindings.delete(rk) if bds.empty?
@@ -146,7 +150,7 @@ module LavinMQ
         true
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         bindings = @bindings
 
         return if bindings.empty?

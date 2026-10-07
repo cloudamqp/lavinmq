@@ -78,8 +78,19 @@ end
 
 struct FilesystemInfo
   def initialize(statfs : LibC::Statfs)
-    @available = statfs.bavail.to_u64 * statfs.bsize
-    @total = statfs.blocks.to_u64 * statfs.bsize
+    block_size = block_size(statfs)
+    @available = statfs.bavail.to_u64 * block_size
+    @total = statfs.blocks.to_u64 * block_size
+  end
+
+  # Linux counts blocks in f_frsize units; bsize is the transfer size,
+  # 1 MiB on virtiofs/NFS, which would inflate sizes 256x.
+  private def block_size(statfs : LibC::Statfs)
+    {% if flag?(:linux) %}
+      statfs.frsize.zero? ? statfs.bsize : statfs.frsize
+    {% else %}
+      statfs.bsize
+    {% end %}
   end
 
   # Bytes available to non-privileged on disk

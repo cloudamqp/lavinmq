@@ -15,6 +15,7 @@ function updateUser () {
       document.getElementById('hasPassword').textContent = hasPassword
       tagHelper(item.tags)
     })
+    .catch(() => {})
 }
 
 function tagHelper (tags) {
@@ -42,6 +43,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
           .then(() => {
             tr.parentNode.removeChild(tr)
           })
+          .catch(() => {})
       }
     })
     const editBtn = DOM.button.edit({
@@ -72,6 +74,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
       permissionsTable.reload()
       evt.target.reset()
     })
+    .catch(() => {})
 })
 
 document.querySelector('[name=remove_password]').addEventListener('change', function () {
@@ -105,6 +108,7 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
       pwd.disabled = false
       pwd.required = true
     })
+    .catch(() => {})
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {
@@ -117,6 +121,7 @@ document.querySelector('#deleteUser').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'users' })
+      .catch(() => {})
   }
 })
 

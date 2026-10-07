@@ -3,14 +3,7 @@ module LavinMQ
     # Yields to the block immediately, then blocks until stop is called.
     def run(&)
       yield
-      loop do
-        select
-        when @stop_channel.receive?
-          break
-        when timeout(30.seconds)
-          GC.collect
-        end
-      end
+      @stop_channel.receive?
     end
 
     def stop

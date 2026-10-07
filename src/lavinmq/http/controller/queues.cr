@@ -9,13 +9,13 @@ module LavinMQ
     module QueueHelpers
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
-        q = vhost.queues[name]?
+        q = vhost.queue?(name) || vhost.session?(name)
         not_found(context, "Not Found") unless q
         q
       end
 
       private def find_stream(context, vhost, name)
-        q = vhost.queues[name]?
+        q = vhost.queue?(name)
         not_found(context, "Not Found") unless q
         not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
         q.as(LavinMQ::AMQP::Stream)
@@ -29,14 +29,15 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
-          itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
+          vhosts = vhosts(user(context))
+          itr = vhosts.flat_map(&.queues) + vhosts.flat_map(&.sessions)
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.queues.each_value)
+            page(context, vhost.queues + vhost.sessions)
           end
         end
 
@@ -74,7 +75,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = vhost.queues[name]?
+            q = vhost.queue?(name) || vhost.session?(name)
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
@@ -85,12 +86,8 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Queue name too long, can't exceed 255 characters")
             else
-              begin
-                vhost.declare_queue(name, durable, auto_delete, tbl)
-                context.response.status_code = 201
-              rescue e : LavinMQ::Error::PreconditionFailed
-                bad_request(context, e.message)
-              end
+              vhost.declare_queue(name, durable, auto_delete, tbl)
+              context.response.status_code = 201
             end
           end
         end
@@ -175,6 +172,9 @@ module LavinMQ
             user = user(context)
             refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless q.is_a?(AMQP::Queue)
+              forbidden(context, "Only supported by AMQP queues")
+            end
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
@@ -195,6 +195,10 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
+                    # Track vhost-level metrics for HTTP API consumption
+                    event_type = ack ? EventType::ClientGet : EventType::ClientGetNoAck
+                    vhost.event_tick(event_type)
+                    vhost.add_send_bytes(env.message.bodysize.to_u64)
                     j.object do
                       payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)
@@ -212,7 +216,10 @@ module LavinMQ
                     end
                   end || break
                 end
-                sps.each do |sp|
+                # Shift each sp off before finalizing it, so `sps` only holds messages
+                # that aren't finalized yet. An sp whose #ack/#reject raised halfway
+                # has already been decremented, so the rescue below must not touch it.
+                while sp = sps.shift?
                   if ack
                     q.ack(sp)
                   else
@@ -220,10 +227,10 @@ module LavinMQ
                   end
                 end
               rescue e : Exception
-                # Requeue all unacked messages on error
+                # Requeue the messages that aren't finalized yet
                 if unacked_sps = sps
-                  unacked_sps.each do |sp|
-                    q.reject(sp, true)
+                  unacked_sps.each do |unacked_sp|
+                    q.reject(unacked_sp, true)
                   end
                 end
                 raise e

@@ -1,0 +1,38 @@
+<!--#set var="TITLE" value="Logs" -->
+<!DOCTYPE html>
+<html lang="en" class="logs">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script defer src="js/logs.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span></h2>
+      </div>
+      <section class="card">
+       <div class="log-toolbar-container">
+        <button id="to-bottom" class="btn-outlined btn-toggle">Newest </button>
+        <button id="to-top" class="btn-outlined btn-toggle">Oldest </button>
+        <a id="download-logs" class="btn btn-green" download href="api/logs">Download logs</a>
+        </div>
+        <div id="livelog" class="livelog">
+        <div id="table-error"></div>
+        <table id="table" class="table plain-table">
+          <thead>
+            <tr>
+              <th class="livelog-timestamp">Timestamp</th>
+              <th class="livelog-severity">Severity</th>
+              <th class="livelog-source">Source</th>
+              <th class="livelog-message">Message</th>
+            </tr>
+          </thead>
+          <tbody id="livelog-body"></tbody>
+        </table>
+        </div>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

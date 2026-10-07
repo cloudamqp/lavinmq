@@ -64,6 +64,11 @@
     description: Create a new vhost, or update an existing vhost.
     summary: Create/update vhost
     operationId: PutVhost
+    requestBody:
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/vhosts-PutVhostRequestBody"
     responses:
       '201':
         description: The vhost was created successfully.

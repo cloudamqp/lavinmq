@@ -1,5 +1,5 @@
 FROM 84codes/crystal:latest-alpine AS builder
-RUN apk add lz4-dev
+RUN apk add curl openssl lz4-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production

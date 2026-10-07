@@ -15,17 +15,23 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            conns = vhost.connections.each
-            channels = conns.flat_map(&.channels.each_value)
+            channels = vhost.connections.flat_map(&.channels)
             page(context, channels)
           end
         end
 
         get "/api/channels/:name" do |context, params|
           with_channel(context, params) do |channel|
-            channel.details_tuple.merge({
-              consumer_details: channel.consumers,
-            }).to_json(context.response)
+            channel.to_json(context.response)
+          end
+        end
+
+        delete "/api/channels/:name" do |context, params|
+          with_channel(context, params) do |channel|
+            access_refused(context) unless can_access_connection?(channel.client, user(context))
+            reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
+            channel.close(reason)
+            context.response.status_code = 204
           end
         end
 
@@ -43,8 +49,8 @@ module LavinMQ
         end
       end
 
-      private def all_channels(user)
-        Iterator(Client::Channel).chain(connections(user).map(&.channels.each_value))
+      private def all_channels(user) : Array(Client::Channel)
+        connections(user).flat_map(&.channels)
       end
 
       private def with_channel(context, params, &)

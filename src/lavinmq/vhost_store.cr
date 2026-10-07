@@ -1,38 +1,65 @@
+require "./filesystem"
 require "json"
 require "./vhost"
 require "./auth/base_user"
 
 module LavinMQ
+  class DeletedVHostStats
+    {% for m in VHost::STATS_KEYS %}
+      @{{ m.id }} = Atomic(UInt64).new(0_u64)
+
+      def {{ m.id }} : UInt64
+        @{{ m.id }}.get(:relaxed)
+      end
+    {% end %}
+
+    def add(vhost : VHost) : Nil
+      {% for m in VHost::STATS_KEYS %}
+        @{{ m.id }}.add(vhost.{{ m.id }}_count, :relaxed)
+      {% end %}
+    end
+  end
+
   class VHostStore
     include Enumerable({String, VHost})
 
-    @on_added = Array(Proc(String, Nil)).new
-    @on_deleted = Array(Proc(String, Nil)).new
-    @on_closed = Array(Proc(String, Nil)).new
-
-    def on_added(&block : String ->) : Proc(String, Nil)
-      @on_added << block
-      block
-    end
-
-    def on_deleted(&block : String ->) : Proc(String, Nil)
-      @on_deleted << block
-      block
-    end
-
-    def on_closed(&block : String ->) : Proc(String, Nil)
-      @on_closed << block
-      block
-    end
-
     Log = LavinMQ::Log.for "vhost_store"
 
-    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?)
+    getter deleted_stats = DeletedVHostStats.new
+
+    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
+      @save_lock = Mutex.new
       load!
     end
 
-    forward_missing_to @vhosts
+    def []?(name : String) : VHost?
+      @vhosts[name]?
+    end
+
+    def [](name : String) : VHost
+      @vhosts[name]
+    end
+
+    def each_value(& : VHost ->) : Nil
+      @vhosts.each_value { |v| yield v }
+    end
+
+    def has_key?(name : String) : Bool
+      @vhosts.has_key?(name)
+    end
+
+    def size : Int32
+      @vhosts.size
+    end
+
+    def values : Array(VHost)
+      @vhosts.values
+    end
+
+    def first_value? : VHost?
+      @vhosts.first_value?
+    end
 
     def each(&)
       @vhosts.each do |kv|
@@ -40,25 +67,32 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true,
+               mqtt_default_group : Bool = true)
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_default_group)
       Log.info { "Created vhost #{name}" }
-      @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
-      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
+      # Grant the creating user full permissions on the new vhost. Only local
+      # users have stored permissions; OAuth users get theirs from token scopes.
+      if local_user = @users[user.name]?
+        unless local_user.permissions[name]?
+          @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: save)
+        end
+      end
+      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: save)
       @vhosts[name] = vhost
       save! if save
-      @on_added.dup.each &.call(name)
       vhost
     end
 
     def delete(name) : VHost?
       if vhost = @vhosts.delete name
+        Log.info { "Deleting vhost #{name}" }
+        @deleted_stats.add(vhost)
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        @on_deleted.dup.each &.call(name)
         Log.info { "Deleted vhost #{name}" }
         save!
         vhost
@@ -66,11 +100,24 @@ module LavinMQ
     end
 
     def close
+      # Stop outbound links (federation upstreams and shovels) on every vhost
+      # before tearing any vhost down. A link holds an AMQP client connection to
+      # another vhost, so force-closing one vhost's connections while another
+      # vhost's link is still live would close that link's socket from under it —
+      # which the amqp-client read loop logs as "connection closed unexpectedly".
+      # Stopping them first lets each link close cleanly against a live peer.
+      WaitGroup.wait do |wg|
+        @vhosts.each_value do |vhost|
+          wg.spawn do
+            vhost.stop_shovels
+            vhost.stop_upstream_links
+          end
+        end
+      end
       WaitGroup.wait do |wg|
         @vhosts.each_value do |vhost|
           wg.spawn do
             vhost.close
-            @on_closed.dup.each &.call(vhost.name)
           end
         end
       end
@@ -93,26 +140,31 @@ module LavinMQ
             name = vhost["name"].as_s
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
-            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
             @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
           end
           @replicator.try &.register_file(f)
         end
-      else
+      elsif Config.instance.load_definitions.empty?
         Log.debug { "Loading default vhosts" }
         create("/")
       end
+      # Wait for vhosts to be loaded ("not closed")
+      @vhosts.each_value &.closed.when_false.receive
       Log.debug { "#{size} vhosts loaded" }
     rescue ex
       Log.error(exception: ex) { "Failed to load vhosts" }
       raise ex
     end
 
-    private def save!
+    def save!
       Log.debug { "Saving vhosts to file" }
       path = File.join(@data_dir, "vhosts.json")
-      File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename "#{path}.tmp", path
+      # Serialize saves so concurrent create/delete don't race on the shared
+      # `.tmp` file and fail the rename.
+      @save_lock.synchronize do
+        FileSystem.replace(path) { |f| to_pretty_json(f) }
+      end
       @replicator.try &.replace_file path
     end
   end

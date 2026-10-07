@@ -7,8 +7,7 @@ setup('authenticate', async ({ page }) => {
   await page.goto('/login');
   await page.getByLabel('Username').fill('guest');
   await page.getByLabel('Password').fill('guest');
-  await page.getByRole('button').click();
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await page.waitForURL('/');
   await page.context().storageState({ path: authFile });
 });
-

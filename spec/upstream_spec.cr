@@ -1,5 +1,7 @@
 require "./spec_helper"
+require "log/spec"
 require "../src/lavinmq/federation/upstream"
+require "../src/lavinmq/federation/upstream_store"
 
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -11,12 +13,12 @@ module UpstreamSpecHelpers
 
   def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16, *,
                             reconnect_delay = 1.millisecond)
-    self.cleanup_vhosts(s)
+    cleanup_vhosts(s)
     upstream_vhost = s.vhosts.create("upstream")
     downstream_vhost = s.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(
       downstream_vhost, upstream_name,
-      "#{s.amqp_url}/upstream", exchange, queue,
+      "#{s.amqp_server.url}/upstream", exchange, queue,
       LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
       msg_ttl: nil, prefetch: prefetch, reconnect_delay: reconnect_delay
     )
@@ -42,7 +44,7 @@ module UpstreamSpecHelpers
   end
 
   def self.with_fe_chain(s : LavinMQ::Server, chain_length = 10, max_hops = chain_length, &)
-    url = URI.parse(s.amqp_url)
+    url = URI.parse(s.amqp_server.url)
     # Create ten vhosts, each with an exchange "fe"
     # Setup a chain of exchange federation with v10 as downstream
     # and v1 as "top upstream"
@@ -60,8 +62,9 @@ module UpstreamSpecHelpers
       vhost.declare_exchange("fe", "topic", durable: true, auto_delete: false)
       url.path = vhost_prev.name
       upstream = LavinMQ::Federation::Upstream.new(vhost, "ef from #{vhost_prev.name}", url.to_s, exchange: nil, queue: nil, max_hops: max_hops)
+      vhost.upstreams.add(upstream)
       upstreams << upstream
-      link = upstream.link(vhost.exchanges["fe"])
+      link = upstream.link(vhost.exchange("fe"))
       wait_for { link.state.running? }
       vhost_prev = vhost
     end
@@ -77,14 +80,14 @@ describe LavinMQ::Federation::Upstream do
       with_amqp_server do |s|
         vhost_downstream = s.vhosts.create("/")
         vhost_upstream = s.vhosts.create("upstream")
-        upstream = LavinMQ::Federation::Upstream.new(vhost_downstream, "qf test upstream", "#{s.amqp_url}/upstream", nil, "")
+        upstream = LavinMQ::Federation::Upstream.new(vhost_downstream, "qf test upstream", "#{s.amqp_server.url}/upstream", nil, "")
 
         with_channel(s) do |ch|
           ch.queue("federated_q")
-          link = upstream.link(vhost_downstream.queues["federated_q"])
+          link = upstream.link(vhost_downstream.queue("federated_q"))
           link.name.should eq "federated_q"
           wait_for { link.state.running? }
-          vhost_upstream.queues.has_key?("federated_q").should be_true
+          vhost_upstream.queue_exists?("federated_q").should be_true
         end
       ensure
         upstream.try &.close
@@ -94,16 +97,16 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", s.amqp_server.url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
-          vhost.queues["federation_q1"].message_count.should eq 0
+          vhost.queue("federation_q1").message_count.should eq 0
         end
       ensure
         upstream.try &.close
@@ -113,15 +116,15 @@ describe LavinMQ::Federation::Upstream do
     it "should not federate queue if no downstream consumer" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", s.amqp_server.url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x = UpstreamSpecHelpers.setup_qs(ch).first
           x.publish_confirm "federate me", "federation_q1"
-          link = upstream.link(vhost.queues["federation_q2"])
+          link = upstream.link(vhost.queue("federation_q2"))
           wait_for { link.state.running? }
-          vhost.queues["federation_q1"].message_count.should eq 1
-          vhost.queues["federation_q2"].message_count.should eq 0
+          vhost.queue("federation_q1").message_count.should eq 1
+          vhost.queue("federation_q2").message_count.should eq 0
         end
       ensure
         upstream.try &.close
@@ -131,17 +134,17 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue with ack mode no-ack" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", s.amqp_url, nil, "federation_q1",
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", s.amqp_server.url, nil, "federation_q1",
           ack_mode: LavinMQ::Federation::AckMode::NoAck)
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
-          vhost.queues["federation_q1"].message_count.should eq 0
+          vhost.queue("federation_q1").message_count.should eq 0
         end
       ensure
         upstream.try &.close
@@ -151,20 +154,50 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue with ack mode on-publish" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", s.amqp_url, nil, "federation_q1",
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", s.amqp_server.url, nil, "federation_q1",
           ack_mode: LavinMQ::Federation::AckMode::OnPublish)
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
-          vhost.queues["federation_q1"].message_count.should eq 0
+          vhost.queue("federation_q1").message_count.should eq 0
         end
       ensure
         upstream.try &.close
+      end
+    end
+
+    it "stops the link when the federated queue is deleted" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf delete queue", nil, "upstream_q")
+        downstream_vhost.declare_queue("downstream_q", true, false)
+        q = downstream_vhost.queue("downstream_q")
+        link = upstream.link(q)
+
+        q.delete
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    it "stops the link when the federated queue is closed" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf close queue", nil, "upstream_q")
+        downstream_vhost.declare_queue("downstream_q", true, false)
+        q = downstream_vhost.queue("downstream_q")
+        link = upstream.link(q)
+
+        q.close
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
       end
     end
 
@@ -182,20 +215,21 @@ describe LavinMQ::Federation::Upstream do
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
         downstream_vhost.declare_queue("downstream_q", true, false)
 
-        wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+        wait_for { downstream_vhost.queue("downstream_q").policy.try(&.name) == "FE" }
         wait_for { upstream.links.first?.try &.state.running? }
 
         # Disconnect the federation link
         conn_id = nil
-        upstream_vhost.connections.each do |conn|
+        upstream_vhost.each_connection do |conn|
           next unless conn.client_name.starts_with?("Federation link")
           conn_id = conn.object_id
           conn.close
         end
-        wait_for { upstream_vhost.connections.size == 0 }
+        wait_for { upstream_vhost.connections_size == 0 }
         upstream.links.first.@state_changed.try_send nil
-        wait_for { upstream_vhost.connections.size == 1 }
-        conn = upstream_vhost.connections.find(&.name.starts_with?("Federation link"))
+        wait_for { upstream_vhost.connections_size == 1 }
+        conn = nil
+        upstream_vhost.each_connection { |c| conn = c if c.name.starts_with?("Federation link") }
         # Verify that it's a new connection... Any better assertion that can be done?
         conn.object_id.should_not eq conn_id
       end
@@ -204,13 +238,13 @@ describe LavinMQ::Federation::Upstream do
     it "should resume federation after downstream reconnects" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", s.amqp_server.url, nil, "federation_q1")
         msgs = [] of AMQP::Client::DeliverMessage
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           q2.subscribe do |msg|
             msgs << msg
           end
@@ -226,7 +260,7 @@ describe LavinMQ::Federation::Upstream do
           end
           wait_for { msgs.size == 2 }
           msgs.size.should eq 2
-          wait_for { vhost.queues["federation_q1"].message_count == 0 }
+          wait_for { vhost.queue("federation_q1").message_count == 0 }
         end
       ensure
         upstream.try &.close
@@ -236,12 +270,12 @@ describe LavinMQ::Federation::Upstream do
     it "should keep message properties" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", s.amqp_server.url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           msgs = [] of AMQP::Client::DeliverMessage
           q2.subscribe { |msg| msgs << msg }
           wait_for { msgs.size == 1 }
@@ -271,7 +305,7 @@ describe LavinMQ::Federation::Upstream do
         # consume 1 message
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           downstream_q = downstream_ch.queue(ds_queue_name)
-          wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
+          wait_for { ds_vhost.queue(ds_queue_name).policy.try(&.name) == "FE" }
           wait_for { upstream.links.first?.try &.state.running? }
 
           msgs = Channel(String).new
@@ -279,10 +313,10 @@ describe LavinMQ::Federation::Upstream do
             msgs.send msg.body_io.to_s
           end
           msgs.should be_receiving "msg1"
-          wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+          wait_for { s.vhosts[ds_vhost.name].queue(ds_queue_name).message_count == 0 }
         end
 
-        wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+        wait_for { s.vhosts[ds_vhost.name].queue(ds_queue_name).consumers_empty? }
 
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
@@ -312,12 +346,15 @@ describe LavinMQ::Federation::Upstream do
         message_count = 2
 
         ds_vhost.declare_queue(ds_queue_name, true, false)
-        ds_queue = ds_vhost.queues[ds_queue_name].as(LavinMQ::AMQP::Queue)
+        ds_queue = ds_vhost.queue(ds_queue_name).as(LavinMQ::AMQP::Queue)
 
         link = wait_for { upstream.links.first? }
-        loop { link.@state_changed.receive.try &.running? && break }
+        # Poll the state rather than waiting on @state_changed.receive: the link
+        # may already have transitioned to running before we start receiving, in
+        # which case that change is gone and the bare receive blocks forever.
+        wait_for { link.state.running? }
 
-        us_queue = us_vhost.queues[us_queue_name].as(LavinMQ::AMQP::Queue)
+        us_queue = us_vhost.queue(us_queue_name).as(LavinMQ::AMQP::Queue)
 
         # publish 2 messages to upstream queue
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
@@ -379,8 +416,8 @@ describe LavinMQ::Federation::Upstream do
             vhost.declare_queue("q2", true, false)
 
             upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", nil, nil)
-            link1 = upstream.link(vhost.queues["q1"])
-            link2 = upstream.link(vhost.queues["q2"])
+            link1 = upstream.link(vhost.queue("q1"))
+            link2 = upstream.link(vhost.queue("q2"))
 
             link1.@upstream_q.should eq "q1"
             link2.@upstream_q.should eq "q2"
@@ -396,13 +433,13 @@ describe LavinMQ::Federation::Upstream do
     it "should federate exchange" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", s.amqp_url, "upstream_ex")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", s.amqp_server.url, "upstream_ex")
 
         with_channel(s) do |ch|
           downstream_ex = ch.exchange("downstream_ex", "topic")
           downstream_q = ch.queue("downstream_q")
           downstream_q.bind(downstream_ex.name, "#")
-          link = upstream.link(vhost.exchanges[downstream_ex.name])
+          link = upstream.link(vhost.exchange(downstream_ex.name))
           wait_for { link.state.running? }
           upstream_ex = ch.exchange("upstream_ex", "topic", passive: true)
           upstream_ex.publish "federate me", "rk"
@@ -426,7 +463,7 @@ describe LavinMQ::Federation::Upstream do
           with_channel(s, vhost: "downstream") do |downstream_ch|
             upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
             downstream_ch.exchange("downstream_ex", "topic")
-            wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
+            wait_for { downstream_vhost.exchange("downstream_ex").policy.try(&.name) == "FE" }
             # Assert setup is correct
             wait_for { upstream.links.first?.try &.state.running? }
             downstream_q = downstream_ch.queue("downstream_q")
@@ -440,11 +477,11 @@ describe LavinMQ::Federation::Upstream do
             msgs.first.not_nil!.body_io.to_s.should eq("federate me")
           end
         end
-        upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+        upstream_vhost.queues.all?(&.empty).should be_true
       end
     end
 
-    it "should continue after upstream restart" do
+    it "should continue after upstream restart", tags: "slow" do
       with_amqp_server do |s|
         # Use reconnect delay so we have time to see state being stopped
         # and that we can publish a message before it's reconnected
@@ -475,13 +512,19 @@ describe LavinMQ::Federation::Upstream do
             # When state is running everything should be setup in the upstream
             wait_for { link.state.running? }
 
-            us_queue = upstream_vhost.queues[link.@upstream_q].should be_a LavinMQ::AMQP::Queue
-            us_queue.consumers_empty.when_true.receive
+            us_queue = upstream_vhost.queue(link.@upstream_q).should be_a LavinMQ::AMQP::Queue
+            # Wait until the federation link is actually consuming from the
+            # upstream queue (consumers_empty == false) before publishing, so
+            # msg1 is federated. consumers_empty is true when there are no
+            # consumers, so we wait on when_false. (Waiting on when_true here
+            # only ever returned immediately by racing the consumer attach —
+            # which hung indefinitely when the consumer attached first.)
+            us_queue.consumers_empty.when_false.should be_receiving nil
 
             upstream_ex.publish_confirm "msg1", "rk1"
             msgs.should be_receiving "msg1"
 
-            upstream_vhost.connections.each do |conn|
+            upstream_vhost.each_connection do |conn|
               next unless conn.client_name.starts_with?("Federation link")
               conn.close
             end
@@ -503,7 +546,7 @@ describe LavinMQ::Federation::Upstream do
             msgs.try &.close
           end
         end
-        upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+        upstream_vhost.queues.all?(&.empty).should be_true
       end
     end
 
@@ -515,27 +558,46 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           downstream_ex = ch.exchange("downstream_ex", "topic")
-          link = upstream.link(vhost.exchanges[downstream_ex.name])
+          link = upstream.link(vhost.exchange(downstream_ex.name))
           wait_for { link.state.running? }
-          upstream_vhost.queues.has_key?(federation_name).should eq true
-          upstream_vhost.exchanges.has_key?(federation_name).should eq true
-          link.terminate
-          upstream_vhost.queues.has_key?(federation_name).should eq false
-          upstream_vhost.exchanges.has_key?(federation_name).should eq false
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
+          link.delete
+          upstream_vhost.queue_exists?(federation_name).should be_false
+          upstream_vhost.exchange_exists?(federation_name).should be_false
+        end
+      end
+    end
+
+    it "should keep internal exchange and queue after broker shutdown" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream, upstream_vhost = UpstreamSpecHelpers.setup_federation(s, "qf test upstream shutdown", "upstream_ex", "upstream_q")
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+
+        with_channel(s) do |ch|
+          downstream_ex = ch.exchange("downstream_ex", "topic")
+          link = upstream.link(vhost.exchange(downstream_ex.name))
+          wait_for { link.state.running? }
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
+          upstream.close # broker shutdown path — must not delete upstream resources
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
         end
       end
     end
 
     {% for descr, v in {nil: nil, empty: ""} %}
-    describe "when @exchange is {{descr}}" do
+    describe "when @exchange is {{ descr }}" do
       it "should use downstream exchange name as upstream exchange" do
         with_amqp_server do |s|
           vhost = s.vhosts["/"]
 
           vhost.declare_exchange("ex1", "topic", true, false)
 
-          upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{v}})
-          link1 = upstream.link(vhost.exchanges["ex1"])
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{ v }})
+          link1 = upstream.link(vhost.exchange("ex1"))
 
           link1.@upstream_exchange.should eq "ex1"
         end
@@ -548,12 +610,12 @@ describe LavinMQ::Federation::Upstream do
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf x-received-from", s.amqp_url, exchange: nil, queue: "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf x-received-from", s.amqp_server.url, exchange: nil, queue: "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish "foo", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queue("federation_q2"))
           msgs = [] of AMQP::Client::DeliverMessage
           wg = WaitGroup.new(1)
           q2.subscribe do |msg|
@@ -580,11 +642,11 @@ describe LavinMQ::Federation::Upstream do
         vhost2.declare_queue("q2", durable: true, auto_delete: false)
         vhost3.declare_queue("q3", durable: true, auto_delete: false)
 
-        vhost1.queues["q1"]
-        q2 = vhost2.queues["q2"]
-        q3 = vhost3.queues["q3"]
+        vhost1.queue("q1")
+        q2 = vhost2.queue("q2")
+        q3 = vhost3.queue("q3")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(s.amqp_server.url)
 
         vhost1_url = url.dup
         vhost1_url.path = vhost1.name
@@ -642,7 +704,7 @@ describe LavinMQ::Federation::Upstream do
           UpstreamSpecHelpers.start_link(upstream)
           wait_for { upstream.links.first?.try &.state.running? }
 
-          upstream_ex = upstream_vhost.exchanges["upstream_ex"].as(LavinMQ::AMQP::Exchange)
+          upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
           upstream_ex.bindings_details.size.should eq queues.size
 
           10.times do |i|
@@ -658,6 +720,92 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should reflect bindings made after the link reconnects" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation(s, "ef test bindings reconnect", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first?.try { |l| l if l.state.running? } }
+
+          upstream_vhost.each_connection do |conn|
+            conn.close if conn.client_name.starts_with?("Federation link")
+          end
+          wait_for { !link.state.running? }
+          wait_for { link.state.running? }
+
+          upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
+          downstream_q = downstream_ch.queue("")
+          downstream_q.bind("downstream_ex", "after.reconnect")
+          wait_for { upstream_ex.bindings_details.size == 1 }
+          downstream_q.unbind("downstream_ex", "after.reconnect")
+          wait_for { upstream_ex.bindings_details.empty? }
+        end
+      end
+    end
+
+    it "stops the link when the federated exchange is deleted" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef delete exchange", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        link = upstream.link(downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange))
+
+        downstream_vhost.delete_exchange("downstream_ex")
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    it "should reflect bindings made while link is starting" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, _ =
+          UpstreamSpecHelpers.setup_federation(s, "ef test bindings during start", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          downstream_q = downstream_ch.queue("downstream_q")
+          # Pre-existing bindings stretch the binding replay the link does
+          # during startup, so that the binds below land mid-replay.
+          before = 200
+          before.times { |i| downstream_q.bind("downstream_ex", "before.link.#{i}") }
+
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first? }.as(LavinMQ::Federation::Upstream::ExchangeLink)
+          # The link starts forwarding binds from the downstream exchange while
+          # it is still replaying the bindings above to the upstream exchange.
+          wait_for { link.@consumer_ex }
+          # Binds observed during startup must also be reflected upstream.
+          # (Regression: they were dropped if observed before the link had
+          # an upstream channel.)
+          during = 10
+          during.times { |i| downstream_q.bind("downstream_ex", "during.link.#{i}") }
+
+          upstream_ex = wait_for { upstream_vhost.exchange?("upstream_ex") }
+          upstream_ex = upstream_ex.as(LavinMQ::AMQP::Exchange)
+          wait_for { upstream_ex.bindings_details.size == before + during }
+        end
+      end
+    end
+
+    it "stays terminated when deleted during link startup" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef delete during start", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+
+        link = upstream.link(downstream_ex)
+        # Delete while the link is parked on the upstream connect. Without the
+        # stop_link? re-check after setup the link would resume and go Running.
+        upstream.delete
+        wait_for { link.state.terminated? }
+
+        upstream.links.should be_empty
+        link.state.terminated?.should be_true
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost1 = s.vhosts.create("one")
@@ -667,11 +815,11 @@ describe LavinMQ::Federation::Upstream do
         vhost2.declare_exchange("downstream_ex", "topic", durable: true, auto_delete: false)
         vhost2.declare_queue("downstream_q", durable: true, auto_delete: false)
 
-        downstream_ex = vhost2.exchanges["downstream_ex"]
-        downstream_q = vhost2.queues["downstream_q"]
+        downstream_ex = vhost2.exchange("downstream_ex")
+        downstream_q = vhost2.queue("downstream_q")
         downstream_ex.bind(downstream_q, "#")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(s.amqp_server.url)
         url.path = vhost1.name
         upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-received-from", url.to_s, exchange: "upstream_ex", queue: nil)
 
@@ -710,27 +858,29 @@ describe LavinMQ::Federation::Upstream do
         vhost2.declare_exchange("ex2", "topic", durable: true, auto_delete: false)
         vhost3.declare_exchange("ex3", "topic", durable: true, auto_delete: false)
 
-        ex1 = vhost1.exchanges["ex1"]
-        ex2 = vhost2.exchanges["ex2"]
-        ex3 = vhost3.exchanges["ex3"]
+        ex1 = vhost1.exchange("ex1")
+        ex2 = vhost2.exchange("ex2")
+        ex3 = vhost3.exchange("ex3")
 
         vhost3.declare_queue("q3", durable: true, auto_delete: false)
-        downstream_q = vhost3.queues["q3"]
-        downstream_ex = vhost3.exchanges["ex3"]
+        downstream_q = vhost3.queue("q3")
+        downstream_ex = vhost3.exchange("ex3")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(s.amqp_server.url)
 
         vhost1_url = url.dup
         vhost1_url.path = vhost1.name
         upstream_ex1_to_ex2 = LavinMQ::Federation::Upstream.new(
           vhost2, "upstream ex1 to ex2", vhost1_url.to_s,
           exchange: "ex1", queue: nil, max_hops: 100i64)
+        vhost2.upstreams.add(upstream_ex1_to_ex2)
 
         vhost2_url = url.dup
         vhost2_url.path = vhost2.name
         upstream_ex2_to_ex3 = LavinMQ::Federation::Upstream.new(
           vhost3, "upstream ex2 to ex3", vhost2_url.to_s,
           exchange: "ex2", queue: nil, max_hops: 100i64)
+        vhost3.upstreams.add(upstream_ex2_to_ex3)
 
         link_ex3 = upstream_ex2_to_ex3.link(ex3)
         link_ex2 = upstream_ex1_to_ex2.link(ex2)
@@ -769,13 +919,13 @@ describe LavinMQ::Federation::Upstream do
         vhost2.declare_exchange("downstream_ex", "topic", durable: true, auto_delete: false)
         vhost2.declare_queue("downstream_q", durable: true, auto_delete: false)
 
-        downstream_ex = vhost2.exchanges["downstream_ex"]
-        downstream_q = vhost2.queues["downstream_q"]
+        downstream_ex = vhost2.exchange("downstream_ex")
+        downstream_q = vhost2.queue("downstream_q")
         downstream_ex.bind(downstream_q, "federation.link.rk")
 
-        upstream_ex = vhost1.exchanges["upstream_ex"]
+        upstream_ex = vhost1.exchange("upstream_ex")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(s.amqp_server.url)
         url.path = vhost1.name
         upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-bound-from", url.to_s, exchange: "upstream_ex", queue: nil)
 
@@ -793,14 +943,14 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    describe "exchange federation chain" do
+    describe "exchange federation chain", tags: "slow" do
       it "append to x-bound-from" do
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 10) do
             downstream_vhost = s.vhosts["v10"]
-            downstream_ex = downstream_vhost.exchanges["fe"]
+            downstream_ex = downstream_vhost.exchange("fe")
             downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
-            q = downstream_vhost.queues["q"]
+            q = downstream_vhost.queue("q")
             # This binding should be propagated all the way to "fe" in "v1"
             # For each hop x-bound-from should be extended with one new entry
             downstream_ex.bind(q, "spec.routing.key")
@@ -808,7 +958,7 @@ describe LavinMQ::Federation::Upstream do
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v9.
             1.to(9) do |i|
-              fe = s.vhosts["v#{i}"].exchanges["fe"]
+              fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 1
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
@@ -839,9 +989,9 @@ describe LavinMQ::Federation::Upstream do
             us.max_hops = 1
 
             downstream_vhost = s.vhosts["v10"]
-            downstream_ex = downstream_vhost.exchanges["fe"]
+            downstream_ex = downstream_vhost.exchange("fe")
             downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
-            q = downstream_vhost.queues["q"]
+            q = downstream_vhost.queue("q")
             # This binding should only be propagated to "fe" in "v4", because
             # max_hops on v5 is 1.
             downstream_ex.bind(q, "spec.routing.key")
@@ -849,14 +999,14 @@ describe LavinMQ::Federation::Upstream do
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v4.
             1.to(3) do |i|
-              fe = s.vhosts["v#{i}"].exchanges["fe"]
+              fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 0
             end
 
             # Verify bindings on exchange "fe" from vhost v4 to
             # vhost v9.
             4.to(9) do |i|
-              fe = s.vhosts["v#{i}"].exchanges["fe"]
+              fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 1
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
@@ -886,9 +1036,9 @@ describe LavinMQ::Federation::Upstream do
             us.max_hops = 3
 
             downstream_vhost = s.vhosts["v10"]
-            downstream_ex = downstream_vhost.exchanges["fe"]
+            downstream_ex = downstream_vhost.exchange("fe")
             downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
-            q = downstream_vhost.queues["q"]
+            q = downstream_vhost.queue("q")
             # This binding should only be propagated to "fe" in "v4", because
             # max_hops on v5 is 1.
             downstream_ex.bind(q, "spec.routing.key")
@@ -896,14 +1046,14 @@ describe LavinMQ::Federation::Upstream do
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v6.
             1.to(6) do |i|
-              fe = s.vhosts["v#{i}"].exchanges["fe"]
+              fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 0
             end
 
             # Verify bindings on exchange "fe" from vhost v7 to
             # vhost v9.
             7.to(9) do |i|
-              fe = s.vhosts["v#{i}"].exchanges["fe"]
+              fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq(1), "FE in vhost v#{i} should have one binding"
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
@@ -926,9 +1076,9 @@ describe LavinMQ::Federation::Upstream do
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 3) do
             downstream_vhost = s.vhosts["v3"]
-            downstream_ex = downstream_vhost.exchanges["fe"]
+            downstream_ex = downstream_vhost.exchange("fe")
             downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
-            q = downstream_vhost.queues["q"]
+            q = downstream_vhost.queue("q")
             downstream_ex.bind(q, "spec.routing.key")
 
             with_channel(s, vhost: "v1") do |ch|
@@ -945,9 +1095,9 @@ describe LavinMQ::Federation::Upstream do
               ch.exchange("fe", "topic").publish_confirm "foo", "spec.routing.key", props: props
             end
 
-            v1fe = s.vhosts["v1"].exchanges["fe"]
-            v2fe = s.vhosts["v2"].exchanges["fe"]
-            v3fe = s.vhosts["v3"].exchanges["fe"]
+            v1fe = s.vhosts["v1"].exchange("fe")
+            v2fe = s.vhosts["v2"].exchange("fe")
+            v3fe = s.vhosts["v3"].exchange("fe")
 
             # We have no good synchronization point, so we yield a few times (instead of sleep)
             # to make sure the message has been processed all the way
@@ -958,6 +1108,98 @@ describe LavinMQ::Federation::Upstream do
             v3fe.publish_in_count.should eq 0
           end
         end
+      end
+    end
+  end
+
+  describe LavinMQ::Federation::UpstreamStore do
+    it "removes a deleted upstream from sets even when a non-matching entry comes first" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        # The set lists a non-matching upstream ("a") before the one we
+        # delete ("b"). The bare `return` in do_delete_upstream used to abort
+        # the reject! on the first non-matching entry, leaving the deleted "b"
+        # lingering in the set: it showed up as a phantom in federation status
+        # and could be re-linked (revived) on the next link_set.
+        store.create_upstream_set("set1", JSON.parse(%([{"upstream": "a"}, {"upstream": "b"}])))
+
+        store.delete_upstream("b")
+
+        store.get_set("set1").map(&.name).should eq ["a"]
+      end
+    end
+
+    it "dups the upstream and applies per-entry overrides without sharing state" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}", "prefetch-count": 10})))
+        # A set entry with more than the "upstream" key dups the upstream and
+        # applies the overrides to the copy. This used to crash by reading the
+        # override values off the whole set array instead of the entry, and the
+        # shallow dup shared its link tables with the original.
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "uri": "#{s.amqp_server.url}", "prefetch-count": 99}])))
+
+        original = store.get_set("all").find! { |u| u.name == "a" }
+        member = store.get_set("set1").first
+
+        member.should_not be original
+        member.prefetch.should eq 99_u16
+        original.prefetch.should eq 10_u16
+
+        # Linking the dup must not touch the original's links (separate tables).
+        vhost.declare_queue("q", false, false)
+        member.link(vhost.queue("q"))
+        member.links.size.should eq 1
+        original.links.size.should eq 0
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "stops links of set entries with overrides when the queue is deleted" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
+        member = store.get_set("set1").first
+        vhost.declare_queue("q", true, false)
+        q = vhost.queue("q")
+        link = member.link(q)
+
+        q.delete
+
+        member.links.should be_empty
+        wait_for { link.state.terminated? }
+      ensure
+        store.try &.stop_all
+      end
+    end
+  end
+
+  describe "shutdown" do
+    it "closes federation links without logging unexpected-close errors" do
+      # A federation link's upstream connection lives on another vhost. On
+      # broker shutdown every link must be stopped first (cleanly closing those
+      # connections against still-live peers); otherwise a peer vhost can
+      # force-close the link's socket mid-flight and the amqp-client read loop
+      # logs "connection closed unexpectedly" / "Couldn't write CloseOk frame".
+      Log.capture("amqp.client.connection", :error) do |logs|
+        with_amqp_server do |s|
+          upstream, up, down = UpstreamSpecHelpers.setup_federation(s, "shutdown-test", nil, "uq")
+          up.declare_queue("uq", false, false)
+          down.declare_queue("dq", false, false)
+          link = upstream.link(down.queue("dq"))
+          wait_for { link.state.running? }
+        end
+        # with_amqp_server's teardown has now run s.close (the broker shutdown).
+        logs.empty
       end
     end
   end

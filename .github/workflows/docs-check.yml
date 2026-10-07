@@ -1,0 +1,54 @@
+name: Docs Check
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "src/**/*.cr"
+      - "docs/**/*.md"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to check"
+        required: true
+        type: string
+
+jobs:
+  docs-check:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run docs check
+        uses: anthropics/claude-code-action@v1
+        id: claude
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: '*'
+          prompt: |
+            Inspect the diff of ${{ github.repository }} PR #${{ inputs.pr_number || github.event.pull_request.number }} with `gh pr diff`
+            and decide whether its user-facing changes (flags, config, protocol behavior, HTTP API, features) need updates in `docs/`.
+            Don't review code quality or run tests.
+
+            verdict: `pass` if there are no user-facing changes or each one is covered in `docs/`, otherwise `fail`.
+            reason: one sentence naming the specific flag, feature, or file.
+          claude_args: |
+            --max-turns 15
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
+      - name: Apply verdict
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          verdict=$(jq -er .verdict <<< "$STRUCTURED_OUTPUT") || { echo "::error::Docs check returned no verdict"; exit 1; }
+          reason=$(jq -r .reason <<< "$STRUCTURED_OUTPUT")
+          if [[ "$verdict" == pass ]]; then
+            echo "Docs check passed: $reason"
+          else
+            echo "::error::$reason"
+            exit 1
+          fi

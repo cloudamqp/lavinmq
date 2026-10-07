@@ -1,3 +1,5 @@
+require "openssl"
+
 # src/lavinmq/auth/lib_crypto_ext.cr
 lib LibCrypto
   # Types

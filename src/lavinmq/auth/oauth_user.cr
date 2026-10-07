@@ -31,6 +31,10 @@ module LavinMQ
           end
         rescue Channel::ClosedError
           # Channel closed, exit gracefully
+        ensure
+          # Close the channel when the watcher exits so a later refresh (e.g. a
+          # post-expiry UpdateSecret) can't block forever on a receiverless send.
+          @token_updated.close
         end
       end
 
@@ -52,6 +56,9 @@ module LavinMQ
         @expires_at = claims.expires_at
         clear_permissions_cache
         @token_updated.send nil
+      rescue Channel::ClosedError
+        # The on_expiration watcher already exited (token expired, connection
+        # closing), so there is nothing to notify.
       end
 
       def find_permission(vhost : String) : Permissions?

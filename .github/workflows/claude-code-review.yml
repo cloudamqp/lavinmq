@@ -1,41 +1,61 @@
 name: Claude Code Review
+
 on:
   pull_request:
     types: [opened, synchronize]
-    paths: # Only run on specific file changes
-      - "src/**/*.cr"
-      - "static/**/*.js"
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: string
+
+concurrency:
+  group: claude-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  claude-review:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
-      issues: read
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
-    timeout-minutes: 5
+    env:
+      PR: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Find previous review
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          comment=$(gh pr view "$PR" --json comments --jq '[.comments[] | select(.author.login == "claude")] | last | .body')
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "body<<$DELIM"
+            echo "$comment"
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+            Review ${{ github.repository }} PR #${{ env.PR }} at head ${{ github.event.pull_request.head.sha }} (checked out).
+            Read AGENTS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
 
-            Review this pull request. Do not check CI status.
-            Use `gh pr comment` to post your review, don't submit your review as a normal message.
+            Report only real issues that exist in the current head, logical errors, violations of the Rules in AGENTS.md,
+            and concurrency/fiber safety. Skip linter-catchable style, nitpicks, and pre-existing issues on unchanged lines.
+            Flag missing specs only for risky behavior changes, and flag new specs that are trivial or duplicate existing coverage.
+
+            Your previous review of this PR is below. Re-check each issue in it, drop the ones that are fixed, keep the ones
+            that still apply, and add new ones. Don't mention fixed issues.
+
+            <previous_review>
+            ${{ steps.previous.outputs.body }}
+            </previous_review>
+
+            If there are no issues, say "No issues found." Keep it brief and don't use emojis.
+
+            Post the review with `gh pr comment ${{ env.PR }} --edit-last --create-if-none`.
           claude_args: |
-            --max-turns 15
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"

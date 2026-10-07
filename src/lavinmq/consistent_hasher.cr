@@ -25,7 +25,7 @@ class RingConsistentHasher(T) < Hasher(T)
 
   def get(key : String) : T?
     size = @ring.size
-    return nil if size.zero?
+    return if size.zero?
     return @ring.first.last if size == 1
     key_hash = hash_key(key)
     ring_hash = @sorted_keys.bsearch { |x| x >= key_hash }

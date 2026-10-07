@@ -16,11 +16,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            itr = connections(user).each.select(&.vhost.==(vhost))
-              .flat_map do |conn|
-                conn.channels.each_value.flat_map &.consumers
-              end
-            page(context, itr)
+            page(context, all_consumers(user, vhost))
           end
         end
 
@@ -36,12 +32,12 @@ module LavinMQ
               context.response.status_code = 404
               break
             end
-            channel = connection.channels[ch_id]?
+            channel = connection.channel?(ch_id.to_u16)
             unless channel
               context.response.status_code = 404
               break
             end
-            consumer = channel.consumers.find(&.tag.==(consumer_tag))
+            consumer = channel.find_consumer(&.tag.==(consumer_tag))
             unless consumer
               context.response.status_code = 404
               break
@@ -53,9 +49,17 @@ module LavinMQ
         end
       end
 
-      private def all_consumers(user)
-        Iterator(Client::Channel::Consumer)
-          .chain(connections(user).map { |c| c.channels.each_value.flat_map &.consumers })
+      private def all_consumers(user, vhost = nil) : Array(Client::Channel::Consumer)
+        consumers = Array(Client::Channel::Consumer).new
+        connections(user).each do |connection|
+          next if vhost && connection.vhost != vhost
+          connection.channels.each do |channel|
+            channel.consumers.each do |consumer|
+              consumers << consumer
+            end
+          end
+        end
+        consumers
       end
     end
   end

@@ -1,9 +1,11 @@
+/* global MutationObserver */
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import './tabs.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
@@ -44,6 +46,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
         DOM.toast('Consumer cancelled')
         updateQueue(false)
       })
+      .catch(() => {})
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -88,6 +91,7 @@ function updateQueue (all) {
       const totalAvgBytes = item.messages !== 0 ? (item.message_bytes_unacknowledged + item.message_bytes_ready) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
@@ -132,7 +136,7 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
-    })
+    }).catch(() => {})
 }
 updateQueue(true)
 setInterval(updateQueue, 5000)
@@ -142,6 +146,15 @@ const tableOptions = {
   keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
+
+const bindingsTabBadge = document.querySelector('[data-tab="bindings"] .badge')
+const bindingsCountElement = document.getElementById('bindings-count')
+
+new MutationObserver(() => {
+  const bindingsCount = bindingsCountElement.textContent
+  bindingsTabBadge.textContent = bindingsCount
+}).observe(bindingsCountElement, { childList: true, subtree: true })
+
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
@@ -152,7 +165,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       text: 'Unbind',
       click: function () {
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/q/${queue}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -184,6 +199,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     })
+    .catch(() => {})
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -204,6 +220,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
       DOM.toast('Published message to ' + queue)
       updateQueue(false)
     })
+    .catch(() => {})
 })
 
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -243,6 +260,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         messagesContainer.appendChild(msgNode)
       }
     })
+    .catch(() => {})
 })
 
 document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
@@ -251,6 +269,7 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
+      .catch(() => {})
   }
 })
 
@@ -263,6 +282,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue paused!')
         handleQueueState('paused')
       })
+      .catch(() => {})
   }
 })
 
@@ -275,6 +295,7 @@ resumeQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
       })
+      .catch(() => {})
   }
 })
 

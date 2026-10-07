@@ -43,13 +43,11 @@ module LavinMQ
           end
         end
         spawn(name: "Proxy client copy loop") do
-          begin
-            IO.copy(target, client)
-          rescue IO::Error
-          ensure
-            target.close rescue nil
-            client.close rescue nil
-          end
+          IO.copy(target, client)
+        rescue IO::Error
+        ensure
+          target.close rescue nil
+          client.close rescue nil
         end
         IO.copy(client, target)
       rescue IO::Error

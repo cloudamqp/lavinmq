@@ -1,8 +1,7 @@
-require "./config"
-
 module LavinMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w[])
+      {% stats_keys = stats_keys.resolve if stats_keys.is_a?(Path) %}
       {% for name in stats_keys %}
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
         @{{ name.id }}_count_prev = 0_u64
@@ -40,7 +39,7 @@ module LavinMQ
       end
 
       def update_rates : Nil
-        interval = Config.instance.stats_interval // 1000
+        interval = Config.instance.stats_interval / 1000.0
         log_size = Config.instance.stats_log_size
         {% for name in stats_keys %}
           until @{{ name.id }}_log.size < log_size

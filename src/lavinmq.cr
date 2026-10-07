@@ -3,7 +3,13 @@ require "./stdlib/*"
 require "./lavinmq/config"
 
 config = LavinMQ::Config.instance
-config.parse # both ARGV and config file
+begin
+  config.parse # both ARGV and config file
+rescue ex : OptionParser::Exception
+  abort "Error: #{ex.message}\nTry '#{PROGRAM_NAME} --help' for more information."
+rescue ex : LavinMQ::Config::Error
+  abort "Error: #{ex.message}"
+end
 
 {% unless flag?(:gc_none) %}
   if config.raise_gc_warn?
@@ -12,6 +18,20 @@ config.parse # both ARGV and config file
     }
   end
 {% end %}
+unless config.journald_stream? || config.log_file
+  STDOUT.puts <<-LOGO
+
+        ██╗      █████╗ ██╗   ██╗██╗███╗   ██╗███╗   ███╗ ██████╗
+        ██║     ██╔══██╗██║   ██║██║████╗  ██║████╗ ████║██╔═══██╗
+        ██║     ███████║██║   ██║██║██╔██╗ ██║██╔████╔██║██║   ██║
+        ██║     ██╔══██║╚██╗ ██╔╝██║██║╚██╗██║██║╚██╔╝██║██║▄▄ ██║
+        ███████╗██║  ██║ ╚████╔╝ ██║██║ ╚████║██║ ╚═╝ ██║╚██████╔╝
+        ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚══▀▀═╝
+
+                 The message broker built for peaks
+
+    LOGO
+end
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./lavinmq/launcher"

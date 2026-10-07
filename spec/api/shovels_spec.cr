@@ -3,8 +3,8 @@ require "uri"
 
 def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused = false)
   config = NamedTuple.new(
-    "src-uri": server.amqp_url,
-    "dest-uri": server.amqp_url,
+    "src-uri": server.amqp_server.url,
+    "dest-uri": server.amqp_server.url,
     "dest-queue": "q1",
     "src-queue": "q2",
     "src-prefetch-count": 1000,
@@ -22,6 +22,71 @@ def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused 
 end
 
 describe LavinMQ::HTTP::ShovelsController do
+  describe "access control" do
+    it "should refuse management users from listing all shovels" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/shovels", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
+    it "should allow policymaker to list shovels in a vhost" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        vhost_url_encoded = URI.encode_path_segment("/")
+        response = http.get("/api/shovels/#{vhost_url_encoded}", headers: hdrs)
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should refuse management and monitoring users from listing shovels" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management, LavinMQ::Tag::Monitoring])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        vhost_url_encoded = URI.encode_path_segment("/")
+        response = http.get("/api/shovels/#{vhost_url_encoded}", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
+    it "should refuse management users from getting a shovel" do
+      with_http_server do |http, s|
+        create_shovel(s)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        vhost_url_encoded = URI.encode_path_segment("/")
+        response = http.get("/api/shovels/#{vhost_url_encoded}/spec-shovel", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
+    it "should refuse management users from pausing a shovel" do
+      with_http_server do |http, s|
+        create_shovel(s)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        vhost_url_encoded = URI.encode_path_segment("/")
+        response = http.put("/api/shovels/#{vhost_url_encoded}/spec-shovel/pause", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
+    it "should refuse management users from resuming a shovel" do
+      with_http_server do |http, s|
+        create_shovel(s, paused: true)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        vhost_url_encoded = URI.encode_path_segment("/")
+        response = http.put("/api/shovels/#{vhost_url_encoded}/spec-shovel/resume", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+  end
+
   describe "PUT api/shovels/:vhost/:name/pause" do
     it "should return 404 for non-existing shovel" do
       with_http_server do |http, _s|
@@ -55,6 +120,30 @@ describe LavinMQ::HTTP::ShovelsController do
   end
 
   describe "PUT api/shovels/:vhost/:name/resume" do
+    it "should resume an aborted shovel and return 204" do
+      with_http_server do |http, s|
+        status = Atomic(Int32).new(404)
+        server = ::HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = status.get
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+        s.vhosts["/"].declare_queue("q2", true, false)
+        s.vhosts["/"].queue("q2").publish(LavinMQ::Message.new("", "q2", "m"))
+        shovel = create_shovel(s, config: {"dest-uri": "http://#{addr}/", "dest-queue": nil, "reconnect-delay": 1})
+        wait_for { shovel.state.aborted? }
+        status.set(200)
+        response = http.put("/api/shovels/#{URI.encode_path_segment("/")}/#{shovel.name}/resume")
+        response.status_code.should eq 204
+        wait_for { shovel.state.running? }
+      ensure
+        server.try &.close
+      end
+    end
+
     it "should return 404 for non-existing shovel" do
       with_http_server do |http, _s|
         vhost_url_encoded = URI.encode_path_segment("/")
@@ -80,6 +169,22 @@ describe LavinMQ::HTTP::ShovelsController do
         vhost_url_encoded = URI.encode_path_segment(shovel.vhost.name)
         status_code = http.put("/api/shovels/#{vhost_url_encoded}/#{shovel.name}/resume").status_code
         status_code.should eq 422
+      end
+    end
+  end
+
+  describe "PUT api/parameters/shovel/:vhost/:name" do
+    it "should create a shovel with an HTTP destination" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":   s.amqp_server.url,
+            "src-queue": "events",
+            "dest-uri":  "https://example.com/webhook",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/webhook-shovel", body: body.to_json)
+        response.status_code.should eq 201
       end
     end
   end

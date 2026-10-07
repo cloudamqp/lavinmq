@@ -4,7 +4,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   add_etcd_around_each
 
   # Fixes #1366 - metrics_server is not closed when a follower client is closed
-  it "can restart metrics_server after being a follower" do
+  it "can restart metrics_server after being a follower", tags: "slow" do
     data_dir = File.tempname
 
     begin

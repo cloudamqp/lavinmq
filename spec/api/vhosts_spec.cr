@@ -46,10 +46,34 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
 
-    it "should return 403 if vhost does not exist" do
+    it "should return 404 if vhost does not exist" do
       with_http_server do |http, _|
-        response = http.get("/api/vhosts/403")
+        response = http.get("/api/vhosts/404")
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should return 403 if vhost does not exist and user is not an administrator" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/vhosts/nonexisting", headers: hdrs)
         response.status_code.should eq 403
+      end
+    end
+
+    it "should count returned unroutable messages in message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        response = http.get("/api/vhosts/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.dig("message_stats", "return_unroutable").should eq 1
       end
     end
   end
@@ -105,10 +129,10 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
 
-    it "should return 403 when trying to delete non existing vhost" do
+    it "should return 404 when trying to delete non existing vhost" do
       with_http_server do |http, _|
         response = http.delete("/api/vhosts/nonexisting")
-        response.status_code.should eq 403
+        response.status_code.should eq 404
       end
     end
 
@@ -117,6 +141,15 @@ describe LavinMQ::HTTP::VHostsController do
         s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
         hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
         response = http.delete("/api/vhosts/test", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
+    it "should return 403 when a non-administrator tries to delete a non existing vhost" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.delete("/api/vhosts/nonexisting", headers: hdrs)
         response.status_code.should eq 403
       end
     end

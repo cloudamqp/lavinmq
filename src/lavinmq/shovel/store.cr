@@ -16,7 +16,33 @@ module LavinMQ
         @shovels = Hash(String, Shovel::Runner).new
       end
 
-      forward_missing_to @shovels
+      def []?(name : String) : Runner?
+        @shovels[name]?
+      end
+
+      def [](name : String) : Runner
+        @shovels[name]
+      end
+
+      def each_value(& : Runner ->) : Nil
+        @shovels.each_value { |r| yield r }
+      end
+
+      def values : Array(Runner)
+        @shovels.values
+      end
+
+      def size : Int32
+        @shovels.size
+      end
+
+      def empty? : Bool
+        @shovels.empty?
+      end
+
+      def has_key?(name : String) : Bool
+        @shovels.has_key?(name)
+      end
 
       # ameba:disable Metrics/CyclomaticComplexity
       def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)
@@ -32,8 +58,12 @@ module LavinMQ
           dst = "" # default exchange
         end
 
+        # HTTP(S) destinations POST to a URL and have no queue/exchange.
+        http_dest = !dest_uris.empty? && dest_uris.all?(&.scheme.in?("http", "https"))
+
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
-        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil?
+        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
+        validate_dest_timeout!(config["dest-timeout"]?)
 
         return unless user
 
@@ -46,8 +76,7 @@ module LavinMQ
         src_uris.select!(&.user.nil?)
 
         dest_uris.each do |uri|
-          vhost = uri.path
-          vhost = "/" if vhost.empty?
+          vhost = vhost_from_uri(uri)
           if d = dst
             if !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
               raise ConfigError.new("#{user.name} can't access exchange '#{d}' in #{vhost}")
@@ -61,8 +90,7 @@ module LavinMQ
         end
 
         src_uris.each do |uri|
-          vhost = uri.path
-          vhost = "/" if vhost.empty?
+          vhost = vhost_from_uri(uri)
           if q = src_q
             if !(user.can_read?(vhost, q) && user.can_config?(vhost, q))
               raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
@@ -74,6 +102,20 @@ module LavinMQ
             end
           end
         end
+      end
+
+      # A malformed dest-timeout fails the PUT like any other bad field, rather
+      # than being stored and silently replaced by the default at start.
+      private def self.validate_dest_timeout!(value : JSON::Any?)
+        return if value.nil?
+        secs = value.as_f? || value.as_i?.try(&.to_f)
+        return if secs && secs > 0
+        raise ConfigError.new("dest-timeout must be a positive number of seconds")
+      end
+
+      private def self.vhost_from_uri(uri : URI) : String
+        path = uri.path.lchop("/")
+        path.empty? ? "/" : path
       end
 
       def self.parse_uris(src_uri : JSON::Any?) : Array(URI)
@@ -122,7 +164,7 @@ module LavinMQ
         destinations = uris.map do |uri|
           case uri.scheme
           when "http", "https"
-            Shovel::HTTPDestination.new(name, uri)
+            Shovel::HTTPDestination.new(name, uri, ack_mode, Shovel::HTTPDestination.timeout_from(config))
           else
             Shovel::AMQPDestination.new(name, uri,
               config["dest-queue"]?.try &.as_s?,
@@ -132,7 +174,7 @@ module LavinMQ
               direct_user: @vhost.users.direct_user)
           end
         end
-        Shovel::MultiDestinationHandler.new(destinations)
+        Shovel::MultiDestination.new(destinations)
       end
     end
   end

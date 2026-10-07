@@ -23,6 +23,18 @@ describe "Websocket support" do
     end
   end
 
+  it "tracks AMQP websocket connections on the vhost" do
+    with_http_server do |http, s|
+      c = AMQP::Client.new("ws://#{http.addr}")
+      conn = c.connect
+
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+
+      conn.close
+      wait_for { s.vhosts["/"].connections.none?(LavinMQ::AMQP::Client) }
+    end
+  end
+
   it "can publish large messages" do
     with_http_server do |http, _|
       c = AMQP::Client.new("ws://#{http.addr}")
@@ -209,8 +221,7 @@ describe "Websocket support" do
         end
 
         it "should accept mqtt client" do
-          with_http_server do |http, s|
-            s.@config.default_user_only_loopback = false
+          with_http_server do |http, _|
             headers = ::HTTP::Headers{
               "Sec-WebSocket-Protocol" => header,
             }
@@ -237,6 +248,7 @@ describe "Websocket support" do
             select
             when pkt = ch.receive
               pkt.should be_a MQTT::Protocol::Connack
+              pkt.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
             when timeout(1.second)
               websocket.close
               fail("no response?")

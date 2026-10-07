@@ -1,4 +1,5 @@
 require "json"
+require "../tag"
 require "./permission_cache"
 
 module LavinMQ

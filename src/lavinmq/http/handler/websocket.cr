@@ -1,4 +1,6 @@
-require "../../server"
+require "http/server/handler"
+require "http/web_socket"
+require "../../connection_info"
 
 module LavinMQ
   class WebSocketHandler
@@ -77,7 +79,7 @@ module LavinMQ
 
   # Acts as a proxy between websocket clients and the normal TCP servers
   class WebsocketProxy
-    def self.new(server : LavinMQ::Server)
+    def self.new(amqp_server : LavinMQ::AMQP::Server, mqtt_server : LavinMQ::MQTT::Server)
       WebSocketHandler.new do |ws, ctx, protocol|
         req = ctx.request
         protocol ||= fallback_protocol(req)
@@ -92,10 +94,10 @@ module LavinMQ
         case protocol
         in .mqtt?
           Log.debug { "Protocol: mqtt" }
-          spawn server.handle_connection(io, connection_info, Server::Protocol::MQTT), name: "HandleWSconnection MQTT #{remote_address}"
+          spawn mqtt_server.handle_connection(io, connection_info), name: "HandleWSconnection MQTT #{remote_address}"
         in .amqp?
           Log.debug { "Protocol: amqp" }
-          spawn server.handle_connection(io, connection_info, Server::Protocol::AMQP), name: "HandleWSconnection AMQP #{remote_address}"
+          spawn amqp_server.handle_connection(io, connection_info), name: "HandleWSconnection AMQP #{remote_address}"
         end
       end
     end

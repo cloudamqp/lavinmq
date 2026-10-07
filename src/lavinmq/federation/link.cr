@@ -64,11 +64,20 @@ module LavinMQ
           loop { @state_changed.try_send?(state) || break }
         end
 
-        # Does not trigger reconnect, but a graceful close
-        def terminate
+        # Graceful close of the link without removing any upstream resources.
+        # Use on broker shutdown — the upstream queue/exchange must survive a
+        # restart so buffered messages aren't lost.
+        def stop
           return if @state.terminated?
           state(State::Terminating)
           @upstream_connection.try &.close
+        end
+
+        # Permanently remove the link, including any resources it created on
+        # the upstream broker. Use when the federation, federated resource or
+        # upstream itself is being deleted.
+        def delete
+          stop
         end
 
         private def run_loop
@@ -105,8 +114,10 @@ module LavinMQ
               break
             when event = @state_changed.receive?
               break if stop_link?(event)
-              @log.debug { "#wait_before_reconnect @state_changed.received? triggerd " \
-                           "@state_changed.closed?=#{@state_changed.closed?}" }
+              @log.debug do
+                "#wait_before_reconnect @state_changed.received? triggerd " \
+                "@state_changed.closed?=#{@state_changed.closed?}"
+              end
             end
           end
         end
@@ -116,7 +127,7 @@ module LavinMQ
           state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, exchange, routing_key, *, immediate = false)
+        private def federate(msg, exchange, routing_key, *, immediate = false) : Bool
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           @upstream.vhost.publish(
             Message.new(
@@ -124,7 +135,7 @@ module LavinMQ
               msg.body_io.bytesize.to_u64, msg.body_io,
             ),
             immediate
-          )
+          ).routed?
         end
 
         private def try_passive(client, ch = nil, &)
@@ -162,6 +173,10 @@ module LavinMQ
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
+            # The link may have been stopped while connecting, when there was
+            # no connection for stop to close. Don't go Running then, which
+            # would defeat the run_loop terminate check and reconnect it.
+            next if stop_link?
             upstream_connection.on_close do
               next if stop_link?
               state(State::Stopped)
@@ -184,12 +199,10 @@ module LavinMQ
         EXCHANGE = ""
 
         @consumer_available = Channel(Nil).new
-        @deleted_cb : Proc(Nil)?
 
-        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
+        def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
-          @deleted_cb = @federated_q.on_deleted { on_queue_deleted }
 
           spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
         end
@@ -215,14 +228,7 @@ module LavinMQ
               end
               @log.info { "Lost consumers, cancel upstream subscriber" }
               has_consumer = false
-              # cancel our consumer!
-              if channel = @upstream_channel
-                begin
-                  channel.basic_cancel(@upstream.consumer_tag)
-                rescue ex : ::AMQP::Client::Error
-                  @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
-                end
-              end
+              cancel_upstream_consumer
             else
               # Wait for queue get a consumer, or for the link
               # to stop
@@ -244,22 +250,20 @@ module LavinMQ
         rescue ::Channel::ClosedError
         end
 
+        private def cancel_upstream_consumer
+          return unless channel = @upstream_channel
+          channel.basic_cancel(@upstream.consumer_tag)
+        rescue ex : ::AMQP::Client::Error
+          @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
+        end
+
         def name : String
           @federated_q.name
         end
 
-        def terminate
+        def stop
           super
-          @deleted_cb.try { |cb| @federated_q.off_deleted(cb) }
           @consumer_available.close
-        end
-
-        private def on_queue_deleted
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=deleted" }
-          @upstream.stop_link(@federated_q)
-        rescue e
-          @log.error { "Could not process event=deleted error=#{e.inspect_with_backtrace}" }
         end
 
         private def notify_consumer_available
@@ -321,11 +325,8 @@ module LavinMQ
 
       class ExchangeLink < Link
         @consumer_ex : ::AMQP::Client::Exchange?
-        @bind_cb : Proc(BindingDetails, Nil)?
-        @unbind_cb : Proc(BindingDetails, Nil)?
-        @deleted_cb : Proc(Nil)?
 
-        def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
+        def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_ex.name})
@@ -342,7 +343,8 @@ module LavinMQ
           x_received_from.size < @upstream.max_hops
         end
 
-        private def on_exchange_bind(b : BindingDetails)
+        # Called by the federated exchange when a binding is added
+        def on_bind(b : AMQP::BindingDetails)
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=bind data=#{b}" }
           updated, args = update_bound_from?(b.arguments)
@@ -355,7 +357,8 @@ module LavinMQ
           @log.error { "Could not process event=bind data=#{b} error=#{e.inspect_with_backtrace}" }
         end
 
-        private def on_exchange_unbind(b : BindingDetails)
+        # Called by the federated exchange when a binding is removed
+        def on_unbind(b : AMQP::BindingDetails)
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=unbind data=#{b}" }
           updated, args = update_bound_from?(b.arguments)
@@ -368,14 +371,6 @@ module LavinMQ
           @log.error { "Could not process event=unbind data=#{b} error=#{e.inspect_with_backtrace}" }
         end
 
-        private def on_exchange_deleted
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=deleted" }
-          @upstream.stop_link(@federated_ex)
-        rescue e
-          @log.error { "Could not process event=deleted error=#{e.inspect_with_backtrace}" }
-        end
-
         private def with_consumer_ex(&)
           if ex = @consumer_ex
             yield ex
@@ -384,11 +379,8 @@ module LavinMQ
           end
         end
 
-        def terminate
-          super
-          @bind_cb.try { |cb| @federated_ex.off_bind(cb) }
-          @unbind_cb.try { |cb| @federated_ex.off_unbind(cb) }
-          @deleted_cb.try { |cb| @federated_ex.off_deleted(cb) }
+        def delete
+          stop
           cleanup
         end
 
@@ -436,9 +428,10 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
-          @bind_cb = @federated_ex.on_bind { |data| on_exchange_bind(data) }
-          @unbind_cb = @federated_ex.on_unbind { |data| on_exchange_unbind(data) }
-          @deleted_cb = @federated_ex.on_deleted { on_exchange_deleted }
+          # Bind/unbind events are dropped while @consumer_ex is nil. Bindings
+          # made before it's set are covered by the snapshot below (exchanges
+          # store bindings before notifying the upstreams).
+          @consumer_ex = consumer_ex
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
             if updated
@@ -446,12 +439,12 @@ module LavinMQ
             end
           end
           upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
-          {ch, consumer_ex, upstream_q}
+          {ch, upstream_q}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_ex, upstream_q = setup(upstream_connection)
+            upstream_channel, upstream_q = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)

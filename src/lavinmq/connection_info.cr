@@ -11,11 +11,18 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
+    # True when the addresses come from a PROXY protocol header
+    getter? proxied : Bool
 
     # Remote and local addresses from the server's perspective
-    def initialize(remote_address, local_address)
+    def initialize(remote_address, local_address, *, @proxied : Bool = false)
       @remote_address = IPAddress.new(remote_address)
       @local_address = IPAddress.new(local_address)
+    end
+
+    # A proxied address describes the client as seen by the proxy, not a connection on this host
+    def loopback? : Bool
+      @remote_address.loopback? && !@proxied
     end
 
     def self.local
@@ -26,20 +33,27 @@ module LavinMQ
 
     # Suspecting memory problem with Socket::IPAddress in Crystal 1.15.0
     struct IPAddress
+      private IPV4_MAPPED_IPV6_PREFIX = "::ffff:"
+
       getter address : String
       getter port : UInt16
+      # Only ConnectionInfo#loopback? may read this, it also accounts for PROXY headers
+      protected getter? loopback : Bool
 
       def initialize(ip_address : Socket::IPAddress)
-        @address = ip_address.address
+        @address = unmap_ipv6(ip_address.address)
         @port = ip_address.port.to_u16!
+        @loopback = ip_address.loopback?
       end
 
       def to_s(io)
         io << @address << ':' << @port
       end
 
-      def loopback?
-        @address == "::1" || @address.starts_with? "127."
+      private def unmap_ipv6(address : String) : String
+        return address unless address.starts_with?(IPV4_MAPPED_IPV6_PREFIX)
+
+        address.byte_slice(IPV4_MAPPED_IPV6_PREFIX.bytesize)
       end
     end
   end

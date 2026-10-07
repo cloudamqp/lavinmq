@@ -1,3 +1,6 @@
+require "../user"
+require "../../tag"
+
 module LavinMQ
   module Auth
     module JWT
@@ -29,8 +32,6 @@ module LavinMQ
                          payload.sub
                        when "iss"
                          payload.iss
-                       else
-                         nil
                        end
             return username if username
 
@@ -61,7 +62,7 @@ module LavinMQ
             scopes.concat(scope_str.split)
           end
 
-          if scopes_key = @config.oauth_additional_scopes_key
+          @config.oauth_additional_scopes_keys.each do |scopes_key|
             if claim = payload[scopes_key]?
               scopes.concat(extract_scopes_from_claim(claim))
             end
@@ -143,12 +144,21 @@ module LavinMQ
             return
           end
 
+          current = permissions[vhost]
           permissions[vhost] = case perm_type
-                               when "configure" then permissions[vhost].merge({config: regex})
-                               when "read"      then permissions[vhost].merge({read: regex})
-                               when "write"     then permissions[vhost].merge({write: regex})
-                               else                  permissions[vhost]
+                               when "configure" then current.merge({config: combine_regex(current[:config], regex)})
+                               when "read"      then current.merge({read: combine_regex(current[:read], regex)})
+                               when "write"     then current.merge({write: combine_regex(current[:write], regex)})
+                               else                  current
                                end
+        end
+
+        private def combine_regex(existing : Regex, new_regex : Regex) : Regex
+          if existing.source == "^$"
+            new_regex
+          else
+            Regex.new("#{existing.source}|#{new_regex.source}")
+          end
         end
 
         private def wildcard_to_regex(pattern : String) : String

@@ -2,6 +2,7 @@ require "./version"
 require "../stdlib/slice"
 require "json"
 require "amq-protocol"
+require "./mqtt/permission_group"
 
 class LavinMQCtl
   class DefinitionsGenerator
@@ -48,6 +49,21 @@ class LavinMQCtl
                       json.field "read", p["read"]
                       json.field "write", p["write"]
                     end
+                  end
+                end
+              end
+            end
+            json.field("mqtt_permissions") do
+              json.array do
+                each_vhost do |vhost, vhost_dir|
+                  if groups = mqtt_permissions(vhost_dir)
+                    groups.each do |g|
+                      g.as_h.merge!({"vhost" => JSON::Any.new(vhost)}).to_json(json)
+                    end
+                  else
+                    # The server creates the default group when it loads a
+                    # vhost without mqtt_permissions.json.
+                    LavinMQ::MQTT::PermissionGroup.default(vhost).to_json(json)
                   end
                 end
               end
@@ -169,6 +185,14 @@ class LavinMQCtl
 
     private def users
       File.open("users.json") { |f| JSON.parse f }.as_a
+    end
+
+    private def mqtt_permissions(vhost_dir) : Array(JSON::Any)?
+      File.open(File.join(vhost_dir, "mqtt_permissions.json")) do |f|
+        JSON.parse(f).as_a
+      end
+    rescue File::NotFoundError
+      nil
     end
 
     private def vhosts

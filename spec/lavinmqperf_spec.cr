@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmqperf/perf"
+require "../src/lavinmqperf/ticker"
 require "../src/lavinmqperf/amqp/*"
 require "../src/lavinmqperf/mqtt/*"
 
@@ -46,26 +47,21 @@ describe "LavinMQPerf" do
 
     it "should fail with invalid argument" do
       io = IO::Memory.new
-      throughput = LavinMQPerf::AMQP::Throughput.new(io)
+      throughput = LavinMQPerf::AMQP::Throughput.new(io, io)
 
-      # abort writes to STDERR and calls exit, which raises SpecExit in tests
+      # abort writes to err_io and calls exit, which raises SpecExit in tests
       expect_raises(SpecExit) do
         throughput.run(["--invalid-flag"])
       end
     end
 
-    it "should verify summary averages are correct" do
+    it "should verify summary averages are correct", tags: "slow" do
       with_amqp_server do |s|
-        # Set up TCP listener for AMQP connections
-        tcp_server = TCPServer.new("localhost", 0)
-        port = tcp_server.local_address.port
-        spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
-
         io = IO::Memory.new
         throughput = LavinMQPerf::AMQP::Throughput.new(io)
 
         throughput.run([
-          "--uri=amqp://guest:guest@localhost:#{port}",
+          "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
           "-x", "1",
           "-y", "1",
           "-z", "3",
@@ -101,9 +97,48 @@ describe "LavinMQPerf" do
         reported_avg_consume.should be > 0
         measured_avg_consume = consume_rates.sum / consume_rates.size
         (reported_avg_consume.to_f / measured_avg_consume).should be_close(1.0, 0.5)
-
-        tcp_server.close
       end
+    end
+  end
+
+  describe "Ticker" do
+    # Bursty pacing puts all ops in the first bucket; smooth pacing spreads
+    # them evenly. Lower bounds only, so a slow CI just stretches the run.
+    it "paces evenly across the configured rate window" do
+      rate = 500
+      total_ops = 250
+      ticker = LavinMQPerf::Ticker.new(rate)
+      timestamps = Array(Time::Span).new(total_ops)
+      start = Time.instant
+      total_ops.times do
+        ticker.tick
+        timestamps << Time.instant - start
+      end
+      elapsed = Time.instant - start
+
+      target = (total_ops.to_f64 / rate).seconds
+      elapsed.should be >= target * 0.7
+
+      bucket_count = 10
+      bucket_width = elapsed / bucket_count
+      buckets = Array(Int32).new(bucket_count, 0)
+      timestamps.each do |ts|
+        idx = (ts.total_nanoseconds / bucket_width.total_nanoseconds).to_i
+        idx = bucket_count - 1 if idx >= bucket_count
+        buckets[idx] += 1
+      end
+      buckets.max.should be < total_ops // 2
+    end
+
+    # The consume path hands the ticker to a helper method per message, so it
+    # must keep state across calls — a value type would reset every call and
+    # skip pacing. Ticking through an indirection locks that in.
+    it "keeps pacing when ticked through another method" do
+      ticker = LavinMQPerf::Ticker.new(500)
+      tick = ->(t : LavinMQPerf::Ticker) { t.tick }
+      start = Time.instant
+      250.times { tick.call(ticker) }
+      (Time.instant - start).should be >= (250.0 / 500).seconds * 0.7
     end
   end
 
@@ -116,9 +151,9 @@ describe "LavinMQPerf" do
 
     it "should fail with invalid argument" do
       io = IO::Memory.new
-      throughput = LavinMQPerf::MQTT::Throughput.new(io)
+      throughput = LavinMQPerf::MQTT::Throughput.new(io, io)
 
-      # abort writes to STDERR and calls exit, which raises SpecExit in tests
+      # abort writes to err_io and calls exit, which raises SpecExit in tests
       expect_raises(SpecExit) do
         throughput.run(["--invalid-flag"])
       end

@@ -10,7 +10,7 @@ function create (table, dataSource) {
   }
   table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
     cell.addEventListener('click', e => {
-      const newSortKey = e.target.dataset.sortKey
+      const newSortKey = e.currentTarget.dataset.sortKey
       if (sortKey === newSortKey) {
         dataSource.reverseOrder = !dataSource.reverseOrder
       } else {

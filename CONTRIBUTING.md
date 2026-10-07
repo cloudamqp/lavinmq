@@ -27,10 +27,14 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 1. Run specs with `make test`
 1. Run a specific spec file with `make test SPEC=spec/storage_spec.cr`
 1. Build locally with `make bin/lavinmq CRYSTAL_FLAGS=`
-1. Compile and run locally with `crystal run src/lavinmq.cr -Dpreview_mt -Dexecution_context`
+1. Compile and run locally with `crystal run src/lavinmq.cr`
 1. Pull js dependencies with `make js`
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
+
+#### AI-assisted review
+
+PRs are reviewed by AI in CI. To run the same review locally, install [local-review](https://github.com/84codes/local-review) and run `local-review install` in the repo. This adds an optional pre-push hook and a CLI (`local-review`, `local-review 42`).
 
 #### Frontend development
 

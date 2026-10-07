@@ -1,5 +1,3 @@
-require "wait_group"
-
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -23,6 +21,18 @@ end
 class MFile < IO
   private PAGE_SIZE = LibC.sysconf(LibC::SC_PAGESIZE)
 
+  # One PTE page table maps PAGE_SIZE / sizeof(pte_t) entries, 8 bytes each on
+  # 64-bit: 2 MiB with 4K pages, 512 MiB with 64K pages.
+  PMD_SIZE = PAGE_SIZE.to_i64 * (PAGE_SIZE // 8)
+
+  # madvise(MADV_DONTNEED) over PMD_SIZE or more lets the kernel reclaim the
+  # emptied page table, and that reclaim flushes the TLB at the wrong address on
+  # Linux 7.0.0-rc1 through 7.1.8 (CVE-2026-74674). Whatever maps that address
+  # next then faults in a loop. The check is `>=`, so one page under is the
+  # largest safe call. Only DontNeed zaps PTEs; the other advices set VMA flags,
+  # where chunking would needlessly split the VMA.
+  DONTNEED_CHUNK_SIZE = PMD_SIZE - PAGE_SIZE
+
   getter pos : Int64 = 0i64
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
@@ -30,6 +40,22 @@ class MFile < IO
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
+  # Set on the first write after a sync so the Persister registers the file
+  # for msync at most once per sync cycle
+  @needs_msync = Atomic(Bool).new(false)
+  # Whether open created the inode, so its directory entry needs an fsync too
+  @created = Atomic(Bool).new(false)
+  # Held while msyncing and while unmapping (close/truncate), as msync runs on
+  # the Persister's thread
+  @mapping_lock = Mutex.new(:unchecked)
+  # Readers still using the mapping, see #lease and #close
+  @leases = Atomic(Int32).new(0)
+  @close_requested = Atomic(Bool).new(false)
+  @@mmap_count = Atomic(Int64).new(0)
+
+  def self.mmap_count : Int64
+    @@mmap_count.get(:relaxed)
+  end
 
   def closed?
     @closed.get(:acquire)
@@ -74,9 +100,18 @@ class MFile < IO
   end
 
   private def open_fd
-    flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
+    path = @path.check_no_null_byte
     perms = 0o644
-    fd = LibC.open(@path.check_no_null_byte, flags, perms)
+    if @readonly
+      fd = LibC.open(path, LibC::O_RDONLY, perms)
+    else
+      fd = LibC.open(path, LibC::O_CREAT | LibC::O_EXCL | LibC::O_RDWR, perms)
+      if fd >= 0
+        @created.set(true, :release)
+      elsif Errno.value == Errno::EEXIST
+        fd = LibC.open(path, LibC::O_CREAT | LibC::O_RDWR, perms)
+      end
+    end
     raise File::Error.from_errno("Error opening file", file: @path) if fd < 0
     fd
   end
@@ -102,6 +137,7 @@ class MFile < IO
     ptr = LibC.mmap(nil, length, protection, flags, fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
+    @@mmap_count.add(1, :relaxed)
     advise(Advice::DontDump, addr, length)
     addr
   end
@@ -115,11 +151,40 @@ class MFile < IO
     end
   end
 
-  # The file will be truncated to the current position unless readonly or deleted
+  # The file will be truncated to its size unless readonly or deleted.
+  # A leased file (see #lease) is unmapped when the last lease is released
+  # instead. That unmap doesn't truncate, as the file may have been opened
+  # again by then, so a leased file is truncated right away.
+  # The flag is set before the lease count is read, and release_lease
+  # decrements before reading the flag, so at least one of them sees the
+  # other and unmaps (close_mapping is idempotent).
   def close(truncate_to_size = true)
+    if truncate_to_size && !@leases.get.zero? && !@readonly && !deleted? && !@size.zero?
+      truncate(@size)
+    end
+    @close_requested.set(true)
+    return unless @leases.get.zero?
+    @mapping_lock.synchronize { close_mapping(truncate_to_size) }
+  end
+
+  # Keeps the mapping open until #release_lease, even if #close is called
+  # meanwhile. Must not be called after #close.
+  def lease : self
+    @leases.add(1)
+    self
+  end
+
+  def release_lease : Nil
+    if @leases.sub(1) == 1 && @close_requested.get
+      @mapping_lock.synchronize { close_mapping(truncate_to_size: false) }
+    end
+  end
+
+  private def close_mapping(truncate_to_size) : Nil
     return if @closed.swap(true, :acquire_release)
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
+    @@mmap_count.sub(1, :relaxed)
     if truncate_to_size && !@readonly && !@deleted.get(:acquire)
       code = LibC.truncate(@path.check_no_null_byte, @size)
       # Ignore ENOENT - file may have been deleted by another process
@@ -132,6 +197,10 @@ class MFile < IO
   # Truncate the file to the given capacity (contracting only, no expansion)
   # The truncated part is unmapped from memory
   def truncate(new_capacity) : Nil
+    @mapping_lock.synchronize { truncate_mapping(new_capacity) }
+  end
+
+  private def truncate_mapping(new_capacity) : Nil
     return if closed?
     new_capacity = new_capacity.to_i64
     old_capacity = @capacity
@@ -174,18 +243,44 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer, @size, LibC::MS_ASYNC)
+    @mapping_lock.synchronize do
+      check_open
+      msync(LibC::MS_ASYNC)
+    end
   end
 
-  def msync
-    msync(@buffer, @size, LibC::MS_SYNC)
+  # Block until the written pages are on disk. A file closed in the meantime
+  # still has its dirty pages in the page cache, so fsync it by path instead,
+  # unless it's deleted and nothing needs to be persisted.
+  def fsync : Nil
+    @mapping_lock.synchronize do
+      if closed?
+        File.open(@path, &.fsync) unless deleted?
+      else
+        msync(LibC::MS_SYNC)
+      end
+    end
+  rescue File::NotFoundError
   end
 
-  private def msync(addr, len, flag) : Nil
-    return if len.zero?
-    check_open
-    code = LibC.msync(addr, len, flag)
+  private def msync(flag) : Nil
+    return if @size.zero?
+    code = LibC.msync(@buffer, @size, flag)
     raise RuntimeError.from_errno("msync") if code < 0
+  end
+
+  # Returns whether the file already was marked
+  def mark_needs_msync! : Bool
+    @needs_msync.swap(true, :acquire_release)
+  end
+
+  def clear_needs_msync! : Nil
+    @needs_msync.set(false, :release)
+  end
+
+  # Returns true once if this MFile created the file on disk
+  def take_created! : Bool
+    @created.swap(false, :acquire_release)
   end
 
   # Append only
@@ -252,8 +347,14 @@ class MFile < IO
 
   def advise(advice : Advice, addr = @buffer, length = @capacity) : Nil
     check_open
-    if LibC.madvise(addr, length, advice) != 0
-      raise IO::Error.from_errno("madvise, addr=#{addr} length=#{length} advice=#{advice.value}")
+    chunk = advice.dont_need? ? DONTNEED_CHUNK_SIZE : length.to_i64
+    offset = 0i64
+    while offset < length
+      len = Math.min(chunk, length - offset)
+      if LibC.madvise(addr + offset, len, advice) != 0
+        raise IO::Error.from_errno("madvise, addr=#{addr + offset} length=#{len} advice=#{advice.value}")
+      end
+      offset += len
     end
   end
 

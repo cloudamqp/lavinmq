@@ -1,8 +1,3 @@
-[![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg)](https://github.com/cloudamqp/lavinmq/actions)
-[![Build Status](https://api.cirrus-ci.com/github/cloudamqp/lavinmq.svg)](https://cirrus-ci.com/github/cloudamqp/lavinmq)
-[![License](https://img.shields.io/github/license/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/blob/master/LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/releases)
-
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
 LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0, 3.1.1 protocols.
@@ -59,7 +54,7 @@ Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinm
 You can install LavinMQ from [Homebrew](https://brew.sh/) with `brew`:
 
 ```sh
-brew install cloudamqp/cloudamqp/lavinmq
+brew install lavinmq
 ```
 
 ### Docker
@@ -125,6 +120,12 @@ More configuration options can be viewed with `-h`,
 and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
 for an example, or see the section on [config files in the documentation](https://lavinmq.com/documentation/configuration-files).
 
+To run multiple LavinMQ instances on the same host, give each one its own
+`--data-dir`, ports/binds and a unique `--control-unix-path` (the socket
+`lavinmqctl` connects to, default `/tmp/lavinmqctl.sock`). `lavinmqctl` accepts
+the same `--control-unix-path` flag (or the `LAVINMQCTL_CONTROL_UNIX_PATH`
+environment variable) to reach a specific instance.
+
 ### Client Libraries
 
 All AMQP client libraries work with LavinMQ, and there are AMQP client libraries for almost every platform. The LavinMQ website has guides for many common platforms:
@@ -151,7 +152,7 @@ LavinMQ delivers exceptional throughput performance on commodity hardware. On a 
 **Memory Efficiency:**
 
 - **25 MB RAM** - For 100 million enqueued messages
-- **45 MB RAM** - For 1,000 declared queues
+- **35 MB RAM** - For 1,000 declared queues
 - **70 MB RAM** - For 1,000 concurrent connections
 
 **Binding Performance:**
@@ -165,48 +166,45 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 ### Core Protocols
 
-- AMQP 0-9-1 protocol support
-- MQTT 3.1.0 protocol support
-- MQTT 3.1.1 protocol support
-- AMQPS (TLS)
-- AMQP over websockets
-- MQTT over websockets
+- [AMQP 0-9-1 protocol support](docs/amqp.md)
+- [MQTT 3.1.0 protocol support](docs/mqtt.md)
+- [MQTT 3.1.1 protocol support](docs/mqtt.md)
+- [AMQPS TLS](docs/tls.md)
+- [AMQP over websockets](docs/websockets.md)
+- [MQTT over websockets](docs/websockets.md)
 
 ### Messaging Capabilities
 
-- Publisher confirm
-- Transactions
-- Dead-lettering
-- TTL support on queue, message, and policy level
-- CC/BCC
-- Alternative exchange
-- Exchange to exchange bindings
-- Direct-reply-to RPC
-- Queue max-length
-- Priority queues
-- Delayed exchanges
-- Message deduplication
+- [Publisher confirm](docs/publisher-confirms.md)
+- [Transactions](docs/transactions.md)
+- [Dead-lettering](docs/dead-lettering.md)
+- [TTL support on queue, message, and policy level](docs/ttl.md)
+- [CC/BCC](docs/messages.md#cc-and-bcc-headers)
+- [Alternative exchange](docs/exchanges.md#alternate-exchanges)
+- [Exchange to exchange bindings](docs/bindings.md#exchange-to-exchange-bindings)
+- [Direct-reply-to RPC](docs/messages.md#direct-reply-to-rpc)
+- [Queue max-length](docs/queues.md#overflow-behavior)
+- [Priority queues](docs/priority-queues.md)
+- [Delayed exchanges](docs/delayed-queues.md)
+- [Message deduplication](docs/deduplication.md)
+- [Consistent Hashing Exchange](docs/exchanges.md#consistent-hash-exchange)
 
 ### Management
 
-- HTTP API
-- Users and ACL rules
-- VHost separation
-- Policies
-- Importing/export definitions
-- Consumer cancellation
-
-### High Availability
-
-- Replication
-- Automatic leader election in clusters via etcd
+- [HTTP API](https://docs.lavinmq.com/)
+- [Users and ACL rules](docs/users-permissions.md)
+- [VHost separation](docs/vhosts.md)
+- [Policies](docs/policies.md)
+- [Importing/export definitions](docs/definitions.md)
+- [Consumer cancellation](docs/consumers.md#consumer-lifecycle)
 
 ### Other Functionality
 
-- Shovels
-- Queue & Exchange federation
-- Single active consumer
-- Stream queues
+- [Shovels](docs/shovels.md)
+- [Queue & Exchange federation](docs/federation.md)
+- [Single active consumer](docs/consumers.md#single-active-consumer)
+- [Stream queues](docs/streams.md)
+- [Webhook Shovels](docs/shovels.md#http-destination)
 
 ## Feature Highlights
 
@@ -246,6 +244,8 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 #### Stream Queue Filtering
 
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
+
+See [Stream Queues](docs/streams.md)
 
 ### MQTT Support
 

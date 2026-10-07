@@ -66,9 +66,11 @@ describe LavinMQ::HTTP::ParametersController do
   describe "PUT /api/parameters/component/vhost/name" do
     it "should create parameters for a component on vhost" do
       with_http_server do |http, s|
-        body = %({
-        "value": { "key": "value" }
-      })
+        body = <<-JSON
+          {
+            "value": { "key": "value" }
+          }
+          JSON
         response = http.put("/api/parameters/test/%2f/name", body: body)
         response.status_code.should eq 201
         s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "value"})
@@ -79,9 +81,11 @@ describe LavinMQ::HTTP::ParametersController do
       with_http_server do |http, s|
         p = LavinMQ::Parameter.new("test", "name", JSON::Any.new(%({ "key": "old value" })))
         s.vhosts["/"].add_parameter(p)
-        body = %({
-        "value": { "key": "new value" }
-      })
+        body = <<-JSON
+          {
+            "value": { "key": "new value" }
+          }
+          JSON
         response = http.put("/api/parameters/test/%2f/name", body: body)
         response.status_code.should eq 204
         s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "new value"})
@@ -128,14 +132,16 @@ describe LavinMQ::HTTP::ParametersController do
     it "should validate shovel config with valid config" do
       with_http_server do |http, s|
         s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
         response.status_code.should eq 201
       end
@@ -144,13 +150,15 @@ describe LavinMQ::HTTP::ParametersController do
     it "should reject shovel without source queue or exchange" do
       with_http_server do |http, s|
         s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -161,13 +169,15 @@ describe LavinMQ::HTTP::ParametersController do
     it "should reject shovel without destination" do
       with_http_server do |http, s|
         s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -180,14 +190,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /.*/, /.*/, /^$/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-exchange": "dest-exchange"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-exchange": "dest-exchange"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -200,14 +212,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-exchange": "dest-exchange"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-exchange": "dest-exchange"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -220,15 +234,17 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^(?!dest-queue$).*/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-exchange": "dest-exchange",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-exchange": "dest-exchange",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -241,14 +257,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /.*/, /^$/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -261,14 +279,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^(?!source-queue$).*/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "dest-exchange": "dest-exchange"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "dest-exchange": "dest-exchange"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -281,14 +301,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /.*/, /^(?!source-exchange$).*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-exchange": "source-exchange",
-            "dest-exchange": "dest-exchange"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-exchange": "source-exchange",
+              "dest-exchange": "dest-exchange"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -301,15 +323,17 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "src-exchange": "source-exchange",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "src-exchange": "source-exchange",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -322,16 +346,18 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("sufficient", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("sufficient", "/", /.*/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic c3VmZmljaWVudDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://",
-            "src-queue": "source-queue",
-            "src-exchange": "source-exchange",
-            "dest-exchange": "dest-exchange",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://",
+              "src-queue": "source-queue",
+              "src-exchange": "source-exchange",
+              "dest-exchange": "dest-exchange",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 201
       end
@@ -342,14 +368,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://external-host",
-            "dest-uri": "amqp://external-host",
-            "src-queue": "source-queue",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://external-host",
+              "dest-uri": "amqp://external-host",
+              "src-queue": "source-queue",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 201
       end
@@ -360,14 +388,16 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://someuser:pass@localhost",
-            "dest-uri": "amqp://someuser:pass@localhost",
-            "src-queue": "source-queue",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://someuser:pass@localhost",
+              "dest-uri": "amqp://someuser:pass@localhost",
+              "src-queue": "source-queue",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 201
       end
@@ -378,15 +408,17 @@ describe LavinMQ::HTTP::ParametersController do
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^amq\.topic$/, /^amq\.topic$/, /^$/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
-        body = %({
-          "value": {
-            "src-uri": "amqp://",
-            "dest-uri": "amqp://external-host",
-            "src-exchange": "amq.topic",
-            "src-exchange-key": "#",
-            "dest-queue": "dest-queue"
+        body = <<-JSON
+          {
+            "value": {
+              "src-uri": "amqp://",
+              "dest-uri": "amqp://external-host",
+              "src-exchange": "amq.topic",
+              "src-exchange-key": "#",
+              "dest-queue": "dest-queue"
+            }
           }
-        })
+          JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
         response.status_code.should eq 201
       end
@@ -406,6 +438,24 @@ describe LavinMQ::HTTP::ParametersController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should allow policymaker to list global parameters" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters", headers: hdrs)
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should refuse management users from listing global parameters" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
   end
   describe "GET /api/global-parameters/name" do
     it "should return parameter" do
@@ -416,14 +466,46 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 200
       end
     end
+
+    it "should allow policymaker to get a global parameter" do
+      with_http_server do |http, s|
+        p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+        s.add_parameter(p)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should refuse management users from getting a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
   end
   describe "PUT /api/global-parameters/name" do
+    it "should refuse management users from creating a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        body = %({"value": {}})
+        response = http.put("/api/global-parameters/name", headers: hdrs, body: body)
+        response.status_code.should eq 403
+      end
+    end
+
     it "should create global parameter" do
       with_http_server do |http, s|
         s.delete_parameter(nil, "name")
-        body = %({
-        "value": {}
-      })
+        body = <<-JSON
+          {
+            "value": {}
+          }
+          JSON
         response = http.put("/api/global-parameters/name", body: body)
         response.status_code.should eq 201
       end
@@ -433,9 +515,11 @@ describe LavinMQ::HTTP::ParametersController do
       with_http_server do |http, s|
         p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new(%({ "key": "old value" })))
         s.add_parameter(p)
-        body = %({
-        "value": { "key": "new value" }
-      })
+        body = <<-JSON
+          {
+            "value": { "key": "new value" }
+          }
+          JSON
         response = http.put("/api/global-parameters/name", body: body)
         response.status_code.should eq 204
         s.parameters[{nil, "name"}].value.should eq({"key" => "new value"})
@@ -468,6 +552,17 @@ describe LavinMQ::HTTP::ParametersController do
     end
   end
   describe "DELETE /api/global-parameters/name" do
+    it "should refuse management users from deleting a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+        s.add_parameter(p)
+        response = http.delete("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
     it "should delete parameter" do
       with_http_server do |http, s|
         p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
@@ -525,12 +620,14 @@ describe LavinMQ::HTTP::ParametersController do
   describe "PUT /api/policies/vhost/name" do
     it "should create policy" do
       with_http_server do |http, s|
-        body = %({
-        "apply-to": "queues",
-        "priority": 4,
-        "definition": { "max-length": 10 },
-        "pattern": ".*"
-      })
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 4,
+            "definition": { "max-length": 10 },
+            "pattern": ".*"
+          }
+          JSON
         response = http.put("/api/policies/%2f/name", body: body)
         response.status_code.should eq 201
         s.vhosts["/"].policies["name"].definition["max-length"].as_i.should eq 10
@@ -543,10 +640,12 @@ describe LavinMQ::HTTP::ParametersController do
         definitions = {"max-length" => JSON::Any.new(10_i64)}
         s.vhosts["/"].add_policy(policy_name, "^.*$", "all", definitions, -10_i8)
 
-        body = %({
-        "pattern": ".*",
-        "definition": { "max-length": 20 }
-      })
+        body = <<-JSON
+          {
+            "pattern": ".*",
+            "definition": { "max-length": 20 }
+          }
+          JSON
         response = http.put("/api/policies/%2f/#{policy_name}", body: body)
         response.status_code.should eq 204
         s.vhosts["/"].policies[policy_name].definition["max-length"].as_i.should eq 20
@@ -580,12 +679,14 @@ describe LavinMQ::HTTP::ParametersController do
 
     it "should handle invalid definition types" do
       with_http_server do |http, _|
-        body = %({
-        "apply-to": "queues",
-        "priority": 0,
-        "definition": { "max-length": "String" },
-        "pattern": ".*"
-      })
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": "String" },
+            "pattern": ".*"
+          }
+          JSON
         response = http.put("/api/policies/%2f/name", body: body)
         response.status_code.should eq 400
       end
@@ -595,12 +696,14 @@ describe LavinMQ::HTTP::ParametersController do
   describe "PUT /api/operator-policies/vhost/name" do
     it "should handle invalid definition types" do
       with_http_server do |http, _|
-        body = %({
-        "apply-to": "queues",
-        "priority": 0,
-        "definition": { "max-length": "String" },
-        "pattern": ".*"
-      })
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": "String" },
+            "pattern": ".*"
+          }
+          JSON
         response = http.put("/api/operator-policies/%2f/name", body: body)
         response.status_code.should eq 400
       end
@@ -622,12 +725,14 @@ describe LavinMQ::HTTP::ParametersController do
   describe "PUT /api/operator-policies/vhost/name" do
     it "should handle invalid definition types" do
       with_http_server do |http, _|
-        body = %({
-        "apply-to": "queues",
-        "priority": 0,
-        "definition": { "max-length": "String" },
-        "pattern": ".*"
-      })
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": "String" },
+            "pattern": ".*"
+          }
+          JSON
         response = http.put("/api/operator-policies/%2f/name", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)

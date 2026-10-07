@@ -1,4 +1,5 @@
 require "http/server/handler"
+require "../../version"
 
 module LavinMQ
   module HTTP
@@ -8,6 +9,10 @@ module LavinMQ
 
       def call(context)
         context.response.content_type = "application/json"
+        # Advertise the server version on API responses; the management UI reads
+        # it off any API response (see static/js/http.js) to show the version
+        # without an extra request.
+        context.response.headers["LavinMQ-Version"] = LavinMQ::VERSION
         {% if flag?(:release) %}
           call_next(context)
         {% else %}

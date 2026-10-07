@@ -25,8 +25,8 @@ module LavinMQ
       # without reconnecting. Username stays the same, only permissions/expiration are updated.
       #
       # Public Key caching: Public keys are managed by a background fiber that periodically
-      # refreshes them based on TTL. Token verification uses only cached keys and never
-      # blocks on network calls.
+      # refreshes them based on TTL. Verification uses cached keys, blocking on a
+      # rate-limited on-demand fetch only until the first fetch has succeeded.
       #
       # Security: Only RS256 accepted (prevents algorithm confusion), issuer/audience
       # validation prevents accepting tokens from untrusted or unintended sources, fails
@@ -46,6 +46,8 @@ module LavinMQ
 
         def verify_token(token : String) : Token
           prevalidate_token(token)
+          # After prevalidation so malformed tokens can't trigger network fetches
+          @fetcher.ensure_keys
           verified_token = @fetcher.public_keys.decode(token)
           payload = verified_token.payload
           validate_issuer(payload)
@@ -70,7 +72,7 @@ module LavinMQ
           raise JWT::VerificationError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
 
           # Validate iat (Issued At) - reject tokens issued in the future
-          # Allow 200ms tolerance to account for RoughTime caching (updates every 100ms)
+          # Allow 200ms tolerance for clock skew between the issuer and us
           if iat = payload.iat
             raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc + 0.2.seconds
           end

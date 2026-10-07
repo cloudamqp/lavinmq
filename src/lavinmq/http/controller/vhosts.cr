@@ -19,8 +19,8 @@ module LavinMQ
     class VHostsController < Controller
       private def register_routes
         get "/api/vhosts" do |context, _params|
-          vhosts = vhosts(user(context)).map { |v| VHostView.new(v) }
-          page(context, vhosts)
+          arr = vhosts(user(context)).map { |v| VHostView.new(v) }
+          page(context, arr)
         end
 
         get "/api/vhosts/:name" do |context, params|
@@ -42,11 +42,11 @@ module LavinMQ
             tags = Array(String).new(0)
             description = ""
           end
-          is_update = @amqp_server.vhosts[name]?
+          is_update = @server.vhosts[name]?
           if name.bytesize > UInt8::MAX
             bad_request(context, "Vhost name too long, can't exceed 255 characters")
           end
-          @amqp_server.vhosts.create(name, u, description, tags)
+          @server.vhosts.create(name, u, description, tags)
           context.response.status_code = is_update ? 204 : 201
           context
         end
@@ -54,13 +54,7 @@ module LavinMQ
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, vhost_key: "name") do |vhost|
-            if deleted_vhost = @amqp_server.vhosts.delete(vhost.name)
-              message_stats = deleted_vhost.message_details[:message_stats]
-              # Add stats to global stats for accurate prometheus metrics counters
-              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver_get]
-              @amqp_server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
-              @amqp_server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
-              @amqp_server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
+            if @server.vhosts.delete(vhost.name)
               context.response.status_code = 204
             else
               context.response.status_code = 404
@@ -71,7 +65,7 @@ module LavinMQ
         get "/api/vhosts/:name/permissions" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, vhost_key: "name") do |vhost|
-            @amqp_server.users.compact_map do |_, u|
+            @server.users.compact_map do |_, u|
               next if u.hidden?
               u.permissions[vhost.name]?.try { |p| u.permissions_details(vhost.name, p) }
             end.to_json(context.response)

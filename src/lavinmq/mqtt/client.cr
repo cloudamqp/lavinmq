@@ -7,18 +7,46 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "../stats"
+require "../persister"
+require "sync/exclusive"
 
 module LavinMQ
   module MQTT
+    # Protocol level from the CONNECT packet:
+    # level 3 is MQTT 3.1 (MQIsdp), level 4 is MQTT 3.1.1 (MQTT).
+    enum ProtocolVersion : UInt8
+      V3_1   = 3
+      V3_1_1 = 4
+
+      def name
+        case self
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
+        end
+      end
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
 
-      getter channels, log, name, user, client_id, socket, connection_info
+      # A QoS 1 publish waiting for its PUBACK, which is sent once the
+      # persister has made the publish durable. `seq` orders the publishes, so
+      # the persister's cumulative confirm releases every PUBACK up to it.
+      record PendingPubAck, seq : UInt64, packet_id : UInt16
+
+      getter log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
+      @protocol : String
+      @publish_seq = 0u64
+      @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
+      # Created with the PUBACK writer fiber on the first QoS 1 publish
+      @puback_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -26,21 +54,50 @@ module LavinMQ
         @broker.vhost
       end
 
-      def initialize(@io : MQTT::IO,
+      # Stub channel accessors for polymorphic dispatch with AMQP::Client
+
+      def channel_count : Int32
+        0
+      end
+
+      def each_channel(& : LavinMQ::Client::Channel ->) : Nil
+      end
+
+      def channels : Array(LavinMQ::Client::Channel)
+        [] of LavinMQ::Client::Channel
+      end
+
+      def channel?(id : UInt16) : LavinMQ::Client::Channel?
+        nil
+      end
+
+      def initialize(@io : Protocol::IO,
                      @connection_info : ConnectionInfo,
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
+                     protocol_version : ProtocolVersion,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
-                     @will : MQTT::Will? = nil)
+                     @will : Protocol::Will? = nil)
+        @protocol = protocol_version.name
+        @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
+      end
+
+      def run : Nil
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
+        case user = @user
+        when Auth::OAuthUser
+          user.on_expiration do
+            close("token expired")
+          end
+        end
+        read_loop
       end
 
       def client_name
@@ -63,12 +120,12 @@ module LavinMQ
           end
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
-          if packet.is_a?(MQTT::Disconnect)
+          if packet.is_a?(Protocol::Disconnect)
             @log.debug { "Received disconnect" }
             break
           end
         end
-      rescue ex : ::MQTT::Protocol::Error::PacketDecode
+      rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
       rescue ex : ::IO::TimeoutError
@@ -81,7 +138,11 @@ module LavinMQ
         @log.error(exception: ex) { "Read Loop error" }
         publish_will
       ensure
-        @broker.remove_client(self)
+        case user = @user
+        when Auth::OAuthUser
+          user.cleanup
+        end
+        @puback_mailbox.try &.close
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
@@ -97,15 +158,16 @@ module LavinMQ
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
         @recv_oct_count.add(packet.bytesize, :relaxed)
+        vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
-        when MQTT::Publish     then recieve_publish(packet)
-        when MQTT::PubAck      then recieve_puback(packet)
-        when MQTT::Subscribe   then recieve_subscribe(packet)
-        when MQTT::Unsubscribe then recieve_unsubscribe(packet)
-        when MQTT::PingReq     then receive_pingreq(packet)
-        when MQTT::Disconnect  then return packet
-        else                        raise "received unexpected packet: #{packet}"
+        when Protocol::Publish     then recieve_publish(packet)
+        when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::Subscribe   then recieve_subscribe(packet)
+        when Protocol::Unsubscribe then recieve_unsubscribe(packet)
+        when Protocol::PingReq     then receive_pingreq(packet)
+        when Protocol::Disconnect  then return packet
+        else                            raise "received unexpected packet: #{packet}"
         end
         packet
       end
@@ -115,75 +177,141 @@ module LavinMQ
           @io.write_packet(packet)
           @io.flush
           @send_oct_count.add(packet.bytesize, :relaxed)
+          vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet
-        when MQTT::Publish
+        when Protocol::Publish
           if packet.dup?
             vhost.event_tick(EventType::ClientRedeliver)
           else
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when MQTT::PubAck
+        when Protocol::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
 
-      def receive_pingreq(packet : MQTT::PingReq)
-        send MQTT::PingResp.new
+      def receive_pingreq(packet : Protocol::PingReq)
+        send Protocol::PingResp.new
       end
 
-      def recieve_publish(packet : MQTT::Publish)
+      def recieve_publish(packet : Protocol::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
+          return
+        end
+        # A topic denial acks and drops, it never closes the connection.
+        unless @broker.permission_service.can_write?(@permission_context, packet.topic)
+          Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
+          # Queued like the others, as PUBACKs must be sent in publish order
+          if packet.qos > 0 && (packet_id = packet.packet_id)
+            enqueue_puback(packet_id)
+          end
           return
         end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(MQTT::PubAck.new(packet_id))
+          enqueue_puback(packet_id)
         end
       end
 
-      def recieve_puback(packet : MQTT::PubAck)
-        @broker.sessions[@client_id].ack(packet)
+      # QoS 1 publishes are acked like publish confirms, once durable. The
+      # PUBACK is sent by the writer fiber, so the read loop never waits for
+      # the disk.
+      private def enqueue_puback(packet_id : UInt16) : Nil
+        unless @puback_mailbox
+          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
+          spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
+        end
+        seq = @publish_seq &+= 1
+        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
+        vhost.enqueue_ack(self, seq)
+      end
+
+      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
+      # (confirms are cumulative).
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = @puback_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def puback_writer(mailbox : ::Channel(UInt64))
+        while seq = mailbox.receive?
+          while pending = next_puback(seq)
+            send(Protocol::PubAck.new(pending.packet_id))
+          end
+        end
+      rescue ::IO::Error
+      end
+
+      private def next_puback(seq : UInt64) : PendingPubAck?
+        @pending_pubacks.lock do |pending|
+          pending.shift if pending.first?.try(&.seq.<= seq)
+        end
+      end
+
+      def recieve_puback(packet : Protocol::PubAck)
+        # No session means we never delivered anything to ack
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubAck from client without a session" }
+          close_socket
+          return
+        end
+        session.ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
-      def recieve_subscribe(packet : MQTT::Subscribe)
+      def recieve_subscribe(packet : Protocol::Subscribe)
         if Config.instance.mqtt_permission_check_enabled?
-          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             close_socket
             return
           end
         end
+        # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
+        # may subscribe to a filter it cannot read. Mosquitto also filters at
+        # delivery, but it additionally refuses the filter in the SUBACK.
         qos = @broker.subscribe(self, packet.topic_filters)
-        send(MQTT::SubAck.new(qos, packet.packet_id))
+        send(Protocol::SubAck.new(qos, packet.packet_id))
       end
 
-      def recieve_unsubscribe(packet : MQTT::Unsubscribe)
+      def recieve_unsubscribe(packet : Protocol::Unsubscribe)
         @broker.unsubscribe(client_id, packet.topics)
-        send(MQTT::UnsubAck.new(packet.packet_id))
+        send(Protocol::UnsubAck.new(packet.packet_id))
       end
 
       def details_tuple
         {
           vhost:             @broker.vhost.name,
           user:              @user.name,
-          protocol:          "MQTT 3.1.1",
+          protocol:          @protocol,
           client_id:         @client_id,
           name:              @name,
           timeout:           @keepalive,
           connected_at:      @connected_at,
           state:             state,
+          host:              @connection_info.local_address.address,
+          port:              @connection_info.local_address.port,
+          peer_host:         @connection_info.remote_address.address,
+          peer_port:         @connection_info.remote_address.port,
           ssl:               @connection_info.ssl?,
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
           client_properties: NamedTuple.new,
-        }.merge(stats_details)
+        }.merge(current_stats_details)
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge(stats_details).to_json(json)
       end
 
       def search_match?(value : String) : Bool
@@ -202,7 +330,11 @@ module LavinMQ
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
-          @broker.publish(MQTT::Publish.new(
+          unless @broker.permission_service.can_write?(@permission_context, will.topic)
+            Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
+            return
+          end
+          @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -239,96 +371,6 @@ module LavinMQ
         end
         socket.close
       rescue ::IO::Error
-      end
-    end
-
-    class Consumer < LavinMQ::Client::Channel::Consumer
-      # `MQTT::Consumer` only has the `has_capacity` method to satisfy the interface.
-      # Since it's never used a shared object can be used. It's also closed immediately
-      # to not have a fiber running.
-      class_getter(dummy_has_capacity : BoolChannel) { BoolChannel.new(true).tap &.close }
-
-      getter unacked = 0_u32
-      getter tag : String
-
-      def has_capacity : BoolChannel
-        self.class.dummy_has_capacity
-      end
-
-      property prefetch_count = 0_u16
-
-      def initialize(@client : Client, @session : MQTT::Session)
-        @tag = "mqtt.#{@client.client_id}"
-      end
-
-      def details_tuple
-        {
-          queue: {
-            name:  "mqtt.#{@client.client_id}",
-            vhost: @client.vhost.name,
-          },
-          consumer_tag:    @tag,
-          exclusive:       exclusive?,
-          ack_required:    !no_ack?,
-          prefetch_count:  @prefetch_count,
-          priority:        priority,
-          channel_details: {
-            peer_host:       @client.connection_info.remote_address.address,
-            peer_port:       @client.connection_info.remote_address.port,
-            connection_name: @client.name,
-            user:            @client.user.name,
-            number:          0_u16,
-            name:            "#{@client.connection_info.remote_address}[0]",
-          },
-        }
-      end
-
-      def no_ack?
-        true
-      end
-
-      def accepts? : Bool
-        true
-      end
-
-      def deliver(msg : MQTT::Publish)
-        @client.send(msg)
-      end
-
-      def deliver(msg, sp, redelivered = false, recover = false)
-        raise NotImplementedError.new("MQTT Consumer can't deliver AMQP messages")
-      end
-
-      def exclusive?
-        true
-      end
-
-      def cancel
-        @client.close("Server force closed client")
-      end
-
-      def close
-        @client.close("Server force closed client")
-      end
-
-      def closed?
-        false
-      end
-
-      def flow(active : Bool)
-        raise NotImplementedError.new("MQTT Consumer doesn't support flow")
-      end
-
-      def ack(sp)
-        raise NotImplementedError.new("MQTT Consumer doesn't support ack")
-      end
-
-      def reject(sp, requeue = false)
-        raise NotImplementedError.new("MQTT Consumer doesn't support reject")
-      end
-
-      def priority
-        0
       end
     end
   end

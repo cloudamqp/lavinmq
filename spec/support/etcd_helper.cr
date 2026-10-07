@@ -1,4 +1,13 @@
+# Fail fast with a clear message when the etcd binary isn't installed,
+# instead of each etcd spec burning its connect-retry loop before failing.
+def ensure_etcd_in_path!
+  return if Process.find_executable("etcd")
+  raise "etcd binary not found in PATH, required by etcd-tagged specs. " \
+        "Install etcd or exclude these specs with --tag=~etcd"
+end
+
 def with_etcd(&)
+  ensure_etcd_in_path!
   p = Process.new("etcd", {
     "--data-dir=/tmp/clustering-spec.etcd",
     "--logger=zap",

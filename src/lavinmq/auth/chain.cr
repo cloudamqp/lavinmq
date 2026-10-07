@@ -9,10 +9,9 @@ module LavinMQ
   module Auth
     class Chain < Authenticator
       Log = LavinMQ::Log.for "auth.chain"
-      @backends : Array(Authenticator)
+      property backends : Array(Authenticator)
 
-      def initialize(backends : Array(Authenticator))
-        @backends = backends
+      def initialize(@backends : Array(Authenticator))
       end
 
       def self.create(config : Config, users : UserStore) : Chain
@@ -38,7 +37,7 @@ module LavinMQ
           # Default to local auth if no backends configured
           authenticators << LocalAuthenticator.new(users)
         end
-        self.new(authenticators)
+        new(authenticators)
       end
 
       def cleanup

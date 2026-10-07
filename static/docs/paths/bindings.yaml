@@ -258,6 +258,12 @@
     description: Create a binding between two exchanges.
     summary: Create exchange binding
     operationId: PostBindingsExchange
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/bindings-PostBindingsExchangeQueueRequestBody"
     responses:
       '201':
         description: The binding was created successfully.

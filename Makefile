@@ -2,12 +2,12 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
-VIEW_SOURCES := $(wildcard views/*.ecr)
-VIEW_TARGETS := $(patsubst views/%.ecr,static/%.html,$(VIEW_SOURCES))
-VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
+VIEW_SOURCES := $(wildcard views/*.shtml)
+VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
+VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
-override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
+override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
 
 .DEFAULT_GOAL := all
@@ -18,13 +18,13 @@ all: $(BINS)
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
@@ -33,6 +33,25 @@ bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
+bin/stress: extras/stress.cr lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+SHOVEL_TEST_SOURCES := $(shell find extras/shovel_test -name '*.cr' 2> /dev/null)
+bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+.PHONY: shovel-test
+shovel-test: bin/shovel-test
+	bin/shovel-test
+
+.PHONY: stress
+stress: bin/stress
+	$<
+
+.PHONY: benchmark
+benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
+	$<
+
 lib: shard.yml shard.lock
 	shards install --production
 
@@ -40,31 +59,35 @@ bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
 static/js/lib/chart.js: | static/js/lib
-	curl --fail --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
 	tar -zxOf- package/dist/chart.js > $@
-	echo "038d0a4f9c61f0b35ff70f883e7591403a349542625a4caaf48caa141adedfd5  $@" | sha256sum -c -
+	[ "038d0a4f9c61f0b35ff70f883e7591403a349542625a4caaf48caa141adedfd5 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --fail --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
 	tar -zxOf- package/dist/chunks/helpers.segment.js > $@
-	echo "b4746b748fe583a18ef921e341b8b65166c2ebd0b737fde6527b254baaeb1aa1  $@" | sha256sum -c -
+	[ "b4746b748fe583a18ef921e341b8b65166c2ebd0b737fde6527b254baaeb1aa1 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/luxon.js: | static/js/lib
-	curl --fail --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs
-	echo "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a  $@" | sha256sum -c -
+	curl --fail --retry 5 -sL https://registry.npmjs.org/luxon/-/luxon-3.7.2.tgz | \
+	tar -zxOf- package/build/es6/luxon.mjs > $@
+	[ "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --fail --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chartjs-adapter-luxon/-/chartjs-adapter-luxon-1.3.1.tgz | \
+	tar -zxOf- package/dist/chartjs-adapter-luxon.esm.js > $@
 	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
-	echo "17d7b6567d656a004f86b6b5cbdbe64cb308e9a2ebfa7675caa79ba0bc72ef91  $@" | sha256sum -c -
+	[ "17d7b6567d656a004f86b6b5cbdbe64cb308e9a2ebfa7675caa79ba0bc72ef91 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
-	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
-	echo "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885  $@" | sha256sum -c -
+	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
+	tar -zxOf- package/web-components.min.js > $@
+	[ "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/elements-8.2.0.css: | static/js/lib
-	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
-	echo "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b  $@" | sha256sum -c -
+	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
+	tar -zxOf- package/styles.min.css > $@
+	[ "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
@@ -84,11 +107,17 @@ man: $(MANPAGES)
 js: $(JS)
 
 .PHONY: deps
-deps: js lib
+deps: js lib views
+
+bin/ameba: lib/ameba | bin
+	crystal build lib/ameba/bin/ameba.cr -o $@
+
+lib/ameba: shard.yml shard.lock
+	shards install
 
 .PHONY: lint
-lint: lib
-	lib/ameba/bin/ameba src/ spec/
+lint: bin/ameba
+	$< src/ spec/
 
 .PHONY: lint-js
 lint-js:
@@ -96,11 +125,11 @@ lint-js:
 
 .PHONY: lint-openapi
 lint-openapi:
-	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
+	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
-test: lib
-	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
+test: lib views
+	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
 format:
@@ -157,9 +186,21 @@ views: $(VIEW_TARGETS)
 watch-views:
 	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
 
-static/%.html: views/%.ecr $(VIEW_PARTIALS)
-	INPUT=$< crystal run views/_render.cr > $@
+static/%.html: views/%.shtml $(VIEW_PARTIALS) views/render.sh
+	views/render.sh $< > $@
 
 .PHONY: clean-views
 clean-views:
 	$(RM) $(VIEW_TARGETS)
+
+.PHONY: optimize-assets
+optimize-assets:
+	npx svgo --multipass --pretty --indent 2 --recursive static/
+
+node_modules/@playwright/test:
+	npm install @playwright/test
+
+.PHONY: test-frontend
+test-frontend: node_modules/@playwright/test
+	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS)
+	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(SPEC)

@@ -10,8 +10,8 @@ module LavinMQPerf
       @no_wait = false
       @args = ::AMQP::Client::Arguments.new
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-q queues", "--queues=number", "Number of queues (default 100)") do |v|
           @queues = v.to_i
         end
@@ -20,16 +20,14 @@ module LavinMQPerf
           @exclusive = false
         end
         @parser.on("--arguments=JSON", "Queue arguments as a JSON string") do |v|
-          begin
-            json = JSON.parse(v)
-            if args = json.as_h?
-              @args = ::AMQP::Client::Arguments.new(args)
-            else
-              abort "Error: --arguments must be a JSON object"
-            end
-          rescue JSON::ParseException
-            abort "Error: Invalid JSON in --arguments parameter"
+          json = JSON.parse(v)
+          if args = json.as_h?
+            @args = ::AMQP::Client::Arguments.new(args)
+          else
+            abort "Error: --arguments must be a JSON object"
           end
+        rescue JSON::ParseException
+          abort "Error: Invalid JSON in --arguments parameter"
         end
         @parser.on("-n", "--no-wait", "Don't wait for queue declaration confirm") do
           @no_wait = true
@@ -49,7 +47,8 @@ module LavinMQPerf
             @io.print '.'
           end
           puts
-          @io.print "#{count += @queues} queues "
+          count += @queues
+          @io.print "#{count} queues "
           @io.puts "Using #{rss.humanize_bytes} memory."
           @io.puts "Press enter to add #{@queues} more queues or ctrl-c to abort"
           gets

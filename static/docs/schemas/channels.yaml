@@ -110,3 +110,11 @@ float_stats_details:
       type: array
       items:
         type: number
+PutChannelRequestBody:
+  type: object
+  properties:
+    prefetch:
+      type: integer
+      minimum: 0
+      maximum: 65535
+      description: Consumer prefetch count for the channel.

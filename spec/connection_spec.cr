@@ -58,6 +58,138 @@ class AMQP::Client::UnsafeClient < AMQP::Client
 end
 
 describe LavinMQ::Server do
+  describe "channel close" do
+    it "does not close the connection for frames on a channel waiting for close-ok" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 999_u64, false), IO::ByteFormat::NetworkEndian
+          io.flush
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Channel::Close)
+          close.reply_code.should eq 406
+
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 999_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
+    it "discards a method frame pipelined after a server-initiated channel close" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # A passive declare of a missing queue makes the server close the channel.
+          # The client cannot know that yet, so it pipelines another method frame on
+          # the same channel. The server must discard it and keep the connection.
+          io.write_bytes AMQ::Protocol::Frame::Queue::Declare.new(1_u16, 0_u16, "no-such-queue",
+            true, false, false, false, false, AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Basic::Qos.new(1_u16, 0_u32, 1_u16, false),
+            IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Channel::Close)
+          close.reply_code.should eq 404
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # The id is free again once the client has replied CloseOk.
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
+    it "does not close the connection for a settlement frame on an already-closed channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # Client closes the channel; the broker removes it and replies CloseOk.
+          io.write_bytes AMQ::Protocol::Frame::Channel::Close.new(1_u16, 200_u16, "", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::CloseOk)
+
+          # A delivery settled in another fiber races the close and arrives after
+          # the channel is gone. The broker must discard it, not kill the whole
+          # connection. Open a second channel to prove the connection survived.
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 1_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
+    it "does not close the connection for a settlement frame on a never-opened channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # A stray settlement (here on a channel that was never opened) is
+          # discarded with a warning, not treated as a fatal protocol error.
+          # Open another channel to prove the connection survived.
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(5_u16, 1_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+  end
+
+  describe "unexpected frames" do
+    it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_byte(8_u8)                             # heartbeat frame type
+          IO::ByteFormat::NetworkEndian.encode(1_u16, io) # channel
+          IO::ByteFormat::NetworkEndian.encode(0_u32, io) # frame size
+          io.write_byte(206_u8)                           # frame end
+          io.flush
+
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Close)
+          close.reply_code.should eq 505
+        end
+      end
+    end
+  end
+
   describe "channel_max" do
     it "should not accept a channel_max from the client lower than the server config" do
       with_amqp_server do |s|
@@ -103,8 +235,65 @@ describe LavinMQ::Server do
         conn = AMQP::Client.new(port: amqp_port(s), channel_max: 0).connect
         conn.channel
         conn.channel
-        s.connections.first.channels.size.should eq 2
+        s.connections.first.channel_count.should eq 2
         s.connections.first.as(LavinMQ::AMQP::Client).channel_max.should eq 0
+      end
+    end
+  end
+
+  describe "invalid frame end" do
+    it "should respond with frame error when routing key exceeds 255 bytes" do
+      with_amqp_server do |s|
+        io = TCPSocket.new("localhost", amqp_port(s))
+        io.read_timeout = 5.seconds
+
+        # AMQP handshake
+        io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+        io.flush
+        stream = AMQ::Protocol::Stream.new(io)
+        stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+        response = "\u0000guest\u0000guest"
+        io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+          AMQ::Protocol::Table.new, "PLAIN", response, ""),
+          IO::ByteFormat::NetworkEndian)
+        io.flush
+        tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
+        io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+          channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+          IO::ByteFormat::NetworkEndian
+        io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+        io.flush
+        stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
+        io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+        io.flush
+        stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+        # Simulate a broken client sending a 10,000-byte routing key
+        # with a truncated ShortString length byte (10000 & 0xFF = 16)
+        routing_key = "x" * 10_000
+        exchange = "amq.direct"
+
+        payload = IO::Memory.new
+        IO::ByteFormat::NetworkEndian.encode(60_u16, payload) # class_id (Basic)
+        IO::ByteFormat::NetworkEndian.encode(40_u16, payload) # method_id (Publish)
+        IO::ByteFormat::NetworkEndian.encode(0_u16, payload)  # reserved1
+        payload.write_byte(exchange.bytesize.to_u8)           # exchange ShortString
+        payload.write(exchange.to_slice)
+        payload.write_byte((routing_key.bytesize & 0xFF).to_u8) # truncated length byte
+        payload.write(routing_key.to_slice)                     # full 10,000 bytes
+        payload.write_byte(0_u8)                                # mandatory=false, immediate=false
+
+        io.write_byte(1_u8)                                          # frame type (Method)
+        IO::ByteFormat::NetworkEndian.encode(1_u16, io)              # channel
+        IO::ByteFormat::NetworkEndian.encode(payload.pos.to_u32, io) # frame size
+        io.write(payload.to_slice)
+        io.write_byte(206_u8) # frame end
+        io.flush
+
+        close = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Close)
+        close.reply_code.should eq 501
+      ensure
+        io.try &.close
       end
     end
   end

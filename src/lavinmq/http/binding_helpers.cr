@@ -5,12 +5,12 @@ module LavinMQ
   module HTTP
     module BindingHelpers
       private def bindings(vhost)
-        vhost.exchanges.each_value.flat_map do |e|
+        vhost.exchanges.flat_map do |e|
           e.bindings_details
         end
       end
 
-      private def binding_for_props(context, source, destination : Destination, props)
+      private def binding_for_props(context, source, destination : LavinMQ::Queue | LavinMQ::Exchange, props)
         binding = source.bindings_details.find do |bd|
           bd.destination == destination && bd.binding_key.properties_key == props
         end

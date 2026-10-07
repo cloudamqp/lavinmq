@@ -18,6 +18,9 @@ policy:
       - all
       - queues
       - exchanges
+      - classic_queues
+      - quorum_queues
+      - streams
     priority:
       type: integer
     definition:
@@ -42,6 +45,9 @@ PutPolicyRequestBody:
       - all
       - queues
       - exchanges
+      - classic_queues
+      - quorum_queues
+      - streams
   required:
   - pattern
   - definition

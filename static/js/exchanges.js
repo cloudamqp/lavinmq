@@ -16,7 +16,7 @@ HTTP.request('GET', 'api/overview').then(function (response) {
     opt.value = name
     select.add(opt)
   })
-})
+}).catch(() => {})
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/exchanges'
@@ -32,9 +32,6 @@ const tableOptions = {
 }
 const exchangeTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
-    if (item.name === '') {
-      item.name = 'amq.default'
-    }
     const features = document.createElement('span')
     features.className = 'features'
     if (item.durable) {
@@ -100,6 +97,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
       DOM.toast('Exchange ' + exchange + ' created')
       evt.target.reset()
     })
+    .catch(() => {})
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {

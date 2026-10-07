@@ -1,26 +1,128 @@
+require "../filesystem"
+require "digest/sha1"
+require "./protocol"
+require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
+require "../sortable_json"
+require "./client"
+require "../policy"
+require "../queue_stats"
+require "../vhost"
 require "./consts"
+require "./permission_service"
+require "./session_message_store"
 
 module LavinMQ
   module MQTT
-    class Session < LavinMQ::AMQP::Queue
+    class Session
+      class ClosedError < MQTT::Error; end
+
       include SortableJSON
+      include PolicyTarget
+      include AMQP::QueueStats
       Log = ::LavinMQ::Log.for "mqtt.session"
 
+      ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
+      EFFECTIVE_ARGS = {"x-queue-type"}
+
+      getter name : String
+      getter vhost : VHost
+      getter? internal = false
+      getter? auto_delete
+
+      @max_length : Int64? = nil
+      @max_length_bytes : Int64? = nil
+      @msg_store_lock = Mutex.new(:reentrant)
+      @msg_store : SessionMessageStore
+      @metadata : ::Log::Metadata
+      @closed = Atomic(Bool).new(false)
+      @deleted = false
       @client : MQTT::Client? = nil
+      @permission_service : PermissionService
+      # Derived from the queue name, so a restored session with no client
+      # attached still knows its client id.
+      @client_id : String
+      # Carries the user of the last attached client. The username is kept in
+      # the .metadata file so a restored session keeps its member rules until a
+      # client reconnects.
+      @permission_context : PermissionService::Context
+      @metadata_file : String
+      @replicator : Clustering::Replicator?
+      @has_client = BoolChannel.new(false)
+      @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
+        @client_id = @name.lchop(SESSION_PREFIX)
+        @permission_service = @vhost.mqtt_permission_service
         @unacked = Hash(UInt16, SegmentPosition).new
 
-        super(@vhost, @name, false, @auto_delete, arguments)
-
+        @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
         @log = Logger.new(Log, @metadata)
+        data_dir = File.join(
+          durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
+          Digest::SHA1.hexdigest(@name)
+        )
+        FileSystem.mkdir_p(data_dir)
+        @replicator = durable? ? @vhost.@replicator : nil
+        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+        @metadata_file = File.join(data_dir, ".metadata")
+        username = nil
+        if File.exists?(@metadata_file)
+          @replicator.try &.register_file(@metadata_file)
+          username = read_metadata_file
+        else
+          write_metadata_file(nil)
+        end
+        @permission_context = PermissionService::Context.new(username, @client_id)
+
         spawn deliver_loop, name: "Session#deliver_loop"
+      end
+
+      def closed?
+        @closed.get(:acquire)
+      end
+
+      def consumer_count : UInt32
+        @client.nil? ? 0u32 : 1u32
+      end
+
+      def message_count : UInt32
+        @msg_store.size.to_u32
+      end
+
+      def exclusive? : Bool
+        false
+      end
+
+      def arguments : AMQP::Table
+        ARGUMENTS
+      end
+
+      def close : Bool
+        return false if @closed.swap(true)
+        @has_capacity.close
+        @has_client.close
+        @msg_store_lock.synchronize do
+          @msg_store.close
+        end
+        true
+      end
+
+      def delete : Bool
+        return false if @deleted
+        @deleted = true
+        close
+        @msg_store_lock.synchronize do
+          @msg_store.delete
+        end
+        @replicator.try &.delete_file(@metadata_file)
+        @vhost.delete_queue(@name)
+        true
       end
 
       def clean_session?
@@ -28,21 +130,47 @@ module LavinMQ
       end
 
       private def deliver_loop
-        i = 0
+        delivered_bytes = 0_i32
         loop do
-          break if @closed
+          break if closed?
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @consumers_empty.when_false.receive? if @consumers.empty?
-          consumer = @consumers.first.as(MQTT::Consumer)
-          get_packet do |pub_packet|
-            consumer.deliver(pub_packet)
+          client = @client
+          next @has_client.when_true.receive? if client.nil?
+          next @has_capacity.when_true.receive? unless @has_capacity.value
+          get_packet do |pub_packet, bytesize|
+            client.send(pub_packet)
+            delivered_bytes &+= bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          if delivered_bytes > Config.instance.yield_each_delivered_bytes
+            delivered_bytes = 0
+            Fiber.yield
+          end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.each &.close
+          @client.try &.close("Server force closed client")
           self.client = nil
         end
+      end
+
+      # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
+      # unless that id is still in flight - reissuing it would overwrite the
+      # `@unacked` entry holding it - or is `0`, which may not go on the wire
+      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      private def delivery_id(sp : SegmentPosition) : UInt16?
+        if id = @msg_store.packet_id?(sp)
+          return id unless id.zero? || @unacked.has_key?(id)
+        end
+        next_id
+      end
+
+      # `@has_capacity` mirrors "the in-flight window has room". Recomputed from
+      # `@unacked` rather than written as a literal, since it is updated from both
+      # the deliver_loop and the client's fiber and a stale `false` parks the
+      # deliver_loop with no ack left to reopen the gate. `swap` rather than `set`
+      # because this runs per delivery and per ack, and `set` takes both channel
+      # locks even when the value is unchanged.
+      private def refresh_capacity : Nil
+        @has_capacity.swap(@unacked.size < Config.instance.max_inflight_messages)
       end
 
       def client : MQTT::Client?
@@ -50,24 +178,31 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
-        return if @closed
+        return if closed?
         @last_get_time = RoughTime.instant
 
+        # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
+        # persistent one requeues what it owes and remembers the packet ids, to
+        # resend under the ids the client already knows [MQTT-4.4.0-1].
         unless clean_session?
           @msg_store_lock.synchronize do
-            @unacked.values.each do |sp|
+            @unacked.each do |packet_id, sp|
+              @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
           end
         end
-        @unacked.clear
 
-        @consumers.each do |c|
-          rm_consumer c
-        end
+        @unacked.clear
+        @unacked_count.set(0, :release)
+        @unacked_bytesize.set(0, :release)
+        refresh_capacity
+
         @client = client
-        if c = client
-          add_consumer MQTT::Consumer.new(c, self)
+        @has_client.set(!client.nil?)
+        if client && (username = client.user.name) != @permission_context.username
+          @permission_context = PermissionService::Context.new(username, @client_id)
+          write_metadata_file(username)
         end
 
         @log.debug { "client set to '#{client.try &.name}'" }
@@ -77,9 +212,28 @@ module LavinMQ
         !clean_session?
       end
 
+      # The .metadata file is to a session what .queue is to a queue: it names
+      # the owner of a data directory. It also holds the last attached username.
+      # Anything that is not a JSON object with a string username is treated
+      # as an unknown user; a bad file must never stop the session from loading.
+      private def read_metadata_file : String?
+        JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
+      rescue ex : JSON::ParseException | IO::Error
+        @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
+        nil
+      end
+
+      # Written to a temporary file and renamed into place, so a crash
+      # mid-write leaves the previous file rather than a truncated one.
+      private def write_metadata_file(username : String?) : Nil
+        FileSystem.replace(@metadata_file) do |f|
+          {name: @name, client_id: @client_id, username: username}.to_json(f)
+        end
+        @replicator.try &.replace_file(@metadata_file)
+      end
+
       def subscribe(tf, qos)
-        arguments = AMQP::Table.new
-        arguments[QOS_HEADER] = qos
+        arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
@@ -93,10 +247,25 @@ module LavinMQ
         end
       end
 
+      # Returns whether the message was accepted, so the exchange only counts
+      # deliveries that happened.
       def publish(msg : Message) : Bool
-        # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
-        return true if msg.properties.delivery_mode == 0 && @consumers.empty?
-        super
+        unless @permission_service.can_read?(@permission_context, msg.routing_key)
+          @log.debug { "Message refused: no topic permission rule allows user '#{@permission_context.username}' to read topic '#{msg.routing_key}'" }
+          return false
+        end
+        return true if msg.properties.delivery_mode == 0 && @client.nil?
+        return false if @deleted || closed?
+        @msg_store_lock.synchronize do
+          @msg_store.push(msg)
+          drop_overflow
+        end
+        @publish_count.add(1, :relaxed)
+        true
+      end
+
+      def bindings
+        @vhost.queue_bindings(self)
       end
 
       private def find_binding(rk)
@@ -107,38 +276,63 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : MQTT::Publish -> Nil) : Bool
-        raise ClosedError.new if @closed
+      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
+        raise ClosedError.new if closed?
         loop do
-          env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-          sp = env.segment_position
-          no_ack = env.message.properties.delivery_mode == 0
-          if no_ack
-            begin
-              packet = build_packet(env, nil)
-              yield packet
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              raise ex
+          # The payload is sent straight from the segment, which a close or
+          # delete of the session can unmap while the send is suspended
+          @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+            sp = env.segment_position
+            no_ack = env.message.properties.delivery_mode == 0
+            if no_ack
+              begin
+                packet = build_packet(env, nil)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_no_ack_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+              rescue ex # requeue failed delivery
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                raise ex
+              end
+              delete_message(sp)
+            else
+              begin
+                id = delivery_id(sp)
+                unless id
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  # Without this the deliver_loop spins: the store is non-empty and
+                  # capacity still reads true. Recomputed rather than closed
+                  # outright, since an ack can free a slot while the requeue above
+                  # waits on a contended @msg_store_lock.
+                  refresh_capacity
+                  return false
+                end
+                packet = build_packet(env, id)
+                @unacked_count.add(1, :relaxed)
+                @unacked_bytesize.add(sp.bytesize, :relaxed)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+                @unacked[id] = sp
+                @msg_store.forget_packet_id(sp)
+                refresh_capacity
+              rescue ex # requeue failed delivery
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                raise ex
+              end
             end
-            delete_message(sp)
-          else
-            begin
-              id = next_id
-              return false unless id
-              packet = build_packet(env, id)
-              @unacked_count.add(1, :relaxed)
-              @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet
-              @unacked[id] = sp
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
-              raise ex
-            end
-          end
-          return true
+            return true
+          end || break
         end
         false
       rescue ex : MessageStore::Error
@@ -147,13 +341,13 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
-      def build_packet(env, packet_id) : MQTT::Publish
+      def build_packet(env, packet_id) : Protocol::Publish
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1
         dup = qos.zero? ? false : env.redelivered
-        MQTT::Publish.new(
+        Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
@@ -167,20 +361,15 @@ module LavinMQ
         @log.debug { "Applying policy #{key}: #{value}" }
         case key
         when "max-length"
-          unless @max_length.try &.< value.as_i64
+          if @max_length.nil?
             @max_length = value.as_i64
-            drop_overflow
             return true
           end
         when "max-length-bytes"
-          unless @max_length_bytes.try &.< value.as_i64
+          if @max_length_bytes.nil?
             @max_length_bytes = value.as_i64
-            drop_overflow
             return true
           end
-        when "overflow"
-          @reject_on_overflow ||= value.as_s == "reject-publish"
-          return true
         end
         false
       end
@@ -189,18 +378,23 @@ module LavinMQ
         drop_overflow
       end
 
-      def ack(packet : MQTT::PubAck) : Nil
+      def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        sp = @unacked[id]
-        @unacked.delete id
-        super sp
-      rescue
-        raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
+        if sp = @unacked.delete(id)
+          begin
+            @ack_count.add(1, :relaxed)
+            @unacked_count.sub(1, :relaxed)
+            @unacked_bytesize.sub(sp.bytesize, :relaxed)
+            delete_message(sp)
+          rescue ex
+            raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+          ensure
+            refresh_capacity
+          end
+        else
+          raise ::IO::Error.new("No message inflight for id '#{id}'")
+        end
       end
-
-      private def message_expire_loop; end
-
-      private def queue_expire_loop; end
 
       private def next_id : UInt16?
         return if @unacked.size == Config.instance.max_inflight_messages
@@ -215,9 +409,116 @@ module LavinMQ
         next_id
       end
 
+      private def delete_message(sp : SegmentPosition) : Nil
+        @msg_store_lock.synchronize do
+          @msg_store.delete(sp)
+        end
+      end
+
+      private def drop_overflow : Nil
+        return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        if ml = @max_length
+          @msg_store_lock.synchronize do
+            while @msg_store.size > ml
+              env = @msg_store.shift? || break
+              delete_message(env.segment_position)
+            end
+          end
+        end
+        if mlb = @max_length_bytes
+          @msg_store_lock.synchronize do
+            while @msg_store.bytesize > mlb
+              env = @msg_store.shift? || break
+              delete_message(env.segment_position)
+            end
+          end
+        end
+      end
+
+      private def clear_policy_arguments
+        @max_length = nil
+        @max_length_bytes = nil
+      end
+
       private def handle_arguments
-        super
-        @effective_args << "x-queue-type"
+      end
+
+      def pause!; end
+
+      def resume!; end
+
+      def restart! : Bool
+        false
+      end
+
+      def state : QueueState
+        closed? ? QueueState::Closed : QueueState::Running
+      end
+
+      def state_match?(states : Array(QueueState)) : Bool
+        states.includes?(state)
+      end
+
+      def purge(max_count : Int = UInt32::MAX) : UInt32
+        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        @log.info { "Purged #{count} messages" }
+        count
+      end
+
+      def in_use? : Bool
+        !(@msg_store.empty? && @client.nil?)
+      end
+
+      def match?(durable, exclusive, auto_delete, arguments) : Bool
+        durable? == durable && @auto_delete == auto_delete
+      end
+
+      def unacked_messages
+        Array(LavinMQ::UnackedMessage).new
+      end
+
+      def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
+        json.object do
+          details_tuple.each do |k, v|
+            json.field(k, v) unless v.nil?
+          end
+        end
+      end
+
+      def details_tuple
+        stats = queue_stats_details
+        {
+          name:                         @name,
+          durable:                      durable?,
+          exclusive:                    false,
+          auto_delete:                  @auto_delete,
+          arguments:                    NamedTuple.new, # "empty" AMQP::Table
+          consumers:                    consumer_count,
+          vhost:                        @vhost.name,
+          messages:                     @msg_store.size + stats[:messages_unacknowledged],
+          total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
+          messages_persistent:          durable? ? @msg_store.size + stats[:messages_unacknowledged] : 0,
+          ready:                        @msg_store.size,
+          messages_ready:               @msg_store.size,
+          ready_bytes:                  @msg_store.bytesize,
+          message_bytes_ready:          @msg_store.bytesize,
+          ready_avg_bytes:              @msg_store.avg_bytesize,
+          unacked:                      stats[:unacked],
+          messages_unacknowledged:      stats[:messages_unacknowledged],
+          unacked_bytes:                stats[:unacked_bytes],
+          message_bytes_unacknowledged: stats[:message_bytes_unacknowledged],
+          unacked_avg_bytes:            stats[:unacked_avg_bytes],
+          operator_policy:              operator_policy.try &.name,
+          policy:                       policy.try &.name,
+          exclusive_consumer_tag:       nil,
+          single_active_consumer_tag:   nil,
+          state:                        state,
+          effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
+          message_stats:                current_stats_details,
+          effective_arguments:          EFFECTIVE_ARGS,
+          effective_policy_arguments:   effective_policy_args,
+          internal:                     false,
+        }
       end
     end
   end

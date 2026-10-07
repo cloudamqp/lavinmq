@@ -178,7 +178,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter many rejects" do
+      it "should dead letter many rejects", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(100, q)
           done = Channel(Nil).new
@@ -213,6 +213,44 @@ module DeadLetteringSpec
 
           wait_for { q.message_count == 3 }
           dlq.message_count.should eq 0
+        end
+      end
+
+      it "should dead letter when ttl expires while unacked and reject(requeue=true)", tags: "slow" do
+        with_dead_lettering_setup do |q, dlq, ch, _|
+          # Generous TTL so the message is still alive when we get it: the gap
+          # between publish_confirm and q.get is two AMQP round-trips, which can
+          # exceed a tight TTL on a loaded runner and expire the message in the
+          # queue before we receive it (q.get would then return nil). The sleep
+          # below still outlasts the TTL, so it expires while unacked.
+          props = AMQP::Client::Properties.new(expiration: "1000")
+          ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
+
+          msg = q.get(no_ack: false).not_nil!
+          sleep 1020.milliseconds
+          msg.reject(requeue: true)
+
+          dlq_msg = wait_for { dlq.get }.should_not be_nil
+          dlq_msg.body_io.to_s.should eq "ttl-msg"
+          q.message_count.should eq 0
+        end
+      end
+
+      it "should dead letter when delivery-limit exceeded on reject(requeue=true)" do
+        qargs = {
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => DLQ_NAME,
+          "x-delivery-limit"          => 1,
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, _, _|
+          channel.default_exchange.publish_confirm("dl-msg", q.name)
+
+          get1(q, &.reject(requeue: true))
+          get1(q, &.reject(requeue: true))
+
+          dlq_msg = wait_for { dlq.get }.should_not be_nil
+          dlq_msg.body_io.to_s.should eq "dl-msg"
+          q.message_count.should eq 0
         end
       end
 
@@ -278,7 +316,7 @@ module DeadLetteringSpec
 
       it "should only dead letter on nack multiple with requeue=false when basic get" do
         with_dead_lettering_setup do |q, dlq, _, s|
-          queue = s.vhosts["/"].queues["q"].should be_a LavinMQ::AMQP::Queue
+          queue = s.vhosts["/"].queue("q").should be_a LavinMQ::AMQP::Queue
 
           publish_n(3, q)
 
@@ -545,6 +583,127 @@ module DeadLetteringSpec
           msg.body_io.to_s.should eq "msg1"
         end
       end
+
+      it "should detect cycle with two queues in chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            qargs1 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q2",
+            }
+            q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(qargs1))
+            qargs2 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q1",
+            }
+            q2 = ch.queue("q2", args: AMQP::Client::Arguments.new(qargs2))
+            # "fill" queues
+            ch.default_exchange.publish("m1", "q1")
+            ch.default_exchange.publish("m2", "q2")
+            # now overflow q1
+            ch.default_exchange.publish("m3", "q1")
+            # m1 should be dead lettered to q2, which in turn is overflowed so
+            # m2 is dead letterd to q1. q1 overflowed again and m3 is dead lettered
+            # to q2. When q2 now overflows m1 shouldn't be dead lettered to q1,
+            # but instead be dropped.
+
+            get1(q1).body_io.to_s.should eq "m2"
+            get1(q2).body_io.to_s.should eq "m3"
+          end
+        end
+      end
+
+      it "should not stack overflow with two mutually dead-lettering queues", tags: "slow" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            n = 10_000
+            q1 = ch.queue("dlx_mutual_q1", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => n,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlx_mutual_q2",
+            }))
+            q2 = ch.queue("dlx_mutual_q2", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => n,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlx_mutual_q1",
+            }))
+            n.times { |i| ch.default_exchange.publish("q1-#{i}", q1.name) }
+            n.times { |i| ch.default_exchange.publish("q2-#{i}", q2.name) }
+            wait_for { q1.message_count == n && q2.message_count == n }
+            ch.default_exchange.publish("trigger", q1.name)
+            wait_for(30.seconds) { q1.message_count == n && q2.message_count == n }
+
+            q1_msg = q1.get(no_ack: true).should_not be_nil
+            q1_msg.body_io.to_s.should eq "q2-0"
+
+            q2_msg = q2.get(no_ack: true).should_not be_nil
+            q2_msg.body_io.to_s.should eq "q1-1"
+          end
+        end
+      end
+
+      it "should not stack overflow with a long chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            n = 200
+            queues = Array(AMQP::Client::Queue).new(n)
+            n.times do |i|
+              qargs = if i < n - 1
+                        {
+                          "x-max-length"              => 1,
+                          "x-dead-letter-exchange"    => "",
+                          "x-dead-letter-routing-key" => "dlx_chain_q#{i + 1}",
+                        }
+                      else
+                        {"x-max-length" => 1}
+                      end
+              queues << ch.queue("dlx_chain_q#{i}", args: AMQP::Client::Arguments.new(qargs))
+            end
+            queues.each { |q| ch.default_exchange.publish("fill", q.name) }
+            ch.default_exchange.publish("trigger", queues.first.name)
+            wait_for { queues.last.message_count == 1 }
+          end
+        end
+      end
+
+      it "should detect cycle with three queues in chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            qargs1 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q2",
+            }
+            q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(qargs1))
+            qargs2 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q3",
+            }
+            q2 = ch.queue("q2", args: AMQP::Client::Arguments.new(qargs2))
+            qargs3 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q1",
+            }
+            q3 = ch.queue("q3", args: AMQP::Client::Arguments.new(qargs3))
+            # "fill" queues
+            ch.default_exchange.publish("m1", "q1")
+            ch.default_exchange.publish("m2", "q2")
+            ch.default_exchange.publish("m3", "q3")
+            # now overflow q1
+            ch.default_exchange.publish("m4", "q1")
+
+            # messages should end up in the queue before the queue they were
+            # published to
+            get1(q1).body_io.to_s.should eq "m2"
+            get1(q2).body_io.to_s.should eq "m3"
+            get1(q3).body_io.to_s.should eq "m4"
+          end
+        end
+      end
     end
 
     describe "Header Validation" do
@@ -737,7 +896,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should only be dead lettered to dead-letter-routing-key with preserved CC" do
+      it "should only be dead lettered to dead-letter-routing-key with CC removed" do
         with_dead_lettering_setup do |q, dlq, ch, _|
           dlq2 = ch.queue("dlq2")
 
@@ -760,11 +919,43 @@ module DeadLetteringSpec
 
           dlq_msg = get1(dlq)
 
-          dlq_msg.properties.headers.try(&.["CC"]?).should eq [dlq2.name]
+          dlq_msg.properties.headers.try(&.["CC"]?).should be_nil
           dlq_msg.properties.headers.try(&.["x-death"]?).should(
             be_a(Array(AMQ::Protocol::Field)))
 
           dlq2.message_count.should eq 0
+        end
+      end
+
+      it "should not route to BCC in a later dead lettering hop when dead-letter-routing-key was set" do
+        # BCC is stripped from delivered messages, so a surviving BCC header is
+        # only observable through a second dead lettering hop without a routing
+        # key, where it would fan out to bcc_q.
+        qargs = {
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dlq2",
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
+          dlq2 = ch.queue("dlq2", args: AMQP::Client::Arguments.new({
+            "x-dead-letter-exchange" => "dlx_exchange",
+          }))
+          bcc_q = ch.queue("bcc_q")
+          bcc_q.bind("dlx_exchange", bcc_q.name)
+          dlq.bind("dlx_exchange", dlq2.name)
+
+          props = AMQ::Protocol::Properties.new(
+            headers: AMQ::Protocol::Table.new({"BCC" => [bcc_q.name] of AMQ::Protocol::Field})
+          )
+          publish_n(1, q, props: props)
+          get1(bcc_q) # BCC fans out on the original publish
+
+          get1(q, &.nack(requeue: false))
+          get1(dlq2, &.nack(requeue: false))
+
+          dlq_msg = get1(dlq)
+          dlq_msg.properties.headers.try(&.["BCC"]?).should be_nil
+          bcc_q.message_count.should eq 0
         end
       end
 
@@ -870,6 +1061,91 @@ module DeadLetteringSpec
 
         #    should_eventually(eq(1)) { v.queues["dlx_rejected"].message_count }
         #  end
+      end
+    end
+
+    describe "Routed Callback" do
+      # The routed callback deletes the source message from storage.
+      # With a fanout DLX routing to two queues, the old code stored
+      # the same callback once per destination and called it N times.
+      # Correct behavior: source empties to 0 (called at least once)
+      # and both destinations receive all messages (routing completed).
+      # A double-call would attempt to delete the same segment twice,
+      # risking store corruption or stat errors.
+      it "is called once when dead lettering to multiple queues" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.exchange_declare("dlx_fanout", "fanout")
+            src = ch.queue("src_fanout", args: AMQP::Client::Arguments.new({
+              "x-dead-letter-exchange" => "dlx_fanout",
+            }))
+            dst1 = ch.queue("dst_fanout_1")
+            dst2 = ch.queue("dst_fanout_2")
+            dst1.bind("dlx_fanout", "")
+            dst2.bind("dlx_fanout", "")
+
+            n = 3
+            n.times { |i| ch.default_exchange.publish_confirm("msg#{i + 1}", src.name) }
+            get_n(n, src, &.reject(requeue: false))
+
+            wait_for { src.message_count == 0 }
+            wait_for { dst1.message_count == n }
+            wait_for { dst2.message_count == n }
+
+            src.message_count.should eq 0
+            dst1.message_count.should eq n
+            dst2.message_count.should eq n
+          end
+        end
+      end
+
+      # Regression for "Unexpected error in dead letter routed callback"
+      # caused by MessageStore::ClosedError. The stress driver churns
+      # queues while publishing into max-length+DLX configs, so close()
+      # races with the in-flight dead-letter drain_context callback that
+      # tries to remove the source SP. The msg_store is being torn down
+      # anyway -- the callback must no-op rather than raise.
+      it "ack/delete_message no-ops after close races a dead-letter drain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("q")
+            ch.default_exchange.publish_confirm("msg", "q")
+            queue = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue)
+            env = queue.@msg_store_lock.synchronize { queue.@msg_store.first? }
+              .should_not be_nil
+            queue.close
+            queue.closed?.should be_true
+            # Before the fix this re-entered @msg_store.delete on a closed
+            # store and raised MessageStore::ClosedError.
+            queue.ack(env.segment_position)
+          end
+        end
+      end
+
+      # When cycle detection drops all destinations the routed callback
+      # must still fire so the source message is removed from storage.
+      # The queue self-binds to the fanout DLX: on first TTL the message
+      # is re-queued with an x-death entry; on the second TTL the cycle
+      # is detected and every destination is skipped. Without the fix
+      # the callback is never enqueued and the message leaks, leaving
+      # message_count > 0 after the sleep.
+      it "is called once when all dead letter destinations are cycles" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.exchange_declare("dlx_fanout_cycle", "fanout")
+            q = ch.queue("q_fanout_cycle", args: AMQP::Client::Arguments.new({
+              "x-message-ttl"          => 1,
+              "x-dead-letter-exchange" => "dlx_fanout_cycle",
+            }))
+            q.bind("dlx_fanout_cycle", "")
+
+            2.times { |i| ch.default_exchange.publish_confirm("msg#{i + 1}", q.name) }
+
+            sleep 0.1.seconds
+
+            q.message_count.should eq 0
+          end
+        end
       end
     end
   end

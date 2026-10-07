@@ -1,6 +1,22 @@
 require "../spec_helper"
 
 describe LavinMQ::HTTP::Server do
+  describe "LavinMQ-Version header" do
+    it "advertises the server version on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Version"].should eq LavinMQ::VERSION
+      end
+    end
+
+    it "is not set on static/HTML responses" do
+      with_http_server do |http, _|
+        response = ::HTTP::Client.get("#{http.addr}/login")
+        response.headers["LavinMQ-Version"]?.should be_nil
+      end
+    end
+  end
+
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
@@ -39,6 +55,20 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, _|
         response = http.get("/api/whoami")
         response.status_code.should eq 200
+      end
+    end
+
+    it "should count returned unroutable messages in message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        response = http.get("/api/overview")
+        count = JSON.parse(response.body).dig("message_stats", "return_unroutable")
+        count.should eq 1
       end
     end
 
@@ -83,6 +113,25 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "publish")
         count.should eq(before_count.as_i + 5)
+      end
+    end
+
+    it "should return the number of bindings in object_totals" do
+      with_http_server do |http, s|
+        response = http.get("/api/overview")
+        before_count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+
+        with_channel(s) do |ch|
+          x = ch.fanout_exchange
+          q1 = ch.queue("bindings_q1", exclusive: true)
+          q2 = ch.queue("bindings_q2", exclusive: true)
+          ch.queue_bind(q1.name, x.name, "#")
+          ch.queue_bind(q2.name, x.name, "#")
+
+          response = http.get("/api/overview")
+          count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+          count.should eq(before_count + 2)
+        end
       end
     end
 
@@ -199,6 +248,17 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "DELETE /api/vhost-limits/vhost/type" do
+    it "clears the limit" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_connections = 100
+        response = http.delete("/api/vhost-limits/%2f/max-connections")
+        response.status_code.should eq 204
+        s.vhosts["/"].max_connections.should be_nil
+      end
+    end
+  end
+
   describe "Pagination" do
     it "should page results" do
       with_http_server do |http, _|
@@ -236,7 +296,41 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
-    it "should sort results by nested keys" do
+    it "should sort by column with nil values" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("no-policy-ex", "direct", durable: false, auto_delete: false)
+        vhost.declare_exchange("has-policy-ex", "direct", durable: false, auto_delete: false)
+        definitions = {"federation-upstream" => JSON::Any.new("test")} of String => JSON::Any
+        vhost.add_policy("test-policy", "^has-policy", "exchanges", definitions, 0_i8)
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        policies = items.map { |i| i["policy"]?.try(&.as_s?) }
+        non_nil = policies.compact
+        non_nil.should eq non_nil.sort
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy&sort_reverse=true")
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should sort by column when all values are nil" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("no-policy-a", "direct", durable: false, auto_delete: false)
+        vhost.declare_exchange("no-policy-b", "direct", durable: false, auto_delete: false)
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy")
+        response.status_code.should eq 200
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy&sort_reverse=true")
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should sort results by nested keys", tags: "slow" do
       stats_interval = LavinMQ::Config.instance.stats_interval
       LavinMQ::Config.instance.stats_interval = 1000
       with_http_server do |http, s|
@@ -252,7 +346,7 @@ describe LavinMQ::HTTP::Server do
             100.times { x.publish("msg", q.name) }
           end
         end
-        wait_for { vhost.exchanges["b-exchange"].details_tuple["message_stats"]["publish_in_details"]["rate"] > 0 }
+        wait_for { vhost.exchange("b-exchange").details_tuple["message_stats"]["publish_in_details"]["rate"] > 0 }
         response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a

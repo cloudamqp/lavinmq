@@ -5,9 +5,24 @@ module MqttSpecs
   describe LavinMQ::MQTT do
     describe "multi-vhost" do
       it "should create mqtt exchange when vhost is created" do
-        with_amqp_server do |server|
+        with_server do |server|
           server.vhosts.create("new")
-          server.vhosts["new"].exchanges[LavinMQ::MQTT::EXCHANGE]?.should_not be_nil
+          server.vhosts["new"].exchange?(LavinMQ::MQTT::EXCHANGE).should_not be_nil
+        end
+      end
+
+      it "should create a broker when vhost is created" do
+        with_server do |server|
+          server.vhosts.create("new")
+          server.mqtt_server.broker("new").vhost.should be server.vhosts["new"]
+        end
+      end
+
+      it "should close the broker when vhost is deleted" do
+        with_server do |server|
+          broker = server.vhosts.create("new").mqtt_broker
+          server.vhosts.delete("new")
+          broker.@retain_store.@index_file.closed?.should be_true
         end
       end
 

@@ -29,10 +29,9 @@ module LavinMQ
       private def register_routes
         get "/api/permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          itr = @amqp_server.users.each_value.reject(&.hidden?)
+          arr = @server.users.values.reject(&.hidden?)
             .flat_map { |u| u.permissions.map { |vhost, p| PermissionsView.new(u, vhost, p) } }
-            .each
-          page(context, itr)
+          page(context, arr)
         end
 
         get "/api/permissions/:vhost/:user" do |context, params|
@@ -56,11 +55,11 @@ module LavinMQ
             unless config && read && write
               bad_request(context, "Fields 'configure', 'read' and 'write' are required")
             end
-            is_update = @amqp_server.users[u.name].permissions[vhost.name]?
-            @amqp_server.users
+            is_update = @server.users[u.name].permissions[vhost.name]?
+            @server.users
               .add_permission(u.name, vhost.name, Regex.new(config), Regex.new(read), Regex.new(write))
             context.response.status_code = is_update ? 204 : 201
-          rescue ex : ArgumentError
+          rescue ArgumentError
             bad_request(context, "Permissions must be valid Regex")
           end
         end
@@ -69,7 +68,7 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             u = user(context, params, "user")
-            @amqp_server.users.rm_permission(u.name, vhost.name)
+            @server.users.rm_permission(u.name, vhost.name)
             context.response.status_code = 204
           end
         end

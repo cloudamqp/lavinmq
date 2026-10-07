@@ -1,5 +1,49 @@
 require "./spec_helper"
 
+# Stub IdP serving OIDC discovery and a JWKS with one RSA key, recording the
+# request paths it receives. `healthy: false` makes every response a 500.
+private def with_stub_idp_server(healthy = true, & : Socket::IPAddress, Array(String) ->)
+  paths = [] of String
+  bound = [] of Socket::IPAddress
+  server = ::HTTP::Server.new do |ctx|
+    paths << ctx.request.path
+    base = "http://#{bound.first}"
+    if !healthy
+      ctx.response.status_code = 500
+    elsif ctx.request.path == "/.well-known/openid-configuration"
+      ctx.response.content_type = "application/json"
+      {issuer: base, jwks_uri: "#{base}/jwks"}.to_json(ctx.response)
+    elsif ctx.request.path == "/jwks"
+      n = Base64.urlsafe_encode(Random::Secure.random_bytes(256), padding: false)
+      ctx.response.content_type = "application/json"
+      {keys: [{kty: "RSA", use: "sig", alg: "RS256", kid: "k1", n: n, e: "AQAB"}]}.to_json(ctx.response)
+    else
+      ctx.response.status_code = 404
+    end
+  end
+  bound << server.bind_tcp("127.0.0.1", 0)
+  spawn { server.listen }
+  Fiber.yield
+  yield bound.first, paths
+ensure
+  server.try &.close
+end
+
+private def authenticator_for_idp(addr) : {LavinMQ::Auth::OAuthAuthenticator, LavinMQ::Auth::JWT::JWKSFetcher}
+  config = create_test_config
+  config.oauth_issuer_url = URI.parse("http://#{addr}")
+  fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(URI.parse("http://#{addr}"), 1.hour)
+  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, fetcher)
+  {LavinMQ::Auth::OAuthAuthenticator.new(verifier), fetcher}
+end
+
+# Passes prevalidation (RS256, three parts, future exp) but has a bogus signature.
+private def well_formed_jwt : String
+  header = Base64.urlsafe_encode(%({"alg":"RS256","typ":"JWT"}), padding: false)
+  payload = Base64.urlsafe_encode(%({"sub":"x","exp":9999999999}), padding: false)
+  "#{header}.#{payload}.c2lnbmF0dXJl"
+end
+
 def create_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_test_config
   # public_keys = LavinMQ::Auth::PublicKeys.new
@@ -21,6 +65,26 @@ describe LavinMQ::Auth::OAuthAuthenticator do
   # OAuth authenticator that can be tested without a real JWKS endpoint. Full JWT validation
   # requires network access to fetch public keys, which would need integration tests with
   # a mock OAuth server.
+
+  describe "on-demand JWKS fetch" do
+    it "fetches keys on first authentication when the refresh loop hasn't populated them" do
+      with_stub_idp_server do |addr, _paths|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+        authenticator.authenticate(ctx)
+        fetcher.public_keys.empty?.should be_false
+      end
+    end
+
+    it "rate-limits fetch attempts when the provider is unreachable" do
+      with_stub_idp_server(healthy: false) do |addr, paths|
+        authenticator, _ = authenticator_for_idp(addr)
+        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+        2.times { authenticator.authenticate(ctx) }
+        paths.size.should eq 1
+      end
+    end
+  end
 
   describe "#authenticate with invalid tokens" do
     it "rejects tokens that don't start with 'ey'" do

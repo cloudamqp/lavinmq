@@ -5,17 +5,17 @@ module TokenParserTestHelper
   extend self
 
   def create_token_parser(
-    preferred_username_claims = ["preferred_username"],
+    preferred_username_claims = ["sub", "client_id"],
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_keys = [] of String,
   ) : LavinMQ::Auth::JWT::TokenParser
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse("https://auth.example.com")
     config.oauth_preferred_username_claims = preferred_username_claims
     config.oauth_resource_server_id = resource_server_id
     config.oauth_scope_prefix = scope_prefix
-    config.oauth_additional_scopes_key = additional_scopes_key
+    config.oauth_additional_scopes_keys = additional_scopes_keys
     LavinMQ::Auth::JWT::TokenParser.new(config)
   end
 
@@ -77,6 +77,23 @@ describe LavinMQ::Auth::JWT::TokenParser do
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
       claims.username.should eq("sub-user")
+    end
+
+    it "defaults to 'sub' claim when preferred_username_claims is not configured" do
+      parser = TokenParserTestHelper.create_token_parser
+      payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600, sub: "sub-user")
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.username.should eq("sub-user")
+    end
+
+    it "falls back to 'client_id' when 'sub' is missing and no claims configured" do
+      parser = TokenParserTestHelper.create_token_parser
+      payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600)
+      payload["client_id"] = JSON::Any.new("my-service-account")
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.username.should eq("my-service-account")
     end
 
     it "raises when no username claim is found" do
@@ -197,9 +214,9 @@ describe LavinMQ::Auth::JWT::TokenParser do
       end
     end
 
-    describe "additional_scopes_key parsing" do
-      it "extracts scopes from additional_scopes_key string claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+    describe "additional_scopes_keys parsing" do
+      it "extracts scopes from additional_scopes_keys string claim" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -210,8 +227,8 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims.permissions["myvhost"][:read].should eq(/.*/)
       end
 
-      it "extracts scopes from additional_scopes_key array claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+      it "extracts scopes from additional_scopes_keys array claim" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -223,11 +240,11 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims.permissions["myvhost"][:write].should eq(/.*/)
       end
 
-      it "extracts scopes from additional_scopes_key hash claim with resource_server_id" do
+      it "extracts scopes from additional_scopes_keys hash claim with resource_server_id" do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -242,7 +259,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       it "extracts scopes from hash claim without resource_server_id" do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -258,7 +275,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -268,6 +285,20 @@ describe LavinMQ::Auth::JWT::TokenParser do
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions.should be_empty
+      end
+
+      it "extracts scopes from multiple additional_scopes_keys" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["roles", "permissions"])
+        payload = LavinMQ::Auth::JWT::Payload.new(
+          exp: RoughTime.utc.to_unix + 3600,
+          sub: "user"
+        )
+        payload["roles"] = JSON.parse(%(["read:myvhost/*"]))
+        payload["permissions"] = JSON.parse(%(["write:myvhost/*"]))
+        token = TokenParserTestHelper.create_mock_token(payload)
+        claims = parser.parse(token)
+        claims.permissions["myvhost"][:read].should eq(/.*/)
+        claims.permissions["myvhost"][:write].should eq(/.*/)
       end
     end
   end
@@ -564,6 +595,86 @@ describe LavinMQ::Auth::JWT::TokenParser do
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
       claims.permissions["other"][:read].should eq(/^valid$/)
+    end
+  end
+
+  describe "duplicate permission scope combining" do
+    it "combines duplicate read scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:myvhost/q1 read:myvhost/q2 read:myvhost/q3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      read_regex = claims.permissions["myvhost"][:read]
+      read_regex.matches?("q1").should be_true
+      read_regex.matches?("q2").should be_true
+      read_regex.matches?("q3").should be_true
+      read_regex.matches?("other").should be_false
+    end
+
+    it "combines duplicate write scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "write:myvhost/ex1 write:myvhost/ex2 write:myvhost/ex3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      write_regex = claims.permissions["myvhost"][:write]
+      write_regex.matches?("ex1").should be_true
+      write_regex.matches?("ex2").should be_true
+      write_regex.matches?("ex3").should be_true
+      write_regex.matches?("other").should be_false
+    end
+
+    it "combines duplicate configure scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "configure:myvhost/q1 configure:myvhost/q2 configure:myvhost/q3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      config_regex = claims.permissions["myvhost"][:config]
+      config_regex.matches?("q1").should be_true
+      config_regex.matches?("q2").should be_true
+      config_regex.matches?("q3").should be_true
+      config_regex.matches?("other").should be_false
+    end
+
+    it "does not affect different permission types on the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:myvhost/queue1 write:myvhost/exchange1"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.permissions["myvhost"][:read].matches?("queue1").should be_true
+      claims.permissions["myvhost"][:read].matches?("exchange1").should be_false
+      claims.permissions["myvhost"][:write].matches?("exchange1").should be_true
+      claims.permissions["myvhost"][:write].matches?("queue1").should be_false
+    end
+
+    it "does not combine scopes across different vhosts" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:vhost1/queue1 read:vhost2/queue2"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.permissions["vhost1"][:read].matches?("queue1").should be_true
+      claims.permissions["vhost1"][:read].matches?("queue2").should be_false
+      claims.permissions["vhost2"][:read].matches?("queue2").should be_true
+      claims.permissions["vhost2"][:read].matches?("queue1").should be_false
     end
   end
 

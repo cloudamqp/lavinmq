@@ -20,7 +20,7 @@ end
 
 describe LavinMQ::AMQP::PriorityQueue do
   describe "PriorityMessageStore" do
-    describe "clustering", tags: "etcd" do
+    describe "clustering", tags: %w[etcd slow] do
       add_etcd_around_each
       it "is replicated correctly" do
         with_clustering do |cluster|
@@ -37,12 +37,13 @@ describe LavinMQ::AMQP::PriorityQueue do
                 fail("could not get message")
               end
             end
+            wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
             cluster.stop
           end
 
           server = LavinMQ::Server.new(cluster.follower_config)
           begin
-            q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurablePriorityQueue)
+            q = server.vhosts["/"].queue("repli").as(LavinMQ::AMQP::DurablePriorityQueue)
             q.message_count.should eq 1
             q.basic_get(true) do |env|
               env.message.properties.priority.should eq 1
@@ -70,6 +71,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           store.size.should eq 60
           store.close
 
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
           cluster.stop
 
           # Verify the replicated store
@@ -270,6 +272,40 @@ describe LavinMQ::AMQP::PriorityQueue do
           store.@stores[-1].size.should eq 1
         end
       end
+
+      it "requeues messages with priority above max to the highest sub store" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          env.segment_position.priority.should eq 9
+          store.requeue env.segment_position
+          store.@stores[-1].size.should eq 1
+        end
+      end
+    end
+
+    describe "#delete" do
+      it "deletes messages with priority above max" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store.delete env.segment_position
+          store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#[]" do
+      it "returns messages with priority above max" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store[env.segment_position].properties.priority.should eq 9
+        end
+      end
     end
 
     describe "empty?" do
@@ -467,7 +503,7 @@ describe LavinMQ::AMQP::PriorityQueue do
         q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
         msg = q.get(no_ack: false)
         msg = msg.should_not be_nil
-        msg.redelivered.should eq false
+        msg.redelivered.should be_false
       end
     end
   end
@@ -486,6 +522,54 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
   end
 
+  context "messages with priority above x-max-priority" do
+    q_args = AMQP::Client::Arguments.new({"x-max-priority" => 5})
+
+    it "can be acked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          msg = q.get(no_ack: false).should_not be_nil
+          sq = s.vhosts["/"].queue(q.name)
+          sq.unacked_count.should eq 1
+          msg.ack
+          wait_for { sq.unacked_count.zero? }
+          q.publish_confirm "m2" # channel must still be open after the ack
+          sq.message_count.should eq 1
+        end
+      end
+    end
+
+    it "can be rejected with requeue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.reject(requeue: true)
+          sq = s.vhosts["/"].queue(q.name)
+          wait_for { sq.message_count == 1 }
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.redelivered.should be_true
+        end
+      end
+    end
+
+    it "can be purged when there are unacked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          4.times do
+            q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          end
+          q.get(no_ack: false).should_not be_nil
+          q.purge[:message_count].should eq 3
+        end
+      end
+    end
+  end
+
   context "after restart" do
     it "can restore the priority queue" do
       with_amqp_server do |s|
@@ -496,7 +580,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           q.get(no_ack: false).try(&.body_io.to_s).should eq "m2"
           q.get(no_ack: false).try(&.body_io.to_s).should eq "m1"
         end
-        s.restart
+        restart_server(s)
         with_channel(s) do |ch|
           q = ch.queue("pq", args: AMQP::Client::Arguments.new({"x-max-priority": 9}))
           q.publish "m3", props: AMQP::Client::Properties.new(priority: 8)

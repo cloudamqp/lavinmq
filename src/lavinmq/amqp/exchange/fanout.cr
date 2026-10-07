@@ -9,10 +9,14 @@ module LavinMQ
         "fanout"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |d, binding_key|
+      def bindings_details : Array(BindingDetails)
+        @bindings.map do |d, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, d)
         end
+      end
+
+      def binding_count : Int32
+        @bindings.size
       end
 
       def bind(destination : Destination, routing_key, arguments = nil)
@@ -33,7 +37,7 @@ module LavinMQ
         true
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         @bindings.each do |destination, _binding_key|
           yield destination
         end
