@@ -142,7 +142,11 @@ module LavinMQ
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
         @shovels[name] = shovel
-        spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+        # A shovel restored paused is started by #resume. A run spawned for it
+        # here could start only after a resume, and run alongside its run.
+        unless shovel.paused?
+          spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+        end
         shovel
       rescue KeyError
         raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")

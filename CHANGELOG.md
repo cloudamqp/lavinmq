@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A paused shovel resumed right after a broker restart could run twice and keep failing [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - Overlapping policy changes could leave a queue or exchange with an outdated policy, for example a policy that had just been deleted [#2398](https://github.com/cloudamqp/lavinmq/pull/2398)
 - Races between adding, removing and listing a queue's consumers: two exclusive consumers could both be accepted, and a consumer could be added to a queue that was being auto-deleted [#2404](https://github.com/cloudamqp/lavinmq/pull/2404)
 - Re-applying a policy briefly removed it from queues and exchanges: publishes could get past a policy's `max-length` with `overflow=reject-publish`, and messages to an exchange whose alternate exchange came from a policy could be dropped as unroutable [#2397](https://github.com/cloudamqp/lavinmq/pull/2397)
