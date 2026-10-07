@@ -145,7 +145,7 @@ module MqttSpecs
           disconnect(io)
         end
         # As the HTTP API or a definitions import would
-        server.vhosts["/"].bind_queue("mqtt.dev", LavinMQ::MQTT::EXCHANGE, "chat/#", LavinMQ::MQTT.qos_arguments(1u8))
+        server.vhosts["/"].bind_queue("mqtt.dev", LavinMQ::MQTT::EXCHANGE, "chat/#", LavinMQ::MQTT::QOS1_ARGUMENTS)
 
         restart_server(server)
 

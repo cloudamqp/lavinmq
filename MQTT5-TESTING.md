@@ -49,12 +49,12 @@ keepalive) are tagged `slow`: the shortest honest test of an elapse is a second.
 in three isolated runs on 2026-10-05; it shares no code with MQTT, and was not
 checked on `main`.
 
-v5 coverage lives in `spec/mqtt/v5/` (connect, publish, subscribe, unsubscribe,
-puback/disconnect, session expiry, subscription options) plus
-`spec/mqtt/publish_headers_spec.cr`, `spec/mqtt/session_spec.cr`,
-`consts_spec.cr`, `subscription_key_spec.cr` and cases added to
-`integrations/will_spec.cr` and `exchange_spec.cr`. Item H folds most of it back
-into the integration files before the PR.
+v5 coverage lives with the feature it tests (item H, 2026-10-07): the v5
+`describe` blocks in `spec/mqtt/integrations/*_spec.cr`, the v5-only features in
+`integrations/session_expiry_spec.cr` and `subscription_options_spec.cr`, and the
+advertise-and-reject contract in `integrations/server_capabilities_spec.cr`. Plus
+`spec/mqtt/publish_headers_spec.cr`, `session_spec.cr`, `consts_spec.cr`,
+`subscription_key_spec.cr`, `permissions_spec.cr` and `exchange_spec.cr`.
 
 **The v5 work is green and has not regressed anything on the AMQP side.**
 

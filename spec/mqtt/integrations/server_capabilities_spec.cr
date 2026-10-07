@@ -3,7 +3,41 @@ require "../spec_helper"
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
-  describe "MQTT 5.0 subscribe" do
+
+  # The compliance contract in MQTT5.md section 2: every optional feature we
+  # leave out is advertised as unavailable in CONNACK and rejected when used.
+  describe "MQTT 5.0 server capabilities" do
+    it "advertises server capabilities in the v5 CONNACK" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connack = connect(io, version: MQTT::Protocol::Version::V5).as(MQTT::Protocol::Connack)
+          props = connack.properties
+          # Absent means 2, and 2 may not be sent (3.2.2.3.4).
+          props.maximum_qos?.should be_nil
+          props.retain_available?.should be_true
+          props.wildcard_subscription_available?.should be_true
+          props.topic_alias_maximum.should eq(0u16)
+          props.subscription_identifier_available?.should be_false
+          props.shared_subscription_available?.should be_false
+          props.maximum_packet_size.should eq(LavinMQ::Config.instance.mqtt_max_packet_size)
+        end
+      end
+    end
+    it "rejects enhanced authentication with BadAuthenticationMethod (0x8C)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          # A CONNECT carrying an Authentication Method wants the AUTH-packet
+          # flow, which we don't support -> CONNACK 0x8C [MQTT-4.12.0-1].
+          props = MQTT::Protocol::ConnectProperties.new
+          props.authentication_method = "SCRAM-SHA-1"
+          connack = connect(io, version: MQTT::Protocol::Version::V5,
+            properties: props).as(MQTT::Protocol::Connack)
+          connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+        end
+      end
+    end
     it "disconnects with SubscriptionIdentifiersNotSupported (0xA1) on a Subscription Identifier" do
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -25,26 +59,6 @@ module MqttSpecs
         end
       end
     end
-
-    it "disconnects with ProtocolError (0x82) on Retain Handling 3 (§3.8.3.1)" do
-      with_server do |server|
-        with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO.v5(socket)
-          connect(io, version: MQTT::Protocol::Version::V5)
-
-          # The shard cannot encode Retain Handling 3, so send raw bytes: packet
-          # id 1, empty properties, filter "a", options 0x30.
-          io.write_bytes_raw(Bytes[0x82, 0x07, 0x00, 0x01, 0x00, 0x00, 0x01, 0x61, 0x30])
-          io.flush
-
-          pkt = MQTT::Protocol::Packet.from_io(io)
-          pkt.should be_a(MQTT::Protocol::Disconnect)
-          pkt.as(MQTT::Protocol::Disconnect).reason_code
-            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
-        end
-      end
-    end
-
     it "disconnects with SharedSubscriptionsNotSupported (0x9E) on a $share/ filter" do
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -63,7 +77,6 @@ module MqttSpecs
         end
       end
     end
-
     it "disconnects on a $share/ filter even when mixed with a normal filter" do
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -87,36 +100,25 @@ module MqttSpecs
         end
       end
     end
-
-    it "closes rather than send a SUBACK over the client's Maximum Packet Size [MQTT-3.1.2-24]" do
-      with_server do |server|
-        with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO.v5(socket)
-          props = MQTT::Protocol::ConnectProperties.new
-          props.maximum_packet_size = 30u32
-          connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub",
-            properties: props).should be_a(MQTT::Protocol::Connack)
-          # One reason code per filter, so 30 filters make a 35-byte SUBACK.
-          filters = (1..30).map { |i| subtopic("t/#{i}", 0) }
-          subscribe(io, topic_filters: filters, packet_id: 1u16, expect_response: false)
-          io.should be_closed
-        end
-      end
-    end
-
-    it "grants a QoS 2 subscription as QoS 2" do
+    it "disconnects with TopicAliasInvalid (0x94) when a client sends a Topic Alias" do
       with_server do |server|
         with_client_socket(server) do |socket|
           io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
-          # The SUBACK reports the granted maximum [MQTT-3.8.4-7].
-          tf = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 2u8)
-          MQTT::Protocol::Subscribe.new([tf], 1u16).to_io(io)
+          # We advertised topic_alias_maximum=0, so any Topic Alias is invalid.
+          props = MQTT::Protocol::PublishProperties.new
+          props.topic_alias = 1u16
+          MQTT::Protocol::Publish.new(
+            topic: "test/topic", payload: "x".to_slice,
+            packet_id: 1u16, dup: false, qos: 1u8, retain: false, properties: props,
+          ).to_io(io)
           io.flush
 
-          suback = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::SubAck)
-          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos2])
+          pkt = MQTT::Protocol::Packet.from_io(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
         end
       end
     end

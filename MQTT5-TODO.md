@@ -84,8 +84,7 @@ with a delay is delayed; DISCONNECT `0x00` still discards [MQTT-3.14.4-3].
 
 ### Specs
 
-In `spec/mqtt/v5/puback_disconnect_spec.cr`, next to the existing will
-examples (H later folds them into `integrations/will_spec.cr`). Delays are
+In `spec/mqtt/integrations/will_spec.cr` since item H. Delays are
 whole seconds, so these use 1-2s. Run 2, 5 and 7 against the unfixed code
 first.
 
@@ -123,13 +122,13 @@ attached no will can fire, cancelled or not.
 
 ## H. Cross-cutting cleanup
 
-- **Merge blocker.** **Merge the v5 specs back.** `spec/mqtt/v5/*_spec.cr` were kept separate so each
-  chunk's diff stayed self-contained. Before the PR, fold each into the matching
-  `spec/mqtt/integrations/*_spec.cr` and delete the v5 file, **except** the
-  advertise-and-reject compliance matrix, which stays as its own standing file.
-  Nothing has been merged back yet: connect, subscribe, unsubscribe, publish and
-  puback/disconnect are all outstanding. The DISCONNECT/will examples in
-  `puback_disconnect_spec.cr` belong next to `integrations/will_spec.cr`.
+- **Done** (2026-10-07). **The v5 specs are folded by feature.**
+  `spec/mqtt/v5/` is gone: each v5 `describe` block lives in the spec file of
+  the feature it tests, the advertise-and-reject matrix is
+  `integrations/server_capabilities_spec.cr`, and session expiry and
+  subscription options moved as files of their own. The same 518 MQTT
+  examples run before and after; only the six capability examples changed
+  their `describe`.
 - Consider moving `build_server_capabilities` into `consts.cr` or making it a
   constant, to make it obvious it is static.
 - Consider a v5 mode for the `lavinmqperf mqtt` throughput tool. It is pinned to
