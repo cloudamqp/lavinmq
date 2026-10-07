@@ -687,6 +687,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = Array(Unack).new
         notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
@@ -701,14 +702,23 @@ module LavinMQ
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                # Delivered again below with a new delivery tag, which
+                # takes @unack_lock, so it can't happen in here
+                redeliver << unack
               else
                 unack.queue.reject(unack.sp, requeue: true)
-                true
               end
+              true
             end
+          end
+        end
+        redeliver.each do |unack|
+          consumer = unack.consumer.not_nil!
+          if consumer.closed?
+            unack.queue.reject(unack.sp, requeue: true)
+          else
+            env = unack.queue.read(unack.sp)
+            consumer.deliver(env.message, env.segment_position, true, recover: true)
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
@@ -762,15 +772,17 @@ module LavinMQ
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag.add(1, :relaxed)
-        unless no_ack
-          @unack_lock.synchronize do
-            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
-          end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
-          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
+        return @delivery_tag.add(1, :relaxed) if no_ack
+        # The tag is taken under the lock so that @unacked stays sorted by
+        # tag, which acks rely on, even when deliveries run in parallel
+        tag = @unack_lock.synchronize do
+          next_tag = @delivery_tag.add(1, :relaxed)
+          @unacked.push Unack.new(next_tag, queue, sp, consumer, RoughTime.instant)
+          next_tag
         end
+        add = consumer ? 0u32 : 1u32
+        basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+        @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         tag
       end
 

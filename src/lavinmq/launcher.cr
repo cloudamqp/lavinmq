@@ -30,6 +30,7 @@ module LavinMQ
     @mqtt_server : LavinMQ::MQTT::Server?
 
     def initialize(@config : Config)
+      resize_default_execution_context
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -110,6 +111,12 @@ module LavinMQ
       @data_dir_lock = lock
     rescue ex : DataDirLock::Error
       abort "Error: #{ex.message}"
+    end
+
+    private def resize_default_execution_context
+      workers = @config.workers
+      workers = Fiber::ExecutionContext.default_workers_count if workers <= 0
+      Fiber::ExecutionContext.default.resize(workers)
     end
 
     private def print_environment_info

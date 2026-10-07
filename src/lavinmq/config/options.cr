@@ -348,6 +348,13 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property consumer_timeout_loop_interval = 60 # seconds
 
+      # Threads in the default execution context, where connections, queues
+      # and the HTTP API run. 0 uses CRYSTAL_WORKERS or the number of CPUs.
+      @[CliOpt("", "--workers=NUMBER", "Number of worker threads, 0 for one per CPU (default: 1)", section: "options")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_WORKERS")]
+      property workers = 1
+
       @[IniOpt(section: "experimental")]
       property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
 

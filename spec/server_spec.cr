@@ -1015,6 +1015,25 @@ describe LavinMQ::Server do
     end
   end
 
+  it "recover(requeue=false) redelivers to the original consumer" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        q.publish "m1"
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        first = msgs.receive
+        ch.basic_recover(requeue: false)
+        m = msgs.receive
+        m.body_io.to_s.should eq "m1"
+        m.redelivered.should be_true
+        m.delivery_tag.should_not eq first.delivery_tag
+        m.ack
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 0
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

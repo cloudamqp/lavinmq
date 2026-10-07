@@ -55,6 +55,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
 | `consumer_timeout` | — | — | UInt64 | (none) | Consumer idle timeout (ms) |
 | `consumer_timeout_loop_interval` | — | — | Int | `60` | Consumer timeout check interval (s) |
+| `workers` | `--workers` | `LAVINMQ_WORKERS` | Int | `1` | Worker threads for connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one per CPU. Experimental: values above 1 are not yet safe. |
 | `log_exchange` | — | — | Bool | `false` | Enable the log exchange |
 | `auth_backends` | — | — | Array | `[]` | Authentication backends |
 | `default_consumer_prefetch` | `--default-consumer-prefetch` | `LAVINMQ_DEFAULT_CONSUMER_PREFETCH` | UInt16 | `65535` | Default consumer prefetch |

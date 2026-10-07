@@ -100,6 +100,35 @@ jobs:
       - name: Spec
         run: make test
 
+  spec_multi_threaded:
+    name: Spec ${{ matrix.arch }} (multi-threaded)
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 15
+    # Not required until the shared state is thread safe
+    continue-on-error: true
+    env:
+      CRYSTAL_WORKERS: 4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            container: 84codes/crystal:latest-ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+            container: 84codes/crystal:latest-ubuntu-26.04
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev etcd-server
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Spec
+        run: make test
+
   spec_osx:
     name: Spec macOS
     runs-on: macos-15
