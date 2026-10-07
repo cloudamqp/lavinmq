@@ -9,6 +9,8 @@ require "../config"
 require "../name_validator"
 
 module LavinMQ
+  class VHost; end # vhost.cr requires this file
+
   module Endpoint
     # A session with a vhost of this broker, run in-process, see `Session`.
     #
