@@ -30,13 +30,13 @@ reason code). A blanket version matrix was dropped as redundant: the
 per-version `Framing` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ**, measured 2026-10-05 on `32fc6434` (on `feat/mqtt-qos-2` `e8a8b5ed`):
+**LavinMQ**, measured 2026-10-07 on `b43e1537` (on `feat/mqtt-qos-2` `562ce8ca`):
 
 | what | result |
 |---|---|
-| `crystal spec spec/mqtt` (slow included) | **502 examples, 0 failures, 0 errors, 0 pending** |
-| `make test` | **2661 examples, 0 failures, 0 errors, 10 pending** |
-| `make lint` | 444 inspected, 0 failures |
+| `crystal spec spec/mqtt` (slow included) | **518 examples, 0 failures, 0 errors, 0 pending** |
+| `make test` | **2702 examples, 0 failures, 0 errors, 10 pending** |
+| `make lint` | 441 inspected, 0 failures |
 | deprecation warnings from the shard | none |
 | `crystal tool format --check` | clean |
 
@@ -137,8 +137,15 @@ self-confirming round-trip, never checked against a real v5 client.
   are not.
 - Three defects were new information, tracked as item J. All three are fixed.
 
-**Re-run on 2026-10-02 and 2026-10-05**, above. The delivery-QoS and DISCONNECT `0x82` rows it
+**Re-run on 2026-10-02, 2026-10-05 and 2026-10-06**, above. The delivery-QoS and DISCONNECT `0x82` rows it
 left to confirm all held.
+
+### External verification, 2026-10-06
+
+On `9c8dc6a0`, item E included. `test_will_delay` passes. Paho v5 scored 19 / 7 /
+1 timeout as published and 20 / 6 / 1 with `MQTT5-INTEROP-paho.patch`, which
+fixes a race in the suite's own `test_subscribe_options`; v3.1.1 7 / 2. Every
+other check matched. Details and the per-test reasons are in `MQTT5-INTEROP.md`.
 
 ### Why the stock Paho v5 suite cannot grade this broker
 
@@ -146,7 +153,7 @@ At the 2026-08-19 run, 22 of its 27 tests used QoS 2 somewhere, and its client
 ignored our then-advertised `maximum_qos = 1`, itself a [MQTT-3.2.2-11] violation
 on the client's side. We correctly killed those connections, after which several
 tests spun forever on `while len(messages) < 3`. QoS 2 (#2236) removes that
-obstacle, so the unmodified suite should now grade the broker; it has not been
-re-run. In the QoS-clamped copy used then, the v3.1.1 suite went 7/9,
+obstacle, and the unmodified suite has graded the broker since the 2026-10-02
+run. In the QoS-clamped copy used then, the v3.1.1 suite went 7/9,
 failing only on `$`-prefixed topics matching wildcards (item O) and on a test
 that needs an ACL denying a topic.

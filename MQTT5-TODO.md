@@ -1,14 +1,14 @@
 # MQTT 5.0 remaining work
 
-Ordered roughly easiest-first. Everything here is on
+Open items first; E is kept as a design record. Everything here is on
 `feat/implement-mqtt5-support`. Design context is in `MQTT5-DESIGN.md`.
 
 ---
 
 ## E. Will Delay Interval
 
-**Done** (2026-10-06). [MQTT-3.1.2-8], [MQTT-3.1.3-9]. Paho `test_will_delay`,
-not yet re-run. Kept here as the design record.
+**Done** (2026-10-06). [MQTT-3.1.2-8], [MQTT-3.1.3-9]. Paho `test_will_delay`
+passes since the 2026-10-06 run. Kept here as the design record.
 
 `WillProperties#will_delay_interval` has **no capability flag**, so it could
 not be advertised as unavailable: shipping without it would have been a real
@@ -64,10 +64,12 @@ straight to `@vhost.mqtt_exchange` would silently lose its retain flag.
   `deliver_loop` rescue used to return at once, and its will could then arm
   after the cancel.
 - **One wait, two deadlines.** `wait_for_client` selects on reconnect, the
-  expiry deadline (unless `UInt32::MAX`) and the will deadline (when pending).
+  expiry deadline (unless 0 or `UInt32::MAX`; none while a connection has
+  claimed the session) and the will deadline (when pending).
   The will firing publishes it and returns to the loop, so the expiry
   deadline must not move: `Session#client=` fixes `@offline_since` and
-  `@offline_ttl` at detach (construction, for a restored session). Re-reading
+  `@offline_ttl` at detach, or when a claim ends without attaching
+  (construction, for a restored session). Re-reading
   the interval per wait would let a resuming connection's narrower interval,
   set before it attaches, expire the session it is about to resume.
 - **Session end publishes it, on the session's own fiber.** Every delete
@@ -85,8 +87,8 @@ with a delay is delayed; DISCONNECT `0x00` still discards [MQTT-3.14.4-3].
 ### Specs
 
 In `spec/mqtt/integrations/will_spec.cr` since item H. Delays are
-whole seconds, so these use 1-2s. Run 2, 5 and 7 against the unfixed code
-first.
+whole seconds, so these use 1-2s. 2, 5 and 7 were run against the unfixed
+code first.
 
 1. Delay 2: nothing at ~1s, the will at ~2s.
 2. Reconnect with Clean Start 0 inside the delay: never published.
@@ -150,7 +152,8 @@ A remembered packet id is the precise "sent before" signal, which is what
 
 ## Q. Our own Receive Maximum is not enforced
 
-**To decide**, listed in `MQTT5.md`. We advertise no Receive Maximum, so clients
+**Decided** (2026-10-07): handled in the QoS 2 durability branch, not this PR.
+The analysis below is the input for that work. We advertise no Receive Maximum, so clients
 assume 65535, and nothing counts the QoS 1 and QoS 2 PUBLISHes a client has in
 flight towards us. §3.3.4 says the server "uses" DISCONNECT `0x93` when a client
 exceeds it, but with no MUST and no statement id; the MUST, [MQTT-3.3.4-7], is
@@ -160,10 +163,9 @@ client timed out after 180s. With 16-bit packet ids the 65536th has to reuse an
 id still held, which the QoS 2 dedupe treats as a re-send; how that meets a
 `0x93` count is not investigated.
 
-Options: count QoS 1 publishes awaiting their PUBACK (which waits for the
-persister) plus QoS 2 ids awaiting PUBREL, and DISCONNECT `0x93` past the limit;
-also advertise a lower limit; or record it as a deliberate gap in the release
-notes.
+Options considered: count QoS 1 publishes awaiting their PUBACK (which waits
+for the persister) plus QoS 2 ids awaiting PUBREL, and DISCONNECT `0x93` past
+the limit; also advertise a lower limit.
 
 ## O. Wildcards match `$`-prefixed topics
 

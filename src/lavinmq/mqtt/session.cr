@@ -458,9 +458,9 @@ module LavinMQ
         @client
       end
 
-      # A takeover's `Client#close` usually joins the old read fiber before the
-      # new `Client#run` reaches this, so a `puback`/`pubrec` is rarely in flight
-      # while `@inflight` is walked - but a second `close` returns without waiting, so it can be.
+      # Every caller runs after the previous connection's read fiber has exited
+      # (`Client#close` joins it on every call), so no `puback`/`pubrec` of that
+      # connection is in flight while `@inflight` is walked.
       def client=(client : MQTT::Client?)
         # A closed store can't be touched, but `delete` still has to know which
         # connection to close.
