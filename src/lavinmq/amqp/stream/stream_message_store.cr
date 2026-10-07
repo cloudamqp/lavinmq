@@ -1,6 +1,7 @@
 require "./stream"
 require "./stream_consumer"
 require "./consumer_offsets"
+require "./stream_offset"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
@@ -47,34 +48,17 @@ module LavinMQ::AMQP
       offset
     end
 
-    # Used once when a consumer is started
-    # Populates `segment` and `position` by iterating through segments
-    # until `offset` is found
-    # ameba:disable Metrics/CyclomaticComplexity
-    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
+    # Resolves `offset` to the {offset, segment, position} to start reading at
+    def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
-      if track_offset
-        consumer_last_offset = last_offset_by_consumer_tag(tag)
-        return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
-      end
-
       case offset
-      when "first" then offset_at(@segments.first_key, 4u32)
-      when "last"  then offset_at(@segments.last_key, 4u32)
-      when "next"  then last_offset_seg_pos
-      when Time    then find_offset_in_segments(offset)
-      when nil
-        consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
-        find_offset_in_segments(consumer_last_offset)
-      when Int
-        if offset.negative?
-          find_negative_offset(offset)
-        elsif offset > @last_offset
-          last_offset_seg_pos
-        else
-          find_offset_in_segments(offset)
-        end
-      else raise OffsetError.new(offset)
+      in StreamOffset::First     then offset_at(@segments.first_key, 4u32)
+      in StreamOffset::Last      then offset_at(@segments.last_key, 4u32)
+      in StreamOffset::Next      then last_offset_seg_pos
+      in StreamOffset::Timestamp then find_offset_in_segments(offset.time)
+      in StreamOffset::FromEnd   then find_offset_from_end(offset.count)
+      in StreamOffset::Absolute
+        offset.value > @last_offset ? last_offset_seg_pos : find_offset_in_segments(offset.value)
       end
     end
 
@@ -139,11 +123,11 @@ module LavinMQ::AMQP
       {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
     end
 
-    private def find_negative_offset(offset : Int) : Tuple(Int64, UInt32, UInt32)
+    private def find_offset_from_end(count : Int64) : Tuple(Int64, UInt32, UInt32)
       return last_offset_seg_pos if @size.zero?
 
       first_offset, _seg, _pos = offset_at(@segments.first_key, 4u32)
-      target_offset = @last_offset + offset.to_i64 + 1
+      target_offset = @last_offset - count + 1
       target_offset = first_offset if target_offset < first_offset
       find_offset_in_segments(target_offset)
     end
@@ -502,12 +486,6 @@ module LavinMQ::AMQP
         BytesMessage.skip(mfile)
       end
       last_ts
-    end
-
-    class OffsetError < Exception
-      def initialize(offset)
-        super("invalid offset #{offset}")
-      end
     end
   end
 end

@@ -5,7 +5,7 @@ module LavinMQ::AMQP
   class StreamReader
     Log = LavinMQ::Log.for "stream_reader"
 
-    def initialize(@stream : Stream, @start_offset : String | Int64 | Time)
+    def initialize(@stream : Stream, @start_offset : StreamOffset::Any)
     end
 
     def each(&)
