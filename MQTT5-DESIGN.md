@@ -367,21 +367,22 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   stored session, the interval decides how long the one this connection ends up
   with outlives it. That makes Clean Start 1 plus a non-zero interval
   expressible, which the old single bit could not represent.
-- DISCONNECT can name a new interval [MQTT-3.14.2.2.2], applied before
+- DISCONNECT can name a new interval (§3.14.2.2.2), applied before
   `remove_client` runs. Absent there means keep the CONNECT value, the opposite
-  default from CONNECT. Non-zero after a CONNECT of 0 is `0x82` [MQTT-3.14.2],
+  default from CONNECT. Non-zero after a CONNECT of 0 is `0x82`,
   which needs no new code: 3.14.2.2.2 says to answer it as a section 4.13
   protocol error, which is exactly what the `ProtocolViolation` handler does,
   will included.
 - The clock runs in the session's existing `deliver_loop`, not a new fiber: the
-  offline park became a `select` on `@has_client` versus a timeout. Reattaching
-  cancels it, so the interval is measured from each disconnect. A 0-interval
-  session with no client therefore expires on its first pass, so one declared
-  straight through `declare_queue` with `auto_delete` deletes itself immediately,
-  which is why the `expiry_from` specs declare with `auto_delete: false`.
-- `session_present?` keeps an `auto_delete?` guard for takeover: it runs before
-  `add_client`, so a 0-interval session belonging to a still-connected client is
-  visible, and a takeover ends that session rather than resuming it (3.1.4).
+  offline park is a `select` on `@has_client` versus a timeout, measured from
+  `@offline_since`/`@offline_ttl`, which are fixed when the offline window
+  starts. A connection claims the session at CONNECT (`Session#resume`), so a
+  timer cannot fire between CONNACK and attach. A 0-interval session has no
+  timer: `Broker#remove_client` deletes it with its connection, under the
+  client-id lock.
+- `add_client_locked` deletes an existing 0-interval session before declaring,
+  so a takeover of a still-connected 0-interval client ends that session rather
+  than resuming it (3.1.4), and Session Present is 0.
 - **Session state rides AMQP queue arguments, deliberately but not happily.** A
   session is persisted as a `Queue::Declare` frame, whose only field that can hold
   a `UInt32` is `arguments`, so the interval lives in `x-mqtt-session-expiry`.

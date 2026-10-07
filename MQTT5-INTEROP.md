@@ -1,7 +1,7 @@
 # MQTT interop harness - how to re-run the external verification
 
-Companion to `MQTT5.md`. `MQTT5-TESTING.md` records *what* the 2026-08-19
-external run found; this file is *how to run it again*. Nothing here is wired into `make`
+Companion to `MQTT5.md`. `MQTT5-TESTING.md` records *what* each external run
+found; this file is *how to run it again*. Nothing here is wired into `make`
 or CI on purpose: it needs a built binary, a network clone and a Docker pull, and
 it is a release-gate check, not a per-commit one.
 
@@ -603,7 +603,7 @@ comes back. `mos` below is
 | Maximum Packet Size on delivery | `... mosquitto_sub -V 5 -d -W 8 -q 1 -i mps -t x -D connect maximum-packet-size 40`, then publish 200 bytes | no PUBLISH arrives, connection stays up. Keep `-i`: an assigned client id makes the CONNACK too big for 40 bytes, so since item I it is not sent and mosquitto reconnects forever |
 | Delivery QoS | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x`, then `mosquitto_pub -V 5 -q 0 -t x -m x` | the delivered PUBLISH is QoS **0**, not 1 [MQTT-3.8.4-8]. Repeat with `-V 311` |
 | Will QoS 2 | `interop.py` with `will_set(..., qos=2)` | CONNACK Success, now that QoS 2 is supported. Was Success at the 2026-08-19 run too, then `0x9B` until QoS 2 |
-| Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | **nothing arrives**: expiry 0 ends the session with the connection [MQTT-3.1.2-11] |
+| Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | **nothing arrives**: expiry 0 ends the session with the connection (§3.1.2.11.2) |
 | Session Expiry non-zero | same with `-x 60` | the message arrives, and `mqtt.c1` is still there between connections |
 | Clean Start 1 + expiry | `... mosquitto_sub -V 5 -x 60 -i c2 -q 1 -t x` (Clean Start 1 is mosquitto's default without `-c`; `-C` is a message count) | old session discarded, new one persists - the case the Paho suite used to fail |
 

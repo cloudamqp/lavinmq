@@ -2,9 +2,7 @@
 
 Things we ship with, deliberately. These belong in the release notes and the
 docs, not in a bug tracker. The entries marked **Release note** are visible
-behaviour changes for existing users. Entries marked **(merge blocker)** are
-spec violations that get fixed before #2185 merges, so they drop out of the final
-notes; the checklist is in `MQTT5.md`.
+behaviour changes for existing users.
 
 ---
 
@@ -71,6 +69,17 @@ notes; the checklist is in `MQTT5.md`.
 - **A will waiting out its Will Delay Interval is lost on a broker restart.**
   It is held in memory only, so a shutdown or failover during the delay drops
   it, which §3.1.2.5 permits. Same precedent as session expiry deadlines.
+- **A delayed will is authorised when the connection closes**, not when it is
+  published: revoking the user's write permission during the Will Delay
+  Interval does not stop it.
+- **Deleting a session publishes its pending will.** A session deleted over the
+  HTTP API, or with its vhost, has ended, so a will still waiting out its delay
+  is published at once [MQTT-3.1.2-8].
+- **`#` and `+` match `$`-prefixed topics** [MQTT-4.7.2-1], on v3.1.1 too. Fixed
+  separately, because it changes what existing subscribers receive (item O).
+- **A client whose Maximum Packet Size is smaller than our CONNACK cannot
+  connect.** The CONNACK with the capability set is about 21 bytes, and
+  [MQTT-3.1.2-24] forbids sending it, so the connection is closed without one.
 - **Expired messages are deleted lazily.** A message past its Message Expiry
   Interval is deleted when it reaches the head of the session, not when it
   expires, so until then it still counts towards the session's message count,
@@ -80,7 +89,8 @@ notes; the checklist is in `MQTT5.md`.
 - **No Receive Maximum of our own.** We do not advertise one, so clients assume
   the 65535 default, which 16-bit packet ids cannot exceed anyway. The client's
   Receive Maximum is honoured: the outbound window is the lower of it and
-  `Config#max_inflight_messages`.
+  `Config#max_inflight_messages`. A client with more in flight towards us is
+  never disconnected with `0x93` (item Q, handled with QoS 2 durability).
 - **Payload Format Indicator is not validated.** Spec 3.3.2.3.2 only says a
   server MAY check that a payload declared as UTF-8 really is, so we never answer
   `0x99` PayloadFormatInvalid. Validating means a String allocation plus a UTF-8

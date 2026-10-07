@@ -119,8 +119,9 @@ module LavinMQ
             "queue \"#{SESSION_PREFIX}#{client_id}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
         end
         # A resumed session adopts this connection's interval. Its expiry clock,
-        # if running, captured the old one at disconnect and stops on attach, so
-        # narrowing it here cannot expire the session about to be resumed.
+        # if running, captured the old one at disconnect and stops once
+        # `session.resume` below claims it, so narrowing it here cannot expire
+        # the session about to be resumed.
         existing.session_expiry_interval = interval if existing
         session = existing || sessions.build(client_id, interval)
         client = MQTT::Client.new(io,

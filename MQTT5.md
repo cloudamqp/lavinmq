@@ -3,7 +3,7 @@
 Status doc for the MQTT 5.0 work in LavinMQ, spanning this repo and the
 `mqtt-protocol.cr` shard.
 
-Last reconciled against the code: **2026-10-06**.
+Last reconciled against the code: **2026-10-07**.
 
 ## Doc map
 
@@ -27,7 +27,7 @@ about 92% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 42 commits | none | complete v5 codec, reviewed twice, needs a release tag; LavinMQ pins `2b6713f` |
-| `lavinmq` | `feat/implement-mqtt5-support` | 16 commits, on `feat/mqtt-qos-2` `562ce8ca` | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, Will Delay Interval, Receive Maximum, Message Expiry, retained-message properties, full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 19 commits, on `feat/mqtt-qos-2` `562ce8ca` | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, Will Delay Interval, the client's Receive Maximum, Message Expiry, retained-message properties, full compliance contract |
 
 QoS 2 and delivery at the lower of the publish and subscription QoS come from
 `feat/mqtt-qos-2` (#2236), which merges first.
@@ -38,7 +38,8 @@ it controls, gets its subscription options honoured, gets its will published
 with its properties intact and after its Will Delay Interval, and gets a
 spec-correct rejection for every feature we do not implement.
 
-Green on 2026-10-06 with item E: 2700 examples, 0 failures, lint and format clean.
+Green on 2026-10-07 on `b43e1537`: 2702 examples, 0 failures, lint and format
+clean (`MQTT5-TESTING.md`).
 External run the same day: Paho v5 20 of 27 with the suite patched to match
 `paho.mqtt.python` (19 as published), v3.1.1 7 of 9 (`MQTT5-INTEROP.md`).
 
@@ -74,11 +75,11 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 - [ ] #2236 merged, and #2185 rebased onto `main` and retargeted.
 - [ ] Interop harness re-run, with every Paho failure on the list below.
 
-**To decide**
+**Handled outside this PR**
 
-- [ ] **Q** our own Receive Maximum: advertised as nothing, never enforced, so no
-  DISCONNECT `0x93`. The spec words it without a MUST or a statement id (§3.3.4).
-  Paho `test_flow_control2`, which times out. `MQTT5-TODO.md` item Q.
+- [ ] **Q** our own Receive Maximum (DISCONNECT `0x93`): goes with the QoS 2
+  durability branch, not #2185. Paho `test_flow_control2` times out until then.
+  `MQTT5-TODO.md` item Q.
 
 **Must fix, but not in this PR**
 
@@ -203,6 +204,10 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 - The six will properties that are also PUBLISH properties are carried onto the
   message the will becomes
 - A will at QoS 2 is accepted on both versions, now that QoS 2 is supported
+- Will Delay Interval: the will waits on the session (`Session#arm_will`) and is
+  published at the delay or when the session ends, whichever comes first. A
+  connection resuming the session cancels it (`Session#resume`). Lost on a
+  broker restart (release notes)
 
 **Session expiry**
 - `Session#session_expiry_interval : UInt32` is the single input to a session's
@@ -211,13 +216,18 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
   for v3 the shard derives it from Clean Session, 1 to 0 and 0 to `UInt32::MAX`
 - DISCONNECT can narrow it, applied before the client is removed, so narrowing
   to 0 ends the session on that disconnect
-- The clock runs in the session's existing `deliver_loop`; reattaching cancels it
+- The clock runs in the session's `deliver_loop` and is fixed when the offline
+  window starts (`@offline_since`/`@offline_ttl`). A connection claims the
+  session at CONNECT (`Session#resume`, under the client-id lock), which holds
+  expiry off until it attaches or goes away. A 0-interval session has no timer:
+  `Broker#remove_client` ends it with its connection
 
 ---
 
 ## 4. Sequencing to ship
 
-1. Decide Q. E, the last spec-violation merge blocker, is done.
+1. E, the last spec-violation merge blocker, is done. Q is handled in the QoS 2
+   durability branch.
 2. Interop re-run after E: 2026-10-06, Paho v5 20 of 27 (patched suite), v3.1.1
    7 of 9, every failure accounted for in `MQTT5-INTEROP.md`. Run it once more
    on the final rebased branch.
