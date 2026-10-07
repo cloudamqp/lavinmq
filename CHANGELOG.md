@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.5] - 2026-10-07
 
 ### Fixed
 
 - Memory growth with clustering enabled when vhosts are repeatedly created and deleted: files of a deleted vhost stayed in the replication index, and followers kept them on disk with an open file descriptor each [#2335](https://github.com/cloudamqp/lavinmq/pull/2335)
+- A vhost deleted on a cluster could reappear with its queues, messages, exchanges and policies if the vhost was created again under the same name after a failover: followers kept the deleted vhost's files on disk [#2335](https://github.com/cloudamqp/lavinmq/pull/2335)
 
 ## [2.9.4] - 2026-10-05
 
