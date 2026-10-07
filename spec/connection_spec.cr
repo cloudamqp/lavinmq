@@ -59,7 +59,7 @@ end
 
 # Opens a raw AMQP connection that consumes from *queue* but never reads,
 # and publishes until the server's write to it blocks
-def with_stuck_consumer(s, queue, &)
+def with_stuck_consumer(s, queue, body_size = 64 * 1024, count = 200, &)
   with_raw_amqp_connection(s) do |io, stream|
     io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
     io.flush
@@ -73,11 +73,11 @@ def with_stuck_consumer(s, queue, &)
       client = s.connections.find! do |c|
         c.as(LavinMQ::AMQP::Client).connection_info.remote_address.port == io.local_address.port
       end.as(LavinMQ::AMQP::Client)
-      body = Bytes.new(64 * 1024)
+      body = Bytes.new(body_size)
       # more than the socket buffers can hold, so delivery to the client blocks
-      200.times { q.publish body }
+      count.times { q.publish body }
       wait_for { s.vhosts["/"].queue(queue).message_count > 0 }
-      yield client
+      yield client, io, stream
     end
   end
 end
@@ -373,6 +373,26 @@ describe LavinMQ::Server do
       with_amqp_server do |s|
         with_stuck_consumer(s, "tcp_send_timeout") do |client|
           wait_for(10.seconds) { client.closed? }
+        end
+      end
+    end
+
+    it "doesn't resend buffered data when disconnecting a consumer that doesn't read" do
+      LavinMQ::Config.instance.tcp_send_timeout = 1
+      with_amqp_server do |s|
+        # small messages go through the socket's write buffer
+        with_stuck_consumer(s, "tcp_send_timeout_resend", body_size: 100, count: 100_000) do |client, io, stream|
+          sleep 1.5.seconds # the first write has timed out, the connection is closing
+          io.read_timeout = 10.seconds
+          frames = 0
+          loop do
+            stream.next_frame # raises on a duplicated, so misaligned, frame
+            frames += 1
+          rescue IO::EOFError
+            break
+          end
+          frames.should be > 0
+          client.closed?.should be_true
         end
       end
     end

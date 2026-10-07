@@ -3,6 +3,7 @@ require "socket"
 require "../client"
 require "../error"
 require "../rough_time"
+require "../../stdlib/io_buffered_discard"
 require "./session"
 require "./protocol"
 require "../bool_channel"
@@ -364,15 +365,18 @@ module LavinMQ
         close_socket
       end
 
-      # Under the write lock, so that closing (which flushes buffered data)
-      # never runs concurrently with a write. A write blocked on a client that
-      # stopped reading is aborted by the socket's write timeout.
+      # Under the write lock, so that closing never runs concurrently with a
+      # write. A write blocked on a client that stopped reading is aborted by
+      # the socket's write timeout. Buffered data is dropped instead of
+      # flushed: after a failed write it may already have been partly sent,
+      # and the connection is being abandoned anyway.
       private def close_socket
         socket = @io
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end
         @lock.synchronize do
+          socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
           socket.close
         end
       rescue ::IO::Error
