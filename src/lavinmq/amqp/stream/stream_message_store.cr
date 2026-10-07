@@ -292,7 +292,9 @@ module LavinMQ::AMQP
       if seg_id = next_segment_id(cursor.segment)
         fast = @segments[cursor.segment]?.try { |prev| read_fast?(prev, cursor.segment_since) }
         unpin(cursor)
-        cursor.enter(seg_id)
+        # From the segment's first offset, as retention may have dropped the
+        # segment the cursor was in
+        cursor.enter(seg_id, @segment_first_offset[seg_id])
         pin(cursor)
         @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
       end

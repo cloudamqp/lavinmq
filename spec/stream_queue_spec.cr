@@ -2070,6 +2070,22 @@ describe LavinMQ::AMQP::StreamCursor do
     end
   end
 
+  it "continues at the first retained offset when its segment is dropped" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 6, LavinMQ::Config.instance.segment_size // 3) # two per segment
+      cursor = store.cursor(first)
+      store.shift?(cursor) # stays in the first segment
+      store.max_length = 2
+      store.drop_overflow
+      store.@segments.has_key?(cursor.segment).should be_false
+      first_retained = store.@segment_first_offset[store.@segments.first_key]
+      first_retained.should be > 2
+      offsets.call(store, cursor).should eq (first_retained..6).to_a
+      store.close
+    end
+  end
+
   it "is caught up when there is nothing to read" do
     with_datadir do |data_dir|
       store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
