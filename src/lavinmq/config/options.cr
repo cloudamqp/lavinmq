@@ -119,8 +119,9 @@ module LavinMQ
     # organized in one place, while config.cr contains the parsing and validation logic.
     # Config class includes this module to inherit all annotated properties.
     module Options
-      DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
-      DEFAULT_PASSWORD_HASH = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
+      DEFAULT_LOG_LEVEL            = ::Log::Severity::Info
+      DEFAULT_PASSWORD_HASH        = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
+      DEFAULT_CLUSTERING_RAFT_PORT = 5680
 
       @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
       property config_file = ""
@@ -432,7 +433,7 @@ module LavinMQ
       # Nil when not configured, see Config#clustering_backend
       property clustering_backend : ClusteringBackend? = nil
 
-      @[CliOpt("", "--clustering-seeds=ADDRESSES", "Comma separated host:port raft addresses to form or join a cluster with: all nodes of a new cluster, or any member when joining, raft backend only", section: "clustering")]
+      @[CliOpt("", "--clustering-seeds=ADDRESSES", "Comma separated raft addresses (port defaults to 5680) to form or join a cluster with: all nodes of a new cluster, or any member when joining, raft backend only", section: "clustering")]
       @[IniOpt(ini_name: seeds, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_SEEDS")]
       property clustering_seeds = ""
@@ -440,7 +441,7 @@ module LavinMQ
       @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port, raft backend only (default: 5680)", section: "clustering")]
       @[IniOpt(ini_name: raft_port, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
-      property clustering_raft_port = 5680
+      property clustering_raft_port = DEFAULT_CLUSTERING_RAFT_PORT
 
       @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "The host:port other nodes reach this node's raft port at, raft backend only (default: the advertised URI's host with raft_port)", section: "clustering")]
       @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]

@@ -529,15 +529,27 @@ describe LavinMQ::Config do
       File.delete?(password_file) if password_file
     end
 
-    it "rejects a seed without a port" do
-      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
-      config = LavinMQ::Config.new
-      expect_raises(LavinMQ::Config::Error, /must be host:port/) do
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1,b", "--clustering-raft-advertised-address=a:1"])
+    it "defaults seed ports to 5680 and deduplicates the resulting addresses" do
+      config = LavinMQ::Config.new(IO::Memory.new)
+      config.parse(["--clustering", "--clustering-password=secret", "--clustering-raft-port=5690",
+                    "--clustering-seeds= node1 ,node1:5680,127.0.0.1,[::1],[::1]:5680,node2:5691,[::2]:5692"])
+      config.clustering_seed_addresses.should eq ["node1:5680", "127.0.0.1:5680", "[::1]:5680", "node2:5691", "[::2]:5692"]
+    end
+
+    it "recognizes a single-node seed with an omitted port as its own raft address" do
+      config = LavinMQ::Config.new(IO::Memory.new)
+      config.parse(["--clustering", "--clustering-password=secret", "--clustering-bind=127.0.0.1",
+                    "--clustering-seeds=127.0.0.1"])
+      config.clustering_seed_addresses.should eq [config.clustering_raft_address]
+    end
+
+    it "rejects an invalid explicit seed port" do
+      {"node1:", "node1:abc", "node1:65536", "[::1]:"}.each do |seed|
+        config = LavinMQ::Config.new(IO::Memory.new)
+        expect_raises(LavinMQ::Config::Error, /must be host:port/) do
+          config.parse(["--clustering", "--clustering-password=secret", "--clustering-seeds=#{seed}"])
+        end
       end
-    ensure
-      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
-      File.delete?(password_file) if password_file
     end
 
     it "requires the seeds to be configured" do

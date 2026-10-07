@@ -226,7 +226,7 @@ enabled = true
 bind = ::
 port = 5679
 advertised_uri = tcp://node1:5679
-seeds = node1:5680,node2:5680,node3:5680
+seeds = node1,node2,node3 # port defaults to 5680
 password_file = /etc/lavinmq/clustering_password # same secret on every node, chmod 600
 ```
 
@@ -234,7 +234,7 @@ or start LavinMQ with:
 
 ```sh
 lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-password-file=/etc/lavinmq/clustering_password \
-  --clustering-advertised-uri=tcp://node1:5679 --clustering-seeds=node1:5680,node2:5680,node3:5680
+  --clustering-advertised-uri=tcp://node1:5679 --clustering-seeds=node1,node2,node3
 ```
 
 The first time a new cluster starts, add `--clustering-bootstrap` on one of the nodes, so it may become the first leader.

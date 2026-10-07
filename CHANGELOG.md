@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Raft clustering seeds can omit the port, defaulting to `5680` [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - The Raft clustering password can be set through config, environment or CLI; group or other access to `password_file` now produces a warning instead of preventing startup [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - The clustering `advertised_uri` defaults to `tcp://<bind>:<port>` when `bind` is a specific address, and to the hostname only when bound to all interfaces (`::` or `0.0.0.0`). It was always the hostname. With the raft backend, `raft_advertised_address` defaults to the host of `advertised_uri` with `raft_port`, so it rarely needs to be set
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
