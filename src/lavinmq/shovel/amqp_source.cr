@@ -40,6 +40,13 @@ module LavinMQ
       # Queue-length mode: how many messages have been settled for good (acked,
       # or rejected without requeue) against the message_count snapshot.
       @settled = 0_u32
+      # When the first ack of the pending batch was deferred; the batch is
+      # flushed at most batch_ack_timeout after it. Nil while nothing is pending.
+      @batch_started : Time::Instant?
+      # Wakes the ack timer when a batch starts, closed when the run stops.
+      # Nil when acks aren't batched (in-process) or the source is stopped,
+      # and then every ack is flushed at once.
+      @ack_timer : ::Channel(Bool)?
       # Serializes settlement (ack/reject/timeout-flush/stop). The frontier is
       # written from the confirm fiber and the ack-timeout fiber, which run on
       # separate threads under -Dpreview_mt; the read-decide-emit-update must be
@@ -80,9 +87,12 @@ module LavinMQ
         session = @session || return
         session.cancel(TAG)
         # Acks that are settled but not yet flushed are flushed before closing,
-        # so the close only returns what's really unsettled.
-        @settle.synchronize { flush_ack(session) unless session.closed? }
-        stop_ack_timer
+        # so the close only returns what's really unsettled. With the timer
+        # gone, an ack landing before the close is flushed at once.
+        @settle.synchronize do
+          flush_ack(session) unless session.closed?
+          stop_ack_timer
+        end
         session.close
         @q = nil
       end
@@ -106,16 +116,7 @@ module LavinMQ
         session = @session || return
         return if session.closed?
         settle_tag(delivery_tag, acked: true)
-        final = settle_one
-        # A full batch is flushed, and so is a partial one once nothing is in
-        # flight: no settlement is coming to grow it. Under load deliveries
-        # are always in flight, so acks go out once per batch.
-        if !batch || final || @in_flight.zero? || @frontier - @flushed >= ack_batch_size
-          flush_ack(session)
-          finish(session) if final
-        elsif pending_ack
-          arm_ack_timer
-        end
+        flush_or_defer(session, batch, settle_one)
       end
 
       # Return a single message to the source. A reject settles its tag at the
@@ -130,16 +131,31 @@ module LavinMQ
         return if session.closed?
         session.reject(delivery_tag, requeue: requeue)
         settle_tag(delivery_tag)
-        flush_ack(session) if @in_flight.zero?
-        if requeue
-          # A requeued message comes back redelivered and is settled then —
-          # unless the broker dropped it (delivery limit, TTL) instead, in
-          # which case nothing is left to arrive and the run must not wait.
-          schedule_drain_check(session) if @in_flight.zero? && @delete_after.queue_length?
-        elsif settle_one
-          # A dead-lettered (or dropped) message is settled now.
+        # A dead-lettered (or dropped) message is settled now. A requeued one
+        # comes back redelivered and is settled then — unless the broker
+        # dropped it (delivery limit, TTL) instead, in which case nothing is
+        # left to arrive and the run must not wait.
+        # The frontier may have moved over acks waiting above this tag, so
+        # this can complete or start a batch like an ack does.
+        flush_or_defer(session, true, !requeue && settle_one)
+        if requeue && @in_flight.zero? && @delete_after.queue_length?
+          schedule_drain_check(session)
+        end
+      end
+
+      # A full batch is flushed, and so is the last one of a queue-length run.
+      # A partial batch waits for the ack timer, which flushes it at most
+      # batch_ack_timeout after its first ack; it's armed once per batch.
+      # Whether more deliveries are coming can't be known (they may sit in
+      # the client's prefetch buffer), so there's no flush on idle.
+      private def flush_or_defer(session, batch, final)
+        timer = @ack_timer
+        if !batch || final || timer.nil? || @frontier - @flushed >= ack_batch_size
           flush_ack(session)
-          finish(session)
+          finish(session) if final
+        elsif @batch_started.nil? && pending_ack
+          @batch_started = Time.instant
+          timer.try_send?(true)
         end
       end
 
@@ -182,6 +198,7 @@ module LavinMQ
         tag = pending_ack || return
         session.ack(tag, multiple: true)
         @flushed = tag
+        @batch_started = nil
       end
 
       # With nothing in flight after a requeue, look at the queue once the
@@ -214,7 +231,6 @@ module LavinMQ
       end
 
       private def open_queue(session)
-        stop_ack_timer # of a previous run
         q_name = @queue || ""
         q = begin
           session.declare_queue(q_name, passive: true)
@@ -226,12 +242,14 @@ module LavinMQ
         # A new session numbers its deliveries from 1 again, and a queue-length
         # run counts against the snapshot just taken, not the previous one's.
         @settle.synchronize do
+          stop_ack_timer # of a previous run
           @q = q
           @frontier = @ack_frontier = @flushed = 0_u64
           @settled_above.clear
           @acked_above.clear
           @in_flight = 0_u32
           @settled = 0_u32
+          @batch_started = nil
         end
         if @exchange || @exchange_key
           session.bind_queue(q[0], @exchange || "", @exchange_key || "")
@@ -244,40 +262,42 @@ module LavinMQ
         # Only batched acks need a deadline for a partial batch
         if ack_batch_size > 1
           arm = ::Channel(Bool).new(1)
-          done = ::Channel(Nil).new
-          @ack_timer = {arm, done}
-          spawn(name: "Shovel #{@name} ack timer") { ack_timer(session, arm, done) }
+          @settle.synchronize { @ack_timer = arm }
+          spawn(name: "Shovel #{@name} ack timer") { ack_timer(session, arm) }
         end
       end
 
-      # Armed when an ack is left pending in a partial batch, closed by #stop
-      @ack_timer : Tuple(::Channel(Bool), ::Channel(Nil))?
-
-      private def arm_ack_timer
-        @ack_timer.try &.[0].try_send?(true)
-      end
-
-      # Flushes a partial batch at most batch_ack_timeout after it was armed:
-      # deliveries are still in flight (else the ack would have been flushed
-      # already) but they may take long, e.g. a destination being retried.
-      # Sleeps on the arm channel while there's nothing pending, no polling.
-      private def ack_timer(session, arm, done)
+      # Flushes a partial batch batch_ack_timeout after its first ack:
+      # deliveries are still in flight, or will be, and may take long, e.g. a
+      # destination being retried. Sleeps on the arm channel while nothing is
+      # pending, no polling. The deadline is read from @batch_started, so an
+      # arm left over from a batch that filled up and was flushed is a no-op.
+      private def ack_timer(session, arm)
         while arm.receive? # Bool, as receive? of nil can't be told from closed
-          select
-          when done.receive?
-            return
-          when timeout(@batch_ack_timeout)
+          while deadline = ack_deadline
+            select
+            when armed = arm.receive?
+              return if armed.nil? # closed by #stop
+            when timeout(Math.max(deadline - Time.instant, Time::Span.zero))
+            end
+            @settle.synchronize do
+              return if session.closed?
+              started = @batch_started
+              flush_ack(session) if started && started + @batch_ack_timeout <= Time.instant
+            end
           end
-          @settle.synchronize { flush_ack(session) unless session.closed? }
         end
       end
 
+      private def ack_deadline : Time::Instant?
+        @settle.synchronize { @batch_started.try &.+(@batch_ack_timeout) }
+      end
+
+      # Call with @settle held
       private def stop_ack_timer
-        if timer = @ack_timer
-          timer[0].close
-          timer[1].close
-          @ack_timer = nil
-        end
+        @ack_timer.try &.close
+        @ack_timer = nil
+        @batch_started = nil
       end
 
       # Queue-length mode moves as many messages as were on the queue at start

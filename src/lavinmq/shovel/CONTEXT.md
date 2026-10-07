@@ -27,8 +27,9 @@ queue). The
 Source owns consume and settlement; it never decides *whether* a message
 succeeded. Acks are cumulative and batched behind a **settlement frontier**:
 the highest delivery tag below which everything is settled. A batch is
-flushed when it reaches half the prefetch, as soon as nothing is in flight, or
-at most the batch timeout after its first ack (batching only pays off on a
+flushed when it reaches half the prefetch, or the batch timeout after its
+first ack (there's no flush on idle: messages may be waiting in the client's
+prefetch buffer) (batching only pays off on a
 remote Endpoint; in-process every ack is sent at once). Out-of-order
 confirms wait above it; a cumulative ack never covers an unsettled tag, and
 names the highest *acked* tag below the frontier, never a rejected one (the

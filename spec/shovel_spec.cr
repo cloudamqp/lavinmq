@@ -820,7 +820,9 @@ describe LavinMQ::Shovel do
   end
 
   describe "AMQPSource" do
-    it "batches acks to a remote broker, flushing a partial batch once nothing is in flight" do
+    it "batches acks to a remote broker when each ack is reported during its delivery" do
+      # Like an on-publish or HTTP destination: nothing is ever in flight
+      # between deliveries, yet more are coming, so batching must hold.
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ba_q", true, false)
@@ -828,15 +830,19 @@ describe LavinMQ::Shovel do
         3.times { |i| ShovelSpecHelpers.publish(vhost, "ba_q", "m#{i}") }
         source = ShovelSpecHelpers.source(s, "remote", "ba_q", prefetch: 10_u16, batch_ack_timeout: 1.hour)
         source.start
-        tags = Channel(UInt64).new(3)
-        spawn { source.each { |m| tags.send m.tag } rescue nil }
-        delivered = Array.new(3) { tags.receive }
-        source.ack(delivered[0])
-        source.ack(delivered[1])
+        acked = Channel(UInt64).new(5)
+        spawn do
+          source.each do |m|
+            source.ack(m.tag)
+            acked.send m.tag
+          end
+        rescue
+        end
+        3.times { acked.receive }
         sleep 50.milliseconds
-        q.unacked_count.should eq 3 # batched: the third is still in flight
-        source.ack(delivered[2])
-        should_eventually(eq(0), 1.second) { q.unacked_count } # idle: flushed at once
+        q.unacked_count.should eq 3 # waiting for a batch of 5
+        2.times { |i| ShovelSpecHelpers.publish(vhost, "ba_q", "n#{i}") }
+        should_eventually(eq(0), 1.second) { q.unacked_count }
         q.message_count.should eq 0
         source.stop
       end
@@ -849,13 +855,34 @@ describe LavinMQ::Shovel do
         q = vhost.queue("bt_q")
         3.times { |i| ShovelSpecHelpers.publish(vhost, "bt_q", "m#{i}") }
         source = ShovelSpecHelpers.source(s, "remote", "bt_q", prefetch: 10_u16,
-          batch_ack_timeout: 50.milliseconds)
+          batch_ack_timeout: 300.milliseconds)
         source.start
         tags = Channel(UInt64).new(3)
         spawn { source.each { |m| tags.send m.tag } rescue nil }
         delivered = Array.new(3) { tags.receive }
         source.ack(delivered[0]) # the other two stay in flight
         q.unacked_count.should eq 3
+        should_eventually(eq(2), 2.seconds) { q.unacked_count }
+        source.stop
+      end
+    end
+
+    it "flushes an ack that a requeue unblocked, at the timeout" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("br_q", true, false)
+        q = vhost.queue("br_q")
+        3.times { |i| ShovelSpecHelpers.publish(vhost, "br_q", "m#{i}") }
+        source = ShovelSpecHelpers.source(s, "remote", "br_q", prefetch: 10_u16,
+          batch_ack_timeout: 100.milliseconds)
+        source.start
+        tags = Channel(UInt64).new(4)
+        spawn { source.each { |m| tags.send m.tag } rescue nil }
+        delivered = Array.new(3) { tags.receive }
+        source.ack(delivered[1]) # out of order: waits above the frontier
+        source.reject(delivered[0], requeue: true)
+        tags.receive # the requeued message, redelivered and in flight
+        # Tag 2 is now pending behind the frontier while 3 and 4 are in flight
         should_eventually(eq(2), 2.seconds) { q.unacked_count }
         source.stop
       end
