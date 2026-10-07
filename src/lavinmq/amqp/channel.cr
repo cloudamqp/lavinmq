@@ -809,9 +809,6 @@ module LavinMQ
           consumer = unack.consumer.not_nil!
           if consumer.closed?
             unack.queue.reject(unack.sp, requeue: true)
-          else
-            env = unack.queue.read(unack.sp)
-            consumer.deliver(env.message, env.segment_position, true, recover: true)
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
