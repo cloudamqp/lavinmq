@@ -369,9 +369,12 @@ module LavinMQ
       end
     end
 
+    # Called without the queue's lock (HTTP API, stats), so @size and
+    # @bytesize can change in between the reads
     def avg_bytesize : UInt32
-      return 0u32 if @size.zero?
-      (@bytesize / @size).to_u32
+      size = @size
+      return 0u32 if size.zero?
+      Math.min(@bytesize // size, UInt32::MAX).to_u32
     end
 
     private def state_snapshot : String
