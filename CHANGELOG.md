@@ -89,6 +89,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - When an MQTT delivery fails after the client has reconnected, the connection the delivery was written to is closed rather than the new one [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- A QoS 1 or QoS 2 MQTT PUBLISH with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and routed [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ## [2.10.2] - 2026-10-07
 
