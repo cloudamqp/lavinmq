@@ -466,6 +466,39 @@ module MqttSpecs
         end
       end
     end
+
+    it "does not reuse an unknown PUBREC's id before the client's PUBCOMP" do
+      # A new session starts its ids at 1, the ones a client from before a
+      # restart still holds. Our PUBREL waits for a drain, and arriving after
+      # a new PUBLISH under the same id it would release that one instead.
+      # Clean, so the PUBLISH itself does not wait for the drain.
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber", clean_session: true)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          new_id = 0u16
+          with_drain_held do |gate|
+            pubrec(io, 1u16)
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              publish(pub_io, topic: "a/b", payload: "1".to_slice, qos: 2u8,
+                packet_id: 1u16, expect_response: false)
+              new_id = read_publish(io).packet_id.not_nil!
+              new_id.should_not eq 1u16
+              release_drain(gate)
+              read_packet(pub_io).should be_a(MQTT::Protocol::PubRec)
+            end
+            read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq 1u16
+            pubcomp(io, 1u16)
+            pubrec(io, new_id)
+            read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq new_id
+            pubcomp(io, new_id)
+            io.should be_drained
+          end
+          disconnect(io)
+        end
+      end
+    end
   end
 
   describe "qos2 across a reconnect" do

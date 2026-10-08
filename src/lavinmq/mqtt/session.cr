@@ -642,6 +642,10 @@ module LavinMQ
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
+            # Booked until PUBCOMP: the PUBREL waits for a drain, and a new
+            # PUBLISH under this id before it would be released in its place.
+            @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+            refresh_capacity
             send_pubrel(id)
           end
           return false
