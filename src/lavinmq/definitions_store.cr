@@ -6,6 +6,7 @@ require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
 require "./mqtt/exchange"
+require "./persistent_map"
 
 module LavinMQ
   class DefinitionsStore
@@ -20,9 +21,11 @@ module LavinMQ
     getter mqtt_exchange : MQTT::Exchange
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
-      @exchanges = Hash(String, Exchange).new
-      @queues = Hash(String, AMQP::Queue).new
-      @sessions = Hash(String, MQTT::Session).new
+      # Read without locks from any fiber or thread (e.g. `exchange?` on every
+      # publish). Writes only happen under @definitions_lock.
+      @exchanges = CowMap(String, Exchange).new
+      @queues = CowMap(String, AMQP::Queue).new
+      @sessions = CowMap(String, MQTT::Session).new
       @mqtt_exchange = MQTT::Exchange.new(@vhost, MQTT::EXCHANGE)
       @exchanges[MQTT::EXCHANGE] = @mqtt_exchange
       @definitions_lock = Mutex.new(:reentrant)
@@ -132,7 +135,7 @@ module LavinMQ
     end
 
     def queues_clear : Nil
-      @queues.clear
+      @definitions_lock.synchronize { @queues.clear }
     end
 
     # Session accessors
@@ -162,7 +165,7 @@ module LavinMQ
     end
 
     def sessions_clear : Nil
-      @sessions.clear
+      @definitions_lock.synchronize { @sessions.clear }
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -361,18 +364,21 @@ module LavinMQ
         SchemaVersion.prefix(io, :definition)
         # Durable only, which is what keeps the MQTT exchange out: it's created
         # with the store, and `make_exchange` can't build its type from a frame.
-        @exchanges.each_value.select(&.durable?).each do |e|
+        @exchanges.each_value do |e|
+          next unless e.durable?
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable?, e.auto_delete?, e.internal?,
             false, e.arguments)
           io.write_bytes f
         end
-        @queues.each_value.select(&.durable?).each do |q|
+        @queues.each_value do |q|
+          next unless q.durable?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
         end
-        @sessions.each_value.select(&.durable?).each do |s|
+        @sessions.each_value do |s|
+          next unless s.durable?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
             s.auto_delete?, false, s.arguments)
           io.write_bytes f
