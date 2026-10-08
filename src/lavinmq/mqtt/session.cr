@@ -232,7 +232,8 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      # A reconnect or API deletion can remove the session before the bind.
+      # A concurrent API deletion can make the bind fail.
+      # TODO: Check session identity under the definitions lock before binding.
       def subscribe(tf, qos) : Bool
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
