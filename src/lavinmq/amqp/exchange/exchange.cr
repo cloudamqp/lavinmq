@@ -4,12 +4,10 @@ require "../binding_details"
 require "../destination"
 require "../../error"
 require "../../exchange"
-require "../../observable"
 require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
-require "./event"
 require "./binding_set"
 
 module LavinMQ
@@ -18,7 +16,6 @@ module LavinMQ
       include PolicyTarget
       include Stats
       include SortableJSON
-      include Observable(ExchangeEvent)
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
@@ -155,7 +152,17 @@ module LavinMQ
         @deleted = true
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
-        notify_observers(ExchangeEvent::Deleted)
+        @vhost.upstreams.try &.stop_link(self)
+      end
+
+      # Keep federation links' upstream bindings in sync. Call after the
+      # binding is stored, ExchangeLink's bindings snapshot relies on it.
+      private def upstreams_bound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_bound(self, binding)
+      end
+
+      private def upstreams_unbound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_unbound(self, binding)
       end
 
       # This outer macro will add a finished macro hook to all inherited classes

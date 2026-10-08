@@ -30,7 +30,7 @@ module LavinMQ
         bindings = @bindings.get(:acquire).add(destination, binding_key) || return false
         @bindings.set(bindings, :release)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        upstreams_bound(data)
         true
       end
 
@@ -41,7 +41,7 @@ module LavinMQ
         return false if bindings.same?(current)
         @bindings.set(bindings, :release)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        upstreams_unbound(data)
         delete if @auto_delete && bindings.empty?
         true
       end
