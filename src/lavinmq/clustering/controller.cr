@@ -1,3 +1,4 @@
+require "../http/metrics_server"
 require "../etcd"
 require "./client"
 require "./etcd_coordinator"
