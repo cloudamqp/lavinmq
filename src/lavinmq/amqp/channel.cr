@@ -750,6 +750,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = Array(Unack).new
         notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
@@ -764,14 +765,36 @@ module LavinMQ
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                # Delivered again below with a new delivery tag, which
+                # takes @unack_lock, so it can't happen in here
+                redeliver << unack
               else
                 unack.queue.requeue(unack.sp)
-                true
               end
+              true
             end
+          end
+        end
+        handed_over = 0
+        begin
+          redeliver.each do |unack|
+            consumer = unack.consumer.not_nil!
+            if consumer.closed?
+              handed_over += 1
+              unack.queue.requeue(unack.sp)
+            else
+              env = unack.queue.read(unack.sp)
+              # deliver puts it back in @unacked before writing to the socket
+              handed_over += 1
+              consumer.deliver(env.message, env.segment_position, true, recover: true)
+            end
+          end
+        ensure
+          # Requeue what is no longer in @unacked if a delivery raised
+          (handed_over...redeliver.size).each do |i|
+            unack = redeliver[i]
+            unack.consumer.try &.reject(unack.sp, requeue: true)
+            unack.queue.requeue(unack.sp)
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
