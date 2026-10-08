@@ -526,6 +526,28 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
   end
 end
 
+describe LavinMQ::HTTP::MetricsServer do
+  it "switches from follower to leader metrics on the same socket" do
+    with_amqp_server do |s|
+      h = LavinMQ::HTTP::MetricsServer.new
+      begin
+        addr = h.bind_tcp("127.0.0.1", 0)
+        spawn(name: "metrics listen") { h.listen }
+        Fiber.yield
+        http = HTTPSpecHelper.new(addr)
+        http.get("/metrics").body.should_not contain "lavinmq_identity_info"
+
+        h.leader = s
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        response.body.should contain "lavinmq_identity_info"
+      ensure
+        h.close
+      end
+    end
+  end
+end
+
 # Scrape /metrics and return the value of a single (unlabeled) counter series.
 def prometheus_counter(http, key : String) : Float64
   raw = http.get("/metrics").body
