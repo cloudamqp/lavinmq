@@ -1129,7 +1129,7 @@ describe LavinMQ::AMQP::Queue do
 
     it "still cleans up exclusive queues on connection close when many are open" do
       # Regression for the iteration-mutation hazard: cleanup iterates
-      # @exclusive_queues while Queue#close fires the observer that mutates it.
+      # @exclusive_queues while Queue#close calls back into Client#exclusive_queue_deleted.
       with_amqp_server do |s|
         ch = nil
         with_channel(s) do |c|
