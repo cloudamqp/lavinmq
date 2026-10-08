@@ -3,6 +3,7 @@ require "benchmark"
 require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
+require "../../../stdlib/io_buffered"
 
 module LavinMQ
   module HTTP
@@ -12,6 +13,7 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
@@ -241,6 +243,7 @@ module LavinMQ
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
+            buffer_pool_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
           end
@@ -468,6 +471,33 @@ module LavinMQ
                       value: MFile.mmap_count,
                       type:  "gauge",
                       help:  "Number of MFile memory-mapped files"})
+      end
+
+      private def buffer_pool_metrics(writer)
+        pools = [] of IO::BufferPool
+        IO::BufferPool.each { |pool| pools << pool }
+        stats = pools.map(&.stats)
+        return if stats.empty?
+        {
+          {"available", "gauge", "Socket buffers cached for reuse"},
+          {"allocated_total", "counter", "Socket buffers allocated because none was cached"},
+          {"reused_total", "counter", "Socket buffers taken from the cache"},
+          {"released_total", "counter", "Socket buffers returned to the cache"},
+          {"dropped_total", "counter", "Socket buffers left to the GC because the cache was full"},
+        }.each do |key, type, help|
+          name = "socket_buffer_pool_#{key}"
+          writer.write_header(name, type, help)
+          stats.each do |s|
+            value = case key
+                    when "available"       then s[:available]
+                    when "allocated_total" then s[:allocated]
+                    when "reused_total"    then s[:reused]
+                    when "released_total"  then s[:released]
+                    else                        s[:dropped]
+                    end
+            writer.write_value(name, value, {buffer_size: s[:buffer_size].to_s})
+          end
+        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
