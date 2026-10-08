@@ -3,30 +3,35 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class DirectExchange < Exchange
-      @bindings = Hash(String, Set({Destination, BindingKey})).new do |h, k|
-        h[k] = Set({Destination, BindingKey}).new
-      end
+      # Routing key => bindings. Both levels are replaced, never mutated, so
+      # publishers on other threads route without locks.
+      @bindings = CowMap(String, BindingSet).new
 
       def type : String
         "direct"
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.flat_map do |_key, ds|
-          ds.map do |d, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, d)
+        details = Array(BindingDetails).new
+        @bindings.each do |(_, bindings)|
+          bindings.each do |e|
+            details << BindingDetails.new(name, vhost.name, e.binding_key, e.destination)
           end
         end
+        details
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.size)
+        count = 0
+        @bindings.each_value { |bindings| count += bindings.size }
+        count
       end
 
       def bind(destination : Destination, routing_key, arguments = nil) : Bool
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings[routing_key].add?({destination, binding_key})
+        current = @bindings[routing_key]? || BindingSet.empty
+        @bindings[routing_key] = current.add(destination, binding_key) || return false
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -34,24 +39,25 @@ module LavinMQ
 
       def unbind(destination : Destination, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
-        rk_bindings = @bindings[routing_key]? || return false
-        return false unless rk_bindings.delete({destination, binding_key})
-        @bindings.delete routing_key if rk_bindings.empty?
+        current = @bindings[routing_key]? || return false
+        bindings = current.delete(destination, binding_key)
+        return false if bindings.same?(current)
+        if bindings.empty?
+          @bindings.delete routing_key
+        else
+          @bindings[routing_key] = bindings
+        end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+        delete if @auto_delete && @bindings.empty?
         true
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        # Use []? to not allocate (and keep forever) an empty set in the
-        # bindings hash for every unbound routing key published to
         if bindings = @bindings[routing_key]?
-          bindings.each do |destination, _arguments|
-            yield destination
-          end
+          bindings.each_destination { |d| yield d }
         end
       end
     end

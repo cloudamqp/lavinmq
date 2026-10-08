@@ -10,6 +10,7 @@ require "../../stats"
 require "../../sortable_json"
 require "../queue"
 require "./event"
+require "./binding_set"
 
 module LavinMQ
   module AMQP

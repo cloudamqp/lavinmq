@@ -3,26 +3,32 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class FanoutExchange < Exchange
-      @bindings = Set({Destination, BindingKey}).new
+      # Replaced, never mutated, so publishers on other threads can route
+      # with the set they read while a bind or unbind publishes a new one
+      @bindings = Atomic(BindingSet).new(BindingSet.empty)
 
       def type : String
         "fanout"
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.map do |d, binding_key|
-          BindingDetails.new(name, vhost.name, binding_key, d)
+        bindings = @bindings.get(:acquire)
+        Array(BindingDetails).new(bindings.size).tap do |details|
+          bindings.each do |e|
+            details << BindingDetails.new(name, vhost.name, e.binding_key, e.destination)
+          end
         end
       end
 
       def binding_count : Int32
-        @bindings.size
+        @bindings.get(:acquire).size
       end
 
       def bind(destination : Destination, routing_key, arguments = nil)
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.add?({destination, binding_key})
+        bindings = @bindings.get(:acquire).add(destination, binding_key) || return false
+        @bindings.set(bindings, :release)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -30,17 +36,18 @@ module LavinMQ
 
       def unbind(destination : Destination, routing_key, arguments = nil)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.delete({destination, binding_key})
+        current = @bindings.get(:acquire)
+        bindings = current.delete(destination, binding_key)
+        return false if bindings.same?(current)
+        @bindings.set(bindings, :release)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
-        delete if @auto_delete && @bindings.empty?
+        delete if @auto_delete && bindings.empty?
         true
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        @bindings.each do |destination, _binding_key|
-          yield destination
-        end
+        @bindings.get(:acquire).each_destination { |d| yield d }
       end
     end
   end
