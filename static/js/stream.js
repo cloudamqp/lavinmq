@@ -17,7 +17,18 @@ let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
   constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
-  setConsumers (consumers) { this.items = consumers }
+  setConsumers (consumers, totalCount) {
+    this.items = {
+      items: consumers,
+      total_count: totalCount,
+      filtered_count: totalCount,
+      item_count: consumers.length,
+      page: 1,
+      page_size: consumers.length,
+      page_count: 1
+    }
+  }
+
   reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
@@ -92,8 +103,7 @@ function updateQueue (all) {
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
-      item.consumer_details.filtered_count = item.consumers
-      consumersDataSource.setConsumers(item.consumer_details)
+      consumersDataSource.setConsumers(item.consumer_details, item.consumers)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
       loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
       if (hasMoreConsumers) {
