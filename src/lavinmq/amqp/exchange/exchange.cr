@@ -8,6 +8,7 @@ require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
+require "./binding_set"
 
 module LavinMQ
   module AMQP
@@ -287,36 +288,51 @@ module LavinMQ
         result
       end
 
+      # Adds the queues the message routes to. Like RabbitMQ, an exchange uses
+      # its alternate exchange only when none of its own bindings match the
+      # routing key or the CC/BCC keys. A matching exchange-to-exchange
+      # binding counts as a match whatever the bound exchange routes to, so
+      # the result doesn't depend on the order bindings are visited in.
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
                       exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
-        each_destination(routing_key, headers) do |d|
-          case d
-          in AMQP::Queue
-            # Prevent routing to own internal delayed queue to avoid infinite loops
-            unless delayed? && d == @delayed_queue
-              queues.add(d)
-            end
-          in AMQP::Exchange
-            d.find_queues(routing_key, headers, queues, exchanges)
-          end
-        end
+        matched = find_destinations(routing_key, headers, queues, exchanges)
 
         if hdrs = headers
-          find_cc_queues(hdrs, "CC", queues)
-          find_cc_queues(hdrs, "BCC", queues)
+          matched = true if find_cc_queues(hdrs, "CC", queues)
+          matched = true if find_cc_queues(hdrs, "BCC", queues)
         end
 
-        if queues.empty? && (ae_name = alternate_exchange)
+        if !matched && (ae_name = alternate_exchange)
           @vhost.exchange?(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end
       end
 
-      private def find_cc_queues(headers, key, queues)
-        return unless cc = headers[key]?
+      # Routes to this exchange's own matching bindings, and returns whether
+      # any binding matched
+      private def find_destinations(routing_key, headers, queues, exchanges) : Bool
+        matched = false
+        each_destination(routing_key, headers) do |d|
+          case d
+          in AMQP::Queue
+            # Prevent routing to own internal delayed queue to avoid infinite loops
+            unless delayed? && d == @delayed_queue
+              queues.add(d)
+              matched = true
+            end
+          in AMQP::Exchange
+            matched = true
+            d.find_queues(routing_key, headers, queues, exchanges)
+          end
+        end
+        matched
+      end
+
+      private def find_cc_queues(headers, key, queues) : Bool
+        return false unless cc = headers[key]?
         cc = cc.as?(Array(AMQP::Field))
 
         raise LavinMQ::Error::PreconditionFailed.new("#{key} header not a string array") unless cc
@@ -324,13 +340,16 @@ module LavinMQ
         hdrs = headers.clone
         hdrs.delete "CC"
         hdrs.delete key
+        matched = false
         cc.each do |rk|
           if rk = rk.as?(String)
-            find_queues(rk, hdrs, queues)
+            exchanges = Set(AMQP::Exchange){self}
+            matched = true if find_destinations(rk, hdrs, queues, exchanges)
           else
             raise LavinMQ::Error::PreconditionFailed.new("#{key} header not a string array")
           end
         end
+        matched
       end
 
       private def should_delay_message?(headers)

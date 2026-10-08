@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- An exchange uses its alternate exchange only when none of its own bindings match the routing key or CC/BCC keys, as in RabbitMQ. Before, the alternate exchange was used only if no queue had been found anywhere in the routing so far, so the outcome depended on binding order, and an exchange-to-exchange binding whose exchange routed nowhere didn't count as a match [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
@@ -34,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A consistent-hash exchange declared with `x-algorithm` stopped routing to all its bound queues when a policy was applied to it [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - `OverflowError` from the HTTP API or stats loop when a queue became empty while its average message size was read [#2384](https://github.com/cloudamqp/lavinmq/pull/2384)
 - Federation links of `federation-upstream-set` entries that override upstream settings are now stopped when the policy is removed or the set is updated or deleted; they used to keep running [#2371](https://github.com/cloudamqp/lavinmq/pull/2371)
 - The Prometheus metrics server is bound once for the lifetime of the process and serves follower or leader metrics depending on the node's role, instead of being closed and rebound when a follower is promoted to leader [#2387](https://github.com/cloudamqp/lavinmq/pull/2387)
