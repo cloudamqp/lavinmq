@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Management UI tooltips were clipped or misplaced near viewport edges and inside scrollable containers [#2235](https://github.com/cloudamqp/lavinmq/pull/2235)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
 - An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- A QoS 1 or QoS 2 MQTT PUBLISH with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and routed [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ## [2.10.0] - 2026-09-25
 

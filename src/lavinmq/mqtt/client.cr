@@ -230,6 +230,7 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
+        validate_packet_id(packet)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
@@ -256,6 +257,14 @@ module LavinMQ
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
           queue_ack(packet.qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck, packet_id)
+        end
+      end
+
+      # Id 0 is illegal [MQTT-2.3.1-1]; held as a QoS 2 id it would also
+      # dedupe every later PUBLISH that carried it.
+      private def validate_packet_id(packet : Protocol::Publish) : Nil
+        if packet.qos > 0 && packet.packet_id == 0
+          raise Session::ProtocolViolation.new("QoS #{packet.qos} PUBLISH with packet id 0")
         end
       end
 

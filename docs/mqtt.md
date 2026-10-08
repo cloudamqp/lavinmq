@@ -40,6 +40,10 @@ For durable sessions (`clean_session=false`) the QoS 2 packet IDs held in both d
 
 A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBLISH and PUBREL. Going over it closes the connection.
 
+### Packet ID 0
+
+A QoS 1 or QoS 2 PUBLISH must carry a non-zero packet ID [MQTT-2.3.1-1]. One with packet ID 0 is a protocol violation: it is not routed, the connection is closed and the client's Will is published.
+
 ### Acknowledging with the wrong packet type
 
 A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.

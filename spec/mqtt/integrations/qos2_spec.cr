@@ -105,6 +105,29 @@ module MqttSpecs
       end
     end
 
+    it "closes a publisher that sends packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "subscriber")
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+
+          {1u8, 2u8}.each do |qos|
+            with_client_io(server) do |io|
+              connect(io, client_id: "publisher")
+              publish(io, topic: "a/b", payload: "1".to_slice, qos: qos,
+                packet_id: 0u16, expect_response: false)
+              io.should be_closed
+            end
+          end
+
+          # Neither was routed.
+          read_packet(sub_io).should be_nil
+
+          disconnect(sub_io)
+        end
+      end
+    end
+
     it "lets a publisher pipeline more QoS 2 publishes than the outbound window" do
       # `max_inflight_messages` is the server's outbound window and says nothing
       # about how many ids a publisher may hold.
