@@ -256,6 +256,39 @@ jobs:
           path: playwright-report/
           retention-days: 10
 
+  sqs-sdk-test:
+    name: AWS SQS SDK test
+    runs-on: ubuntu-24.04
+    needs: compile
+    timeout-minutes: 10
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make liblz4-1
+
+      - name: Download lavinmq
+        uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/sqs --bind=127.0.0.1 --sqs-port=9324 &
+
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Wait for the SQS listener
+        run: timeout 30 sh -c 'until curl -s -o /dev/null http://127.0.0.1:9324/; do sleep 1; done'
+
+      - name: Run boto3 tests
+        run: make test-sqs-sdk
+
   java-client-test:
     name: RabbitMQ java client test
     runs-on: ubuntu-24.04
