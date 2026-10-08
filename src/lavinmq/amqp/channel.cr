@@ -731,10 +731,11 @@ module LavinMQ
               handed_over += 1
               unack.queue.reject(unack.sp, requeue: true)
             else
-              env = unack.queue.read(unack.sp)
-              # deliver puts it back in @unacked before writing to the socket
-              handed_over += 1
-              consumer.deliver(env.message, env.segment_position, true, recover: true)
+              unack.queue.read(unack.sp) do |env|
+                # deliver puts it back in @unacked before writing to the socket
+                handed_over += 1
+                consumer.deliver(env.message, env.segment_position, true, recover: true)
+              end
             end
           end
         ensure

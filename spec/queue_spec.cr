@@ -689,6 +689,25 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "keeps the segment mapped when the queue is closed during a recover redelivery" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        sp = nil
+        q.basic_get(false) { |env| sp = env.segment_position }.should be_true
+        mfile = nil
+        # What basic.recover(requeue: false) does to redeliver an unacked message
+        q.read(sp.not_nil!) do |env|
+          segment = segment_file.call(q, env.segment_position)
+          mfile = segment
+          q.close
+          segment.closed?.should be_false
+          env.redelivered.should be_true
+          String.new(env.message.body).should eq body
+        end
+        mfile.try(&.closed?).should be_true
+      end
+    end
+
     it "doesn't truncate a segment reopened before the deferred close" do
       with_queue do |q|
         q.publish(LavinMQ::Message.new("", q.name, body))
