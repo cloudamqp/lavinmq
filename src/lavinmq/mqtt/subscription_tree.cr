@@ -139,6 +139,10 @@ module LavinMQ
           if f = @leaf_filter
             @leafs.each { |s, q| yield s, q, f }
           end
+          # "#" also matches its parent level, so "a/#" matches "a" (MQTT 3.1.1 §4.7.1.2)
+          if f = @wildcard_rest_filter
+            @wildcard_rest.each { |s, q| yield s, q, f }
+          end
           return
         end
         if f = @wildcard_rest_filter

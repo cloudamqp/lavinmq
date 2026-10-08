@@ -78,22 +78,31 @@ module LavinMQ
           each &blk
           return
         end
+        # "#" also matches its parent level, so "a/#" matches the leaf "a" (MQTT 3.1.1 §4.7.1.2)
+        rest = filter
+        rest_is_hash = rest.next == "#" && !rest.next?
         if current == "+"
-          if filter.next?
-            @sublevels.values.each(&.each(filter, &blk))
-          else
-            @leafs.values.each &blk
-          end
+          each_plus(filter, rest_is_hash, &blk)
           return
         end
         if filter.next?
+          if rest_is_hash && (leaf = @leafs.fetch(current, nil))
+            yield leaf.first, leaf.last
+          end
           if sublevel = @sublevels.fetch(current, nil)
             sublevel.each filter, &blk
           end
+        elsif leaf = @leafs.fetch(current, nil)
+          yield leaf.first, leaf.last
+        end
+      end
+
+      private def each_plus(filter : StringTokenIterator, rest_is_hash, &blk : (String, TEntity) -> _)
+        if filter.next?
+          @leafs.values.each &blk if rest_is_hash
+          @sublevels.values.each(&.each(filter, &blk))
         else
-          if leaf = @leafs.fetch(current, nil)
-            yield leaf.first, leaf.last
-          end
+          @leafs.values.each &blk
         end
       end
 

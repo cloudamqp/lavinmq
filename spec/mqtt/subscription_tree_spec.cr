@@ -175,6 +175,32 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
   end
 
+  describe "#each_entry" do
+    it "'a/#' matches the parent topic 'a'" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("sport/#", "session", 0u8)
+      matched = Array(String).new
+      tree.each_entry("sport") { |_s, _q, filter| matched << filter }
+      matched.should eq ["sport/#"]
+    end
+
+    it "'+/#' matches the single-level topic 'a'" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("+/#", "session", 0u8)
+      matched = Array(String).new
+      tree.each_entry("sport") { |_s, _q, filter| matched << filter }
+      matched.should eq ["+/#"]
+    end
+
+    it "'a/#' does not match the sibling topic 'b'" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("sport/#", "session", 0u8)
+      matched = Array(String).new
+      tree.each_entry("other") { |_s, _q, filter| matched << filter }
+      matched.should be_empty
+    end
+  end
+
   it "subscriptions is found" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
