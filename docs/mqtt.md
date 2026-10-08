@@ -26,7 +26,7 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
-A message is delivered at the lower of the QoS it was published with and the QoS of the subscription that matched it. Publishing at QoS 2 to a QoS 0 subscriber delivers at QoS 0, and publishing at QoS 0 to a QoS 2 subscriber delivers at QoS 0 as well. Retained messages are the exception, see [Limitations](#limitations).
+A message is delivered at the lower of the QoS it was published with and the QoS of the subscription that matched it. Publishing at QoS 2 to a QoS 0 subscriber delivers at QoS 0, and publishing at QoS 0 to a QoS 2 subscriber delivers at QoS 0 as well. Retained messages follow the same rule, see [Retained Messages](#retained-messages).
 
 ### QoS 2 exactly-once
 
@@ -328,7 +328,7 @@ Definitions generated from a data directory include the groups in `mqtt_permissi
 ### Upgrading
 
 - A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
-- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it. The session queue itself is created at CONNECT without a permission check, see [Session Limits](#session-limits)
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. The topic check runs after this check. A client that fails it is disconnected, except on MQTT 5.0, where a denied QoS 1 or 2 publish is answered with reason `0x87` (Not authorized) and a denied subscribe with a SUBACK of `0x87`, and the connection stays open. A denied QoS 0 publish on MQTT 5.0 gets a DISCONNECT with `0x87`. The session queue itself is created at CONNECT without a permission check, see [Session Limits](#session-limits)
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication
