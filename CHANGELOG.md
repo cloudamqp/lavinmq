@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have unrestricted read and configure permissions on that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
+- `tcp_send_timeout` config option in `[main]` (default `15` seconds): a client that doesn't read what the server sends for that long is disconnected. Previously a write to such a client blocked forever, and so did closing the connection. Closing a connection now also aborts a write in progress, e.g. of a large message to a slowly reading client [#2363](https://github.com/cloudamqp/lavinmq/pull/2363)
 - Reading a stream through the HTTP API or management UI accepts a negative offset to start that many messages from the end, like `x-stream-offset`, and the offset can be a JSON number [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Shovels and federation links reach this broker in-process instead of over an AMQP connection to localhost: a URI without host (`amqp://`, `amqp:///vhost`) works directly against the vhost, so it no longer depends on the AMQP listener's port and opens no connection. The hidden `__direct` user is gone; the control socket uses a passwordless internal identity that can't log in, and `__direct` and `__internal` are reserved names. Federation with `ack-mode: on-confirm` now acks upstream only once the downstream publish is durable. The management UI's "Move messages" works for OAuth users too. Shovels acking a remote source flush a partial batch at most 3 s after its first ack, instead of after up to 6 s of no new acks [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
@@ -34,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A paused shovel resumed right after a broker restart could run twice and keep failing [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
+- Federation links of `federation-upstream-set` entries that override upstream settings are now stopped when the policy is removed or the set is updated or deleted; they used to keep running [#2371](https://github.com/cloudamqp/lavinmq/pull/2371)
+- The Prometheus metrics server is bound once for the lifetime of the process and serves follower or leader metrics depending on the node's role, instead of being closed and rebound when a follower is promoted to leader [#2387](https://github.com/cloudamqp/lavinmq/pull/2387)
+- The queue and stream pages' Consumers table headers show the total consumer count even when only part of the list is loaded, matching the tab badge and Overview [#2355](https://github.com/cloudamqp/lavinmq/pull/2355)
 - A stream consumer whose segment was dropped by retention got wrong `x-stream-offset` headers and stored offsets [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
 - A stream consumer starting at `first` or `last` on an empty stream busy-looped until a message was published [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
 - The HTTP API returns 400 instead of 500 for an integer too large for its field, such as `count` or `truncate` on a queue get or stream read [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)

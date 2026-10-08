@@ -18,6 +18,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/broker"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -26,6 +27,8 @@ require "./amqp/channel"
 require "./persister"
 
 module LavinMQ
+  class VHostStore; end # vhost_store.cr requires this file
+
   class VHost
     include SortableJSON
     include Stats
@@ -46,6 +49,7 @@ module LavinMQ
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
+    @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
     # Bool accessors (later become Atomic)
@@ -215,7 +219,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true, @vhosts : VHostStore? = nil)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -231,6 +235,7 @@ module LavinMQ
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
+      @mqtt_broker = MQTT::Broker.new(self)
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
@@ -523,6 +528,7 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
+      @mqtt_broker.try &.close
       each_exchange &.close
       Fiber.yield
       definitions.close
@@ -587,8 +593,19 @@ module LavinMQ
       Fiber.yield
     end
 
+    # A vhost of the same broker, by name, for in-process shovels and
+    # federation links (see Endpoint::LocalSession)
+    def sibling(name : String) : VHost?
+      return self if name == @name
+      @vhosts.try &.[name]?
+    end
+
     def upstreams
       @upstreams.not_nil!
+    end
+
+    def mqtt_broker : MQTT::Broker
+      @mqtt_broker.not_nil!
     end
 
     def shovels

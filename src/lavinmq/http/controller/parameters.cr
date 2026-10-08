@@ -82,12 +82,15 @@ module LavinMQ
             unless value
               bad_request(context, "Field 'value' is required")
             end
-            if component == "shovel"
-              begin
+            begin
+              case component
+              when "shovel"
                 Shovel::Store.validate_config!(value, context.user)
-              rescue ex : Shovel::ConfigError
-                bad_request(context, ex.message)
+              when "federation-upstream", "federation-upstream-set"
+                Federation::UpstreamStore.validate_config!(component, value, context.user)
               end
+            rescue ex : Shovel::ConfigError | Federation::ConfigError
+              bad_request(context, ex.message)
             end
             p = Parameter.new(component, name, value)
             is_update = vhost.parameters[{component, name}]?

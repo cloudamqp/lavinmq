@@ -3,12 +3,14 @@ require "../../segment_position"
 require "../../rough_time"
 require "./filters/consumer_filter"
 require "./stream_cursor"
+require "./stream_cursor_consumer"
 require "./stream_offset"
 
 module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
       include SortableJSON
+      include StreamCursorConsumer
       getter cursor : StreamCursor
       @track_offset = false
 
@@ -76,7 +78,7 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          stream_queue.consume_get(self.cursor) do |env|
+          stream_queue.consume_get(cursor) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.segment_position.bytesize
           end

@@ -1,9 +1,10 @@
 require "./runner"
 require "./amqp_source"
-require "./http_destination.cr"
-require "./amqp_destination.cr"
-require "./multi_destination.cr"
-require "../auth/user"
+require "./http_destination"
+require "./amqp_destination"
+require "./multi_destination"
+require "../endpoint"
+require "../auth/base_user"
 
 module LavinMQ
   module Shovel
@@ -67,16 +68,15 @@ module LavinMQ
 
         return unless user
 
-        dest_uris.select!(&.scheme.try &.starts_with?("amqp"))
-        dest_uris.select!(&.host.to_s.empty?)
-        dest_uris.select!(&.user.nil?)
-
-        src_uris.select!(&.scheme.try &.starts_with?("amqp"))
-        src_uris.select!(&.host.to_s.empty?)
-        src_uris.select!(&.user.nil?)
+        # In-process endpoints act with no user of their own, so the user
+        # creating the shovel must be allowed what the shovel will do there.
+        # A remote endpoint is authorized by its own broker, with the URI's
+        # credentials.
+        dest_uris.select! { |uri| Endpoint.local?(uri) }
+        src_uris.select! { |uri| Endpoint.local?(uri) }
 
         dest_uris.each do |uri|
-          vhost = vhost_from_uri(uri)
+          vhost = Endpoint.vhost_name(uri)
           if d = dst
             if !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
               raise ConfigError.new("#{user.name} can't access exchange '#{d}' in #{vhost}")
@@ -90,7 +90,7 @@ module LavinMQ
         end
 
         src_uris.each do |uri|
-          vhost = vhost_from_uri(uri)
+          vhost = Endpoint.vhost_name(uri)
           if q = src_q
             if !(user.can_read?(vhost, q) && user.can_config?(vhost, q))
               raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
@@ -113,11 +113,6 @@ module LavinMQ
         raise ConfigError.new("dest-timeout must be a positive number of seconds")
       end
 
-      private def self.vhost_from_uri(uri : URI) : String
-        path = uri.path.lchop("/")
-        path.empty? ? "/" : path
-      end
-
       def self.parse_uris(src_uri : JSON::Any?) : Array(URI)
         return Array(URI).new if src_uri.nil?
         uris = src_uri.as_s? ? [src_uri.as_s] : src_uri.as_a.map(&.as_s)
@@ -130,26 +125,44 @@ module LavinMQ
         @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
         delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
-        ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
-        ack_mode = Shovel::AckMode.parse?(ack_mode_str) || Shovel::DEFAULT_ACK_MODE
+        ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || Shovel::DEFAULT_ACK_MODE
         reconnect_delay = config["reconnect-delay"]?.try &.as_i.seconds || Shovel::DEFAULT_RECONNECT_DELAY
         prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
-        src = Shovel::AMQPSource.new(name, self.class.parse_uris(config["src-uri"]),
+        sessions = self.class.parse_uris(config["src-uri"]).map do |uri|
+          Endpoint.session(uri, @vhost, "Shovel #{name} source")
+        end
+        src = Shovel::AMQPSource.new(name, sessions,
           config["src-queue"]?.try &.as_s?,
           config["src-exchange"]?.try &.as_s?,
           config["src-exchange-key"]?.try &.as_s?,
           delete_after,
           prefetch,
           ack_mode,
-          config["src-consumer-args"]?.try &.as_h?,
-          direct_user: @vhost.users.direct_user)
+          self.class.consumer_args(config["src-consumer-args"]?))
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
         @shovels[name] = shovel
-        spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+        # A shovel restored paused is started by #resume. A run spawned for it
+        # here could start only after a resume, and run alongside its run.
+        unless shovel.paused?
+          spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+        end
         shovel
       rescue KeyError
         raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
+      end
+
+      # Consumer arguments, e.g. `{"x-stream-offset": "first"}`. Strings,
+      # integers and booleans are passed on, anything else is ignored.
+      def self.consumer_args(value : JSON::Any?) : AMQ::Protocol::Table
+        args = AMQ::Protocol::Table.new
+        hash = value.try(&.as_h?) || return args
+        hash.each do |k, v|
+          case raw = v.raw
+          when String, Int64, Bool then args[k] = raw
+          end
+        end
+        args
       end
 
       def delete(name)
@@ -166,12 +179,12 @@ module LavinMQ
           when "http", "https"
             Shovel::HTTPDestination.new(name, uri, ack_mode, Shovel::HTTPDestination.timeout_from(config))
           else
-            Shovel::AMQPDestination.new(name, uri,
+            Shovel::AMQPDestination.new(name,
+              Endpoint.session(uri, @vhost, "Shovel #{name} sink"),
               config["dest-queue"]?.try &.as_s?,
               config["dest-exchange"]?.try &.as_s?,
               config["dest-exchange-key"]?.try &.as_s?,
-              ack_mode,
-              direct_user: @vhost.users.direct_user)
+              ack_mode)
           end
         end
         Shovel::MultiDestination.new(destinations)

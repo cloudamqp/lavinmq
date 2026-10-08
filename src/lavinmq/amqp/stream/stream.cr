@@ -1,5 +1,6 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
+require "./stream_cursor_consumer"
 require "./stream_message_store"
 
 module LavinMQ::AMQP
@@ -239,7 +240,7 @@ module LavinMQ::AMQP
 
     private def notify_all_stream_consumers
       @consumers.each do |consumer|
-        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+        if stream_consumer = consumer.as?(AMQP::StreamCursorConsumer)
           stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
         end
       end
@@ -336,7 +337,7 @@ module LavinMQ::AMQP
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+      if stream_consumer = consumer.as?(AMQP::StreamCursorConsumer)
         @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
     end

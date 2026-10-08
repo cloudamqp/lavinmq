@@ -1,43 +1,68 @@
-require "amqp-client"
-require "../observable"
 require "../logger"
 require "../sortable_json"
-require "../amqp/queue/event"
-require "../amqp/exchange/event"
+require "../rough_time"
+require "../endpoint"
 
 module LavinMQ
   module Federation
     class Upstream
+      # Moves messages from the upstream to a federated exchange or queue in
+      # this broker. The upstream is an Endpoint: another vhost of this broker,
+      # in-process, or another broker over AMQP. Downstream, messages are
+      # published in-process, with publish confirms when the ack mode is
+      # on-confirm, so the upstream message is acked only once it's durable
+      # here.
       abstract class Link
         include SortableJSON
         Log = LavinMQ::Log.for "federation.link"
-        getter last_changed, error, state
 
-        @last_changed : Int64?
-        @state = State::Stopped
-        @error : String?
-        @scrubbed_uri : String
-        @last_unacked : UInt64?
-        @upstream_connection : ::AMQP::Client::Connection?
-        @upstream_channel : ::AMQP::Client::Channel?
+        enum State
+          Starting
+          Running
+          Stopped
+          Terminating
+          Terminated
+          Error
+        end
+
+        getter last_changed : Int64?
+        getter error : String?
+        getter state = State::Stopped
         @metadata : ::Log::Metadata
-        @state_changed = Channel(State?).new
+        @display_uri : String
+        # Closed by #stop, wakes every wait of the link
+        @stop_signal = ::Channel(Nil).new
+        # Set when a downstream publish was nacked (a full reject-publish
+        # queue). The message goes back upstream and is redelivered right
+        # away, so the next delivery waits a moment instead of spinning.
+        @nacked = Atomic(Bool).new(false)
+        NACK_BACKOFF = 100.milliseconds
+        @upstream_session : Endpoint::Session
+        @downstream : Endpoint::LocalSession
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
           @log = Logger.new(Log, @metadata)
-          uri = @upstream.uri
-          ui = uri.userinfo
-          @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
+          @display_uri = Endpoint.display_uri(@upstream.uri)
+          session_name = "Federation link: #{@upstream.name}/#{name}"
+          @upstream_session = Endpoint.session(@upstream.uri, @upstream.vhost, session_name)
+          @downstream = Endpoint::LocalSession.new(@upstream.vhost, @upstream.vhost.name, session_name)
         end
+
+        abstract def name : String
+        abstract def type : String
+
+        # Runs until the link is up, then returns. Blocks while the link is
+        # running and returns when the upstream goes away.
+        private abstract def start_link
 
         def details_tuple
           {
             upstream:       @upstream.name,
             vhost:          @upstream.vhost.name,
             timestamp:      @last_changed.try { |v| Time.unix_ms(v) },
-            type:           self.is_a?(QueueLink) ? "queue" : "exchange",
-            uri:            @scrubbed_uri,
+            type:           type,
+            uri:            @display_uri,
             resource:       name,
             error:          @error,
             status:         @state.to_s.downcase,
@@ -59,287 +84,298 @@ module LavinMQ
           Fiber.yield
         end
 
-        private def state(state)
-          @log.debug { "state change from=#{@state} to=#{state}" }
-          @last_changed = RoughTime.unix_ms
-          return if @state == state
-          @state = state
-          loop { @state_changed.try_send?(state) || break }
-        end
-
         # Graceful close of the link without removing any upstream resources.
-        # Use on broker shutdown — the upstream queue/exchange must survive a
-        # restart so buffered messages aren't lost.
+        # Use on broker shutdown: the upstream queue and exchange must survive
+        # a restart so buffered messages aren't lost.
         def stop
-          return if @state.terminated?
-          state(State::Terminating)
-          @upstream_connection.try &.close
+          return if stopping?
+          set_state(State::Terminating)
+          @stop_signal.close
+          close_sessions
         end
 
         # Permanently remove the link, including any resources it created on
-        # the upstream broker. Use when the federation, federated resource or
-        # upstream itself is being deleted.
+        # the upstream. Use when the federation, the federated resource or the
+        # upstream itself is deleted.
         def delete
           stop
         end
 
+        def stopping? : Bool
+          @state.in?(State::Terminating, State::Terminated)
+        end
+
+        private def set_state(state : State)
+          @log.debug { "state change from=#{@state} to=#{state}" }
+          @last_changed = RoughTime.unix_ms
+          @state = state
+        end
+
         private def run_loop
           loop do
-            break if stop_link?
-            state(State::Starting)
-            start_link
-            break if stop_link?
-            state(State::Stopped)
-            wait_before_reconnect
-            break if stop_link?
-            @log.info { "Federation try reconnect" }
-          rescue ex
-            break if stop_link?
-            @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
-            state(State::Stopped)
-            @error = ex.message
-            wait_before_reconnect
-            break if stop_link?
+            break if stopping?
+            set_state(State::Starting)
+            begin
+              @downstream.open
+              start_link
+              @error = nil
+            rescue ex
+              break if stopping?
+              @log.info { "Federation link error=#{ex.message}" }
+              @error = ex.message
+            ensure
+              close_sessions
+            end
+            break if stopping?
+            set_state(State::Stopped)
+            break unless wait(@upstream.reconnect_delay)
             @log.info { "Federation try reconnect" }
           end
-          @log.info { "Federation link stopped" }
         ensure
-          state(State::Terminated)
-          @state_changed.close
+          set_state(State::Terminated)
           @log.info { "Terminated" }
         end
 
-        private def wait_before_reconnect
-          loop do
-            select
-            when timeout @upstream.reconnect_delay
-              @log.debug { "#wait_before_reconnect timeout after #{@upstream.reconnect_delay}" }
-              break
-            when event = @state_changed.receive?
-              break if stop_link?(event)
-              @log.debug do
-                "#wait_before_reconnect @state_changed.received? triggerd " \
-                "@state_changed.closed?=#{@state_changed.closed?}"
-              end
-            end
+        private def close_sessions
+          @upstream_session.close
+          @downstream.close
+        end
+
+        # Sleeps, returning false if the link is stopped meanwhile
+        private def wait(span : Time::Span) : Bool
+          select
+          when @stop_signal.receive?
+            false
+          when timeout(span)
+            !stopping?
           end
         end
 
-        private def stop_link?(state = @state)
-          return false if state.nil?
-          state.in?(State::Terminating, State::Terminated)
+        private def declare_queue(session, name, args = AMQ::Protocol::Table.new)
+          session.declare_queue(name, passive: true)
+        rescue Endpoint::NotFound
+          session.declare_queue(name, passive: false, args: args)
         end
 
-        private def federate(msg, exchange, routing_key, *, immediate = false) : Bool
-          @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
-          @upstream.vhost.publish(
-            Message.new(
-              RoughTime.unix_ms, exchange, routing_key, msg.properties,
-              msg.body_io.bytesize.to_u64, msg.body_io,
-            ),
-            immediate
-          ).routed?
-        end
-
-        private def try_passive(client, ch = nil, &)
-          ch ||= client.channel
-          {ch, yield(ch, true)}
-        rescue ::AMQP::Client::Channel::ClosedException
-          ch = client.channel
-          {ch, yield(ch, false)}
-        end
-
-        private def received_from_header(msg)
-          headers = msg.properties.headers || AMQP::Table.new
-          received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
-          received_from ||= Array(AMQP::Table).new
-          {headers, received_from}
-        end
-
-        private def named_uri(uri)
-          named_uri = uri.dup
-          params = named_uri.query_params
-          params["name"] ||= "Federation link: #{@upstream.name}/#{name}"
-          named_uri.query = params.to_s
-          named_uri
-        end
-
-        abstract def name : String
-        private abstract def start_link
-
-        private def setup_connection(&)
-          return if @state.in?(State::Terminated, State::Terminating)
-          @upstream_connection.try &.close
-          upstream_uri = named_uri(@upstream.uri)
-          params = upstream_uri.query_params
-          params["product"] = "LavinMQ"
-          params["product_version"] = LavinMQ::VERSION.to_s
-          upstream_uri.query = params.to_s
-          ::AMQP::Client.start(upstream_uri) do |upstream_connection|
-            upstream_connection.on_close do
-              next if stop_link?
-              state(State::Stopped)
+        # Publishes an upstream delivery downstream, adding where it came from
+        # to its x-received-from header, and settles it upstream according to
+        # the ack mode. Returns false if it was published `immediate` and no
+        # consumer was ready for it; it's then returned to the upstream queue
+        # (unless consumed with no-ack, where it's lost).
+        private def federate(msg : Endpoint::Delivery, exchange : String, routing_key : String,
+                             received_from : AMQ::Protocol::Table, immediate : Bool) : Bool
+          @last_changed = RoughTime.unix_ms
+          wait(NACK_BACKOFF) if @nacked.swap(false)
+          props = msg.properties
+          headers = props.headers || AMQ::Protocol::Table.new
+          hops = headers["x-received-from"]?.try(&.as?(Array(AMQ::Protocol::Field))) || Array(AMQ::Protocol::Field).new
+          hops << received_from
+          headers["x-received-from"] = hops
+          props.headers = headers
+          upstream = @upstream_session
+          generation = upstream.generation
+          tag = msg.tag
+          case @upstream.ack_mode
+          in AckMode::NoAck
+            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate, nil)
+            if immediate && !result.routed?
+              @log.warn { "No downstream consumer ready, message lost (ack-mode no-ack)" }
+              return false
             end
-            yield @upstream_connection = upstream_connection
+          in AckMode::OnPublish
+            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate, nil)
+            if immediate && !result.routed?
+              upstream.reject(tag, requeue: true)
+              return false
+            end
+            upstream.ack(tag)
+          in AckMode::OnConfirm
+            # A nack (no consumer ready, reject-publish overflow, or the
+            # downstream closing) returns the message upstream.
+            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate,
+              ->(confirmed : Bool) { settle(upstream, generation, tag, confirmed) })
+            return false if immediate && !result.routed?
           end
+          true
         end
 
-        enum State
-          Starting
-          Running
-          Stopped
-          Terminating
-          Terminated
-          Error
+        private def settle(upstream : Endpoint::Session, generation : UInt32, tag : UInt64, confirmed : Bool)
+          # The upstream session was closed since, returning the message, and
+          # maybe reopened: the tag would name another message now
+          return if upstream.generation != generation || upstream.closed?
+          if confirmed
+            upstream.ack(tag)
+          else
+            @nacked.set(true)
+            upstream.reject(tag, requeue: true)
+          end
+        rescue ex
+          @log.debug { "Could not settle upstream delivery: #{ex.message}" }
         end
       end
 
+      # Federates a queue: consumes the upstream queue while the downstream
+      # queue has consumers, and publishes to it only when one of them is ready
+      # to take the message (an `immediate` publish). That way messages stay
+      # upstream, available to other consumers, until a consumer here wants
+      # them.
       class QueueLink < Link
-        include Observer(QueueEvent)
-        EXCHANGE = ""
+        getter federated_q
 
-        @consumer_available = Channel(Nil).new
+        # Set by the consumer watcher when it ends a consume round because the
+        # downstream queue has no consumers left
+        @round_ended = false
+        CONFIRM_TIMEOUT  = 5.seconds
+        CAPACITY_RECHECK = 100.milliseconds
 
         def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
-
-          spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
-        end
-
-        def monitor_consumers
-          # We need an initial value
-          has_consumer = !@federated_q.consumers_empty.value
-          @log.debug { "initial has_consumer = #{has_consumer}" }
-          loop do
-            if has_consumer
-              # Signal
-              notify_consumer_available
-              # Wait for queue to lose all consumers, or for the link
-              # to stop
-              loop do
-                select
-                when @federated_q.consumers_empty.when_true.receive
-                  break
-                when state = @state_changed.receive?
-                  return if stop_link?(state)
-                  return if @state_changed.closed? # closed == stop
-                end
-              end
-              @log.info { "Lost consumers, cancel upstream subscriber" }
-              has_consumer = false
-              cancel_upstream_consumer
-            else
-              # Wait for queue get a consumer, or for the link
-              # to stop
-              loop do
-                select
-                when @federated_q.consumers_empty.when_false.receive
-                  break
-                when state = @state_changed.receive?
-                  return if stop_link?(state)
-                  return if @state_changed.closed?
-                end
-              end
-              # Signaling is done first in the next iteration of the loop when
-              # we enter the `has_consumer?` case
-              @log.info { "Got consumers, signal to start subscriber" }
-              has_consumer = true
-            end
-          end
-        rescue ::Channel::ClosedError
-        end
-
-        private def cancel_upstream_consumer
-          return unless channel = @upstream_channel
-          channel.basic_cancel(@upstream.consumer_tag)
-        rescue ex : ::AMQP::Client::Error
-          @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
         end
 
         def name : String
           @federated_q.name
         end
 
-        def stop
-          @federated_q.unregister_observer(self)
-          super
-          @consumer_available.close
-        end
-
-        private def notify_consumer_available
-          select
-          when @consumer_available.send nil
-          when @federated_q.consumers_empty.when_true.receive
-          end
-        end
-
-        def on(event : QueueEvent, data)
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?, .closed?
-            @upstream.stop_link(@federated_q)
-          in .consumer_added?, .consumer_removed?
-            nil
-          end
-        rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
-        end
-
-        private def setup_queue(upstream_client)
-          try_passive(upstream_client) do |ch, passive|
-            ch.queue_declare(@upstream_q, passive: passive)
-            ::AMQP::Client::Queue.new(ch, @upstream_q)
-          end
-        end
-
-        private def consume_upstream_and_federate(queue, no_ack)
-          queue.subscribe(tag: @upstream.consumer_tag, no_ack: no_ack, block: true) do |msg|
-            @last_changed = RoughTime.unix_ms
-            headers, received_from = received_from_header(msg)
-            received_from << ::AMQP::Client::Arguments.new({
-              "uri"         => @scrubbed_uri,
-              "queue"       => queue.name,
-              "redelivered" => msg.redelivered,
-            })
-            headers["x-received-from"] = received_from
-            msg.properties.headers = headers
-
-            if federate(msg, EXCHANGE, @federated_q.name, immediate: true)
-              msg.ack if @upstream.ack_mode != AckMode::NoAck
-            else
-              @log.info { "Federate failed, no downstream consumer available" }
-              queue.unsubscribe(@upstream.consumer_tag)
-              msg.reject(requeue: true)
-            end
-          end
+        def type : String
+          "queue"
         end
 
         private def start_link
-          setup_connection do |upstream_connection|
-            upstream_channel, q = setup_queue(upstream_connection)
-            @upstream_channel = upstream_channel
-            upstream_channel.prefetch(count: @upstream.prefetch)
-            no_ack = @upstream.ack_mode.no_ack?
-            state(State::Running)
-            loop do
-              @log.debug { "Waiting for consumers" }
-              select
-              when @consumer_available.receive?
-                consume_upstream_and_federate(q, no_ack)
-              when @state_changed.receive?
-                return if @state_changed.closed?
-                return if @upstream_connection.try &.closed?
+          # Connect once up front so a bad upstream is reported right away,
+          # even before the downstream queue has consumers.
+          open_upstream
+          # A stop during setup must not be undone by going Running
+          return if stopping?
+          set_state(State::Running)
+          loop do
+            unless has_consumers?
+              @upstream_session.close
+              return unless wait_for_consumers
+              open_upstream
+            end
+            consume_round
+          end
+        end
+
+        private def open_upstream
+          @upstream_session.close
+          @upstream_session.open
+          # Stopped while connecting, when there was no session to close
+          return @upstream_session.close if stopping?
+          declare_queue(@upstream_session, @upstream_q)
+          @upstream_session.prefetch = @upstream.prefetch
+        end
+
+        private def has_consumers? : Bool
+          !@federated_q.consumers_empty?
+        rescue ::Channel::ClosedError
+          false
+        end
+
+        # Waits until the downstream queue has consumers. Returns false if the
+        # link was stopped (or the queue closed) meanwhile.
+        private def wait_for_consumers : Bool
+          @log.debug { "Waiting for downstream consumers" }
+          until has_consumers?
+            select
+            when @federated_q.consumers_empty.when_false.receive?
+            when @stop_signal.receive?
+            end
+            return false if stopping? || @federated_q.closed?
+          end
+          true
+        end
+
+        # Consumes the upstream queue until the downstream queue loses its
+        # consumers. The round ends by closing the upstream session, which
+        # returns every message we hold, rather than cancelling the consumer,
+        # which could leave prefetched deliveries unsettled.
+        private def consume_round
+          @round_ended = false
+          done = ::Channel(Nil).new
+          spawn(watch_consumers(done), name: "Federation link #{@upstream.vhost.name}/#{name} consumer watch")
+          no_ack = @upstream.ack_mode.no_ack?
+          received_from = AMQ::Protocol::Table.new({
+            "uri"         => @display_uri,
+            "queue"       => @upstream_q,
+            "redelivered" => false,
+          })
+          begin
+            @upstream_session.consume(@upstream_q, @upstream.consumer_tag, no_ack, false,
+              AMQ::Protocol::Table.new) do |msg|
+              received_from["redelivered"] = msg.redelivered
+              unless federate(msg, "", @federated_q.name, received_from.clone, immediate: true)
+                # No consumer here was ready, so the message went back
+                # upstream. Take no more until one has room; if they're all
+                # gone instead, the consumer watcher ends the round.
+                wait_for_capacity
+                @nacked.set(false) # the nack meant no consumer, waited for above
               end
             end
+          rescue ex
+            raise ex unless @round_ended
+          ensure
+            done.close
           end
+        end
+
+        # Ends the consume round when the downstream queue has no consumers
+        # left, or when the round ends by itself
+        private def watch_consumers(done)
+          select
+          when @federated_q.consumers_empty.when_true.receive?
+            @log.info { "Lost downstream consumers, closing upstream" }
+            @round_ended = true
+            # Messages published here but not yet confirmed would go back
+            # upstream with the close, and be delivered twice
+            @downstream.wait_for_confirms(CONFIRM_TIMEOUT)
+            @upstream_session.close
+          when done.receive?
+          end
+        end
+
+        # Waits until a downstream consumer can take a message. Returns false if
+        # there are no consumers left or the link stopped.
+        #
+        # Waits on what blocks each consumer, never on a signal that's already
+        # ready: a consumer can have prefetch room yet not accept (flow off, or
+        # the channel's global prefetch full), and receiving its ready
+        # has_capacity again and again would spin without yielding. A blocker
+        # that nothing signals is re-checked after a timeout instead.
+        private def wait_for_capacity : Bool
+          until @federated_q.immediate_delivery?
+            return false if stopping? || !has_consumers?
+            actions = Array(::Channel::SelectAction(Nil)).new
+            recheck = false
+            @federated_q.consumers.each do |consumer|
+              if signal = consumer.accepts_signal
+                actions << signal.receive_select_action
+              else
+                recheck = true
+              end
+            end
+            actions << @stop_signal.receive_select_action
+            actions << @federated_q.consumers_empty.when_true.receive_select_action
+            actions << timeout_select_action(CAPACITY_RECHECK) if recheck
+            ::Channel.select(actions)
+          end
+          true
+        rescue ::Channel::ClosedError
+          !stopping? && has_consumers?
         end
       end
 
+      # Federates an exchange: an internal queue on the upstream, bound to the
+      # upstream exchange the way the downstream exchange is bound, collects
+      # what the downstream exchange would route, and the link publishes it to
+      # the downstream exchange.
+      #
+      # Upstream topology, kept between restarts and removed by #delete:
+      #   upstream exchange --(downstream's bindings)--> x-federation-upstream
+      #   exchange named like the queue --> queue "federation: X -> host:vhost:Y"
       class ExchangeLink < Link
-        include Observer(ExchangeEvent)
-        @consumer_ex : ::AMQP::Client::Exchange?
+        getter federated_ex
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -351,57 +387,8 @@ module LavinMQ
           @federated_ex.name
         end
 
-        private def should_forward?(headers)
-          return true if headers.nil?
-          x_received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
-          return true unless x_received_from
-          x_received_from.size < @upstream.max_hops
-        end
-
-        def on(event : ExchangeEvent, data)
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?
-            @upstream.stop_link(@federated_ex)
-          in .bind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.bind(@upstream_exchange, b.routing_key, args: args)
-              end
-            end
-          in .unbind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
-            end
-          end
-        rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
-        end
-
-        private def data_as_binding_details(data) : AMQP::BindingDetails
-          b = data.as?(AMQP::BindingDetails)
-          raise ArgumentError.new("Expected data to be of type AMQP::BindingDetails") unless b
-          b
-        end
-
-        private def with_consumer_ex(&)
-          if ex = @consumer_ex
-            yield ex
-          else
-            @log.warn { "No upstream connection for exchange event" }
-          end
-        end
-
-        def stop
-          super
-          @federated_ex.unregister_observer(self)
+        def type : String
+          "exchange"
         end
 
         def delete
@@ -409,125 +396,123 @@ module LavinMQ
           cleanup
         end
 
-        private def cleanup
-          upstream_uri = @upstream.uri.dup
-          params = upstream_uri.query_params
-          params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
-          params["product"] = "LavinMQ"
-          params["product_version"] = LavinMQ::VERSION.to_s
-          upstream_uri.query = params.to_s
-          ::AMQP::Client.start(upstream_uri) do |c|
-            ch = c.channel
-            ch.queue_delete(@upstream_q)
-            ch.exchange_delete(@upstream_q)
-          rescue ex : ::AMQP::Client::Error
-            @log.warn { "Failed to clean up upstream resources: #{ex.message}" }
-          end
-        rescue e
-          @log.warn(e) { "cleanup interrupted " }
+        # Called (through UpstreamStore#exchange_bound) once a binding is
+        # stored on the federated exchange
+        def bound(b : AMQP::BindingDetails)
+          return if stopping?
+          forward, args = bound_from(b.arguments)
+          @upstream_session.bind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
+        rescue ex : Endpoint::Error
+          # Not connected: #setup replays all bindings when the link connects
+          @log.debug { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.message}" }
+        rescue ex
+          @log.error { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
         end
 
-        private def setup(upstream_client)
-          ch, _ = try_passive(upstream_client) do |uch, passive|
-            uch.exchange(@upstream_exchange, type: @federated_ex.type,
-              args: @federated_ex.arguments, passive: passive)
+        # Called once a binding is removed from the federated exchange
+        def unbound(b : AMQP::BindingDetails)
+          return if stopping?
+          forward, args = bound_from(b.arguments)
+          @upstream_session.unbind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
+        rescue ex : Endpoint::Error
+          @log.debug { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.message}" }
+        rescue ex
+          @log.error { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
+        end
+
+        private def start_link
+          session = @upstream_session
+          session.open
+          # Stopped while connecting, when there was no session to close:
+          # don't declare anything upstream
+          return if stopping?
+          setup(session)
+          # A stop during setup must not be undone by going Running
+          return if stopping?
+          session.prefetch = @upstream.prefetch
+          set_state(State::Running)
+          no_ack = @upstream.ack_mode.no_ack?
+          received_from = AMQ::Protocol::Table.new({
+            "uri"         => @display_uri,
+            "exchange"    => @upstream_exchange,
+            "redelivered" => false,
+          })
+          session.consume(@upstream_q, @upstream.consumer_tag, no_ack, false, AMQ::Protocol::Table.new) do |msg|
+            if should_forward?(msg.properties.headers)
+              received_from["redelivered"] = msg.redelivered
+              federate(msg, @federated_ex.name, msg.routing_key, received_from.clone, immediate: false)
+            else
+              @log.debug { "Skipping message, max hops reached" }
+              session.ack(msg.tag) unless no_ack
+            end
           end
-          args2 = ::AMQP::Client::Arguments.new({
+        end
+
+        private def setup(session)
+          begin
+            session.declare_exchange(@upstream_exchange, @federated_ex.type, passive: true)
+          rescue Endpoint::NotFound
+            session.declare_exchange(@upstream_exchange, @federated_ex.type, passive: false,
+              args: @federated_ex.arguments)
+          end
+          q_args = AMQ::Protocol::Table.new({"x-internal-purpose" => "federation"})
+          @upstream.expires.try { |v| q_args["x-expires"] = v }
+          @upstream.msg_ttl.try { |v| q_args["x-message-ttl"] = v }
+          declare_queue(session, @upstream_q, q_args)
+          ex_args = AMQ::Protocol::Table.new({
             "x-downstream-name"  => System.hostname,
             "x-internal-purpose" => "federation",
             "x-max-hops"         => @upstream.max_hops,
           })
-          q_args = ::AMQP::Client::Arguments.new({"x-internal-purpose" => "federation"})
-          if expires = @upstream.expires
-            q_args["x-expires"] = expires
+          begin
+            session.declare_exchange(@upstream_q, "x-federation-upstream", passive: true)
+          rescue Endpoint::NotFound
+            session.declare_exchange(@upstream_q, "x-federation-upstream", passive: false, args: ex_args)
           end
-          if msg_ttl = @upstream.msg_ttl
-            q_args["x-message-ttl"] = msg_ttl
-          end
-          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
-            uch.queue(@upstream_q, args: q_args, passive: passive)
-          end
-          ch, consumer_ex = try_passive(upstream_client, ch) do |uch, passive|
-            ex = uch.exchange(@upstream_q, type: "x-federation-upstream",
-              args: args2, passive: passive)
-            uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
-            ex
-          end
-          # @consumer_ex must be set before the observer is registered:
-          # bind/unbind events are dropped while it's nil, and a binding made
-          # in that window would never be propagated to the upstream exchange.
-          # Bindings made before registration are covered by the snapshot
-          # below (exchanges store bindings before notifying observers).
-          @consumer_ex = consumer_ex
-          @federated_ex.register_observer(self)
-          # A concurrent delete can set the link Terminating while we were
-          # parked on the upstream connect above; its unregister_observer ran
-          # before we registered, so re-check and unregister to avoid leaking
-          # a dead link in the exchange's observer set.
-          @federated_ex.unregister_observer(self) if stop_link?
+          session.bind_queue(@upstream_q, @upstream_q, "")
+          # The session is open, so #bound mirrors new bindings from here on.
+          # Exchanges store a binding before calling #bound, so one made
+          # meanwhile is in this copy or mirrored by #bound (binding twice is
+          # harmless).
           @federated_ex.bindings_details.each do |binding|
-            updated, args = update_bound_from?(binding.arguments)
-            if updated
-              consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
-            end
+            forward, args = bound_from(binding.arguments)
+            session.bind_exchange(@upstream_q, @upstream_exchange, binding.routing_key, args) if forward
           end
-          upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
-          {ch, upstream_q}
         end
 
-        private def start_link
-          setup_connection do |upstream_connection|
-            upstream_channel, upstream_q = setup(upstream_connection)
-            # setup may have observed a concurrent delete and unregistered;
-            # don't go Running (which would defeat the run_loop terminate
-            # check and trigger a reconnect of a deleted link).
-            return if stop_link?
-            upstream_channel.prefetch(count: @upstream.prefetch)
-            no_ack = @upstream.ack_mode.no_ack?
-            state(State::Running)
-            upstream_q.subscribe(no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-              if should_forward?(msg.properties.headers)
-                federate_to_downstream_exchange(msg)
-              else
-                @log.debug { "Skipping message, max hops reached" }
-                msg.ack
-              end
-            end
+        # Removes the upstream queue and exchange, with a session of its own
+        # since the link's is closed by now
+        private def cleanup
+          session = Endpoint.session(@upstream.uri, @upstream.vhost,
+            "Federation link cleanup: #{@upstream.name}/#{name}")
+          session.open
+          begin
+            session.delete_queue(@upstream_q)
+            session.delete_exchange(@upstream_q)
           ensure
-            @consumer_ex = nil
+            session.close
           end
+        rescue ex
+          @log.warn { "Failed to clean up upstream resources: #{ex.message}" }
         end
 
-        private def federate_to_downstream_exchange(msg)
-          @last_changed = RoughTime.unix_ms
-          headers, received_from = received_from_header(msg)
-          received_from << ::AMQP::Client::Arguments.new({
-            "uri"         => @scrubbed_uri,
-            "exchange"    => @upstream_exchange,
-            "redelivered" => msg.redelivered,
-          })
-          headers["x-received-from"] = received_from
-          msg.properties.headers = headers
-          # Because we publish with immediate false we'll always get a succesful
-          # return and never gets a reason to reject and requeue
-          federate(msg, @federated_ex.name, msg.routing_key, immediate: false)
-          msg.ack unless @upstream.ack_mode.no_ack?
+        private def should_forward?(headers) : Bool
+          return true if headers.nil?
+          received_from = headers["x-received-from"]?.try(&.as?(Array(AMQ::Protocol::Field)))
+          return true unless received_from
+          received_from.size < @upstream.max_hops
         end
 
-        # This methods returns a tuple where the first element is a boolean
-        # indicating whether the arguments were updated, and the second
-        # element is the updated arguments.
-        # If the arguments were not updated, it means that max hops has been reached
-        # and the binding should not be created.
-        private def update_bound_from?(arguments : ::AMQP::Client::Arguments?)
-          # Arguments may be a reference to the arguments in a binding, and we don't
-          # want to be changed, therefore we clone it.
-          arguments = arguments.try &.clone || ::AMQP::Client::Arguments.new
-          bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQP::Field)))
-          bound_from ||= Array(AMQP::Field).new
-          hops = get_binding_hops(bound_from)
+        # The arguments to bind upstream with: the downstream binding's own,
+        # with this hop added to x-bound-from. The first element is false when
+        # the binding has travelled max-hops already and isn't forwarded.
+        private def bound_from(arguments : AMQ::Protocol::Table?) : Tuple(Bool, AMQ::Protocol::Table)
+          # Arguments may be the binding's own table, which must not change
+          arguments = arguments.try(&.clone) || AMQ::Protocol::Table.new
+          bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQ::Protocol::Field))) || Array(AMQ::Protocol::Field).new
+          hops = binding_hops(bound_from)
           return {false, arguments} if hops == 0
-          bound_from.unshift AMQP::Table.new({
+          bound_from.unshift AMQ::Protocol::Table.new({
             "vhost":    @upstream.vhost.name,
             "exchange": @federated_ex.name,
             "hops":     hops,
@@ -536,11 +521,10 @@ module LavinMQ
           {true, arguments}
         end
 
-        # Calculate the number of hops for the binding. It will use the lowest value
-        # from the previous hops in the binding or the max hops configured on the current
-        # exchange.
-        private def get_binding_hops(x_bound_from)
-          if prev = x_bound_from.first?.try(&.as?(AMQP::Table))
+        # The lowest of the previous hop's count minus one and this upstream's
+        # max-hops
+        private def binding_hops(bound_from) : Int64
+          if prev = bound_from.first?.try(&.as?(AMQ::Protocol::Table))
             if hops = prev["hops"]?.try(&.as?(Int64))
               return {hops - 1, @upstream.max_hops}.min
             end

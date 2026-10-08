@@ -21,7 +21,7 @@ module LavinMQ
                      @max_hops = DEFAULT_MAX_HOPS, @msg_ttl = DEFAULT_MSG_TTL,
                      @prefetch = DEFAULT_PREFETCH, @reconnect_delay = DEFAULT_RECONNECT_DELAY,
                      consumer_tag = nil)
-        @consumer_tag = "federation-link-#{@name}"
+        @consumer_tag = consumer_tag || "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
       end
 
@@ -41,12 +41,28 @@ module LavinMQ
 
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
+      # Links are keyed by name, so only stop the link if it belongs to this
+      # very resource, not to a replacement declared under the same name
       def stop_link(federated_exchange : AMQP::Exchange)
-        @ex_links.delete(federated_exchange.name).try(&.delete)
+        link = @ex_links[federated_exchange.name]? || return
+        return unless link.federated_ex.same?(federated_exchange)
+        @ex_links.delete(federated_exchange.name)
+        link.delete
       end
 
       def stop_link(federated_q : AMQP::Queue)
-        @q_links.delete(federated_q.name).try(&.delete)
+        link = @q_links[federated_q.name]? || return
+        return unless link.federated_q.same?(federated_q)
+        @q_links.delete(federated_q.name)
+        link.delete
+      end
+
+      def exchange_bound(federated_exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        @ex_links[federated_exchange.name]?.try &.bound(binding)
+      end
+
+      def exchange_unbound(federated_exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        @ex_links[federated_exchange.name]?.try &.unbound(binding)
       end
 
       def links : Array(Link)

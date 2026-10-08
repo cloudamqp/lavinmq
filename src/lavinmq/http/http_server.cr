@@ -41,7 +41,7 @@ module LavinMQ
           ViewsController.new,
           StaticController.new,
           oauth_authenticator && OAuthController.new(oauth_authenticator),
-          AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
+          AuthHandler.new(@server.authenticator, @server.users.internal_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
           PrometheusController.new(@server, require_authentication: true),
