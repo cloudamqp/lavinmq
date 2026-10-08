@@ -182,10 +182,10 @@ module LavinMQ
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
-            get_count = body["count"]?.try(&.as_i) || 1
+            get_count = int32_field?(context, body, "count") || 1
             ack_mode = (body["ack_mode"]? || body["ackmode"]?).try(&.as_s) || "get"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
+            truncate = int32_field?(context, body, "truncate")
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
@@ -251,12 +251,15 @@ module LavinMQ
               forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)
-            count = body["count"]?.try(&.as_i) || 1
+            count = int32_field?(context, body, "count") || 1
             count = 0 if count < 0
             offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
-            JSON.build(context.response) do |j|
+            truncate = int32_field?(context, body, "truncate")
+            # Built in memory so that a stream closing mid-read gives a clean error
+            # response rather than a truncated JSON array
+            buffer = IO::Memory.new
+            JSON.build(buffer) do |j|
               j.array do
                 q.each_from(offset) do |env|
                   break if count.zero?
@@ -279,6 +282,7 @@ module LavinMQ
                 end
               end
             end
+            context.response.write buffer.to_slice
           rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
           end

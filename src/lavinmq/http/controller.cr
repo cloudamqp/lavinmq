@@ -190,6 +190,15 @@ module LavinMQ
         halt(context, 400, {error: "bad_request", reason: message})
       end
 
+      # `JSON::Any#as_i` raises OverflowError for a number that doesn't fit an Int32,
+      # which is caught here, rather than in ApiErrorHandler, so that overflows in
+      # server code still end up as a 500
+      private def int32_field?(context, body : JSON::Any, key : String) : Int32?
+        body[key]?.try(&.as_i)
+      rescue OverflowError
+        bad_request(context, "#{key} is too large")
+      end
+
       private def access_refused(context, message = "Access refused")
         halt(context, 403, {error: "access_refused", reason: message})
       end
