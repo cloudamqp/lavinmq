@@ -18,6 +18,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/broker"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -46,6 +47,7 @@ module LavinMQ
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
+    @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
     # Bool accessors (later become Atomic)
@@ -231,6 +233,7 @@ module LavinMQ
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
+      @mqtt_broker = MQTT::Broker.new(self)
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
@@ -523,6 +526,7 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
+      @mqtt_broker.try &.close
       each_exchange &.close
       Fiber.yield
       definitions.close
@@ -589,6 +593,10 @@ module LavinMQ
 
     def upstreams
       @upstreams.not_nil!
+    end
+
+    def mqtt_broker : MQTT::Broker
+      @mqtt_broker.not_nil!
     end
 
     def shovels
