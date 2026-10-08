@@ -50,6 +50,8 @@ module LavinMQ
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @basic_get_unacked_count = Atomic(UInt32).new(0)
+      # Messages basic.recover has taken out of @unacked to deliver again
+      @recover_pending = Atomic(Int32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
@@ -710,6 +712,8 @@ module LavinMQ
               end
               true
             end
+            # Still counts against the global prefetch until delivered again
+            @recover_pending.add(redeliver.size, :relaxed)
           end
         end
         handed_over = 0
@@ -734,6 +738,7 @@ module LavinMQ
             unack.consumer.try &.reject(unack.sp, requeue: true)
             unack.queue.reject(unack.sp, requeue: true)
           end
+          notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -819,7 +824,7 @@ module LavinMQ
 
       def has_capacity? : Bool
         return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
+        consumer_unacked = @unacked.size + @recover_pending.get(:relaxed) - @basic_get_unacked_count.get(:relaxed)
         consumer_unacked < @global_prefetch_count
       end
 
