@@ -620,8 +620,8 @@ module LavinMQ::AMQP
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
+        @deliveries.clear
       end
-      @deliveries.clear
       @basic_get_unacked.clear
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -995,9 +995,13 @@ module LavinMQ::AMQP
       if @delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
+        # Acks and rejects on other threads update @deliveries too
+        delivery_count = @msg_store_lock.synchronize do
+          count = @deliveries.fetch(sp, 0)
+          @deliveries[sp] = count + 1
+          count
+        end
         headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
@@ -1021,8 +1025,8 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
+        @deliveries.delete(sp) if @delivery_limit
         @msg_store.delete(sp)
       end
     end
@@ -1039,7 +1043,7 @@ module LavinMQ::AMQP
           expire_msg(sp, :expired)
         else
           if delivery_limit = @delivery_limit
-            if @deliveries.fetch(sp, 0) > delivery_limit
+            if @msg_store_lock.synchronize { @deliveries.fetch(sp, 0) } > delivery_limit
               return expire_msg(sp, :delivery_limit)
             end
           end

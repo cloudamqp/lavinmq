@@ -23,6 +23,19 @@ def with_queue(&)
   end
 end
 
+# Runs the block on `n` fibers in the (parallel) context and waits for them
+def in_parallel(ctx, n, &blk : Int32 -> Nil)
+  wg = WaitGroup.new(n)
+  n.times do |i|
+    ctx.spawn do
+      blk.call(i)
+    ensure
+      wg.done
+    end
+  end
+  wg.wait
+end
+
 describe LavinMQ::AMQP::Queue do
   it "should not expire message before server is fully started" do
     # https://github.com/cloudamqp/lavinmq/issues/1697
@@ -952,6 +965,47 @@ describe LavinMQ::AMQP::Queue do
           sleep 10.milliseconds
           sq.unacked_count.should eq 1
           sq.unacked_bytesize.should eq(bytesize/2)
+        end
+      end
+    end
+  end
+
+  describe "delivery limit" do
+    # Regression: the delivery counts were read and written outside
+    # @msg_store_lock, so deliveries, acks and rejects on different threads
+    # mutated the Hash concurrently and corrupted it
+    it "keeps delivery counts consistent with parallel gets, rejects and acks", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("dl", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_000}))
+        q = vhost.queue("dl").as(LavinMQ::AMQP::Queue)
+        ctx = Fiber::ExecutionContext::Parallel.new("delivery-limit", 4)
+        # Several rounds, as one round only corrupts the Hash some of the time
+        20.times do
+          count = 5_000
+          count.times { q.publish(LavinMQ::Message.new("", q.name, "body")) }
+          sps = Array(Array(LavinMQ::SegmentPosition)).new(4) { Array(LavinMQ::SegmentPosition).new }
+          # Every get adds a delivery count, racing the other threads' inserts
+          in_parallel(ctx, 4) do |i|
+            while q.basic_get(false) { |env| sps[i] << env.segment_position }
+            end
+          end
+          q.@deliveries.size.should eq count
+          # Requeue all and get them again, so their counts are read and updated
+          in_parallel(ctx, 4) { |i| sps[i].each { |sp| q.reject(sp, requeue: true) } }
+          sps.each &.clear
+          in_parallel(ctx, 4) do |i|
+            while q.basic_get(false) { |env| sps[i] << env.segment_position }
+            end
+          end
+          sps.sum(&.size).should eq count
+          q.@deliveries.size.should eq count
+          q.@deliveries.each_value &.should(eq 2)
+          # Acks remove the counts
+          in_parallel(ctx, 4) { |i| sps[i].each { |sp| q.ack(sp) } }
+          q.message_count.should eq 0
+          q.@deliveries.size.should eq 0
         end
       end
     end
