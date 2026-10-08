@@ -21,7 +21,18 @@ let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
   constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
-  setConsumers (consumers) { this.items = consumers }
+  setConsumers (consumers, totalCount) {
+    this.items = {
+      items: consumers,
+      total_count: totalCount,
+      filtered_count: totalCount,
+      item_count: consumers.length,
+      page: 1,
+      page_size: consumers.length,
+      page_count: 1
+    }
+  }
+
   reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
@@ -118,8 +129,7 @@ function updateQueue (all) {
       // consumer_details array; guard so the rest of the page (policy, args, …)
       // still renders instead of aborting on a TypeError.
       if (item.consumer_details) {
-        item.consumer_details.filtered_count = item.consumers
-        consumersDataSource.setConsumers(item.consumer_details)
+        consumersDataSource.setConsumers(item.consumer_details, item.consumers)
         const hasMoreConsumers = item.consumer_details.length < item.consumers
         loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
         if (hasMoreConsumers) {
