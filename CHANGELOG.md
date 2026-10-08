@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `x-mqtt-topic` exchange type: queues and exchanges bound to it with MQTT topic filters receive MQTT publishes, with the MQTT topic as routing key. The exchange is always internal, and malformed filters are refused at bind time [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - The MQTT `default` permission group is saved to `mqtt_permissions.json` when a vhost is created instead of when it closes. A definitions import no longer removes the `default` group from an existing vhost, and a vhost created by an import that has an `mqtt_permissions` key gets only the groups listed for it, so an exported vhost without groups stays locked down. `lavinmqctl definitions export` includes the `default` group for a vhost without `mqtt_permissions.json` [#2330](https://github.com/cloudamqp/lavinmq/pull/2330)
 - Publish confirms only sync the segments the confirmed messages were written to, plus the directories of newly created files, instead of a `syncfs` of the whole data dir, so unrelated traffic on other queues no longer gets flushed with every confirm. `tx.commit` still uses `syncfs`. Followers sync the same files before acking (replication protocol v2, v1 peers remain compatible) [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - Less write amplification for publish confirms and MQTT QoS 1: once a queue receives such a publish (with `sync` enabled), its write segments, and all ack files, are advised `MADV_RANDOM`, so the kernel caches them in page-sized folios and each sync writes about 4 KiB instead of up to 128 KiB. Full segments get readahead back when they're read: `MADV_SEQUENTIAL` for classic queues, `MADV_NORMAL` for streams, whose segments can be shared by several consumers [#2323](https://github.com/cloudamqp/lavinmq/pull/2323)
