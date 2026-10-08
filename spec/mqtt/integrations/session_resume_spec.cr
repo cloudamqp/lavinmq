@@ -121,7 +121,7 @@ module MqttSpecs
           resent = read_publish(io)
           resent.packet_id.should eq second.try &.packet_id
           String.new(resent.payload).should eq "1"
-          read_packet(io).should be_nil
+          io.should be_silent
 
           disconnect(io)
         end
@@ -141,7 +141,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -190,7 +190,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -235,7 +235,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -370,7 +370,7 @@ module MqttSpecs
           publish_from(server, "a/b", ["0", "1", "2", "3"])
 
           sent = read_publishes(io, 3).map &.packet_id
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
 
@@ -381,7 +381,7 @@ module MqttSpecs
           resent.each &.dup?.should be_true
           resent.map(&.packet_id).should eq sent
           # The window is still full, so the fourth message stays in the store.
-          read_packet(io).should be_nil
+          io.should be_silent
 
           # Acking one frees a slot, and the fourth is delivered with a fresh id.
           puback(io, resent.first.packet_id)

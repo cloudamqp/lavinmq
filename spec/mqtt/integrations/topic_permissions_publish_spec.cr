@@ -74,8 +74,7 @@ module MqttSpecs
             msg.payload.should eq("hello".to_slice)
 
             # No second message should arrive
-            next_msg = read_packet(sub_io)
-            next_msg.should be_nil
+            sub_io.should be_silent
 
             # Publisher connection must still be open
             pub_io.should_not be_closed
@@ -122,8 +121,7 @@ module MqttSpecs
             ack.as(MQTT::Protocol::PubAck).packet_id.should eq(packet_id)
 
             # The denied message must not be delivered to the subscriber.
-            next_msg = read_packet(sub_io)
-            next_msg.should be_nil
+            sub_io.should be_silent
 
             # Publisher connection must still be open.
             pub_io.should_not be_closed

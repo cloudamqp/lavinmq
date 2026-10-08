@@ -6,7 +6,9 @@ module MqttMatchers
 
     def match(actual : MQTT::Protocol::IO)
       return true if actual.closed?
-      read_packet(actual)
+      MQTT::Protocol::Packet.from_io(actual)
+      false
+    rescue IO::TimeoutError
       false
     rescue IO::Error
       true
@@ -45,5 +47,35 @@ module MqttMatchers
 
   def be_drained
     EmptyMatcher.new
+  end
+
+  class SilentExpectation
+    @packet : MQTT::Protocol::Packet?
+
+    def match(actual : MQTT::Protocol::IO)
+      socket = actual.io.as(Socket)
+      timeout = socket.read_timeout
+      socket.read_timeout = MqttHelpers::SILENCE_TIMEOUT
+      begin
+        @packet = MQTT::Protocol::Packet.from_io(actual)
+        false
+      rescue IO::TimeoutError
+        true
+      ensure
+        socket.read_timeout = timeout
+      end
+    end
+
+    def failure_message(actual_value)
+      "Expected no packet within #{MqttHelpers::SILENCE_TIMEOUT}, got #{@packet.inspect}"
+    end
+
+    def negative_failure_message(actual_value)
+      "Expected a packet within #{MqttHelpers::SILENCE_TIMEOUT}"
+    end
+  end
+
+  def be_silent
+    SilentExpectation.new
   end
 end

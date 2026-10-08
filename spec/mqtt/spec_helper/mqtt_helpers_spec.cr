@@ -5,6 +5,12 @@ require "../../spec_helper"
 module MqttHelpers
   GENERATOR = (0u16..).each
 
+  # Durable acks wait for fsyncs, which take hundreds of ms on a loaded disk,
+  # so a packet that should come gets long. Proving that nothing comes costs
+  # the whole wait, so `be_silent` uses a short one.
+  PACKET_TIMEOUT  = 5.seconds
+  SILENCE_TIMEOUT = 300.milliseconds
+
   def next_packet_id
     GENERATOR.next.as(UInt16)
   end
@@ -26,7 +32,7 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = false
     socket.buffer_size = 16384
-    socket.read_timeout = 300.milliseconds
+    socket.read_timeout = PACKET_TIMEOUT
     socket
   end
 
@@ -76,7 +82,7 @@ module MqttHelpers
       password:      "guest".to_slice,
       will:          nil,
     }.merge(args)).to_io(io)
-    MQTT::Protocol::Packet.from_io(io) if expect_response
+    read_packet(io) if expect_response
   end
 
   def disconnect(io)
@@ -174,10 +180,12 @@ module MqttHelpers
     end
   end
 
-  def read_packet(io)
+  # Fails rather than returning nil, so `io.should be_silent` can
+  # never pass: assert that nothing arrives with `be_silent`.
+  def read_packet(io) : MQTT::Protocol::Packet
     MQTT::Protocol::Packet.from_io(io)
   rescue IO::TimeoutError
-    nil
+    fail "No packet within #{PACKET_TIMEOUT}"
   end
 
   # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
@@ -185,9 +193,6 @@ module MqttHelpers
   # instead of casting `read_packet` when comparing packet ids: `packet_id` is
   # nilable, so a pair of nils would otherwise satisfy an equality assertion.
   def read_publish(io) : MQTT::Protocol::Publish
-    # `should be_a` rather than `as`: on a read timeout `read_packet` returns nil,
-    # and a cast would report "cast from Nil" instead of naming the PUBLISH that
-    # never arrived.
     pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
     if pub.qos.positive?
       pub.packet_id.should_not be_nil

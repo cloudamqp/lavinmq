@@ -35,7 +35,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
             ping(io)
             read_packet(io).should be_a(MQTT::Protocol::PingResp)
-            read_packet(io).should be_nil # no PUBACK while the drain is held
+            io.should be_silent # no PUBACK while the drain is held
             release_drain(gate)
             read_packet(io).should be_a(MQTT::Protocol::PubAck)
           end
@@ -152,7 +152,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, expect_response: false)
             ping(io)
             read_packet(io).should be_a(MQTT::Protocol::PingResp)
-            read_packet(io).should be_nil # no PUBREC while the drain is held
+            io.should be_silent # no PUBREC while the drain is held
             release_drain(gate)
             read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 1u16
           end
@@ -169,7 +169,7 @@ module MqttSpecs
             pubrel(io, 1u16)
             ping(io)
             read_packet(io).should be_a(MQTT::Protocol::PingResp)
-            read_packet(io).should be_nil # no PUBCOMP while the drain is held
+            io.should be_silent # no PUBCOMP while the drain is held
             release_drain(gate)
             read_packet(io).as(MQTT::Protocol::PubComp).packet_id.should eq 1u16
           end
@@ -186,7 +186,7 @@ module MqttSpecs
             pubrec(sub_io, pub.packet_id.as(UInt16))
             ping(sub_io)
             read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
-            read_packet(sub_io).should be_nil
+            sub_io.should be_silent
             release_drain(gate)
             read_packet(sub_io).as(MQTT::Protocol::PubRel).packet_id.should eq pub.packet_id
           end
@@ -202,7 +202,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, expect_response: false)
             publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, dup: true, expect_response: false)
             pingpong(io)
-            read_packet(io).should be_nil
+            io.should be_silent
             release_drain(gate)
             2.times { read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 1u16 }
           end
