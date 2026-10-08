@@ -5,6 +5,7 @@ let state = 'live'
 let lastSuccessAt = null
 let failingSince = null
 let lastError = null
+let successWaiting = false
 
 function update (next) {
   state = next
@@ -12,6 +13,11 @@ function update (next) {
 }
 
 function recordSuccess () {
+  if (Poller.isStalled()) {
+    successWaiting = true
+    return
+  }
+  successWaiting = false
   lastSuccessAt = new Date()
   failingSince = null
   lastError = null
@@ -19,6 +25,7 @@ function recordSuccess () {
 }
 
 function recordFailure (reason) {
+  successWaiting = false
   const now = Date.now()
   failingSince ??= now
   lastError = reason
@@ -30,6 +37,10 @@ function getState () {
 }
 
 window.addEventListener('offline', () => recordFailure('Browser is offline'))
+
+Poller.events.addEventListener('settled', () => {
+  if (successWaiting && !Poller.isStalled()) recordSuccess()
+})
 
 Poller.events.addEventListener('stalled', event => {
   recordFailure(`No response for ${Math.round(event.detail / 1000)}s`)

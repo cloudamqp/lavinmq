@@ -20,7 +20,10 @@ function run (fn) {
   Promise.resolve()
     .then(fn)
     .catch(console.error)
-    .finally(() => inFlight.delete(fn))
+    .finally(() => {
+      inFlight.delete(fn)
+      events.dispatchEvent(new Event('settled'))
+    })
 }
 
 function schedule (delay = rate) {
@@ -32,11 +35,17 @@ function schedule (delay = rate) {
   events.dispatchEvent(new window.CustomEvent('schedule', { detail: timer === null ? null : { rate, delay } }))
 }
 
+function pendingFor () {
+  return inFlight.size === 0 ? 0 : Date.now() - Math.min(...inFlight.values())
+}
+
+function isStalled () {
+  return pendingFor() >= rate
+}
+
 function reportStalled () {
-  const oldest = Math.min(...inFlight.values())
-  const pending = Date.now() - oldest
-  if (pending >= rate) {
-    events.dispatchEvent(new window.CustomEvent('stalled', { detail: pending }))
+  if (isStalled()) {
+    events.dispatchEvent(new window.CustomEvent('stalled', { detail: pendingFor() }))
   }
 }
 
@@ -104,4 +113,4 @@ document.addEventListener('visibilitychange', () => {
   else tick()
 })
 
-export { RATES, start, isActive, isPaused, pause, resume, getRate, setRate, events }
+export { RATES, start, isActive, isStalled, isPaused, pause, resume, getRate, setRate, events }
