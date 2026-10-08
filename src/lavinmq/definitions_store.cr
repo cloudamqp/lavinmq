@@ -75,8 +75,9 @@ module LavinMQ
       @exchanges.each_value { |v| yield v }
     end
 
+    # Sorted by name, like RabbitMQ lists them (the map itself is unordered)
     def exchanges : Array(Exchange)
-      @exchanges.values
+      @exchanges.values.sort_by!(&.name)
     end
 
     def exchanges_size : Int32
@@ -116,7 +117,7 @@ module LavinMQ
     end
 
     def queues : Array(AMQP::Queue)
-      @queues.values
+      @queues.values.sort_by!(&.name)
     end
 
     def queues_size : Int32
@@ -157,7 +158,7 @@ module LavinMQ
     end
 
     def sessions : Array(MQTT::Session)
-      @sessions.values
+      @sessions.values.sort_by!(&.name)
     end
 
     def sessions_size : Int32
