@@ -172,7 +172,6 @@ module LavinMQ
         socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def read_loop
         received_bytes = 0_u32
         apply_keepalive_timeout
@@ -202,9 +201,6 @@ module LavinMQ
         # error as one of those situations.
         @log.warn { "Protocol violation, disconnecting client: #{ex.message}" }
         disconnect(ex.reason)
-        publish_will
-      rescue ex : Session::AwaitingPubrelLimitReached
-        @log.warn { "Closing connection: #{ex.message}" }
         publish_will
       rescue ex : Protocol::Error::ProtocolError
         # The shard raises this (with a reason byte) for codec-level protocol

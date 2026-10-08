@@ -121,6 +121,9 @@ module LavinMQ
         props.subscription_identifier_available = false # subscription ids not implemented
         props.shared_subscription_available = false     # shared subscriptions not implemented
         props.maximum_packet_size = @config.mqtt_max_packet_size
+        # The QoS 2 cap, so a conformant client never reaches it
+        # [MQTT-3.3.4-7]. It counts QoS 1 too, which we do not enforce.
+        props.receive_maximum = @config.max_awaiting_pubrel
         props
       end
 

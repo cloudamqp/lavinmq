@@ -77,9 +77,9 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 
 **Handled outside this PR**
 
-- [ ] **Q** our own Receive Maximum (DISCONNECT `0x93`): goes with the QoS 2
-  durability branch, not #2185. Paho `test_flow_control2` times out until then.
-  `MQTT5-TODO.md` item Q.
+- [x] **Q** our own Receive Maximum: `max_awaiting_pubrel` is advertised, and
+  going over it is DISCONNECT `0x93`. Done in #2185 after #2367 added the cap.
+  Paho `test_flow_control2` to be re-checked on the next interop run.
 
 **Must fix, but not in this PR**
 

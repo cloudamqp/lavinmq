@@ -22,10 +22,6 @@ module LavinMQ
     class Session
       class ClosedError < MQTT::Error; end
 
-      # 3.1.1 has no way to refuse one publish, so going over the cap closes
-      # the connection; the client re-sends its PUBRELs on reconnect.
-      class AwaitingPubrelLimitReached < MQTT::Error; end
-
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
@@ -977,8 +973,12 @@ module LavinMQ
       # PUBLISH is a re-send of one already routed.
       def publish_received(packet_id : UInt16) : Bool
         return false if @awaiting_pubrel.includes?(packet_id)
+        # Advertised as Receive Maximum, so on v5 this is the client's error
+        # (3.3.4). 3.1.1 has no way to refuse one publish and no DISCONNECT, so
+        # the connection just closes; the client re-sends its PUBRELs on reconnect.
         if @awaiting_pubrel.size >= Config.instance.max_awaiting_pubrel
-          raise AwaitingPubrelLimitReached.new("Holding #{@awaiting_pubrel.size} QoS 2 packet ids, max_awaiting_pubrel is #{Config.instance.max_awaiting_pubrel}")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ReceiveMaximumExceeded,
+            "Holding #{@awaiting_pubrel.size} QoS 2 packet ids, max_awaiting_pubrel is #{Config.instance.max_awaiting_pubrel}")
         end
         @awaiting_pubrel.add(packet_id)
         true

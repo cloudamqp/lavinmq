@@ -231,6 +231,24 @@ module MqttSpecs
       LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
     end
 
+    it "disconnects a v5 publisher over the cap with Receive Maximum exceeded (0x93)" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 2u16
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "publisher", version: MQTT::Protocol::Version::V5)
+          2.times { |i| publish(io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16) }
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 3u16, expect_response: false)
+          pkt = read_packet(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ReceiveMaximumExceeded)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
+    end
+
     it "accepts a re-send of a held packet id at the cap" do
       LavinMQ::Config.instance.max_awaiting_pubrel = 1u16
       with_server do |server|
