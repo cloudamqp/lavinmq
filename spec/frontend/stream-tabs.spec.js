@@ -175,6 +175,49 @@ test.describe('stream tabs', _ => {
     await expect(badge(page, 'consumers')).toHaveText(consumerCount.toString())
   })
 
+  test('consumer count stays at the total while loading more and updates on refresh', async ({ page }) => {
+    let total = 35
+    const allConsumers = Array.from({ length: total }, (_, index) => ({
+      ...consumers[0], consumer_tag: `consumer_${index}`
+    }))
+    await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/${queueName}`, async route => {
+      const limit = Number(new URL(route.request().url()).searchParams.get('consumer_list_length'))
+      await route.fulfill({ json: {
+        ...queueResponse,
+        consumers: total,
+        consumer_details: allConsumers.slice(0, Math.min(limit, total))
+      } })
+    })
+    await page.goto(`/stream#${queueHash}&tab=consumers`)
+
+    const count = page.locator('#consumer-count')
+    const rows = page.locator('#table tbody tr:has(button)')
+    const loadMore = page.locator('#load-more-consumers')
+    await expect(rows).toHaveCount(20)
+    await expect(count).toHaveText('35')
+    await expect(badge(page, 'consumers')).toHaveText('35')
+    await expect(page.locator('#q-consumers')).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 20 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(30)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 30 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(35)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toBeHidden()
+
+    total = 0
+    await page.reload()
+    await expect(rows).toHaveCount(0)
+    await expect(count).toHaveText('0')
+    await expect(badge(page, 'consumers')).toHaveText('0')
+    await expect(page.locator('#q-consumers')).toHaveText('0')
+    await expect(loadMore).toBeHidden()
+  })
+
   test('the bindings tab badge mirrors the bindings count', async ({ page }) => {
     await expect(badge(page, 'bindings')).toHaveText(bindingResponse.items.length.toString())
   })
