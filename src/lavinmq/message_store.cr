@@ -208,6 +208,17 @@ module LavinMQ
       end
     end
 
+    # Like `#envelope`, taken under `lock`, and yielded outside the lock with
+    # its segment kept mapped until the block returns, see #shift_with_lease?
+    def envelope_with_lease(lock : Mutex, sp : SegmentPosition, redelivered = false, & : Envelope -> _) : Nil
+      env = lock.synchronize { envelope(sp, redelivered).lease }
+      begin
+        yield env
+      ensure
+        env.release
+      end
+    end
+
     # Like `#[]`, but the returned message owns all its memory: the record is
     # copied out of the segment's mmap, so the message stays valid after the
     # segment is deleted and unmapped. For messages that outlive the caller's
