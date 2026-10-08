@@ -6,6 +6,19 @@ class LavinMQ::AMQP::Channel
   end
 end
 
+# Records delivery tags in the order the client reads them off the socket
+# (consumer callbacks run in one fiber per consumer, so they can reorder)
+class AMQP::Client::Channel
+  property wire_tags : ::Channel(UInt64)? = nil
+
+  def incoming(frame)
+    if frame.is_a?(AMQ::Protocol::Frame::Basic::Deliver)
+      @wire_tags.try &.send(frame.delivery_tag)
+    end
+    previous_def
+  end
+end
+
 require "amqp-client"
 
 describe LavinMQ::AMQP::Channel do
@@ -71,6 +84,63 @@ describe "LavinMQ::AMQP::Channel delivery tags" do
         ensure
           # The unacks point to messages that don't exist, so don't let the
           # channel requeue them when it closes
+          server_ch.@unack_lock.synchronize { server_ch.@unacked.clear }
+        end
+      end
+    end
+  end
+end
+
+# A client may ack tag N with multiple=true as soon as it has seen N, so
+# tags must reach the socket in the order they are handed out, also when
+# consumers on different queues deliver from different threads.
+describe "LavinMQ::AMQP::Channel delivery tags on the wire" do
+  it "sends delivery tags in increasing order with parallel deliveries", tags: "slow" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        vhost = s.vhosts["/"]
+        tags = Channel(UInt64).new(100_000)
+        ch.wire_tags = tags
+        names = {"wire-order-1", "wire-order-2", "wire-order-3", "wire-order-4"}
+        names.each do |name|
+          q = ch.queue(name)
+          q.subscribe(no_ack: false) { }
+          1000.times { vhost.publish(LavinMQ::Message.new("", name, "x")) }
+        end
+        server_ch = s.connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+        # The consumers' own deliver loops send these 4000 first
+        received = Array(UInt64).new(8000)
+        4000.times { received << tags.receive }
+
+        ctx = Fiber::ExecutionContext::Parallel.new("wire-order", 4)
+        wg = WaitGroup.new
+        names.each do |name|
+          q = vhost.queue(name)
+          consumer = server_ch.consumers.find!(&.queue.same?(q))
+          wg.add(1)
+          ctx.spawn do
+            1000.times { vhost.publish(LavinMQ::Message.new("", name, "x")) }
+            # Deliver from 4 threads at once, bypassing the deliver loops
+            while q.basic_get(no_ack: true) { |env| consumer.deliver(env.message, env.segment_position) }
+            end
+          ensure
+            wg.done
+          end
+        end
+        wg.wait
+        until received.size >= 8000
+          select
+          when tag = tags.receive
+            received << tag
+          when timeout(5.seconds)
+            break
+          end
+        end
+        received.each_cons_pair.count { |a, b| a >= b }.should eq 0
+      ensure
+        # The extra deliveries took their messages with basic_get, so don't
+        # let the channel requeue them when it closes
+        if server_ch
           server_ch.@unack_lock.synchronize { server_ch.@unacked.clear }
         end
       end
