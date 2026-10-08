@@ -70,4 +70,56 @@ describe "Alternate Exchange" do
       end
     end
   end
+
+  it "doesn't use the alternate exchange when an exchange binding matched but routed nowhere" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.exchange("ae", "fanout")
+        ae_q = ch.queue("ae-q")
+        ae_q.bind("ae", "")
+        args = AMQP::Client::Arguments.new
+        args["alternate-exchange"] = "ae"
+        x = ch.exchange("x", "direct", args: args)
+        ch.exchange("empty", "fanout")
+        ch.exchange_bind("x", "empty", "rk")
+
+        x.publish("m1", "rk")
+        ae_q.get(no_ack: true).should be_nil
+        # A routing key without a matching binding still uses the AE
+        x.publish("m2", "other")
+        ae_q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m2"
+      end
+    end
+  end
+
+  it "decides on the alternate exchange from the routing key and CC keys together" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.exchange("ae", "fanout")
+        ae_q = ch.queue("ae-q")
+        ae_q.bind("ae", "")
+        args = AMQP::Client::Arguments.new
+        args["alternate-exchange"] = "ae"
+        x = ch.exchange("x", "direct", args: args)
+        q = ch.queue("q")
+        q.bind("x", "rk")
+
+        # The routing key matches, a CC key doesn't
+        x.publish("m1", "rk", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["none"]})))
+        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+        ae_q.get(no_ack: true).should be_nil
+
+        # Only a CC key matches
+        x.publish("m2", "none", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["rk"]})))
+        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m2"
+        ae_q.get(no_ack: true).should be_nil
+
+        # Nothing matches
+        x.publish("m3", "none", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["none2"]})))
+        q.get(no_ack: true).should be_nil
+        ae_q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m3"
+        ae_q.get(no_ack: true).should be_nil
+      end
+    end
+  end
 end

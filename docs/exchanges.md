@@ -79,6 +79,8 @@ Cannot be deleted, and cannot be explicitly bound to.
 
 An alternate exchange receives messages that would otherwise be unroutable (no matching bindings on the primary exchange).
 
+A binding to another exchange counts as a match even if that exchange routes the message nowhere, and so do bindings that match a `CC` or `BCC` key. Each exchange decides on its own: an exchange reached through an exchange-to-exchange binding uses its own alternate exchange when none of its bindings match, even if other exchanges routed the message to queues.
+
 Set via the `x-alternate-exchange` argument (or `alternate-exchange`) when declaring the exchange, or via the `alternate-exchange` policy.
 
 If the alternate exchange also cannot route the message, the message is discarded (or returned to the publisher if the mandatory flag was set on the publish).
