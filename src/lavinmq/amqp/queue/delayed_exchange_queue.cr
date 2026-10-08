@@ -101,16 +101,10 @@ module LavinMQ::AMQP
     end
 
     def expire_messages
-      @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
-          end
-        end
+      # The messages are routed after the lock is released, see Queue#drop_messages
+      drop_messages(:expired) do
+        env = delayed_msg_store.first_delayed? || next
+        delayed_msg_store.shift_delayed? if has_expired?(env)
       end
     end
 
@@ -130,10 +124,14 @@ module LavinMQ::AMQP
     end
 
     # Overload to not ruin DLX header
-    private def expire_msg(env : Envelope, reason : Symbol)
-      sp = env.segment_position
-      msg = env.message
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
+      # Routed without @msg_store_lock held, so route a copy, see Queue#expire_msg
+      msg = begin
+        @msg_store_lock.synchronize { @msg_store.copy(sp) }
+      rescue KeyError | MessageStore::ClosedError
+        return
+      end
       if headers = msg.properties.headers
         headers.delete("x-delay")
         msg.properties.headers = headers
