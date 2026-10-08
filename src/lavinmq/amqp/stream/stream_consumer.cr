@@ -76,7 +76,7 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          stream_queue.consume_get(self) do |env|
+          stream_queue.consume_get(self.cursor) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.segment_position.bytesize
           end
