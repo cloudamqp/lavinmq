@@ -193,8 +193,8 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
-    def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      get(consumer) do |env|
+    def consume_get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      get(cursor) do |env|
         yield env
         if env.redelivered
           @redeliver_count.add(1, :relaxed)
@@ -214,11 +214,11 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
+    private def get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
-      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer.cursor) do |env|
+      stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) do |env|
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
