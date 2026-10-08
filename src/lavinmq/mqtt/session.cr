@@ -1,6 +1,7 @@
 require "../filesystem"
 require "digest/sha1"
 require "./protocol"
+require "./publish_headers"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
@@ -14,20 +15,12 @@ require "./permission_service"
 require "./session_message_store"
 require "./packet_id_log"
 require "../persister"
+require "./pending_will"
 
 module LavinMQ
   module MQTT
     class Session
       class ClosedError < MQTT::Error; end
-
-      # A known packet id acknowledged with the wrong packet type. The client
-      # must be disconnected [MQTT-4.8.0-1]; an unknown id is not this, because
-      # QoS 1 ids, and a clean session's, do not survive a restart.
-      class ProtocolViolation < MQTT::Error; end
-
-      # 3.1.1 has no way to refuse one publish, so going over the cap closes
-      # the connection; the client re-sends its PUBRELs on reconnect.
-      class AwaitingPubrelLimitReached < MQTT::Error; end
 
       include SortableJSON
       include PolicyTarget
@@ -35,8 +28,18 @@ module LavinMQ
       include Persister::ConfirmTarget
       Log = ::LavinMQ::Log.for "mqtt.session"
 
-      ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
-      EFFECTIVE_ARGS = {"x-queue-type"}
+      ARGUMENTS = AMQP::Table.new({"x-queue-type" => "mqtt"})
+      # The arguments a session actually acts on, reported as `effective_arguments`
+      # over the HTTP API. Both are honoured whether declared by a client or read
+      # back from the definitions file.
+      EFFECTIVE_ARGS = {"x-queue-type", SESSION_EXPIRY_ARG}
+
+      # Per-instance, not the ARGUMENTS constant: definitions_store persists a
+      # session as a Queue::Declare frame carrying this table, so it is the only
+      # place session state can survive a restart. Never mutated, so sharing the
+      # constant as the default is safe - but it MUST keep x-queue-type, or
+      # QueueFactory rebuilds the session as a plain AMQP queue on the next boot.
+      @arguments : AMQP::Table
 
       # A packet id handed to the client and not completely acknowledged
       # [MQTT-4.3.2-3] [MQTT-4.3.3-3]. `sp` is nil only when awaiting PUBCOMP:
@@ -63,7 +66,16 @@ module LavinMQ
       getter vhost : VHost
       getter? internal = false
       getter? deleted = false
-      getter? auto_delete
+
+      # Seconds the session outlives its connection (§3.1.2.11.2). 0 means it
+      # ends when the connection closes, UInt32::MAX means it never expires.
+      # Single source for auto_delete? and the expiry clock.
+      getter session_expiry_interval : UInt32
+
+      # Derived from the interval once, at construction: it selects the data dir,
+      # the replicator and the message store's durability, none of which can be
+      # re-derived once that store exists.
+      @durable : Bool
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
@@ -84,9 +96,20 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
+      # Set by `arm_will`, published by this session's fiber (§3.1.3.2.2).
+      getter pending_will : PendingWill? = nil
+      # A connection for this client id is registered but not attached yet
+      # (`Broker#add_client_locked`, then `Client#run`). Expiry waits for it:
+      # a session is only deleted under the client-id lock (rule 1 in broker.cr).
+      @resuming = BoolChannel.new(false)
+      # The expiry clock of the current offline window, fixed when it starts:
+      # neither a will firing mid-wait nor a resuming connection narrowing the
+      # interval before it attaches may move it.
+      @offline_since = Time.instant
+      @offline_ttl : UInt32
       # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
-      # one is answered again and not routed twice [MQTT-4.3.3-2].
+      # one is answered again and not routed twice [MQTT-4.3.3-10].
       @awaiting_pubrel = Set(UInt16).new
       # Durable sessions only: a clean session's state ends with its
       # connection [MQTT-3.1.2-6].
@@ -106,8 +129,12 @@ module LavinMQ
 
       protected def initialize(@vhost : VHost,
                                @name : String,
-                               @auto_delete = false,
-                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                               auto_delete = false,
+                               arguments : ::AMQ::Protocol::Table = ARGUMENTS)
+        @arguments = arguments
+        @session_expiry_interval = self.class.expiry_from(@name, arguments, auto_delete)
+        @offline_ttl = @session_expiry_interval
+        @durable = !@session_expiry_interval.zero?
         @last_packet_id = 0u16
         @client_id = @name.lchop(SESSION_PREFIX)
         @permission_service = @vhost.mqtt_permission_service
@@ -171,13 +198,35 @@ module LavinMQ
       end
 
       def arguments : AMQP::Table
-        ARGUMENTS
+        @arguments
+      end
+
+      # The argument wins when usable. Bounds-checked rather than cast, and warned
+      # about rather than swallowed, because an AMQP client can declare mqtt.<id>
+      # by hand with any int type in there - or something that is not an int.
+      #
+      # Without a usable one, fall back to what the declare flag meant before
+      # Session Expiry Interval existed - auto_delete was clean_session, so a
+      # durable session meant "keep forever". That covers both a definitions file
+      # written by an older LavinMQ and a caller declaring a session directly.
+      protected def self.expiry_from(name : String,
+                                     arguments : ::AMQ::Protocol::Table,
+                                     auto_delete : Bool) : UInt32
+        v = arguments[SESSION_EXPIRY_ARG]?
+        if v.is_a?(Int)
+          return v.to_u32 if v >= 0 && v <= UInt32::MAX
+          Log.warn { "#{name}: ignoring out-of-range #{SESSION_EXPIRY_ARG}=#{v}" }
+        elsif !v.nil?
+          Log.warn { "#{name}: ignoring non-integer #{SESSION_EXPIRY_ARG}=#{v.inspect}" }
+        end
+        auto_delete ? 0u32 : UInt32::MAX
       end
 
       def close : Bool
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
+        @resuming.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -219,8 +268,25 @@ module LavinMQ
         true
       end
 
-      def clean_session?
-        @auto_delete
+      def auto_delete? : Bool
+        @session_expiry_interval.zero?
+      end
+
+      # A reconnecting client may name a different interval, and so may its
+      # DISCONNECT (§3.14.2.2.2). @arguments carries it, but the definitions
+      # log has no update frame for an existing queue, so it only reaches disk at
+      # the next compaction.
+      #
+      # auto_delete? and the expiry clock follow this; durable? deliberately does
+      # not, so narrowing to 0 still writes a persisted deletion frame rather than
+      # leaving the original declare to replay.
+      def session_expiry_interval=(interval : UInt32) : Nil
+        return if interval == @session_expiry_interval
+        @session_expiry_interval = interval
+        # clone, never mutate: @arguments may be the shared ARGUMENTS constant.
+        args = @arguments.clone
+        args[SESSION_EXPIRY_ARG] = interval
+        @arguments = args
       end
 
       private def deliver_loop
@@ -229,9 +295,12 @@ module LavinMQ
           break if closed?
           # Above every `next`: `loop` is inlined, so a raise from a guard below
           # would leave the rescue holding the previous iteration's connection.
+          # Client before store: an offline session has to park on @has_client,
+          # both so the expiry clock runs and so it does not wake on a publish it
+          # cannot deliver.
           client = @client
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @has_client.when_true.receive? if client.nil?
+          next wait_for_client if client.nil?
+          next wait_for_messages if @msg_store.empty?
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
@@ -251,12 +320,16 @@ module LavinMQ
           client.try &.close("Server force closed client")
           self.client = nil if @client == client
         end
+        # Every delete, expiry included, ends the loop here. The session has
+        # ended, so a will still waiting out its delay is due [MQTT-3.1.2-8].
+        # A plain close (shutdown) drops it (§3.1.2.5).
+        publish_pending_will if @deleted
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@inflight` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-1]. Both fall back to a fresh id. The flag tells whether
+      # [MQTT-2.2.1-4]. Both fall back to a fresh id. The flag tells whether
       # the id is the original one.
       private def packet_id_for(sp : SegmentPosition) : {UInt16, Bool}?
         if id = @msg_store.original_packet_id?(sp)
@@ -272,7 +345,18 @@ module LavinMQ
       # because this runs per delivery and per ack, and `set` takes both channel
       # locks even when the value is unchanged.
       private def refresh_capacity : Nil
-        @has_capacity.swap(@inflight.size < Config.instance.max_inflight_messages)
+        @has_capacity.swap(@inflight.size < inflight_limit)
+      end
+
+      # The client's Receive Maximum caps unacknowledged QoS 1 and 2 PUBLISHes,
+      # counting a QoS 2 one until PUBCOMP [MQTT-3.3.4-9], which is exactly what
+      # `@inflight` holds. Our own limit still applies when it is lower.
+      private def inflight_limit : UInt16
+        limit = Config.instance.max_inflight_messages
+        if (receive_maximum = @client.try(&.receive_maximum)) && receive_maximum < limit
+          limit = receive_maximum
+        end
+        limit
       end
 
       # Whether `id` still names this exact delivery. Sending yields, so
@@ -281,13 +365,98 @@ module LavinMQ
         @inflight[id]?.try(&.sp) == sp
       end
 
+      # Parks until there is something to deliver. The detach arm matters: on its
+      # own, a park on @msg_store.empty never wakes when the client leaves, so the
+      # loop would never reach the top again to start the expiry clock.
+      private def wait_for_messages : Nil
+        select
+        when @msg_store.empty.when_false.receive?
+        when @has_client.when_false.receive?
+        end
+      end
+
+      # Parks until a client attaches, the session expires, or a pending will
+      # is due. This is the only place the expiry clock runs - exactly the
+      # window in which the session has no connection (§3.1.2.11.2). Measured
+      # from `@offline_since`, so re-entering the wait does not restart it.
+      private def wait_for_client : Nil
+        return wait_for_claim if @resuming.value
+        ttl = @offline_ttl
+        # 0 needs no timer: `Broker#remove_client` ends that session with its
+        # connection, under the client-id lock.
+        expires_at = @offline_since + ttl.seconds unless ttl.zero? || ttl == UInt32::MAX
+        deadline = expires_at
+        # A tie goes to expiry, which publishes the will on its way out.
+        if (will_at = @pending_will.try &.deadline) && (deadline.nil? || will_at < deadline)
+          deadline = will_at
+        end
+        if deadline.nil?
+          @has_client.when_true.receive?
+          return
+        end
+        select
+        when @has_client.when_true.receive?
+        when timeout({deadline - Time.instant, Time::Span.zero}.max)
+          deadline == expires_at ? expire : publish_pending_will
+        end
+      end
+
+      # Runs on the session's own fiber. `delete` closes @has_client and the
+      # message store, so deliver_loop's `break if closed?` exits on the next
+      # pass; the re-entrant q.delete from @vhost.delete_queue is a no-op via
+      # @deleted.
+      # Parks until the claiming connection attaches or goes away.
+      private def wait_for_claim : Nil
+        select
+        when @has_client.when_true.receive?
+        when @resuming.when_false.receive?
+        end
+      end
+
+      private def expire : Nil
+        # The timer can fire just before a reconnect claims the session, and
+        # this fiber only runs after that connection's CONNACK.
+        return if @resuming.value || @client
+        @log.info { "Session expired after #{@session_expiry_interval}s offline" }
+        delete
+      end
+
+      # The closing connection's delayed will. A deleted session has ended, so
+      # the will is due now [MQTT-3.1.2-8]: this fiber may already have exited.
+      def arm_will(will : PendingWill) : Nil
+        if @deleted
+          publish_will(will)
+        else
+          @pending_will = will
+        end
+      end
+
+      # A connection opened for this session: it cancels the will
+      # [MQTT-3.1.3-9] and holds off expiry until it attaches or goes away.
+      def resume : Nil
+        @pending_will = nil
+        @resuming.set(true)
+      end
+
+      private def publish_pending_will : Nil
+        will = @pending_will || return
+        @pending_will = nil
+        publish_will(will)
+      end
+
+      private def publish_will(will : PendingWill) : Nil
+        will.broker.publish(will.packet, @name)
+      rescue ex
+        @log.warn { "Failed to publish will: #{ex.message}" }
+      end
+
       def client : MQTT::Client?
         @client
       end
 
-      # A takeover's `Client#close` usually joins the old read fiber before the
-      # new `Client#run` reaches this, so a `puback`/`pubrec` is rarely in flight
-      # while `@inflight` is walked - but a second `close` returns without waiting, so it can be.
+      # Every caller runs after the previous connection's read fiber has exited
+      # (`Client#close` joins it on every call), so no `puback`/`pubrec` of that
+      # connection is in flight while `@inflight` is walked.
       def client=(client : MQTT::Client?)
         # A closed store can't be touched, but `delete` still has to know which
         # connection to close.
@@ -297,10 +466,10 @@ module LavinMQ
         # Ids past PUBREC, which owe a PUBREL rather than a message.
         awaiting_pubcomp = Array(UInt16).new
 
-        # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
-        # persistent one requeues what it owes and remembers the packet ids, to
+        # Only a session with a non-zero expiry outlives its connection
+        # [MQTT-3.1.2-23]. It requeues what it owes and remembers the packet ids, to
         # resend under the ids the client already knows [MQTT-4.4.0-1].
-        unless clean_session?
+        if durable?
           @msg_store_lock.synchronize do
             @inflight.each do |packet_id, inflight|
               if sp = inflight.sp
@@ -324,7 +493,16 @@ module LavinMQ
 
         # Assigned before the writes below, which yield: `Session#publish`
         # drops a QoS 0 message while it is nil.
+        # A detach, or a claim that ends without attaching, starts the offline
+        # window with the interval of this moment: a DISCONNECT has applied its own.
+        if client.nil? && (@client || @resuming.value)
+          @offline_since = Time.instant
+          @offline_ttl = @session_expiry_interval
+        end
         @client = client
+        # After the assignment: the window depends on the client's Receive
+        # Maximum.
+        refresh_capacity
         unless client.nil? || awaiting_pubcomp.empty?
           # Queued, so each leaves once the delete at its PUBREC is durable;
           # `Client#run` attaches after CONNACK. [MQTT-4.4.0-1] does not order
@@ -332,6 +510,7 @@ module LavinMQ
           @log.info { "resending #{awaiting_pubcomp.size} PUBREL" }
           awaiting_pubcomp.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) }
         end
+        @resuming.set(false)
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
@@ -341,8 +520,8 @@ module LavinMQ
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
-      def durable?
-        !clean_session?
+      def durable? : Bool
+        @durable
       end
 
       # The .metadata file holds the last attached username, so a restored
@@ -367,18 +546,31 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+      # Returns whether this filter had no subscription before, so Retain
+      # Handling 1 replays the retain store only for a genuinely new
+      # subscription. Existence is by topic filter alone: [MQTT-3.8.4-3]
+      # replaces a subscription whose filter is identical, so a re-subscribe
+      # that changes the QoS or the options is a replacement, not a new one.
+      def subscribe(tf, options : SubscriptionOptions) : Bool
+        existing = find_binding(tf)
+        if existing
+          # Compare the options, not the rendered tables: two tables per
+          # re-subscribe is pure waste, and this does not lean on Table#==.
+          return false if existing.binding_key.options == options
+          unbind(tf, existing.binding_key.arguments)
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.subscription_arguments(options))
+        existing.nil?
       end
 
-      def unsubscribe(tf)
+      # Returns whether a matching subscription existed, so the v5 UNSUBACK can
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3-2].
+      def unsubscribe(tf) : Bool
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
+          true
+        else
+          false
         end
       end
 
@@ -403,8 +595,18 @@ module LavinMQ
         @vhost.queue_bindings(self)
       end
 
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
+      # The type check is load-bearing: `queue_bindings` prepends a synthetic
+      # default-exchange binding whose routing key is the queue's own name, so
+      # matching on routing key alone makes a subscription to the literal filter
+      # `mqtt.<own client id>` find that instead of its own binding. Only
+      # `MQTT::Exchange` produces `SubscriptionDetails`, and there is one of
+      # those, so this is exact - and it narrows the union enough for `options`.
+      private def find_binding(rk) : SubscriptionDetails?
+        bindings.each do |b|
+          next unless b.is_a?(SubscriptionDetails)
+          return b if b.binding_key.routing_key == rk
+        end
+        nil
       end
 
       private def unbind(rk, arguments)
@@ -418,16 +620,23 @@ module LavinMQ
           # delete of the session can unmap while the send is suspended
           @msg_store.shift_with_lease?(@msg_store_lock) do |env|
             sp = env.segment_position
+            if expired_undelivered?(env)
+              delete_message(sp)
+              next
+            end
             # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
             # id would leak the slot. Nothing produces a nil today.
             delivery_mode = env.message.properties.delivery_mode
-            if delivery_mode.nil? || delivery_mode.zero?
-              deliver_no_ack(env, sp) { |packet, bytesize| yield packet, bytesize }
-            else
-              delivered = deliver_acked(env, sp) { |packet, bytesize| yield packet, bytesize }
-              return false unless delivered
+            result = if delivery_mode.nil? || delivery_mode.zero?
+                       deliver_no_ack(env, sp) { |packet, bytesize| yield packet, bytesize }
+                     else
+                       deliver_acked(env, sp) { |packet, bytesize| yield packet, bytesize }
+                     end
+            case result
+            in .sent?         then return true
+            in .discarded?    then next # ends the block, the loop shifts again
+            in .no_packet_id? then return false
             end
-            return true
           end || break
         end
         false
@@ -437,9 +646,21 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
-      private def deliver_no_ack(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Nil
+      private enum Delivery
+        Sent
+        # Over the client's Maximum Packet Size, and dropped unsent.
+        Discarded
+        NoPacketId
+      end
+
+      private def deliver_no_ack(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Delivery
         begin
-          yield build_packet(env, nil), sp.bytesize
+          packet = build_packet(env, nil)
+          if exceeds_max_packet_size?(packet)
+            delete_message(sp)
+            return Delivery::Discarded
+          end
+          yield packet, sp.bytesize
           if env.redelivered
             @redeliver_count.add(1, :relaxed)
           else
@@ -451,11 +672,12 @@ module LavinMQ
           raise ex
         end
         delete_message(sp)
+        Delivery::Sent
       end
 
-      # False when no packet id was available, which leaves the message
-      # requeued for the next attempt.
-      private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Bool
+      # `NoPacketId` leaves the message requeued for the next attempt.
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Delivery
         id, original = packet_id_for(sp) || begin
           @msg_store_lock.synchronize { @msg_store.requeue(sp) }
           # Without this the deliver_loop spins: the store is non-empty and
@@ -463,7 +685,7 @@ module LavinMQ
           # outright, since an ack can free a slot while the requeue above
           # waits on a contended @msg_store_lock.
           refresh_capacity
-          return false
+          return Delivery::NoPacketId
         end
         # Raises before anything is booked, which the rescue below would not
         # roll back. Unreachable today, but being wrong loses the message.
@@ -473,6 +695,12 @@ module LavinMQ
           @msg_store_lock.synchronize { @msg_store.requeue(sp) }
           raise ex
         end
+        if exceeds_max_packet_size?(packet)
+          # Discard without sending and complete the delivery: the id is never
+          # booked, so it is not redelivered [MQTT-3.1.2-25].
+          delete_message(sp)
+          return Delivery::Discarded
+        end
         begin
           # Booked before the send, which yields: the client can acknowledge
           # before we return, and an acknowledgement finding no entry is either
@@ -481,7 +709,7 @@ module LavinMQ
           @unacked_count.add(1, :relaxed)
           @unacked_bytesize.add(sp.bytesize, :relaxed)
           if packet.qos == 2u8 && !original && @packet_id_log
-            return true unless publish_sent_durable?(id, sp)
+            return Delivery::Sent unless publish_sent_durable?(id, sp)
           end
           yield packet, sp.bytesize
           if env.redelivered
@@ -507,6 +735,15 @@ module LavinMQ
           end
           raise ex
         end
+        Delivery::Sent
+      end
+
+      # A v5 client's Maximum Packet Size caps the packets we may send it
+      # [MQTT-3.1.2-24]. Only v5 clients set it, so size against v5 framing.
+      private def exceeds_max_packet_size?(packet : Protocol::Publish) : Bool
+        max = @client.try(&.max_packet_size) || return false
+        return false unless packet.bytesize(Protocol::Version::V5) > max
+        @log.debug { "Dropping PUBLISH exceeding client Maximum Packet Size (#{max} bytes)" }
         true
       end
 
@@ -559,23 +796,48 @@ module LavinMQ
         refresh_capacity
       end
 
+      # [MQTT-3.3.2-5] deletes an expired message only while onward delivery has
+      # not started. A remembered packet id means it was sent before and requeued
+      # on reattach, so [MQTT-4.4.0-1] still owes it. Not `env.redelivered`: a
+      # message requeued for want of a packet id was never sent.
+      private def expired_undelivered?(env) : Bool
+        msg = env.message
+        return false unless PublishHeaders.expired?(msg.properties.headers, msg.timestamp)
+        return false unless (@msg_store.original_packet_id?(env.segment_position) || 0u16).zero?
+        @log.debug { "Dropping message past its Message Expiry Interval" }
+        true
+      end
+
       # A message loaded from disk is not `redelivered`, so a re-send under the
       # original id is marked by `dup` [MQTT-3.3.1-1].
       def build_packet(env, packet_id, dup = false) : Protocol::Publish
         msg = env.message
-        retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
-        qos = msg.properties.delivery_mode || 0u8
+        retained = msg.properties.try &.headers.try &.[RETAIN_HEADER]? == true
         # `delivery_mode` is read off disk unvalidated and `Publish.new` raises
         # above QoS 2, which would make one bad byte a poison message.
-        qos = 2u8 if qos > 2
+        qos = MQTT.granted_qos(msg.properties.delivery_mode)
         dup = qos.zero? ? false : (dup || env.redelivered)
+        # IO::Framing::V3#write_properties discards these, so a v3 subscriber
+        # should not pay six Table#fetch linear scans per delivery to build them.
+        properties = if @client.try(&.version.v5?)
+                       PublishHeaders.restore(msg.properties.headers)
+                     else
+                       Protocol::PublishProperties.new
+                     end
+        if interval = properties.message_expiry_interval
+          # Less the time spent here [MQTT-3.3.2-6]. 0 for an expired message
+          # we still owe, and never above the original if the clock went back.
+          remaining = interval.to_i64 - (RoughTime.unix_ms - msg.timestamp) // 1000
+          properties.message_expiry_interval = remaining.clamp(0_i64, interval.to_i64).to_u32
+        end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
           qos: qos,
           retain: retained,
-          topic: msg.routing_key
+          topic: msg.routing_key,
+          properties: properties
         )
       end
 
@@ -605,11 +867,11 @@ module LavinMQ
         inflight = @inflight[id]?
         raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
         sp = inflight.sp
-        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for
+        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-3], so a PUBACK for
         # one is a protocol violation. Checked before the delete, so it cannot
         # drop an obligation the session still owes.
         unless inflight.awaiting.pub_ack? && sp
-          raise ProtocolViolation.new("PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
         end
         @inflight.delete(id)
         begin
@@ -624,7 +886,7 @@ module LavinMQ
         end
       end
 
-      # The receiver owns the message from PUBREC on [MQTT-4.3.3-2], so it is
+      # The receiver owns the message from PUBREC on [MQTT-4.3.3-8], so it is
       # deleted here, not at PUBCOMP; the id stays booked until then.
       #
       # Returns rather than raises for an unknown id: a clean session's window
@@ -640,13 +902,18 @@ module LavinMQ
           # take that re-send for a new message.
           if id.zero? || @msg_store.original_packet_id_in_use?(id)
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
+          elsif packet.reason_code.value >= 0x80
+            # The client already ended this exchange, so nothing is owed
+            # [MQTT-4.3.3-4]. Only v5 PUBREC carries one.
+            @log.debug { "Refusing PUBREC for unknown packet id '#{id}'" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
             # Booked until PUBCOMP: the PUBREL waits for a drain, and a new
             # PUBLISH under this id before it would be released in its place.
             @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
             refresh_capacity
-            send_pubrel(id)
+            # v5 sees 0x92 (3.6.2.1); the shard drops the reason tail on v3.
+            send_pubrel(id, Protocol::PubRel::ReasonCode::PacketIdentifierNotFound)
           end
           return false
         end
@@ -657,20 +924,35 @@ module LavinMQ
           return false
         end
         unless inflight.awaiting.pub_rec?
-          raise ProtocolViolation.new("PUBREC for QoS #{inflight.qos} packet id '#{id}'")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBREC for QoS #{inflight.qos} packet id '#{id}'")
         end
         sp = inflight.sp.as(SegmentPosition)
+        # A reason code of 0x80 or above refuses the message, which ends the
+        # delivery like a PUBACK: the id is freed and no PUBREL follows
+        # [MQTT-4.3.3-4]. Only v5 PUBREC carries one.
+        refused = packet.reason_code.value >= 0x80
         # Before the send: a failed write still leaves the correct state, and
         # `client=` re-sends the PUBREL.
-        @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+        if refused
+          @inflight.delete(id)
+          # Ends the exchange, so the delete below is not a drop: no PUBREL is
+          # owed even if a re-send under the original id is still being written.
+          @msg_store.forget_original_packet_id(sp)
+        else
+          @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+        end
         @ack_count.add(1, :relaxed)
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         delete_message(sp)
-        @msg_store_lock.synchronize { @msg_store.mark_delete_dirty(sp) } if durable?
-        send_pubrel(id)
-        # No `refresh_capacity`: the id is still booked, so the window is
-        # unchanged.
+        if refused
+          refresh_capacity
+        else
+          @msg_store_lock.synchronize { @msg_store.mark_delete_dirty(sp) } if durable?
+          send_pubrel(id)
+          # No `refresh_capacity`: the id is still booked, so the window is
+          # unchanged.
+        end
         true
       end
 
@@ -681,7 +963,7 @@ module LavinMQ
           return false
         end
         unless inflight.awaiting.pub_comp?
-          raise ProtocolViolation.new("PUBCOMP for packet id '#{id}' that has not been PUBRECed")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBCOMP for packet id '#{id}' that has not been PUBRECed")
         end
         @inflight.delete(id)
         # No wait: a lost record costs one spare PUBREL, answered with PUBCOMP
@@ -696,8 +978,12 @@ module LavinMQ
       # PUBLISH is a re-send of one already routed.
       def publish_received(packet_id : UInt16) : Bool
         return false if @awaiting_pubrel.includes?(packet_id)
+        # Advertised as Receive Maximum, so on v5 this is the client's error
+        # (3.3.4). 3.1.1 has no way to refuse one publish and no DISCONNECT, so
+        # the connection just closes; the client re-sends its PUBRELs on reconnect.
         if @awaiting_pubrel.size >= Config.instance.max_awaiting_pubrel
-          raise AwaitingPubrelLimitReached.new("Holding #{@awaiting_pubrel.size} QoS 2 packet ids, max_awaiting_pubrel is #{Config.instance.max_awaiting_pubrel}")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ReceiveMaximumExceeded,
+            "Holding #{@awaiting_pubrel.size} QoS 2 packet ids, max_awaiting_pubrel is #{Config.instance.max_awaiting_pubrel}")
         end
         @awaiting_pubrel.add(packet_id)
         true
@@ -762,19 +1048,19 @@ module LavinMQ
 
       # Through the ack writer, after the PUBREC's delete is durable. With no
       # client the id stays booked, so the next attach re-sends [MQTT-4.4.0-1].
-      private def send_pubrel(id : UInt16) : Nil
-        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id)
+      private def send_pubrel(id : UInt16, reason = Protocol::PubRel::ReasonCode::Success) : Nil
+        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id, reason: reason.value)
       end
 
       private def next_packet_id : UInt16?
         # `>=` not `==`: the limit is mutable at runtime, so the window can
         # already be over it.
-        return if @inflight.size >= Config.instance.max_inflight_messages
+        return if @inflight.size >= inflight_limit
         start_id = @last_packet_id
         next_id : UInt16 = start_id &+ 1_u16
         # `@last_packet_id` at 65535 wraps this to 0, which the loop below never
         # corrects because 0 is never booked. Packet id 0 is illegal
-        # [MQTT-2.3.1-1].
+        # [MQTT-2.2.1-4].
         next_id = 1u16 if next_id == 0
         # Skips ids owed to requeued messages too: taking one makes its
         # message fall back to a fresh id, while the client still holds the
@@ -849,7 +1135,7 @@ module LavinMQ
       end
 
       def match?(durable, exclusive, auto_delete, arguments) : Bool
-        durable? == durable && @auto_delete == auto_delete
+        durable? == durable && auto_delete? == auto_delete
       end
 
       def unacked_messages
@@ -870,7 +1156,7 @@ module LavinMQ
           name:                         @name,
           durable:                      durable?,
           exclusive:                    false,
-          auto_delete:                  @auto_delete,
+          auto_delete:                  auto_delete?,
           arguments:                    NamedTuple.new, # "empty" AMQP::Table
           consumers:                    consumer_count,
           vhost:                        @vhost.name,

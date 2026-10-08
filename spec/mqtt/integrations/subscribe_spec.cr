@@ -42,7 +42,7 @@ module MqttSpecs
 
           temp_io = IO::Memory.new
           topic_filters = mk_topic_filters({"a/b", 0})
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO.v3(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           subscribe_pkt = temp_io.to_slice
           # This will overwrite the protocol level byte
@@ -55,14 +55,14 @@ module MqttSpecs
       end
     end
 
-    it "must contain at least one topic filter [MQTT-3.8.3-3]" do
+    it "must contain at least one topic filter [MQTT-3.8.3-2]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
 
           topic_filters = mk_topic_filters({"a/b", 0})
           temp_io = IO::Memory.new
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO.v3(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           sub_pkt = temp_io.to_slice
           sub_pkt[1] = 2u8 # Override remaning length
@@ -74,14 +74,14 @@ module MqttSpecs
       end
     end
 
-    it "should not allow any payload reserved bits to be set [MQTT-3-8.3-4]" do
+    it "should not allow any payload reserved bits to be set [MQTT-3.8.3-4 v3.1.1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
 
           topic_filters = mk_topic_filters({"a/b", 0})
           temp_io = IO::Memory.new
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO.v3(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           sub_pkt = temp_io.to_slice
           sub_pkt[sub_pkt.size - 1] |= 0b1010_0100u8
@@ -103,7 +103,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos0
-          suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
+          suback.reason_codes.first.should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQos0)
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -118,7 +118,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
-          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos1])
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -132,7 +132,7 @@ module MqttSpecs
       end
     end
 
-    it "grants qos2 for a qos2 subscription" do
+    it "grants qos2 for a qos2 subscription [MQTT-3.8.4-7]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -142,11 +142,11 @@ module MqttSpecs
           suback = subscribe(io, topic_filters: topic_filters)
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
-          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS2])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos2])
 
           # Published at qos 2 from a second connection, so that the grant is
           # what decides the delivery qos rather than the publish capping it
-          # [MQTT-3.8.4-6], and so the publisher's PUBREC does not interleave
+          # [MQTT-3.8.4-8], and so the publisher's PUBREC does not interleave
           # with the delivery on this socket.
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
@@ -246,6 +246,60 @@ module MqttSpecs
         restart_server(server)
 
         server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+      end
+    end
+  end
+
+  describe "MQTT 5.0 subscribe" do
+    it "disconnects with ProtocolError (0x82) on Retain Handling 3 (§3.8.3.1)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+
+          # The shard cannot encode Retain Handling 3, so send raw bytes: packet
+          # id 1, empty properties, filter "a", options 0x30.
+          io.write_bytes_raw(Bytes[0x82, 0x07, 0x00, 0x01, 0x00, 0x00, 0x01, 0x61, 0x30])
+          io.flush
+
+          pkt = MQTT::Protocol::Packet.from_io(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+      end
+    end
+
+    it "closes rather than send a SUBACK over the client's Maximum Packet Size [MQTT-3.1.2-24]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          props.maximum_packet_size = 30u32
+          connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub",
+            properties: props).should be_a(MQTT::Protocol::Connack)
+          # One reason code per filter, so 30 filters make a 35-byte SUBACK.
+          filters = (1..30).map { |i| subtopic("t/#{i}", 0) }
+          subscribe(io, topic_filters: filters, packet_id: 1u16, expect_response: false)
+          io.should be_closed
+        end
+      end
+    end
+
+    it "grants a QoS 2 subscription as QoS 2" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+
+          # The SUBACK reports the granted maximum [MQTT-3.8.4-7].
+          tf = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 2u8)
+          MQTT::Protocol::Subscribe.new([tf], 1u16).to_io(io)
+          io.flush
+
+          suback = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::SubAck)
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos2])
+        end
       end
     end
   end

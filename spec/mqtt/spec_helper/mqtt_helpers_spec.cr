@@ -3,7 +3,7 @@ require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers
-  GENERATOR = (0u16..).each
+  GENERATOR = (1u16..).each
 
   def next_packet_id
     GENERATOR.next.as(UInt16)
@@ -56,25 +56,36 @@ module MqttHelpers
 
   def with_client_io(server)
     socket = with_client_socket(server)
-    MQTT::Protocol::IO.new(socket)
+    MQTT::Protocol::IO.v3(socket)
   end
 
-  def with_client_io(server, &)
+  # The IO pins its version, so a 3.1 (MQIsdp) client has to ask for one.
+  def with_client_io(server, version = MQTT::Protocol::Version::V3_1_1, &)
     with_client_socket(server) do |io|
-      with MqttHelpers yield MQTT::Protocol::IO.new(io)
+      with MqttHelpers yield MQTT::Protocol::IO.v3(io, version: version)
     end
   end
 
-  def connect(io, expect_response = true, **args)
-    MQTT::Protocol::Connect.new(**{
-      client_id:     "client_id",
-      clean_session: false,
-      keepalive:     30u16,
-      username:      "guest",
-      password:      "guest".to_slice,
-      will:          nil,
+  # Takes the v3 names for the two fields the shard renamed, so the specs read
+  # in the version most of them test. Defaults to 3.1.1, where the shard
+  # defaults to 5.0.
+  def connect(io, expect_response = true, *, client_id = "client_id",
+              clean_session = false, keepalive = 30u16, **args)
+    MQTT::Protocol::Connect.new(client_id, **{
+      clean_start: clean_session,
+      keep_alive:  keepalive,
+      username:    "guest",
+      password:    "guest".to_slice,
+      version:     MQTT::Protocol::Version::V3_1_1,
     }.merge(args)).to_io(io)
     MQTT::Protocol::Packet.from_io(io) if expect_response
+  end
+
+  # A v5 IO over `socket`, connected with the same arguments as `connect`.
+  def v5_connect(socket, **args)
+    io = MQTT::Protocol::IO.v5(socket)
+    connect(io, **{version: MQTT::Protocol::Version::V5}.merge(args))
+    io
   end
 
   def disconnect(io)
@@ -97,8 +108,10 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
 
-  def subtopic(topic : String, qos = 0)
-    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8)
+  def subtopic(topic : String, qos = 0, no_local = false, retain_as_published = false,
+               retain_handling : MQTT::Protocol::Subscribe::RetainHandling = :send_on_subscribe)
+    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8,
+      no_local, retain_as_published, retain_handling)
   end
 
   def publish_packet(**args) : MQTT::Protocol::Publish
@@ -150,9 +163,6 @@ module MqttHelpers
   end
 
   # The receiver half of the QoS 2 flow: PUBLISH, PUBREC, PUBREL, PUBCOMP.
-  #
-  # Takes an explicit `packet_id` rather than using `next_packet_id`, because
-  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.3.1-1].
   def publish_qos2(io, packet_id : UInt16, **args)
     publish(io, **{packet_id: packet_id, qos: 2u8}.merge(args))
     pubrel(io, packet_id)
@@ -179,7 +189,7 @@ module MqttHelpers
   end
 
   # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
-  # QoS needs one and none at QoS 0 [MQTT-2.3.1-1] [MQTT-2.3.1-5]. Use this
+  # QoS needs one and none at QoS 0 [MQTT-2.2.1-3] [MQTT-2.2.1-2]. Use this
   # instead of casting `read_packet` when comparing packet ids: `packet_id` is
   # nilable, so a pair of nils would otherwise satisfy an equality assertion.
   def read_publish(io) : MQTT::Protocol::Publish
@@ -189,7 +199,7 @@ module MqttHelpers
     pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
     if pub.qos.positive?
       pub.packet_id.should_not be_nil
-      # [MQTT-2.3.1-1]. Free teeth for every delivery spec in the suite.
+      # [MQTT-2.2.1-4]. Free teeth for every delivery spec in the suite.
       pub.packet_id.should_not eq 0u16
     else
       pub.packet_id.should be_nil

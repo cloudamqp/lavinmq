@@ -115,4 +115,65 @@ module MqttSpecs
       end
     end
   end
+
+  describe "MQTT 5.0 NotAuthorized reason codes" do
+    before_each do
+      LavinMQ::Config.instance.mqtt_permission_check_enabled = true
+    end
+
+    after_each do
+      LavinMQ::Config.instance.mqtt_permission_check_enabled = false
+    end
+
+    it "answers PUBACK NotAuthorized and keeps the connection open" do
+      with_server do |server|
+        server.users.create("no_write", "pass")
+        server.users.add_permission("no_write", "/", /.*/, /.*/, /^$/)
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, username: "no_write", password: "pass".to_slice)
+          publish(io, false, topic: "test/topic", qos: 1u8, packet_id: 1u16)
+          io.flush
+          ack = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::PubAck)
+          ack.reason_code.should eq MQTT::Protocol::PubAck::ReasonCode::NotAuthorized
+          # 3.3.4 lets us refuse a single PUBLISH without tearing down the session
+          pingpong(io)
+        end
+      end
+    end
+
+    it "answers DISCONNECT NotAuthorized for a QoS 0 publish, which has no ack" do
+      with_server do |server|
+        server.users.create("no_write", "pass")
+        server.users.add_permission("no_write", "/", /.*/, /.*/, /^$/)
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, username: "no_write", password: "pass".to_slice)
+          publish(io, false, topic: "test/topic", qos: 0u8)
+          io.flush
+          disc = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::Disconnect)
+          disc.reason_code.should eq MQTT::Protocol::Disconnect::ReasonCode::NotAuthorized
+        end
+      end
+    end
+
+    it "answers SUBACK NotAuthorized per topic filter" do
+      with_server do |server|
+        server.users.create("no_read", "pass")
+        server.users.add_permission("no_read", "/", /.*/, /^$/, /^$/)
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, username: "no_read", password: "pass".to_slice)
+          subscribe(io, false, topic_filters: [subtopic("a/b", 0), subtopic("c/d", 1)], packet_id: 1u16)
+          io.flush
+          suback = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::SubAck)
+          suback.packet_id.should eq 1u16
+          suback.reason_codes.should eq [
+            MQTT::Protocol::SubAck::ReasonCode::NotAuthorized,
+            MQTT::Protocol::SubAck::ReasonCode::NotAuthorized,
+          ]
+        end
+      end
+    end
+  end
 end

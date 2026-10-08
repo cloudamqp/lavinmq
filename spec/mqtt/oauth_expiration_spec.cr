@@ -10,7 +10,7 @@ module MqttSpecs
       with_server do |server|
         # Create a pipe pair to simulate the MQTT socket
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO.v3(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # Create OAuthUser with a very short-lived token
@@ -19,12 +19,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-expiry-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-expiry-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
@@ -43,7 +43,7 @@ module MqttSpecs
     it "does not disconnect client when token is still valid" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO.v3(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # Create OAuthUser with a long-lived token
@@ -52,12 +52,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-valid-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-valid-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
