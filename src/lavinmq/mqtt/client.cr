@@ -211,6 +211,7 @@ module LavinMQ
         publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
+        disconnect(Protocol::Disconnect::ReasonCode::MalformedPacket)
         publish_will
       rescue ex : ::IO::TimeoutError
         @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
