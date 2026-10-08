@@ -45,13 +45,15 @@ describe IO::BufferPool do
     stats[:allocated].should eq 2
   end
 
-  it "retires pools for other buffer sizes" do
+  it "keeps reusing buffers of pools for other buffer sizes" do
     old_pool = IO::BufferPool.for(1111)
     old_buf = old_pool.acquire
     new_pool = IO::BufferPool.for(2222)
+    new_pool.should_not be old_pool
+    # established connections still use the old pool, after a config reload
     old_pool.release(old_buf)
-    old_pool.stats[:available].should eq 0
-    old_pool.stats[:dropped].should eq 1
+    old_pool.acquire.should eq old_buf
+    old_pool.stats[:dropped].should eq 0
     new_buf = new_pool.acquire
     new_pool.release(new_buf)
     new_pool.stats[:available].should eq 1

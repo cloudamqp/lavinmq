@@ -25,9 +25,6 @@ class IO::BufferPool
 
   getter buffer_size : Int32
   getter id : Int32
-  # Set when another buffer size is in use (after a config reload), buffers
-  # are then left to the GC instead of cached
-  @retired = Atomic(Bool).new(false)
   # All threads' caches for this pool, for stats
   @caches = Array(Cache).new
   @caches_lock = Mutex.new(:unchecked)
@@ -48,9 +45,7 @@ class IO::BufferPool
   # Acquire a buffer from the current thread's cache, or allocate a new one
   def acquire : Pointer(UInt8)
     cache = thread_cache
-    if @retired.get(:relaxed)
-      cache.buffers.clear
-    elsif buffer = cache.buffers.pop?
+    if buffer = cache.buffers.pop?
       cache.reused += 1
       return buffer
     end
@@ -58,15 +53,12 @@ class IO::BufferPool
     GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
   end
 
-  # Return a buffer to the current thread's cache. If the cache is full, or
-  # the pool is retired, the buffer is left for the GC.
+  # Return a buffer to the current thread's cache. If the cache is full, the
+  # buffer is left for the GC.
   def release(buffer : Pointer(UInt8)) : Nil
     return if buffer.null?
     cache = thread_cache
-    if @retired.get(:relaxed)
-      cache.buffers.clear
-      cache.dropped += 1
-    elsif cache.buffers.size < MAX_PER_THREAD
+    if cache.buffers.size < MAX_PER_THREAD
       cache.buffers.push(buffer)
       cache.released += 1
     else
@@ -101,10 +93,6 @@ class IO::BufferPool
     @@thread_caches ||= caches
   end
 
-  protected def retired=(value : Bool)
-    @retired.set(value, :relaxed)
-  end
-
   def stats
     caches = @caches_lock.synchronize { @caches.dup }
     {
@@ -121,13 +109,12 @@ class IO::BufferPool
   @@pools = Hash(Int32, IO::BufferPool).new
   @@pools_lock = Mutex.new(:unchecked)
 
-  # Returns the pool for the given buffer size. Pools for other sizes are
-  # retired, their buffers left to the GC as they're released.
+  # Returns the pool for the given buffer size. Pools for other sizes (from
+  # before a config reload) keep serving the connections that use them, their
+  # caches are bounded by `MAX_PER_THREAD`.
   def self.for(buffer_size : Int32) : IO::BufferPool
     @@pools_lock.synchronize do
-      pool = @@pools[buffer_size] ||= IO::BufferPool.new(buffer_size)
-      @@pools.each { |size, p| p.retired = size != buffer_size }
-      pool
+      @@pools[buffer_size] ||= IO::BufferPool.new(buffer_size)
     end
   end
 
