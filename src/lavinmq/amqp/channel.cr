@@ -408,7 +408,7 @@ module LavinMQ
       # lock, see `Client#deliver`
       def deliver(msg, redelivered = false, flush = true, &) : Nil
         unless @running
-          yield # still take the tag, so the message is requeued on close
+          yield # requeues the message and raises ClosedError, see next_delivery_tag
           raise ClosedError.new("Channel is closed")
         end
         @client.deliver(msg, flush) { yield }
@@ -801,11 +801,22 @@ module LavinMQ
         @client.close_channel(self)
       end
 
+      # Raises ClosedError if the channel is closed. A delivery can wait for
+      # the client's write lock while the channel closes, and the close has
+      # then already requeued @unacked, so the message is requeued here
+      # instead (no_ack deliveries are requeued by the queue on the error).
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        return @delivery_tag.add(1, :relaxed) if no_ack
+        if no_ack
+          raise ClosedError.new("Channel is closed") unless @running
+          return @delivery_tag.add(1, :relaxed)
+        end
         # The tag is taken under the lock so that @unacked stays sorted by
         # tag, which acks rely on, even when deliveries run in parallel
         tag = @unack_lock.synchronize do
+          unless @running
+            queue.reject(sp, requeue: true)
+            raise ClosedError.new("Channel is closed")
+          end
           next_tag = @delivery_tag.add(1, :relaxed)
           @unacked.push Unack.new(next_tag, queue, sp, consumer, RoughTime.instant)
           next_tag

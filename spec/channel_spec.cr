@@ -104,6 +104,31 @@ describe "LavinMQ::AMQP::Channel delivery tags" do
   end
 end
 
+# A delivery can wait for the client's write lock while its channel closes.
+# The close has then already requeued the channel's unacked messages, so a
+# tag taken afterwards must requeue its message instead of tracking it.
+describe "LavinMQ::AMQP::Channel delivery after close" do
+  it "requeues the message instead of tracking it as unacked" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("closed-tag").publish "m"
+        server_ch = s.connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+        queue = s.vhosts["/"].queue("closed-tag").as(LavinMQ::AMQP::Queue)
+        should_eventually(be_true) { queue.message_count == 1 }
+        sp = nil
+        queue.basic_get(false) { |env| sp = env.segment_position }.should be_true
+        queue.message_count.should eq 0
+        server_ch.close
+        expect_raises(LavinMQ::AMQP::Channel::ClosedError) do
+          server_ch.spec_next_delivery_tag(queue, sp.not_nil!, nil)
+        end
+        server_ch.@unacked.size.should eq 0
+        queue.message_count.should eq 1
+      end
+    end
+  end
+end
+
 # A client may ack tag N with multiple=true as soon as it has seen N, so
 # tags must reach the socket in the order they are handed out, also when
 # consumers on different queues deliver from different threads.
