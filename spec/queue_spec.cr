@@ -1249,4 +1249,101 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "Consumers concurrency" do
+    it "admits at most one exclusive consumer when added concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("exclusive-consumers", 4)
+          100.times do |i|
+            name = "exclusive-race-#{i}"
+            vhost.declare_queue(name, false, false)
+            q = vhost.queue(name)
+            consumers = Array.new(4) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, true, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+            end
+            added = Atomic(Int32).new(0)
+            wg = WaitGroup.new(consumers.size)
+            consumers.each do |c|
+              ctx.spawn do
+                added.add(1) if q.add_consumer(c)
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            added.get.should eq 1
+            q.consumers.size.should eq 1
+            vhost.delete_queue(name)
+          end
+        end
+      end
+    end
+
+    it "doesn't auto-delete a queue a consumer was concurrently added to", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("auto-delete-consumers", 4)
+          refused = 0
+          200.times do |i|
+            name = "auto-delete-race-#{i}"
+            vhost.declare_queue(name, false, true)
+            q = vhost.queue(name)
+            first, second = Array.new(2) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, false, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+            end
+            q.add_consumer(first)
+            ready = Atomic(Int32).new(0)
+            added = Atomic(Bool).new(false)
+            wg = WaitGroup.new(2)
+            ctx.spawn do
+              ready.add(1)
+              while ready.get < 2
+                Fiber.yield
+              end
+              q.rm_consumer(first)
+            ensure
+              wg.done
+            end
+            ctx.spawn do
+              ready.add(1)
+              while ready.get < 2
+                Fiber.yield
+              end
+              begin
+                q.add_consumer(second)
+                added.set(true)
+              rescue LavinMQ::AMQP::Queue::ClosedError
+                # the last consumer left first, the queue is being auto-deleted
+              end
+            ensure
+              wg.done
+            end
+            wg.wait
+            if added.get
+              # The consumer was accepted, so the queue must still be serving it
+              q.closed?.should be_false
+              vhost.queue?(name).should be q
+              q.consumers.should eq [second]
+              q.delete
+            else
+              refused += 1
+              should_eventually(be_nil) { vhost.queue?(name) }
+            end
+          end
+          refused.should be < 200
+        end
+      end
+    end
+  end
 end
