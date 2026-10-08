@@ -1065,6 +1065,29 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "doesn't read past count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          m1_pos = mfile.size
+          q.publish_confirm "m1"
+          # A read of m1 would close the stream
+          File.open(mfile.path, "r+") do |f|
+            f.seek(m1_pos)
+            f.write(Bytes.new(mfile.size - m1_pos, 0xff_u8))
+          end
+          2.times do |count|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": #{count}}))
+            response.status_code.should eq 200
+            JSON.parse(response.body).as_a.map(&.["payload"].as_s).should eq ["m0"].first(count)
+          end
+        end
+      end
+    end
+
     it "returns a JSON error when the stream closes during the read" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

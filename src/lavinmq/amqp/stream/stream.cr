@@ -94,8 +94,9 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
-    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil) : StreamCursor
-      @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter) }
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
+               stored_offset_tag : String? = nil) : StreamCursor
+      @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
     end
 
     # The deliver path shifts from the cursor's requeued messages under
@@ -103,11 +104,6 @@ module LavinMQ::AMQP
     # were no requeued messages before.
     def requeue(cursor : StreamCursor, sp : SegmentPosition) : Bool
       @msg_store_lock.synchronize { cursor.requeue(sp) }
-    end
-
-    # The offset stored for `consumer_tag` by automatic offset tracking
-    def stored_offset(consumer_tag : String) : Int64?
-      @msg_store_lock.synchronize { stream_msg_store.last_offset_by_consumer_tag(consumer_tag) }
     end
 
     private def message_expire_loop
@@ -174,16 +170,13 @@ module LavinMQ::AMQP
       false
     end
 
-    # Yields messages from `start` until the end of the stream
-    def each_from(start : StreamOffset::Any, & : Envelope -> _) : Nil
+    # Yields at most `limit` messages from `start` until the end of the stream
+    def each_from(start : StreamOffset::Any, limit : Int32 = Int32::MAX, & : Envelope -> _) : Nil
       cursor = self.cursor(start)
-      while stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) { |env| yield env }
+      limit.times do
+        break unless get(cursor) { |env| yield env }
         @deliver_get_count.add(1, :relaxed)
       end
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ClosedError.new(cause: ex)
     ensure
       @msg_store_lock.synchronize { cursor.close } if cursor
     end

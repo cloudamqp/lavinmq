@@ -70,8 +70,14 @@ module LavinMQ::AMQP
       end
     end
 
-    # A cursor at `start`, see StreamCursor
-    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil) : StreamCursor
+    # A cursor at `start`, or at the offset stored for `stored_offset_tag` if
+    # there is one, see StreamCursor
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
+               stored_offset_tag : String? = nil) : StreamCursor
+      raise ClosedError.new if @closed
+      if stored_offset_tag && (stored = last_offset_by_consumer_tag(stored_offset_tag))
+        start = StreamOffset::Absolute.new(stored)
+      end
       offset, segment, pos = find_offset(start)
       StreamCursor.new(self, offset, segment, pos, filter)
     end
@@ -149,8 +155,6 @@ module LavinMQ::AMQP
     end
 
     private def find_offset_from_end(count : Int64) : Tuple(Int64, UInt32, UInt32)
-      return last_offset_seg_pos if @size.zero?
-
       first_offset, _seg, _pos = offset_at(@segments.first_key, 4u32)
       target_offset = @last_offset - count + 1
       target_offset = first_offset if target_offset < first_offset

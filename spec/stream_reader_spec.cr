@@ -124,7 +124,7 @@ describe "LavinMQ::AMQP::Stream#each_from" do
         bodies = [] of String
         iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) do |env|
           store.@segment_readers.size.should eq 1
-          break if bodies.size == 2 # like the HTTP API, stop at the message after the last wanted
+          break if bodies.size == 2
           bodies << String.new(env.message.body)
         end
         bodies.should eq ["m0", "m1"]

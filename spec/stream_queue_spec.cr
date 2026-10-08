@@ -1053,6 +1053,18 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "raises ClosedError for a cursor from a stored offset on a closed store" do
+      with_datadir do |data_dir|
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.push(LavinMQ::Message.new("", "q", "m"))
+        msg_store.store_consumer_offset("tag", 1)
+        msg_store.close
+        expect_raises(LavinMQ::MessageStore::ClosedError) do
+          msg_store.cursor(LavinMQ::AMQP::StreamOffset::First.new, stored_offset_tag: "tag")
+        end
+      end
+    end
+
     it "appends consumer tag file" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]

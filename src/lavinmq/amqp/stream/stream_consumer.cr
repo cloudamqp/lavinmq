@@ -18,7 +18,9 @@ module LavinMQ
         start = StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?)
         @track_offset = track_offset?(frame, start)
         filter = ConsumerFilter.from_arguments(frame.arguments)
-        @cursor = stream_queue.cursor(resolve_start(start), filter)
+        # The stored offset wins when tracking offsets or when no offset is given
+        stored_offset_tag = @tag if @track_offset || start.nil?
+        @cursor = stream_queue.cursor(start || StreamOffset::Absolute.new(0), filter, stored_offset_tag)
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -48,15 +50,6 @@ module LavinMQ
         when String then tracking == "true"
         else             false
         end
-      end
-
-      # The stored offset wins when tracking offsets or when no offset is given
-      private def resolve_start(start : StreamOffset::Any?) : StreamOffset::Any
-        if @track_offset || start.nil?
-          stored = stream_queue.stored_offset(@tag)
-          return StreamOffset::Absolute.new(stored) if stored
-        end
-        start || StreamOffset::Absolute.new(0)
       end
 
       private def deliver_loop
