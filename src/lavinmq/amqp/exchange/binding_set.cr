@@ -1,5 +1,6 @@
 require "../../persistent_map"
 require "../binding_key"
+require "../destination"
 
 module LavinMQ
   module AMQP
@@ -17,7 +18,7 @@ module LavinMQ
       ARRAY_MAX = 64
 
       class Entry
-        getter destination : Queue | Exchange
+        getter destination : Destination
         getter binding_key : BindingKey
 
         def initialize(@destination, @binding_key)
@@ -34,16 +35,16 @@ module LavinMQ
       abstract def each(& : Entry ->) : Nil
 
       # Returns nil if the binding is already in the set
-      abstract def add(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet?
+      abstract def add(destination : Destination, binding_key : BindingKey) : BindingSet?
 
       # Returns self if the binding isn't in the set
-      abstract def delete(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet
+      abstract def delete(destination : Destination, binding_key : BindingKey) : BindingSet
 
       def empty? : Bool
         size == 0
       end
 
-      def each_destination(& : (Queue | Exchange) ->) : Nil
+      def each_destination(& : (Destination) ->) : Nil
         each { |e| yield e.destination }
       end
     end
@@ -60,7 +61,7 @@ module LavinMQ
         @entries.each { |e| yield e }
       end
 
-      def add(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet?
+      def add(destination : Destination, binding_key : BindingKey) : BindingSet?
         entry = Entry.new(destination, binding_key)
         return if @entries.includes?(entry)
         if @entries.size >= ARRAY_MAX
@@ -72,7 +73,7 @@ module LavinMQ
         ArrayBindingSet.new(entries)
       end
 
-      def delete(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet
+      def delete(destination : Destination, binding_key : BindingKey) : BindingSet
         entry = Entry.new(destination, binding_key)
         idx = @entries.index(entry) || return self
         entries = Slice(Entry).new(@entries.size - 1) { |i| i < idx ? @entries[i] : @entries[i + 1] }
@@ -92,13 +93,13 @@ module LavinMQ
         @map.each_key { |e| yield e }
       end
 
-      def add(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet?
+      def add(destination : Destination, binding_key : BindingKey) : BindingSet?
         entry = Entry.new(destination, binding_key)
         return if @map.has_key?(entry)
         MapBindingSet.new(@map.put(entry, entry))
       end
 
-      def delete(destination : Queue | Exchange, binding_key : BindingKey) : BindingSet
+      def delete(destination : Destination, binding_key : BindingKey) : BindingSet
         map = @map.delete(Entry.new(destination, binding_key))
         return self if map.same?(@map)
         # Back to an array once well below the limit, so that adding and
