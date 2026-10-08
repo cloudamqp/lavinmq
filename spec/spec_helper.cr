@@ -21,6 +21,7 @@ require "../src/lavinmq/amqp/server"
 require "../src/lavinmq/mqtt/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
+require "../src/lavinmq/launcher"
 require "http/client"
 require "amqp-client"
 require "./support/*"
@@ -42,6 +43,14 @@ init_config
 # Run the specs on several threads when CRYSTAL_WORKERS is set, to catch races
 if ENV.has_key?("CRYSTAL_WORKERS")
   Fiber::ExecutionContext.default.resize(Fiber::ExecutionContext.default_workers_count)
+end
+
+# Specs that start a Launcher use a fresh Config, whose `workers` is 1, and
+# would shrink the context back to one thread for the rest of the run
+class LavinMQ::Launcher
+  private def resize_default_execution_context
+    previous_def unless ENV.has_key?("CRYSTAL_WORKERS")
+  end
 end
 
 # Allow creating custom config objects for specs
