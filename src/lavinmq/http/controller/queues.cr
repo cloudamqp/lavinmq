@@ -182,10 +182,10 @@ module LavinMQ
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
-            get_count = int32_field(context, body, "count") || 1
+            get_count = int32_field?(context, body, "count") || 1
             ack_mode = (body["ack_mode"]? || body["ackmode"]?).try(&.as_s) || "get"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = int32_field(context, body, "truncate")
+            truncate = int32_field?(context, body, "truncate")
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
@@ -253,7 +253,7 @@ module LavinMQ
               forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)
-            count = int32_field(context, body, "count") || 1
+            count = int32_field?(context, body, "count") || 1
             count = 0 if count < 0
             offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
