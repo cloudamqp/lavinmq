@@ -60,6 +60,10 @@ module LavinMQ
         @channels.values
       end
 
+      def release_memory : Nil
+        each_channel &.release_memory
+      end
+
       def channel?(id : UInt16) : Client::Channel?
         @channels[id]?
       end
@@ -100,7 +104,51 @@ module LavinMQ
             send_connection_close(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
           end
         end
+        notify_flow
         read_loop
+      end
+
+      @flow_notify_lock = Mutex.new
+      @blocked_sent = false
+      # When connection.blocked was written to the socket, in nanoseconds since
+      # process start, or -1. Atomic so that the publish path never waits on
+      # the lock a notifier holds while writing to a slow socket.
+      @blocked_sent_at = Atomic(Int64).new(-1)
+
+      private def supports_blocked? : Bool
+        capabilities = @client_properties["capabilities"]?.try &.as?(AMQP::Table)
+        !!capabilities.try &.["connection.blocked"]?.try &.as?(Bool)
+      end
+
+      # Whether a publish arriving while flow is stopped is likely to have been
+      # sent before the client saw connection.blocked. The grace period runs
+      # from when the frame was sent, or from when flow stopped while the
+      # frame is still waiting to be sent.
+      def in_blocked_grace? : Bool
+        return false unless supports_blocked?
+        since = @blocked_sent_at.get(:relaxed)
+        since = @vhost.flow_stopped_at if since < 0
+        LavinMQ::Server.nanoseconds_since_start - since < Config.instance.blocked_publish_grace.to_i64 * 1_000_000
+      end
+
+      # Sends connection.blocked/unblocked for the vhost's current flow state,
+      # unless this client was already told that state. Notifier fibers can
+      # run out of order, so the state is read here rather than passed in,
+      # and a notifier that falls behind can't deliver a stale state.
+      def notify_flow : Nil
+        return unless supports_blocked?
+        @flow_notify_lock.synchronize do
+          blocked = !@vhost.flow?
+          return if blocked == @blocked_sent
+          @blocked_sent = blocked
+          if blocked
+            send AMQP::Frame::Connection::Blocked.new(@vhost.flow_reason)
+            @blocked_sent_at.set(LavinMQ::Server.nanoseconds_since_start, :relaxed)
+          else
+            @blocked_sent_at.set(-1, :relaxed)
+            send AMQP::Frame::Connection::Unblocked.new
+          end
+        end
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -814,7 +862,8 @@ module LavinMQ
 
       private def declare_new_queue(frame)
         unless @vhost.flow?
-          send_precondition_failed(frame, "Server low on disk space, can not create queue")
+          send_precondition_failed(frame, "#{@vhost.flow_reason}, can not create queue")
+          return
         end
         if frame.queue_name.empty?
           frame.queue_name = AMQP::Queue.generate_name

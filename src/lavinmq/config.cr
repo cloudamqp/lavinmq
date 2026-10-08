@@ -315,6 +315,10 @@ module LavinMQ
       end
     {% end %}
 
+    private def parse_value(value, type : Float64.class)
+      value.to_f64
+    end
+
     private def parse_value(value, type : String.class | String?.class)
       value
     end

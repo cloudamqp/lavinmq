@@ -245,7 +245,7 @@ describe LavinMQ::HTTP::UsersController do
       free_disk_min = LavinMQ::Config.instance.free_disk_min
       LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_http_server do |http, s|
-        s.flow(false)
+        s.flow(false, "Server low on disk space")
         body = <<-JSON
           {
             "password": "test"

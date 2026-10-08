@@ -213,6 +213,10 @@ module LavinMQ::AMQP
         @stores.each &.close
         @empty.close
       end
+
+      def dontneed_segments : Nil
+        @stores.each &.dontneed_segments
+      end
     end
   end
 

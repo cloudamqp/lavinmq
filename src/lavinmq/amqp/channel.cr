@@ -141,9 +141,15 @@ module LavinMQ
         end
       end
 
+      # add_content holds on to the buffer for the message it's copying, so it
+      # can be replaced at any time
+      def release_memory : Nil
+        @next_msg_body_tmp = IO::Memory.new
+      end
+
       def start_publish(frame)
-        unless server_flow?
-          @client.send_precondition_failed(frame, "Server low on disk space")
+        unless server_flow? || @client.in_blocked_grace?
+          @client.send_precondition_failed(frame, @client.vhost.flow_reason)
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
@@ -208,15 +214,16 @@ module LavinMQ
             @next_msg_body_file_pos = 0
           end
         elsif frame.body_size == @next_msg_size
-          copied = IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
+          body = @next_msg_body_tmp
+          copied = IO.copy(frame.body, body, frame.body_size)
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
-          @next_msg_body_tmp.rewind
+          body.rewind
           begin
-            finish_publish(@next_msg_body_tmp)
+            finish_publish(body)
           ensure
-            @next_msg_body_tmp.clear
+            body.clear
           end
         else
           copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)

@@ -19,11 +19,20 @@ module LavinMQ
   class Server
     PROCESS_START = Time.instant
 
+    # Monotonic time as an integer, for timestamps that are kept in an Atomic
+    def self.nanoseconds_since_start : Int64
+      (Time.instant - PROCESS_START).total_nanoseconds.to_i64
+    end
+
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 
     @closed = BoolChannel.new(false)
     @flow = true
+    @memory_pressure = Atomic(Bool).new(false)
+    @release_memory_pending = Atomic(Bool).new(false)
+    @memory_pressure_logged = false
+    getter flow_reason = "Server low on resources"
 
     def closed? : Bool
       @closed.value
@@ -31,6 +40,25 @@ module LavinMQ
 
     def flow? : Bool
       @flow
+    end
+
+    # Called from the systemd memory pressure monitor, which runs in its own
+    # execution context, so only flag it here and act on it in stats_loop
+    def memory_pressure! : Nil
+      @memory_pressure.set(true)
+      @release_memory_pending.set(true)
+    end
+
+    def memory_pressure_relieved! : Nil
+      @memory_pressure.set(false)
+    end
+
+    def memory_pressure? : Bool
+      @memory_pressure.get
+    end
+
+    def refuse_connections? : Bool
+      memory_pressure? && @config.memory_pressure_refuse_connections?
     end
 
     @replicator : Clustering::Replicator?
@@ -300,18 +328,46 @@ module LavinMQ
     getter stats_system_collection_duration_seconds = Time::Span.new
     getter gc_stats = GC.prof_stats
 
-    private def control_flow!
+    def control_flow!
+      control_memory_pressure!
       if disk_full?
-        if flow?
-          Log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
-          flow(false)
-        end
+        stop_flow("Server low on disk space") { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
+      elsif memory_pressure?
+        stop_flow("Server under memory pressure") { "Memory pressure, stopping flow" }
       elsif !flow?
-        Log.info { "Not low on disk space, starting flow" }
+        Log.info { "Resources available, starting flow" }
         flow(true)
       elsif disk_usage_over_warning_level?
         Log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
+    end
+
+    private def stop_flow(reason : String, &)
+      return if !flow? && @flow_reason == reason
+      Log.info { yield }
+      flow(false, reason)
+    end
+
+    private def control_memory_pressure! : Nil
+      if @release_memory_pending.swap(false)
+        Log.warn { "Memory pressure detected, releasing memory" } unless @memory_pressure_logged
+        @memory_pressure_logged = true
+        release_memory
+      end
+      if @memory_pressure_logged && !memory_pressure?
+        Log.info { "Memory pressure relieved" }
+        @memory_pressure_logged = false
+      end
+    end
+
+    # Frees memory without allocating any: drops page mappings of idle message
+    # segments and oversized publish buffers, then lets GC and malloc return it
+    def release_memory : Nil
+      @vhosts.each_value &.release_memory
+      GC.collect
+      {% if flag?(:gnu) %}
+        LibC.malloc_trim(0)
+      {% end %}
     end
 
     def disk_full?
@@ -322,9 +378,10 @@ module LavinMQ
       @disk_free < 6_i64 * @config.segment_size || @disk_free < @config.free_disk_warn
     end
 
-    def flow(active : Bool)
+    def flow(active : Bool, reason : String = @flow_reason)
       @flow = active
-      @vhosts.each_value &.flow=(active)
+      @flow_reason = reason
+      @vhosts.each_value &.set_flow(active, reason)
     end
 
     def uptime

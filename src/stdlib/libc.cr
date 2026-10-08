@@ -5,6 +5,10 @@ lib LibC
     fun syncfs(fd : Int) : Int
   {% end %}
 
+  {% if flag?(:gnu) %}
+    fun malloc_trim(pad : SizeT) : Int
+  {% end %}
+
   fun sync : Void
   fun getpagesize : Int32
 
