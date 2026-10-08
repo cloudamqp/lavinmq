@@ -26,7 +26,7 @@ module MqttSpecs
             pingpong(pub_io)
           end
 
-          read_packet(bob_io).should be_nil
+          bob_io.should be_silent
           exchange = server.vhosts["/"].exchange("mqtt.default")
           exchange.publish_in_count.should eq 1
           exchange.publish_out_count.should eq 0
@@ -81,8 +81,7 @@ module MqttSpecs
             msg.payload.should eq("authorized".to_slice)
 
             # No further message should arrive
-            next_msg = read_packet(alice_io)
-            next_msg.should be_nil
+            alice_io.should be_silent
           end
         end
       end
@@ -141,8 +140,7 @@ module MqttSpecs
           msg.payload.should eq("retained-alice".to_slice)
 
           # chat/bob/old must NOT arrive
-          next_msg = read_packet(alice_io)
-          next_msg.should be_nil
+          alice_io.should be_silent
         end
       end
     end

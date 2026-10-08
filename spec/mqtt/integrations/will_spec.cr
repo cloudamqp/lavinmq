@@ -52,7 +52,7 @@ module MqttSpecs
             disconnect(io2)
           end
 
-          read_packet(io).should be_nil
+          io.should be_silent
 
           disconnect(io)
         end
