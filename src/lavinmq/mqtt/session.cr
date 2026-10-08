@@ -232,10 +232,11 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
+      # A reconnect or API deletion can remove the session before the bind.
+      def subscribe(tf, qos) : Bool
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
+          return true if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
