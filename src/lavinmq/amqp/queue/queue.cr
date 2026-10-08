@@ -64,6 +64,9 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     @basic_get_unacked = Deque(UnackedMessage).new
+    # Leaf lock: basic.get, acks/closes of any channel and stats all touch
+    # @basic_get_unacked, and Channel#close holds its @unack_lock meanwhile
+    @basic_get_unacked_lock = Mutex.new
 
     # Consumer accessors
 
@@ -82,15 +85,15 @@ module LavinMQ::AMQP
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil
-      @basic_get_unacked << msg
+      @basic_get_unacked_lock.synchronize { @basic_get_unacked << msg }
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
-      @basic_get_unacked.reject! { |u| yield u }
+      @basic_get_unacked_lock.synchronize { @basic_get_unacked.reject! { |u| yield u } }
     end
 
     def basic_get_unacked_size : Int32
-      @basic_get_unacked.size
+      @basic_get_unacked_lock.synchronize { @basic_get_unacked.size }
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -622,7 +625,7 @@ module LavinMQ::AMQP
         @msg_store.close
       end
       @deliveries.clear
-      @basic_get_unacked.clear
+      @basic_get_unacked_lock.synchronize { @basic_get_unacked.clear }
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -988,7 +991,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      result.concat(@basic_get_unacked.to_a)
+      @basic_get_unacked_lock.synchronize { result.concat(@basic_get_unacked) }
     end
 
     private def with_delivery_count_header(env) : Envelope?
