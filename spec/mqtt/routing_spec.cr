@@ -63,7 +63,7 @@ module MqttSpecs
               publish(pub_io, topic: "a/b/c", qos: 0u8)
             end
 
-            expect_raises(::IO::TimeoutError) { MQTT::Protocol::Packet.from_io(sub) }
+            sub.should be_silent
           end
         end
       end

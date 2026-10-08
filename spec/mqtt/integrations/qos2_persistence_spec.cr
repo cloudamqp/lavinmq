@@ -65,7 +65,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
           read_publish(io).payload.should eq "1".to_slice
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -106,8 +106,8 @@ module MqttSpecs
             wait_for { log_size(log) > 4 }
             last_sync = server.persister.last_sync.should_not be_nil
             last_sync.paths.should_not contain log.@path
-            read_packet(io).should be_nil # no PUBREC before the id is durable
-            step_drain(gate)              # syncs the log
+            io.should be_silent # no PUBREC before the id is durable
+            step_drain(gate)    # syncs the log
             read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 7u16
             last_sync = server.persister.last_sync.should_not be_nil
             last_sync.paths.should contain log.@path
@@ -144,7 +144,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
           read_publish(io).payload.should eq "1".to_slice
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -205,7 +205,7 @@ module MqttSpecs
               release_drain(gate)
               wait_for { log_size(log) == 4 + 3 }
               # The PUBREC is the old connection's; the new one gets nothing
-              read_packet(io2).should be_nil
+              io2.should be_silent
               disconnect(io2)
             end
           end
@@ -222,7 +222,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
           read_publish(io).payload.should eq "1".to_slice
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -279,7 +279,7 @@ module MqttSpecs
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)
           read_publish(sub_io).payload.should eq "1".to_slice
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
         end
       end
     end
@@ -456,7 +456,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
           read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -477,7 +477,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -493,7 +493,7 @@ module MqttSpecs
               publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
               ping(sub_io)
               read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
-              read_packet(sub_io).should be_nil
+              sub_io.should be_silent
               release_drain(gate)
               read_publish(sub_io).qos.should eq 2u8
             end
@@ -561,7 +561,7 @@ module MqttSpecs
               release_drain(gate)
               resent = read_publish(io2)
               {resent.packet_id, resent.dup?}.should eq({1u16, true})
-              read_packet(io2).should be_nil
+              io2.should be_silent
             end
           end
         end
@@ -621,7 +621,7 @@ module MqttSpecs
             pingpong(pub_io)
           end
           wait_for { log_size(log) >= 4 + 11 }
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
           # One record, not one per message the deliver_loop walked past
           log_size(log).should eq 4 + 11
         end
@@ -650,7 +650,7 @@ module MqttSpecs
           publish(io, topic: "a/b", payload: "x".to_slice, qos: 2u8, packet_id: 5u16, dup: true)
           pubrel(io, 5u16)
           read_packet(io).should be_a(MQTT::Protocol::PubComp)
-          read_packet(io).should be_nil # not routed a second time
+          io.should be_silent # not routed a second time
         end
       end
     end

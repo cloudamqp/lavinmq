@@ -36,7 +36,7 @@ module MqttSpecs
 
           pub = read_publish(sub_io)
           String.new(pub.payload).should eq "1"
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
 
           disconnect(sub_io)
         end
@@ -59,7 +59,7 @@ module MqttSpecs
           end
 
           String.new(read_publish(sub_io).payload).should eq "1"
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
 
           disconnect(sub_io)
         end
@@ -121,7 +121,7 @@ module MqttSpecs
           end
 
           # Neither was routed.
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
 
           disconnect(sub_io)
         end
@@ -181,7 +181,7 @@ module MqttSpecs
           end
 
           String.new(read_publish(sub_io).payload).should eq "1"
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
 
           disconnect(sub_io)
         end
@@ -321,7 +321,7 @@ module MqttSpecs
           read_packet(io).should be_a(MQTT::Protocol::PubRel)
           # The window is still full: the id is owed even though the message is
           # gone, so the second message must not be delivered yet.
-          read_packet(io).should be_nil
+          io.should be_silent
 
           pubcomp(io, id)
           String.new(read_publish(io).payload).should eq "1"
@@ -520,7 +520,7 @@ module MqttSpecs
           rel = read_packet(io).should be_a(MQTT::Protocol::PubRel)
           rel.packet_id.should eq owed
           # The message went at PUBREC, so a PUBLISH must not follow.
-          read_packet(io).should be_nil
+          io.should be_silent
 
           pubcomp(io, owed)
           disconnect(io)
@@ -552,10 +552,10 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
           read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq rel_id
-          read_packet(io).should be_nil
+          io.should be_silent
 
           pubrec(io, owed)
-          read_packet(io).should be_nil
+          io.should be_silent
 
           pubcomp(io, rel_id)
           pub = read_publish(io)
@@ -776,7 +776,7 @@ module MqttSpecs
           session.@msg_store.remember_original_packet_id(sp, id)
           pubrec(io, id)
           read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end

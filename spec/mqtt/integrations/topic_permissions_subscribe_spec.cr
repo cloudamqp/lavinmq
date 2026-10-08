@@ -47,7 +47,7 @@ module MqttSpecs
           msg = read_packet(io)
           msg.should be_a(MQTT::Protocol::Publish)
           msg.as(MQTT::Protocol::Publish).topic.should eq("chat/alice/room1")
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end

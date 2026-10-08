@@ -43,7 +43,7 @@ module MqttSpecs
             pingpong(pub_io)
           end
           # bob is not a member, so nothing new is accepted into the session.
-          read_packet(io).should be_nil
+          io.should be_silent
         end
       end
     end
@@ -137,7 +137,7 @@ module MqttSpecs
             msg = read_packet(io)
             msg.should be_a(MQTT::Protocol::Publish)
             msg.as(MQTT::Protocol::Publish).payload.should eq("for-all".to_slice)
-            read_packet(io).should be_nil
+            io.should be_silent
           end
         end
       end
