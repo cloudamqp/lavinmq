@@ -164,11 +164,6 @@ test.describe('refresh control', _ => {
     await expect(toggle).toHaveAttribute('aria-label', 'Resume auto-refresh')
   })
 
-  test('is hidden on a page that does not refresh', async ({ page }) => {
-    await page.goto('/logs')
-    await expect(page.locator('#refresh-control')).toBeHidden()
-  })
-
   test('steps through reconnecting to stale while the server fails, and recovers', async ({ page }) => {
     await page.clock.install()
     await loadOverview(page)

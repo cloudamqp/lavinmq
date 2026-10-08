@@ -3,7 +3,7 @@
 <html lang="en" class="logs">
   <head>
     <!--#include file="partials/head.shtml" -->
-    <script defer src="js/logs.js"></script>
+    <script type="module" src="js/logs.js"></script>
   </head>
   <body>
     <!--#include file="partials/header.shtml" -->

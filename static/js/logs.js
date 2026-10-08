@@ -1,4 +1,8 @@
 /* global localStorage */
+import * as Poller from './poller.js'
+import * as Reachability from './reachability.js'
+
+const MAX_LINES = 10000
 
 let shouldAutoScroll = true
 const evtSource = new window.EventSource('api/livelog')
@@ -6,24 +10,40 @@ const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
 const btnToTop = document.getElementById('to-top')
 const btnToBottom = document.getElementById('to-bottom')
-const MAX_LINES = 10000
 const pending = []
 let paintScheduled = false
+let activityScheduled = false
+
+Poller.stream()
+Poller.events.addEventListener('change', schedulePaint)
+
+evtSource.onopen = () => Reachability.recordSuccess()
 
 evtSource.onmessage = (event) => {
+  recordActivity()
   pending.push(event)
   if (pending.length > MAX_LINES * 1.1) pending.splice(0, pending.length - MAX_LINES)
   schedulePaint()
 }
 
+function recordActivity () {
+  if (activityScheduled) return
+  activityScheduled = true
+  window.requestAnimationFrame(() => {
+    activityScheduled = false
+    Reachability.recordSuccess()
+  })
+}
+
 function schedulePaint () {
-  if (paintScheduled) return
+  if (paintScheduled || Poller.isPaused()) return
   paintScheduled = true
   window.requestAnimationFrame(paint)
 }
 
 function paint () {
   paintScheduled = false
+  if (Poller.isPaused()) return
   const rows = document.createDocumentFragment()
   for (const event of pending.splice(0).slice(-MAX_LINES)) {
     rows.appendChild(buildRow(event))
@@ -67,6 +87,7 @@ function buildRow (event) {
 }
 
 evtSource.onerror = () => {
+  if (evtSource.readyState !== window.EventSource.CLOSED) Reachability.recordFailure('Log stream disconnected')
   window.fetch('api/whoami')
     .then(response => response.json())
     .then(whoami => {
