@@ -26,7 +26,7 @@ module MqttSpecs
 
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "chat/a", payload: "for-alice".to_slice, qos: 0u8)
+          publish(pub_io, topic: "chat/a", payload: "for-alice".to_slice, qos: 1u8)
           pingpong(pub_io)
         end
 
@@ -39,7 +39,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
-            publish(pub_io, topic: "chat/b", payload: "for-bob".to_slice, qos: 0u8)
+            publish(pub_io, topic: "chat/b", payload: "for-bob".to_slice, qos: 1u8)
             pingpong(pub_io)
           end
           # bob is not a member, so nothing new is accepted into the session.
@@ -74,7 +74,7 @@ module MqttSpecs
 
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 0u8)
+          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 1u8)
           pingpong(pub_io)
         end
 
@@ -83,6 +83,18 @@ module MqttSpecs
           msg = read_packet(io)
           msg.should be_a(MQTT::Protocol::Publish)
           msg.as(MQTT::Protocol::Publish).payload.should eq("after-restart".to_slice)
+        end
+      end
+    end
+
+    it "writes no metadata file for a clean session" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: true)
+          pingpong(io)
+          data_dir = File.join(server.vhosts["/"].data_dir, "transient", Digest::SHA1.hexdigest("mqtt.dev"))
+          Dir.exists?(data_dir).should be_true
+          File.exists?(File.join(data_dir, ".metadata")).should be_false
         end
       end
     end
@@ -115,8 +127,8 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
-            publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 0u8)
-            publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 0u8)
+            publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 1u8)
+            publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 1u8)
             pingpong(pub_io)
           end
 

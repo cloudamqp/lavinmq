@@ -61,7 +61,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -87,7 +87,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -115,7 +115,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -138,7 +138,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 

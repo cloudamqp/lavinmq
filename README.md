@@ -253,7 +253,7 @@ LavinMQ natively supports the MQTT 3.1.0 and 3.1.1 protocol, facilitating seamle
 
 For retained messages, LavinMQ maintains a dedicated storage system that maps topics to their respective retained messages. These retained messages are also persistently stored, ensuring that new subscribers immediately receive the latest retained message upon subscribing, including those using wildcard topic filters. In a clustered environments, the retained message store is replicated across nodes.
 
-Please note that Quality of Service (QoS) level 2 is not supported in LavinMQ; messages published with QoS 2 will be downgraded to QoS 1.
+All three Quality of Service (QoS) levels are supported, including QoS 2 (exactly once). For persistent sessions the QoS 2 state is persisted and replicated, so an unfinished exchange resumes after a broker restart or a failover.
 
 See [MQTT in LavinMQ](https://lavinmq.com/documentation/mqtt-in-lavinmq) for more information on using MQTT.
 
@@ -266,6 +266,7 @@ port = 1883
 tls_port = 8883
 unix_path = ""
 max_inflight_messages = 65535
+max_awaiting_pubrel = 1024
 default_vhost = "/"
 ```
 

@@ -27,7 +27,7 @@ module MqttSpecs
           will: nil,
         )
 
-        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
         Fiber.yield
 
         # Client should be connected
@@ -60,7 +60,7 @@ module MqttSpecs
           will: nil,
         )
 
-        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
 
         sleep 50.milliseconds
 

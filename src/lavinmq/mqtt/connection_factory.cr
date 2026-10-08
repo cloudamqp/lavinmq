@@ -30,9 +30,9 @@ module LavinMQ
               raise Protocol::Error::ServerUnavailable.new(
                 "too many connections to vhost \"#{broker.vhost.name}\"")
             end
-            session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-            connack io, session_present, Protocol::Connack::ReturnCode::Accepted
-            broker.run_client(io, connection_info, user, packet)
+            broker.run_client(io, connection_info, user, packet) do |session_present|
+              connack io, session_present, Protocol::Connack::ReturnCode::Accepted
+            end
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }

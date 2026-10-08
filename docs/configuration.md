@@ -92,7 +92,8 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `port` | `--mqtt-port` | — | Int | `1883` | MQTT port |
 | `tls_port` | `--mqtts-port` | — | Int | `8883` | MQTTS port |
 | `unix_path` | `--mqtt-unix-path` | — | String | (empty) | MQTT Unix socket path |
-| `max_inflight_messages` | — | — | UInt16 | `65535` | Max unacknowledged messages per session, must be at least `1` |
+| `max_inflight_messages` | — | — | UInt16 | `65535` | Max outstanding packet IDs per session, must be at least `1`. A QoS 2 delivery holds its ID until PUBCOMP |
+| `max_awaiting_pubrel` | - | - | UInt16 | `1024` | Max QoS 2 packet IDs a publisher may hold between PUBLISH and PUBREL, must be at least `1`. Going over it closes the connection |
 | `max_packet_size` | — | — | UInt32 | `268435455` | Max MQTT packet size (bytes) |
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | — | — | Bool | `false` | Apply the user's AMQP permissions to the MQTT exchange and session queue |
