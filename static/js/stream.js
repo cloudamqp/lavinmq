@@ -5,6 +5,7 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 import './tabs.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
@@ -92,8 +93,9 @@ function handleQueueState (state) {
 
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
+let detailsRendered = false
 function updateQueue (all) {
-  HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
+  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
@@ -109,7 +111,8 @@ function updateQueue (all) {
       if (hasMoreConsumers) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
-      if (all) {
+      if (all || !detailsRendered) {
+        detailsRendered = true
         let features = ''
         features += item.durable ? ' <span title="Durable">D</span>' : ''
         features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
@@ -148,8 +151,7 @@ function updateQueue (all) {
       }
     }).catch(() => {})
 }
-updateQueue(true)
-setInterval(updateQueue, 5000)
+Poller.start(updateQueue)
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),

@@ -4,6 +4,7 @@ import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 import { DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
@@ -13,7 +14,7 @@ if (vhost && vhost !== '_all') {
 }
 
 function update (cb) {
-  HTTP.request('GET', url).then((response) => {
+  return HTTP.request('GET', url).then((response) => {
     render(response)
     if (cb) {
       cb(response)
@@ -30,8 +31,7 @@ function render (data) {
 }
 
 function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
+  Poller.start(() => update(cb))
 }
 
 const gcStatsFields = [
