@@ -50,8 +50,53 @@ test.describe('queue', _ => {
 
     test('queue is loaded', async ({ page }) => {
       await expect(page.locator('#pagename-label')).toHaveText(new RegExp(`${queueName} .* ${queueVhost}`))
-      await expect(page.locator('#consumer-count')).toHaveText("1")
+      await expect(page.locator('#consumer-count')).toHaveText(queueResponse.consumers.toString())
     })
+  })
+
+  test('consumer count stays at the total while loading more and updates on refresh', async ({ apimap, page }) => {
+    let total = 35
+    const allConsumers = Array.from({ length: total }, (_, index) => ({
+      ...consumers[0], consumer_tag: `consumer_${index}`
+    }))
+    await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/${queueName}`, async route => {
+      const limit = Number(new URL(route.request().url()).searchParams.get('consumer_list_length'))
+      await route.fulfill({ json: {
+        ...queueResponse,
+        consumers: total,
+        consumer_details: allConsumers.slice(0, Math.min(limit, total))
+      } })
+    })
+    const bindingsLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`, bindingResponse)
+    await page.goto(queueUrl('consumers'))
+    await bindingsLoaded
+
+    const count = page.locator('#consumer-count')
+    const badge = page.locator('[data-tab="consumers"] .badge')
+    const rows = page.locator('#table tbody tr:has(button)')
+    const loadMore = page.locator('#load-more-consumers')
+    await expect(rows).toHaveCount(20)
+    await expect(count).toHaveText('35')
+    await expect(badge).toHaveText('35')
+    await expect(page.locator('#q-consumers')).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 20 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(30)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 30 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(35)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toBeHidden()
+
+    total = 0
+    await page.reload()
+    await expect(rows).toHaveCount(0)
+    await expect(count).toHaveText('0')
+    await expect(badge).toHaveText('0')
+    await expect(loadMore).toBeHidden()
   })
 
   test.describe('consumers tab', _ => {
