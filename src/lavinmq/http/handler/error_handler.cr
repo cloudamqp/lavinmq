@@ -8,7 +8,7 @@ module LavinMQ
 
       def call(context)
         call_next(context)
-      rescue ex : JSON::Error | ArgumentError | TypeCastError
+      rescue ex : JSON::Error | ArgumentError | TypeCastError | OverflowError
         error = Log.level == ::Log::Severity::Debug ? ex.inspect_with_backtrace : "\"#{ex.message}\""
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}" }
         context.response.status_code = 400

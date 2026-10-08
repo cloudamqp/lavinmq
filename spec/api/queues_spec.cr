@@ -518,6 +518,19 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
   describe "POST /api/queues/vhost/name/get" do
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q3")
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000, "ackmode": "reject_requeue_true"})
+            response = http.post("/api/queues/%2f/q3/get", body: body)
+            response.status_code.should eq 400
+          end
+        end
+      end
+    end
+
     it "should get plain text messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -794,6 +807,19 @@ describe LavinMQ::HTTP::QueuesController do
             response.status_code.should eq 200
             msgs = JSON.parse(response.body).as_a
             msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          end
+        end
+      end
+    end
+
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
           end
         end
       end
