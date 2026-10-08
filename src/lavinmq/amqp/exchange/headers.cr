@@ -9,12 +9,14 @@ module LavinMQ
       private class Binding
         private record Pair, key : String, value : AMQP::Field
 
-        getter destinations = Set({Destination, BindingKey}).new
+        # Replaced, never mutated (see `with`)
+        getter destinations : BindingSet
         @match_any : Bool
         @args_empty : Bool
         @pairs : Array(Pair)
 
         def initialize(args : AMQP::Table, default_match_any : Bool)
+          @destinations = BindingSet.empty
           @args_empty = args.empty?
           @match_any = case args["x-match"]?
                        when "any" then true
@@ -25,6 +27,17 @@ module LavinMQ
           args.each do |k, v|
             @pairs << Pair.new(k, v) unless k.starts_with?("x-")
           end
+        end
+
+        protected def initialize(other : Binding, @destinations : BindingSet)
+          @args_empty = other.@args_empty
+          @match_any = other.@match_any
+          @pairs = other.@pairs
+        end
+
+        # The same match spec with another set of destinations
+        def with(destinations : BindingSet) : Binding
+          Binding.new(self, destinations)
         end
 
         def matches?(headers : AMQP::Table?) : Bool
@@ -38,7 +51,9 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(AMQP::Table, Binding).new
+      # Arguments => match spec and bindings. Replaced, never mutated, so
+      # publishers on other threads route without locks.
+      @bindings = CowMap(AMQP::Table, Binding).new
       @default_match_any : Bool
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -54,15 +69,19 @@ module LavinMQ
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.values.flat_map do |binding|
-          binding.destinations.map do |d, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, d)
+        details = Array(BindingDetails).new
+        @bindings.each_value do |binding|
+          binding.destinations.each do |e|
+            details << BindingDetails.new(name, vhost.name, e.binding_key, e.destination)
           end
         end
+        details
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.destinations.size)
+        count = 0
+        @bindings.each_value { |binding| count += binding.destinations.size }
+        count
       end
 
       def bind(destination : Destination, routing_key, arguments)
@@ -70,8 +89,9 @@ module LavinMQ
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments] ||= Binding.new(arguments, @default_match_any)
-        return false unless binding.destinations.add?({destination, binding_key})
+        binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
+        destinations = binding.destinations.add(destination, binding_key) || return false
+        @bindings[arguments] = binding.with(destinations)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -81,13 +101,18 @@ module LavinMQ
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
         binding = @bindings[arguments]? || return false
-        return false unless binding.destinations.delete({destination, binding_key})
-        @bindings.delete(arguments) if binding.destinations.empty?
+        destinations = binding.destinations.delete(destination, binding_key)
+        return false if destinations.same?(binding.destinations)
+        if destinations.empty?
+          @bindings.delete(arguments)
+        else
+          @bindings[arguments] = binding.with(destinations)
+        end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_unbound(data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.destinations.empty?)
+        delete if @auto_delete && @bindings.empty?
         true
       end
 
@@ -104,9 +129,7 @@ module LavinMQ
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         @bindings.each_value do |binding|
           next unless binding.matches?(headers)
-          binding.destinations.each do |destination, _binding_key|
-            yield destination
-          end
+          binding.destinations.each_destination { |d| yield d }
         end
       end
     end

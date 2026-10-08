@@ -318,3 +318,103 @@ describe LavinMQ::Exchange do
     end
   end
 end
+
+describe LavinMQ::AMQP::BindingSet do
+  it "adds and deletes bindings without changing earlier versions" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_queue("bs-a", false, false)
+      vhost.declare_queue("bs-b", false, false)
+      a = vhost.queue("bs-a")
+      b = vhost.queue("bs-b")
+      key = LavinMQ::AMQP::BindingKey.new("rk")
+      empty = LavinMQ::AMQP::BindingSet.empty
+      one = empty.add(a, key).not_nil!
+      two = one.add(b, key).not_nil!
+      one.add(a, key).should be_nil # already bound
+      two.delete(a, LavinMQ::AMQP::BindingKey.new("other")).should be(two)
+      after = two.delete(a, key)
+      [empty.size, one.size, two.size, after.size].should eq [0, 1, 2, 1]
+      dests = [] of LavinMQ::AMQP::Destination
+      after.each_destination { |d| dests << d }
+      dests.should eq [b]
+    end
+  end
+
+  it "switches between an array and a persistent map by size" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      max = LavinMQ::AMQP::BindingSet::ARRAY_MAX
+      queues = Array(LavinMQ::AMQP::Queue).new(max + 1) do |i|
+        vhost.declare_queue("bs-q#{i}", false, false)
+        vhost.queue("bs-q#{i}")
+      end
+      key = LavinMQ::AMQP::BindingKey.new("")
+      set = LavinMQ::AMQP::BindingSet.empty
+      queues.each { |q| set = set.add(q, key).not_nil! }
+      set.should be_a LavinMQ::AMQP::MapBindingSet
+      set.size.should eq max + 1
+      set.add(queues.first, key).should be_nil
+      # Shrinks back to an array at half the limit
+      queues[0, max // 2 + 1].each { |q| set = set.delete(q, key) }
+      set.should be_a LavinMQ::AMQP::ArrayBindingSet
+      seen = Set(LavinMQ::AMQP::Destination).new
+      set.each_destination { |d| seen << d }
+      seen.should eq queues[max // 2 + 1..].to_set
+    end
+  end
+end
+
+describe "Exchange bindings under concurrency" do
+  # Publishers route on several threads while binds and unbinds replace the
+  # binding sets; the routing reads must never see a half-changed set
+  {"direct", "topic", "fanout", "headers"}.each do |type|
+    it "routes #{type} exchanges while bindings change", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        x = "concurrent-#{type}"
+        vhost.declare_exchange(x, type, false, false)
+        args = type == "headers" ? LavinMQ::AMQP::Table.new({"x-match" => "all", "k" => "v"}) : LavinMQ::AMQP::Table.new
+        headers = LavinMQ::AMQP::Table.new({"k" => "v"})
+        rk = type == "topic" ? "stable.#" : "stable"
+        vhost.declare_queue("stable", false, false)
+        vhost.bind_queue("stable", x, rk, args)
+        # Enough to cross BindingSet::ARRAY_MAX back and forth
+        churn = Array(String).new(100) { |i| "churn-#{i}" }
+        churn.each { |q| vhost.declare_queue(q, false, false) }
+        exchange = vhost.exchanges.find! { |e| e.name == x }
+        stable = vhost.queue("stable")
+
+        stop = Atomic(Bool).new(false)
+        misses = Atomic(Int32).new(0)
+        ctx = Fiber::ExecutionContext::Parallel.new("bindings-#{type}", 4)
+        wg = WaitGroup.new(8)
+        8.times do
+          ctx.spawn do
+            queues = Set(LavinMQ::AMQP::Queue).new
+            exchanges = Set(LavinMQ::AMQP::Exchange).new
+            i = 0
+            until stop.get(:relaxed)
+              queues.clear
+              exchanges.clear
+              exchange.find_queues("stable.x", headers, queues, exchanges) if type == "topic"
+              exchange.find_queues("stable", headers, queues, exchanges) unless type == "topic"
+              misses.add(1) unless queues.includes?(stable)
+              Fiber.yield if (i += 1) % 64 == 0
+            end
+          ensure
+            wg.done
+          end
+        end
+        20.times do
+          churn.each { |q| vhost.bind_queue(q, x, rk, args) }
+          churn.each { |q| vhost.unbind_queue(q, x, rk, args) }
+        end
+        stop.set(true)
+        wg.wait
+        misses.get.should eq 0
+        exchange.binding_count.should eq 1
+      end
+    end
+  end
+end
