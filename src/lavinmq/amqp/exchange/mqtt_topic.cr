@@ -86,6 +86,7 @@ module LavinMQ
         properties = AMQP::Properties.new
         properties.delivery_mode = 2u8
         message = Message.new(msg.timestamp, name, msg.routing_key, properties, msg.bodysize, msg.body_io)
+        message.needs_sync = msg.needs_sync?
         count = 0u32
         destinations.each do |destination, _binding_key|
           case destination

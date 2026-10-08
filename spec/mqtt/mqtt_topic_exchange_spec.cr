@@ -1,5 +1,16 @@
 require "./spec_helper"
 
+# In the AMQP namespace because AMQP::Exchange#bind refuses any destination
+# whose class lives outside it.
+class LavinMQ::AMQP::SyncFlagCapturingQueue < LavinMQ::AMQP::Queue
+  getter needs_sync_seen : Bool? = nil
+
+  def publish(msg : LavinMQ::Message) : PublishResult
+    @needs_sync_seen = msg.needs_sync?
+    super
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
 
@@ -187,6 +198,28 @@ module MqttSpecs
             ch.basic_publish_confirm("nope", "xmqtt", "a/b")
           end
         end
+      end
+    end
+
+    # A QoS 1 PUBACK is released by the persister once the files the publish
+    # dirtied are synced, and only a message with needs_sync marks its segment
+    # dirty. The flag must survive the copy made for AMQP destinations.
+    it "keeps needs_sync on the message delivered to AMQP destinations" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
+        queue = LavinMQ::AMQP::SyncFlagCapturingQueue.create(vhost, "sync_flag")
+        exchange.bind(queue, "a/b", nil)
+
+        {true, false}.each do |needs_sync|
+          msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
+          msg.needs_sync = needs_sync
+          exchange.deliver(msg, "a/b").should be_true
+          queue.needs_sync_seen.should eq needs_sync
+        end
+      ensure
+        queue.try &.delete
       end
     end
 
