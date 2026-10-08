@@ -366,6 +366,11 @@ module LavinMQ
         if packet.properties.topic_alias
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
         end
+        # Only the server adds Subscription Identifiers [MQTT-3.3.4-6]
+        if packet.properties.subscription_identifiers?
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError,
+            "PUBLISH from a client carries a Subscription Identifier")
+        end
         # (An empty topic with no alias is rejected by the shard on decode with a
         # ProtocolError 0x82, mapped to a server DISCONNECT in read_loop.)
       end

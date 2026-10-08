@@ -362,6 +362,22 @@ module MqttSpecs
       end
     end
 
+    it "disconnects with ProtocolError (0x82) on a PUBLISH carrying a Subscription Identifier [MQTT-3.3.4-6]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket)
+          props = MQTT::Protocol::PublishProperties.new
+          props.subscription_identifiers = [1u32]
+          publish(io, topic: "test/topic", qos: 1u8, properties: props, expect_response: false)
+
+          pkt = MQTT::Protocol::Packet.from_io(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+      end
+    end
+
     it "disconnects with ProtocolError (0x82) on a QoS 1 PUBLISH with packet id 0 [MQTT-2.2.1-3]" do
       with_server do |server|
         with_client_socket(server) do |socket|
