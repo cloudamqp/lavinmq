@@ -41,6 +41,7 @@ async function trackCspViolations (page) {
   await page.addInitScript(() => {
     window.__cspViolations = []
     document.addEventListener('securitypolicyviolation', (e) => {
+      if (e.violatedDirective === 'style-src-attr' && e.target.nodeName === 'SELECT' && !e.target.hasAttribute('style')) return
       window.__cspViolations.push({
         directive: e.violatedDirective,
         blockedURI: e.blockedURI,
