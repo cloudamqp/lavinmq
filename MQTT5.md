@@ -189,8 +189,10 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 
 **PUBACK and ack reason codes**
 - `NoMatchingSubscribers` `0x10` when the publish matched no session
-- `NotAuthorized` `0x87` instead of a silent close; QoS 0 has no ack, so it gets
-  a server DISCONNECT `0x87` instead
+- `NotAuthorized` `0x87` instead of a silent close. A topic permission denial
+  of a QoS 0 publish has no ack to carry it, so the publish is dropped and the
+  connection kept. With `permission_check_enabled`, a QoS 0 publish without
+  write permission on the exchange gets a server DISCONNECT `0x87` instead
 - SUBSCRIBE denial answers a SUBACK of per-filter `NotAuthorized`
 - An inbound non-`Success` PUBACK is logged and still acks the message
 - Every PUBACK, whatever its reason code, goes through the persist-ordered queue
