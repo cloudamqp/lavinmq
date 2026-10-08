@@ -14,8 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The publish confirm loop's thread is scheduled as a batch task on Linux, so waking it no longer preempts the worker that signalled it. When the loop shared a CPU with a worker thread it ran at once and spun on the channel lock the preempted worker still held, and confirms ran at 65k msg/s; they now run at 587k msg/s with the broker on one core [#2487](https://github.com/cloudamqp/lavinmq/pull/2487)
-- `basic.recover` with `requeue=false` closed the channel instead of redelivering unacked messages to their consumers [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
-- Delivery tags could be stored out of order when several consumers on one channel delivered at the same time, which broke acks [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
 ## [2.11.0-rc.3] - 2026-11-03
 
