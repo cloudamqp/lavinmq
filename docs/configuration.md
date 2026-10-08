@@ -48,6 +48,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tcp_keepalive` | — | — | String | `60:10:3` | TCP keepalive (idle:interval:probes, colon-separated) |
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
+| `tcp_send_timeout` | — | — | Int | `15` | Seconds a client may go without reading what the server sends before it's disconnected (must be positive) |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
 | `syncfs_threshold` | — | — | Int | `64` | Files a publish confirm depends on above which the whole filesystem is synced (syncfs) instead of each file individually |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
