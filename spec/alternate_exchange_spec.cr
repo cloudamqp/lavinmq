@@ -34,3 +34,52 @@ describe "Alternate Exchange" do
     end
   end
 end
+
+describe "Alternate Exchange policy" do
+  it "keeps routing to the policy's alternate exchange while the policy is re-applied" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("ae-reapply", "topic", durable: false, auto_delete: false)
+      vhost.declare_exchange("ae-reapply-unroutables", "fanout", durable: false, auto_delete: false)
+      vhost.declare_queue("ae-reapply-unroutables", durable: false, auto_delete: false,
+        arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1}))
+      vhost.bind_queue("ae-reapply-unroutables", "ae-reapply-unroutables", "")
+      ex = vhost.exchange("ae-reapply").as(LavinMQ::AMQP::Exchange)
+      policy = LavinMQ::Policy.new("ae", "/", /^ae-reapply$/, LavinMQ::Policy::Target::Exchanges,
+        {"alternate-exchange" => JSON::Any.new("ae-reapply-unroutables")}, 0i8)
+      ex.apply_policy(policy, nil)
+      unrouted = Atomic(Int32).new(0)
+      stop = Atomic(Bool).new(false)
+      deadline = Time.instant + 2.seconds
+      # Re-applying a policy must never expose the exchange without its
+      # alternate exchange, so publishes on other threads are never dropped.
+      ctx = Fiber::ExecutionContext::Parallel.new("ae-reapply", 4)
+      wg = WaitGroup.new
+      2.times do
+        wg.add(1)
+        ctx.spawn do
+          until Time.instant >= deadline
+            ex.reapply_policy
+            Fiber.yield
+          end
+        ensure
+          stop.set(true)
+          wg.done
+        end
+      end
+      2.times do
+        wg.add(1)
+        ctx.spawn do
+          until stop.get
+            msg = LavinMQ::Message.new(ex.name, "rk", "body")
+            unrouted.add(1) unless ex.route_msg(msg).routed?
+          end
+        ensure
+          wg.done
+        end
+      end
+      wg.wait
+      unrouted.get.should eq 0
+    end
+  end
+end

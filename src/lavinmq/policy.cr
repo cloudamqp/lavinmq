@@ -15,9 +15,12 @@ module LavinMQ
       apply_policy(@policy, @operator_policy)
     end
 
+    # Policy arguments are staged by clear_policy_arguments and
+    # apply_policy_argument, and only take effect in commit_policy_arguments,
+    # so a re-apply never exposes the resource without its policy.
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       @policy_lock.synchronize do
-        clear_policy
+        clear_policy_arguments
         effective_policy_args = Array(String).new
         Policy.merge_definitions(policy, operator_policy).each do |key, value|
           if apply_policy_argument(key, value)
@@ -30,15 +33,24 @@ module LavinMQ
         @effective_policy_args = effective_policy_args
         @policy = policy
         @operator_policy = operator_policy
+        commit_policy_arguments
         after_policy_applied
       end
     end
 
     def clear_policy
-      clear_policy_arguments
-      @effective_policy_args.clear
-      @policy = nil
-      @operator_policy = nil
+      @policy_lock.synchronize do
+        clear_policy_arguments
+        @effective_policy_args = Array(String).new
+        @policy = nil
+        @operator_policy = nil
+        commit_policy_arguments
+      end
+    end
+
+    # Publish what clear_policy_arguments and apply_policy_argument staged.
+    # Override if the target stages its policy arguments.
+    private def commit_policy_arguments
     end
 
     # This can be overriden if the child class needs to do something after

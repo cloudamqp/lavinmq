@@ -301,3 +301,50 @@ describe "Queue policy churn" do
     end
   end
 end
+
+describe "Queue policy re-apply" do
+  it "keeps enforcing policy limits while the policy is re-applied" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_queue("reapply_limits", durable: true, auto_delete: false)
+      queue = vhost.queue("reapply_limits").as(LavinMQ::AMQP::Queue)
+      queue.apply_policy(churn_policy({"max-length" => 1, "overflow" => "reject-publish"}), nil)
+      queue.publish(LavinMQ::Message.new("", queue.name, "body")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+      accepted = Atomic(Int32).new(0)
+      stop = Atomic(Bool).new(false)
+      # Re-applying a policy must never expose the queue without its limits,
+      # so publishes on other threads keep being rejected.
+      deadline = Time.instant + 2.seconds
+      ctx = Fiber::ExecutionContext::Parallel.new("reapply-limits", 4)
+      wg = WaitGroup.new
+      2.times do
+        wg.add(1)
+        ctx.spawn do
+          until Time.instant >= deadline
+            queue.reapply_policy
+            Fiber.yield
+          end
+        ensure
+          stop.set(true)
+          wg.done
+        end
+      end
+      2.times do
+        wg.add(1)
+        ctx.spawn do
+          until stop.get
+            unless queue.publish(LavinMQ::Message.new("", queue.name, "body")).overflow?
+              accepted.add(1)
+            end
+          end
+        ensure
+          wg.done
+        end
+      end
+      wg.wait
+      accepted.get.should eq 0
+    ensure
+      queue.try &.delete
+    end
+  end
+end

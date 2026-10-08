@@ -51,12 +51,35 @@ module LavinMQ::AMQP
       new vhost, name, exclusive, auto_delete, arguments
     end
 
-    @message_ttl : Int64?
-    @max_length : Int64?
-    @max_length_bytes : Int64?
-    @expires : Int64?
-    @delivery_limit : Int64?
-    @reject_on_overflow = false
+    # Settings derived from the queue's arguments and its policies. A new
+    # instance is built off to the side every time they are (re)applied and
+    # published with a single reference store, so readers never see a policy
+    # half-applied, limits missing while a policy is re-applied, or a torn
+    # value. A published instance is never mutated.
+    class Settings
+      property max_length : Int64?
+      property max_length_bytes : Int64?
+      property message_ttl : Int64?
+      property expires : Int64?
+      property delivery_limit : Int64?
+      property? reject_on_overflow = false
+      property consumer_timeout : UInt64?
+      property dlx : String?
+      property dlrk : String?
+      property max_age : (Time::Span | Time::MonthSpan)?
+      # Set when the policy tightened limits that existing messages must be
+      # checked against
+      property? enforce_limits = false
+      getter effective_args = Array(String).new
+
+      def initialize(@consumer_timeout = nil)
+      end
+    end
+
+    @settings = Settings.new(Config.instance.consumer_timeout)
+    # Built by clear_policy_arguments/apply_policy_argument, published by
+    # commit_policy_arguments
+    @staged_settings = Settings.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -99,11 +122,12 @@ module LavinMQ::AMQP
 
     getter paused = BoolChannel.new(false)
 
-    getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
+    def consumer_timeout : UInt64?
+      @settings.consumer_timeout
+    end
 
     getter consumers_empty = BoolChannel.new(true)
     @queue_expiration_ttl_change = ::Channel(Nil).new
-    @effective_args = Array(String).new
 
     # Idle fiber management
     @message_expire_fiber_active = Atomic(Bool).new(false)
@@ -137,13 +161,13 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break if @closed || !@expires
+        break if @closed || !@settings.expires
         select
         when @consumers_empty.when_true.receive
         when @queue_expiration_ttl_change.receive
           next
         end
-        break unless ttl = @expires
+        break unless ttl = @settings.expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
         when @queue_expiration_ttl_change.receive
@@ -299,7 +323,7 @@ module LavinMQ::AMQP
     end
 
     private def ensure_queue_expire_fiber
-      return if @closed || !@expires
+      return if @closed || !@settings.expires
       return if @queue_expire_fiber_active.swap(true)
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         queue_expire_loop
@@ -360,7 +384,7 @@ module LavinMQ::AMQP
     private def should_start_expire_fiber? : Bool
       return false if @msg_store.size == 0  # No messages to expire
       return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
-      return true if @message_ttl           # Queue-level TTL means all messages need expiring
+      return true if @settings.message_ttl  # Queue-level TTL means all messages need expiring
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
@@ -437,61 +461,58 @@ module LavinMQ::AMQP
 
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool # ameba:disable Metrics/CyclomaticComplexity
       @log.debug { "Applying policy #{key}: #{value}" }
+      settings = @staged_settings
       case key
       when "max-length"
-        unless @max_length.try &.< value.as_i64
-          @max_length = value.as_i64
-          @effective_args.delete("x-max-length")
-          schedule_policy_limits
+        unless settings.max_length.try &.< value.as_i64
+          settings.max_length = value.as_i64
+          settings.effective_args.delete("x-max-length")
+          settings.enforce_limits = true
           return true
         end
       when "max-length-bytes"
-        unless @max_length_bytes.try &.< value.as_i64
-          @max_length_bytes = value.as_i64
-          @effective_args.delete("x-max-length-bytes")
-          schedule_policy_limits
+        unless settings.max_length_bytes.try &.< value.as_i64
+          settings.max_length_bytes = value.as_i64
+          settings.effective_args.delete("x-max-length-bytes")
+          settings.enforce_limits = true
           return true
         end
       when "message-ttl"
-        unless @message_ttl.try &.< value.as_i64
-          @message_ttl = value.as_i64
-          @message_ttl_change.try_send? nil
-          ensure_expire_fiber
-          @effective_args.delete("x-message-ttl")
+        unless settings.message_ttl.try &.< value.as_i64
+          settings.message_ttl = value.as_i64
+          settings.effective_args.delete("x-message-ttl")
           return true
         end
       when "expires"
-        unless @expires.try &.< value.as_i64
-          @expires = value.as_i64
-          ensure_queue_expire_fiber
-          @queue_expiration_ttl_change.try_send? nil
-          @effective_args.delete("x-expires")
+        unless settings.expires.try &.< value.as_i64
+          settings.expires = value.as_i64
+          settings.effective_args.delete("x-expires")
           return true
         end
       when "overflow"
         overflow = value.as_s
         if overflow.in?("reject-publish", "drop-head")
-          @reject_on_overflow = overflow == "reject-publish"
-          @effective_args.delete("x-overflow")
+          settings.reject_on_overflow = overflow == "reject-publish"
+          settings.effective_args.delete("x-overflow")
           return true
         end
       when "dead-letter-exchange"
-        if @dead_letter.dlx.nil?
-          @dead_letter.dlx ||= value.as_s
-          @effective_args.delete("x-dead-letter-exchange")
+        if settings.dlx.nil?
+          settings.dlx = value.as_s
+          settings.effective_args.delete("x-dead-letter-exchange")
           return true
         end
       when "dead-letter-routing-key"
-        if @dead_letter.dlrk.nil?
-          @dead_letter.dlrk ||= value.as_s
-          @effective_args.delete("x-dead-letter-routing-key")
+        if settings.dlrk.nil?
+          settings.dlrk = value.as_s
+          settings.effective_args.delete("x-dead-letter-routing-key")
           return true
         end
       when "delivery-limit"
-        unless @delivery_limit.try &.< value.as_i64
-          @delivery_limit = value.as_i64
-          @effective_args.delete("x-delivery-limit")
-          schedule_policy_limits
+        unless settings.delivery_limit.try &.< value.as_i64
+          settings.delivery_limit = value.as_i64
+          settings.effective_args.delete("x-delivery-limit")
+          settings.enforce_limits = true
           return true
         end
       when "federation-upstream"
@@ -501,9 +522,9 @@ module LavinMQ::AMQP
         @vhost.upstreams.try &.link_set(value.as_s, self)
         return true
       when "consumer-timeout"
-        unless @consumer_timeout.try &.< value.as_i64
-          @consumer_timeout = value.as_i64.to_u64
-          @effective_args.delete("x-consumer-timeout")
+        unless settings.consumer_timeout.try &.< value.as_i64
+          settings.consumer_timeout = value.as_i64.to_u64
+          settings.effective_args.delete("x-consumer-timeout")
           return true
         end
       end
@@ -511,49 +532,68 @@ module LavinMQ::AMQP
     end
 
     private def clear_policy_arguments
-      handle_arguments
+      @staged_settings = settings_from_arguments
       @vhost.upstreams.try &.stop_link(self)
     end
 
-    private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
-      @effective_args = Array(String).new
-      @dead_letter.dlx = parse_header("x-dead-letter-exchange", String)
-      @effective_args << "x-dead-letter-exchange" if @dead_letter.dlx
-      @dead_letter.dlrk = parse_header("x-dead-letter-routing-key", String)
-      @effective_args << "x-dead-letter-routing-key" if @dead_letter.dlrk
-      @expires = parse_header("x-expires", Int).try &.to_i64
-      @effective_args << "x-expires" if @expires
+    private def handle_arguments
+      @policy_lock.synchronize do
+        @staged_settings = settings_from_arguments
+        commit_policy_arguments
+      end
+    end
+
+    # Publish the staged settings, then act on them
+    private def commit_policy_arguments
+      settings = @staged_settings
+      @dead_letter.dlx = settings.dlx
+      @dead_letter.dlrk = settings.dlrk
+      @settings = settings
       @queue_expiration_ttl_change.try_send? nil
-      @max_length = parse_header("x-max-length", Int).try &.to_i64
-      @effective_args << "x-max-length" if @max_length
-      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      @effective_args << "x-max-length-bytes" if @max_length_bytes
-      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      @effective_args << "x-message-ttl" if @message_ttl
+      ensure_queue_expire_fiber
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber if @message_ttl
-      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      @effective_args << "x-delivery-limit" if @delivery_limit
+      ensure_expire_fiber if settings.message_ttl
+      schedule_policy_limits if settings.enforce_limits?
+    end
+
+    private def settings_from_arguments : Settings # ameba:disable Metrics/CyclomaticComplexity
+      settings = Settings.new
+      effective_args = settings.effective_args
+      settings.dlx = parse_header("x-dead-letter-exchange", String)
+      effective_args << "x-dead-letter-exchange" if settings.dlx
+      settings.dlrk = parse_header("x-dead-letter-routing-key", String)
+      effective_args << "x-dead-letter-routing-key" if settings.dlrk
+      settings.expires = parse_header("x-expires", Int).try &.to_i64
+      effective_args << "x-expires" if settings.expires
+      settings.max_length = parse_header("x-max-length", Int).try &.to_i64
+      effective_args << "x-max-length" if settings.max_length
+      settings.max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
+      effective_args << "x-max-length-bytes" if settings.max_length_bytes
+      settings.message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
+      effective_args << "x-message-ttl" if settings.message_ttl
+      settings.delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
+      effective_args << "x-delivery-limit" if settings.delivery_limit
       overflow = parse_header("x-overflow", String)
-      @reject_on_overflow = overflow == "reject-publish"
-      @effective_args << "x-overflow" if @reject_on_overflow || overflow == "drop-head"
+      settings.reject_on_overflow = overflow == "reject-publish"
+      effective_args << "x-overflow" if settings.reject_on_overflow? || overflow == "drop-head"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
-      @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
-      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      @effective_args << "x-consumer-timeout" if @consumer_timeout
+      effective_args << "x-single-active-consumer" if @single_active_consumer_queue
+      settings.consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      effective_args << "x-consumer-timeout" if settings.consumer_timeout
       if parse_header("x-message-deduplication", Bool)
-        @effective_args << "x-message-deduplication"
+        effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
-        @effective_args << "x-cache-size" if size
+        effective_args << "x-cache-size" if size
         ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
-        @effective_args << "x-cache-ttl" if ttl
+        effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
-        @effective_args << "x-deduplication-header" if header_key
+        effective_args << "x-deduplication-header" if header_key
         @deduper ||= begin
           cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
+      settings
     end
 
     private macro parse_header(header, type)
@@ -681,7 +721,7 @@ module LavinMQ::AMQP
         state:                        @state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
-        effective_arguments:          @effective_args,
+        effective_arguments:          @settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
       }
@@ -721,7 +761,7 @@ module LavinMQ::AMQP
       ensure_consumers_deliver_loops if was_empty
 
       # Record activity if message has TTL (needs expiration)
-      if @message_ttl || msg.properties.expiration
+      if @settings.message_ttl || msg.properties.expiration
         ensure_expire_fiber
       end
 
@@ -738,15 +778,16 @@ module LavinMQ::AMQP
     end
 
     private def reject_on_overflow?(msg) : Bool
-      return false unless @reject_on_overflow
-      if ml = @max_length
+      settings = @settings
+      return false unless settings.reject_on_overflow?
+      if ml = settings.max_length
         if @msg_store.size >= ml
           @log.debug { "Overflow reject message msg=#{msg}" }
           return true
         end
       end
 
-      if mlb = @max_length_bytes
+      if mlb = settings.max_length_bytes
         if @msg_store.bytesize + msg.bytesize >= mlb
           @log.debug { " Overflow reject message msg=#{msg}" }
           return true
@@ -765,13 +806,16 @@ module LavinMQ::AMQP
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
-      return unless (ml = @max_length) || (mlb = @max_length_bytes)
+      settings = @settings
+      ml = settings.max_length
+      mlb = settings.max_length_bytes
+      return unless ml || mlb
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
       return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
 
       counter = 0
-      if ml = @max_length
+      if ml
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
@@ -786,7 +830,7 @@ module LavinMQ::AMQP
         end
       end
 
-      if mlb = @max_length_bytes
+      if mlb
         @msg_store_lock.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
@@ -804,7 +848,7 @@ module LavinMQ::AMQP
 
     private def drop_redelivered : Nil
       counter = 0
-      if limit = @delivery_limit
+      if limit = @settings.delivery_limit
         @msg_store_lock.synchronize do
           loop do
             env = @msg_store.first? || break
@@ -841,11 +885,11 @@ module LavinMQ::AMQP
     end
 
     private def zero_ttl?(msg) : Bool
-      msg.ttl == 0 || @message_ttl == 0
+      msg.ttl == 0 || @settings.message_ttl == 0
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
-      if ttl = @message_ttl
+      if ttl = @settings.message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
         msg.timestamp + ttl
       elsif ttl = msg.ttl
@@ -949,7 +993,7 @@ module LavinMQ::AMQP
             expire_msg(env, :expired)
             next
           end
-          if @delivery_limit && !no_ack
+          if @settings.delivery_limit && !no_ack
             env = with_delivery_count_header(env) || next
           end
           sp = env.segment_position
@@ -992,7 +1036,7 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit
+      if @settings.delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
@@ -1021,7 +1065,7 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      @deliveries.delete(sp) if @settings.delivery_limit
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -1038,7 +1082,7 @@ module LavinMQ::AMQP
         if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
-          if delivery_limit = @delivery_limit
+          if delivery_limit = @settings.delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
               return expire_msg(sp, :delivery_limit)
             end
