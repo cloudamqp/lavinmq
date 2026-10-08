@@ -300,6 +300,39 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "replicates the MQTT packet id log, also after compaction" do
+    with_clustering do |cluster|
+      replicator = cluster.replicator
+      path = File.join(cluster.config.data_dir, "packet_ids.log")
+      log = LavinMQ::MQTT::PacketIdLog.new(path, replicator, nil)
+      log.publish_received(1u16)
+      log.publish_sent(2u16, LavinMQ::SegmentPosition.new(1u32, 4u32, 0u32))
+      # Before any compaction resends the file: the follower must have got the
+      # header from the log's creation, not from a later replace
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      follower_path = File.join(cluster.follower_config.data_dir, "packet_ids.log")
+      # The leader's file is capacity-sized while open, so its logical content
+      File.read(follower_path).to_slice.should eq log.@mfile.not_nil!.to_slice
+      # Past what fits, so it compacts
+      (LavinMQ::MQTT::PacketIdLog::MIN_CAPACITY // 6 + 1).times do
+        log.publish_received(3u16)
+        log.pubrel_received(3u16)
+      end
+      log.publish_received(4u16) # appended after the compaction
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      cluster.stop
+      log.close
+      File.size(path).should be < 4 + 3 * 100 # compacted
+      File.read(follower_path).should eq File.read(path)
+      follower = LavinMQ::MQTT::PacketIdLog.new(follower_path, nil, nil)
+      follower.awaiting_pubrel.should eq Set{1u16, 4u16}
+      follower.publish_sent.keys.should eq [2u16]
+    ensure
+      log.try &.close
+      follower.try &.close
+    end
+  end
+
   it "replicates and streams retained messages to followers" do
     with_clustering do |cluster|
       replicator = cluster.replicator

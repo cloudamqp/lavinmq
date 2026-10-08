@@ -1,5 +1,27 @@
 require "../spec_helper"
 
+# Reads from the socket, fails every write
+private class WriteFailingIO < IO
+  def initialize(@io : IO)
+  end
+
+  def read(slice : Bytes)
+    @io.read(slice)
+  end
+
+  def write(slice : Bytes) : Nil
+    raise IO::Error.new("write failed")
+  end
+
+  def close
+    @io.close
+  end
+
+  def closed?
+    @io.closed?
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -43,6 +65,21 @@ module MqttSpecs
             packet_ids = Array.new(3) { read_packet(io).as(MQTT::Protocol::PubAck).packet_id }
             packet_ids.should eq [1u16, 2u16, 3u16]
           end
+        end
+      end
+    end
+
+    it "closes the socket when an acknowledgement cannot be written" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "pub")
+          session = server.vhosts["/"].session("mqtt.pub")
+          wait_for { session.client }
+          client = session.client.not_nil!
+          pointerof(client.@io).value = MQTT::Protocol::IO.new(WriteFailingIO.new(client.@io.io))
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
+          # Nothing more may follow a packet that may be half written
+          io.should be_closed
         end
       end
     end
@@ -197,9 +234,15 @@ module MqttSpecs
           subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2}))
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
-            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16)
-            sync = server.persister.last_sync.not_nil!
-            sync.paths.any?(&.ends_with?("msgs.0000000001")).should be_true
+            # A durable publisher's PUBREC waits a second drain, for the packet
+            # id log, so the segment is in the first one
+            with_drain_held do |gate|
+              publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, expect_response: false)
+              step_drain(gate)
+              wait_for { server.persister.last_sync.try &.paths.any?(&.ends_with?("msgs.0000000001")) }
+              release_drain(gate)
+              read_packet(pub_io).should be_a(MQTT::Protocol::PubRec)
+            end
           end
         end
       end

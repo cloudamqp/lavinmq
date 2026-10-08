@@ -193,6 +193,35 @@ module MqttSpecs
         end
       end
     end
+
+    it "closes a publisher holding more than max_awaiting_pubrel packet ids" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 2u16
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          2.times { |i| publish(io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16) }
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 3u16, expect_response: false)
+          io.should be_closed
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
+    end
+
+    it "accepts a re-send of a held packet id at the cap" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1u16
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16)
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16, dup: true)
+          pubrel(io, 1u16)
+          read_packet(io).should be_a(MQTT::Protocol::PubComp)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
+    end
   end
 
   describe "qos2 as sender" do
@@ -482,11 +511,9 @@ module MqttSpecs
       end
     end
 
-    it "re-sends the PUBREL before the replayed publishes" do
-      # Weakly toothed on purpose, and kept as documentation of the intended
-      # order: the misordering it guards against (opening the capacity gate
-      # before the PUBRELs go out) only shows when `client.send` yields on a
-      # full socket buffer, which a spec cannot force.
+    # [MQTT-4.4.0-1] and 4.6 order packets within each kind only, so the two
+    # may arrive in either order.
+    it "re-sends both the PUBREL and the replayed publish on reconnect" do
       with_server do |server|
         owed = 0u16
         with_client_io(server) do |io|
@@ -504,9 +531,10 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
-          rel = read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          packets = {read_packet(io), read_packet(io)}
+          rel = packets.find(&.is_a?(MQTT::Protocol::PubRel)).as(MQTT::Protocol::PubRel)
           rel.packet_id.should eq owed
-          resent = read_publish(io)
+          resent = packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
           String.new(resent.payload).should eq "1"
           resent.dup?.should be_true
 
@@ -542,8 +570,9 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
-          resent = read_publish(io)
+          packets = {read_packet(io), read_packet(io)} # either order
+          packets.count(&.is_a?(MQTT::Protocol::PubRel)).should eq 1
+          resent = packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
           String.new(resent.payload).should eq "1"
           resent.packet_id.should_not eq owed
 
@@ -583,9 +612,9 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
-          one = read_publish(io)
-          two = read_publish(io)
+          packets = Array.new(3) { read_packet(io) } # the PUBREL in any position
+          packets.count(&.is_a?(MQTT::Protocol::PubRel)).should eq 1
+          one, two = packets.compact_map(&.as?(MQTT::Protocol::Publish))
           String.new(two.payload).should eq "2"
           two.packet_id.should eq ids[1]
           one.packet_id.should_not eq ids[1]
@@ -613,8 +642,9 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
-          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq owed
-          String.new(read_publish(io).payload).should eq "1"
+          packets = {read_packet(io), read_packet(io)} # either order
+          packets.find(&.is_a?(MQTT::Protocol::PubRel)).as(MQTT::Protocol::PubRel).packet_id.should eq owed
+          String.new(packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish).payload).should eq "1"
           disconnect(io)
         end
       end

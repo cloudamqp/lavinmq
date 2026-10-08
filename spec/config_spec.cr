@@ -658,6 +658,21 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "max_awaiting_pubrel" do
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [mqtt]
+          max_awaiting_pubrel = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /max_awaiting_pubrel/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
