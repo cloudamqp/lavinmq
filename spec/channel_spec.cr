@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 class LavinMQ::AMQP::Channel
   def spec_next_delivery_tag(queue, sp, consumer)
@@ -124,6 +125,21 @@ describe "LavinMQ::AMQP::Channel delivery after close" do
         end
         server_ch.@unacked.size.should eq 0
         queue.message_count.should eq 1
+      end
+    end
+  end
+
+  it "doesn't log the closed channel as a delivery error" do
+    with_amqp_server do |s|
+      with_channel(s) do |_ch|
+        client = s.connections.first.as(LavinMQ::AMQP::Client)
+        msg = LavinMQ::Message.new("", "q", "m")
+        Log.capture(level: :error) do |logs|
+          expect_raises(LavinMQ::AMQP::Channel::ClosedError) do
+            client.deliver(msg) { raise LavinMQ::AMQP::Channel::ClosedError.new("Channel is closed") }
+          end
+          logs.empty
+        end
       end
     end
   end

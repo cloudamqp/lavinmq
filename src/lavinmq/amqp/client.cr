@@ -374,6 +374,8 @@ module LavinMQ
         @log.info { "Timeout while sending (#{ex.inspect})" }
         close_socket
         false
+      rescue ex : AMQP::Channel::ClosedError
+        raise ex # the channel closed while the delivery waited, not an error
       rescue ex
         @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
         raise ex
