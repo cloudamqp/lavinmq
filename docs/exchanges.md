@@ -67,6 +67,19 @@ Distributes messages across bound queues using consistent hashing. Each message 
 |-----------|---------|---------|-------------|
 | `default_consistent_hash_algorithm` | `[main]` | `ring` | Default hash algorithm when `x-algorithm` is not set on the exchange |
 
+### MQTT Topic Exchange
+
+Routes MQTT publishes to AMQP queues and exchanges. Queues and exchanges are bound to it with MQTT topic filters, and a message is delivered with the MQTT topic as its routing key, verbatim.
+
+- Type: `x-mqtt-topic`
+- The binding key is an MQTT topic filter: `/` separates levels, `+` matches one level, `#` matches the rest. A malformed filter (such as `a/#/b` or `a/+b`) is refused at bind time
+- Always internal: `basic.publish` into it is refused. MQTT publishes are the only way in, see [MQTT](mqtt.md#consuming-mqtt-messages-over-amqp)
+- Delivered messages have `delivery_mode` 2. Persistence follows the destination queue's durability
+- A bound exchange receives the message as a normal AMQP publish and routes it on with its own bindings. The routing key keeps its `/` separators, so a bound topic exchange only matches it literally
+- Overlapping filters deliver one copy per matching binding
+- Retained MQTT messages are not replayed to a new binding
+- Policies and exchange arguments are not supported
+
 ### Default Exchange
 
 A nameless direct exchange that every queue is automatically bound to, with the queue's name as the binding key. Publishing to the default exchange with a routing key equal to a queue name delivers directly to that queue.
