@@ -1,3 +1,5 @@
+import * as Reachability from './reachability.js'
+
 async function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
@@ -13,14 +15,28 @@ async function request (method, path, options = {}) {
     opts.body = JSON.stringify(body)
   }
 
-  const response = await window.fetch(path, opts)
+  let response
+  try {
+    response = await window.fetch(path, opts)
+  } catch (err) {
+    Reachability.recordFailure(err.message)
+    throw err
+  }
   updateVersionFromResponse(response)
-  if (response.ok) return response.json().catch(() => null)
+  if (response.ok) {
+    Reachability.recordSuccess()
+    return response.json().catch(() => null)
+  }
 
   const error = { status: response.status, reason: response.statusText }
   const json = await response.json().catch(() => null)
   if (json?.reason) error.reason = json.reason
 
+  if ([502, 503, 504].includes(response.status)) {
+    Reachability.recordFailure(error.reason)
+  } else if (response.status !== 401) {
+    Reachability.recordSuccess()
+  }
   standardErrorHandler(error)
   throw error
 }

@@ -168,4 +168,63 @@ test.describe('refresh control', _ => {
     await page.goto('/logs')
     await expect(page.locator('#refresh-control')).toBeHidden()
   })
+
+  test('steps through reconnecting to stale while the server fails, and recovers', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    const control = page.locator('#refresh-control')
+    await expect(control).toHaveAttribute('data-state', 'live')
+
+    await page.route('**/api/overview', route => route.fulfill({ status: 503, json: { reason: 'Server is starting' } }))
+    const pillBorder = () => page.locator('.refresh-pill').evaluate(pill => getComputedStyle(pill).borderColor)
+    const pulse = () => page.locator('.refresh-ring').evaluate(ring => getComputedStyle(ring).animationName)
+    const liveBorder = await pillBorder()
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    expect(await pulse()).toBe('refresh-pulse')
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'stale')
+    await expect(control).toHaveAttribute('title', /\nLast error: Server is starting/)
+    expect(await pulse()).toBe('refresh-pulse')
+    expect(await pillBorder()).toBe(liveBorder)
+
+    await page.unroute('**/api/overview')
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
+
+  for (const status of [404, 500]) {
+    test(`counts a ${status} as reachable`, async ({ page }) => {
+      await page.clock.install()
+      await loadOverview(page)
+      await page.route('**/api/overview', route => route.fulfill({ status, json: { reason: 'Nope' } }))
+      await advance(page, 10000)
+      await expect(page.locator('#refresh-control')).toHaveAttribute('data-state', 'live')
+    })
+  }
+
+  test('a request that never answers stops showing live', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.route('**/api/overview', () => {})
+    await advance(page, 10000)
+    const control = page.locator('#refresh-control')
+    await expect(control).not.toHaveAttribute('data-state', 'live')
+    await expect(control).toHaveAttribute('title', /No response for/)
+  })
+
+  test('shows going offline at once and refreshes when back online', async ({ page, context }) => {
+    await page.clock.install()
+    const overview = countRequests(page, '/api/overview')
+    await loadOverview(page)
+    const control = page.locator('#refresh-control')
+
+    await context.setOffline(true)
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(control).toHaveAttribute('title', /Browser is offline/)
+
+    await context.setOffline(false)
+    await expect.poll(() => overview.count).toBe(2)
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
 })

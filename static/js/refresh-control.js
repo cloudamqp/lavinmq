@@ -1,4 +1,5 @@
 import * as Poller from './poller.js'
+import * as Reachability from './reachability.js'
 
 const control = document.getElementById('refresh-control')
 const toggle = document.getElementById('refresh-toggle')
@@ -11,9 +12,20 @@ for (const ms of Poller.RATES) {
   rateSelect.add(new window.Option(`${ms / 1000}s`, ms))
 }
 
+function describe (paused, { state, lastSuccessAt, lastError }) {
+  const updated = lastSuccessAt ? lastSuccessAt.toLocaleTimeString() : 'never'
+  if (state === 'stale') return `No new data since ${updated}, retrying.\nLast error: ${lastError}`
+  if (state === 'reconnecting') return `Connection trouble, retrying. Last update ${updated}.\nLast error: ${lastError}`
+  if (paused) return `Paused, last update ${updated}`
+  return lastSuccessAt ? `Live, updated ${updated}` : 'Waiting for the first update'
+}
+
 function render () {
   const paused = Poller.isPaused()
+  const reachability = Reachability.getState()
   control.hidden = !Poller.isActive()
+  control.dataset.state = reachability.state
+  control.title = describe(paused, reachability)
   toggle.setAttribute('aria-pressed', String(paused))
   toggle.setAttribute('aria-label', paused ? 'Resume auto-refresh' : 'Pause auto-refresh')
   rateSelect.value = String(Poller.getRate())
@@ -38,4 +50,5 @@ toggle.addEventListener('click', () => {
 rateSelect.addEventListener('change', () => Poller.setRate(Number(rateSelect.value)))
 Poller.events.addEventListener('schedule', sweep)
 Poller.events.addEventListener('change', render)
+Reachability.events.addEventListener('change', render)
 render()

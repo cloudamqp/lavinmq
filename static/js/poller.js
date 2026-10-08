@@ -3,7 +3,7 @@ const RATE_KEY = 'lmq.refreshInterval'
 const PAUSED_KEY = 'lmq.refreshPaused'
 
 const fns = new Set()
-const inFlight = new Set()
+const inFlight = new Map()
 const events = new EventTarget()
 let timer = null
 let lastTickAt = 0
@@ -16,7 +16,7 @@ function emit () {
 
 function run (fn) {
   if (inFlight.has(fn)) return
-  inFlight.add(fn)
+  inFlight.set(fn, Date.now())
   Promise.resolve()
     .then(fn)
     .catch(console.error)
@@ -32,8 +32,17 @@ function schedule (delay = rate) {
   events.dispatchEvent(new window.CustomEvent('schedule', { detail: timer === null ? null : { rate, delay } }))
 }
 
+function reportStalled () {
+  const oldest = Math.min(...inFlight.values())
+  const pending = Date.now() - oldest
+  if (pending >= rate) {
+    events.dispatchEvent(new window.CustomEvent('stalled', { detail: pending }))
+  }
+}
+
 function tick () {
   lastTickAt = Date.now()
+  reportStalled()
   fns.forEach(run)
   schedule()
 }
@@ -83,6 +92,10 @@ function setRate (ms) {
   schedule()
   emit()
 }
+
+window.addEventListener('online', () => {
+  if (!document.hidden && !paused) tick()
+})
 
 document.addEventListener('visibilitychange', () => {
   const remaining = lastTickAt + rate - Date.now()
