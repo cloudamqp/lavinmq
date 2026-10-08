@@ -26,7 +26,7 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
-A message is delivered at the lower of the QoS it was published with and the QoS of the subscription that matched it. Publishing at QoS 2 to a QoS 0 subscriber delivers at QoS 0, and publishing at QoS 0 to a QoS 2 subscriber delivers at QoS 0 as well.
+A message is delivered at the lower of the QoS it was published with and the QoS of the subscription that matched it. Publishing at QoS 2 to a QoS 0 subscriber delivers at QoS 0, and publishing at QoS 0 to a QoS 2 subscriber delivers at QoS 0 as well. Retained messages are the exception, see [Limitations](#limitations).
 
 ### QoS 2 exactly-once
 
@@ -44,7 +44,7 @@ A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBL
 
 A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
 
-A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated differently: it is logged and ignored. For a durable session the QoS 2 IDs survive a broker restart, but the broker can still meet IDs it has no record of: for a clean session, for QoS 1 (whose IDs are not persisted), and for a session that no longer exists, for example one that was deleted. [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
+A PUBREC or PUBCOMP for a packet ID the session has no record of is treated differently: it is logged and ignored. A PUBREL for such an ID is answered with PUBCOMP, as described above. For a durable session the QoS 2 IDs survive a broker restart, but the broker can still meet IDs it has no record of: for a clean session, for QoS 1 (whose IDs are not persisted), and for a session that no longer exists, for example one that was deleted. [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
 
 ## Sessions
 
@@ -187,7 +187,7 @@ The client ID has no other role. Membership is decided by the authenticated user
 
 ### Enforcement
 
-- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged, and the connection stays open
+- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged with PUBACK and a QoS 2 one with PUBREC, and the connection stays open
 - Subscribe: always accepted. Read is enforced when a message is accepted into the session, so a subscription to a filter the user cannot read receives no messages. This matches Mosquitto
 - Will: the connection needs a write rule for the will topic, otherwise the will is dropped
 - Denials are logged at debug level
@@ -276,7 +276,7 @@ Note that connecting with a client_id already in use takes over that session, so
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
 - QoS 2 state of a clean session is held in memory only, so it is lost with the session. For a durable session the packet IDs are persisted and replicated, see [QoS 2 exactly-once](#qos-2-exactly-once). The state is gone for a clean session and for a deleted session. In that case a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
 - A subscriber that answers PUBREC and never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
-- Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full handshake when replayed to a QoS 2 subscriber.
+- Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full QoS 2 handshake when replayed to a QoS 2 subscriber, and for a durable session it also waits for its packet ID record.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).
