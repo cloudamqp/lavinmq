@@ -34,13 +34,34 @@ module LavinMQ
         if v = @arguments["x-algorithm"]?
           if hasher = v.as?(String)
             if algo = ConsistentHashAlgorithm.parse?(hasher)
-              state = @state.get(:acquire)
-              @state.set(State.new(state.bindings, select_hasher(algo)), :release)
+              use_algorithm(algo)
               @effective_args << "x-algorithm"
             end
           end
         end
         @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+      end
+
+      # handle_arguments also runs on every policy (re)apply. It only swaps
+      # the hasher when the algorithm actually changes (in practice only
+      # while the exchange is being declared), and rebuilds it from the
+      # current bindings so that none are dropped from routing.
+      private def use_algorithm(algo : ConsistentHashAlgorithm) : Nil
+        update_state do |state|
+          next if hasher_algorithm?(state.hasher, algo)
+          hasher = select_hasher(algo)
+          state.bindings.each do |e|
+            hasher.add(e.destination.name, weight(e.binding_key.routing_key), e.destination)
+          end
+          State.new(state.bindings, hasher)
+        end
+      end
+
+      private def hasher_algorithm?(hasher, algo : ConsistentHashAlgorithm) : Bool
+        case algo
+        in .jump? then hasher.is_a?(JumpConsistentHasher)
+        in .ring? then hasher.is_a?(RingConsistentHasher)
+        end
       end
 
       private def select_hasher(option : ConsistentHashAlgorithm)
@@ -69,11 +90,13 @@ module LavinMQ
         validate_delayed_binding!(destination)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        state = @state.get(:acquire)
-        bindings = state.bindings.add(destination, binding_key) || return false
-        hasher = state.hasher.copy
-        hasher.add(destination.name, w, destination)
-        @state.set(State.new(bindings, hasher), :release)
+        updated = update_state do |state|
+          bindings = state.bindings.add(destination, binding_key) || next
+          hasher = state.hasher.copy
+          hasher.add(destination.name, w, destination)
+          State.new(bindings, hasher)
+        end
+        return false unless updated
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -82,25 +105,41 @@ module LavinMQ
       def unbind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        state = @state.get(:acquire)
-        bindings = state.bindings.delete(destination, binding_key)
-        return false if bindings.same?(state.bindings)
-        # Only remove from hasher if no other bindings exist for this destination with same weight
-        has_other_binding = false
-        bindings.each do |e|
-          has_other_binding = true if e.destination == destination && e.binding_key.routing_key == routing_key
+        updated = update_state do |state|
+          bindings = state.bindings.delete(destination, binding_key)
+          next if bindings.same?(state.bindings)
+          # Only remove from hasher if no other bindings exist for this destination with same weight
+          has_other_binding = false
+          bindings.each do |e|
+            has_other_binding = true if e.destination == destination && e.binding_key.routing_key == routing_key
+          end
+          hasher = state.hasher
+          unless has_other_binding
+            hasher = hasher.copy
+            hasher.remove(destination.name, w)
+          end
+          State.new(bindings, hasher)
         end
-        hasher = state.hasher
-        unless has_other_binding
-          hasher = hasher.copy
-          hasher.remove(destination.name, w)
-        end
-        @state.set(State.new(bindings, hasher), :release)
+        return false unless updated
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && bindings.empty?
+        delete if @auto_delete && updated.bindings.empty?
         true
+      end
+
+      # Publishes the state the block builds from the current one, retrying
+      # if another writer published in between. bind and unbind are already
+      # serialized by the definitions lock, but handle_arguments (run on
+      # policy applies) isn't. Returns nil, without publishing, if the block
+      # returns nil.
+      private def update_state(& : State -> State?) : State?
+        loop do
+          state = @state.get(:acquire)
+          updated = yield(state) || return
+          _, swapped = @state.compare_and_set(state, updated, :acquire_release, :acquire)
+          return updated if swapped
+        end
       end
 
       def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
