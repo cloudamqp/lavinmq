@@ -432,7 +432,10 @@ module MqttSpecs
           connect(io, client_id: "subscriber")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
 
+          # PUBREL is the only answer that lets the client release the id, as
+          # PUBCOMP is for an unknown PUBREL.
           pubrec(io, 4242u16)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq 4242u16
           pubcomp(io, 4243u16)
           io.should be_drained
 
@@ -467,6 +470,49 @@ module MqttSpecs
           disconnect(io)
         end
       end
+    end
+
+    it "does not answer a PUBREC for an id owed to a requeued message" do
+      # The id is not in flight, but the requeued message will be re-sent under
+      # it [MQTT-4.4.0-1]. A PUBREL now would release the id at the client,
+      # which would then take that re-send for a new message.
+      LavinMQ::Config.instance.max_inflight_messages = 2u16
+      with_server do |server|
+        rel_id = owed = 0u16
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          rel_id = read_publish(io).packet_id.not_nil!
+          owed = read_publish(io).packet_id.not_nil!
+          pubrec(io, rel_id)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          disconnect(io)
+        end
+
+        # The id awaiting PUBCOMP fills the window on reconnect, so the
+        # requeued message waits under its remembered id.
+        LavinMQ::Config.instance.max_inflight_messages = 1u16
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq rel_id
+          read_packet(io).should be_nil
+
+          pubrec(io, owed)
+          read_packet(io).should be_nil
+
+          pubcomp(io, rel_id)
+          pub = read_publish(io)
+          pub.packet_id.should eq owed
+          pub.dup?.should be_true
+          pubrec(io, owed)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq owed
+          pubcomp(io, owed)
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
     it "keeps owing a PUBREL while the session is offline" do

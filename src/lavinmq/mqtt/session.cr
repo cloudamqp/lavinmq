@@ -629,11 +629,21 @@ module LavinMQ
       #
       # Returns rather than raises for an unknown id: a clean session's window
       # does not survive a restart, a client may still answer for it, and
-      # raising would publish its will.
+      # raising would publish its will. It is answered with PUBREL, the only
+      # packet that lets the client release the id, as an unknown PUBREL is
+      # answered with PUBCOMP.
       def pubrec(packet : Protocol::PubRec) : Bool
         id = packet.packet_id
         unless inflight = @inflight[id]?
-          @log.warn { "PUBREC for unknown packet id '#{id}'" }
+          # An id owed to a requeued message is not unknown: its PUBLISH is
+          # about to be re-sent under it, and a PUBREL now would let the client
+          # take that re-send for a new message.
+          if id.zero? || @msg_store.original_packet_id_in_use?(id)
+            @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
+          else
+            @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
+            send_pubrel(id)
+          end
           return false
         end
         if inflight.awaiting.pub_comp?
