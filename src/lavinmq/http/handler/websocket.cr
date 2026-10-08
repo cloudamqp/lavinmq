@@ -1,6 +1,8 @@
 require "http/server/handler"
 require "http/web_socket"
 require "../../connection_info"
+require "../../config"
+require "../../../stdlib/socket_shutdown"
 
 module LavinMQ
   class WebSocketHandler
@@ -16,7 +18,7 @@ module LavinMQ
       /^mqtt/i => Protocol::MQTT,
     }
 
-    def initialize(&@proc : ::HTTP::WebSocket, ::HTTP::Server::Context, Protocol? ->)
+    def initialize(&@proc : ::HTTP::WebSocket, IO, ::HTTP::Server::Context, Protocol? ->)
     end
 
     def call(context) : Nil
@@ -50,8 +52,13 @@ module LavinMQ
       protocol = pick_sub_protocol(context)
 
       response.upgrade do |io|
+        # Writes, and closing the connection, wait for the client's write
+        # lock, so a client that stops reading mustn't block a write forever
+        if io.responds_to?(:write_timeout=)
+          io.write_timeout = LavinMQ::Config.instance.tcp_send_timeout.seconds
+        end
         ws_session = ::HTTP::WebSocket.new(io, sync_close: false)
-        @proc.call(ws_session, context, protocol)
+        @proc.call(ws_session, io, context, protocol)
         ws_session.run
       end
     end
@@ -80,7 +87,7 @@ module LavinMQ
   # Acts as a proxy between websocket clients and the normal TCP servers
   class WebsocketProxy
     def self.new(amqp_server : LavinMQ::AMQP::Server, mqtt_server : LavinMQ::MQTT::Server)
-      WebSocketHandler.new do |ws, ctx, protocol|
+      WebSocketHandler.new do |ws, socket, ctx, protocol|
         req = ctx.request
         protocol ||= fallback_protocol(req)
 
@@ -89,7 +96,7 @@ module LavinMQ
         remote_address = req.remote_address.as?(Socket::IPAddress) ||
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
-        io = WebSocketIO.new(ws)
+        io = WebSocketIO.new(ws, socket)
 
         case protocol
         in .mqtt?
@@ -114,7 +121,8 @@ module LavinMQ
   class WebSocketIO < IO
     include IO::Buffered
 
-    def initialize(@ws : ::HTTP::WebSocket)
+    # *socket* is the connection the WebSocket runs over
+    def initialize(@ws : ::HTTP::WebSocket, @socket : IO)
       @r, @w = IO.pipe
       @r.read_buffering = false
       @w.sync = true
@@ -151,6 +159,12 @@ module LavinMQ
 
     def read_timeout=(timeout : Time::Span?)
       @r.read_timeout = timeout
+    end
+
+    # Shuts down the underlying connection, see `Socket#shutdown_read_write`
+    def shutdown_read_write : Nil
+      socket = @socket
+      socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
     end
   end
 end

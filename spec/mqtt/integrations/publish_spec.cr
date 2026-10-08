@@ -54,5 +54,36 @@ module MqttSpecs
         end
       end
     end
+
+    it "doesn't resend buffered data when disconnecting a subscriber that doesn't read" do
+      LavinMQ::Config.instance.tcp_send_timeout = 1
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "stuck")
+          subscribe(sub, topic_filters: mk_topic_filters({"t", 0u8}))
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "publisher")
+            payload = Bytes.new(1000)
+            # more than the socket buffers can hold, so delivery to the
+            # subscriber blocks
+            20_000.times { publish(pub, topic: "t", payload: payload, qos: 0u8) }
+            disconnect(pub)
+          end
+          session = server.vhosts["/"].session("mqtt.stuck")
+          wait_for { session.message_count > 0 }
+          sleep 1.5.seconds # the first write has timed out, the client is closing
+          sub.io.as(TCPSocket).read_timeout = 10.seconds
+          packets = 0
+          loop do
+            # raises on a duplicated, so misaligned, packet
+            read_packet(sub).as(MQTT::Protocol::Publish)
+            packets += 1
+          rescue IO::EOFError
+            break
+          end
+          packets.should be > 0
+        end
+      end
+    end
   end
 end

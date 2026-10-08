@@ -118,13 +118,44 @@ module LavinMQ
       end
 
       def stop_link(resource : AMQP::Queue | Exchange)
-        each do |upstream|
+        each_linked_upstream do |upstream|
           upstream.stop_link(resource)
         end
       end
 
+      def exchange_bound(exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        each_linked_upstream do |upstream|
+          upstream.exchange_bound(exchange, binding)
+        end
+      end
+
+      def exchange_unbound(exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        each_linked_upstream do |upstream|
+          upstream.exchange_unbound(exchange, binding)
+        end
+      end
+
+      # Every upstream that can own links: the named upstreams plus the copies
+      # upstream sets make when an entry overrides settings (see Upstream#dup)
+      private def each_linked_upstream(&)
+        @upstreams.each_value { |upstream| yield upstream }
+        @upstream_sets.each_value do |set|
+          set.each do |upstream|
+            yield upstream if set_copy?(upstream)
+          end
+        end
+      end
+
+      # A set entry with overrides is a copy owning its own links, the others
+      # are the named upstream itself
+      private def set_copy?(upstream : Upstream) : Bool
+        !@upstreams[upstream.name]?.same?(upstream)
+      end
+
       def create_upstream_set(name, config)
-        @upstream_sets.delete(name)
+        # Re-applied policies link the new set; keep the upstream resources
+        # for those links to reuse
+        @upstream_sets.delete(name).try &.each { |u| u.close if set_copy?(u) }
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           upstream = @upstreams[cfg["upstream"].as_s]
@@ -146,7 +177,7 @@ module LavinMQ
       end
 
       def delete_upstream_set(name)
-        @upstream_sets.delete(name)
+        @upstream_sets.delete(name).try &.each { |u| u.delete if set_copy?(u) }
         @log.info { "Upstream set '#{name}' deleted" }
       end
 

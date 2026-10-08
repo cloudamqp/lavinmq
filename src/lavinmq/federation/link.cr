@@ -1,9 +1,6 @@
-require "../observable"
 require "../logger"
 require "../sortable_json"
 require "../rough_time"
-require "../amqp/queue/event"
-require "../amqp/exchange/event"
 require "../endpoint"
 
 module LavinMQ
@@ -223,7 +220,7 @@ module LavinMQ
       # upstream, available to other consumers, until a consumer here wants
       # them.
       class QueueLink < Link
-        include Observer(QueueEvent)
+        getter federated_q
 
         # Set by the consumer watcher when it ends a consume round because the
         # downstream queue has no consumers left
@@ -234,7 +231,6 @@ module LavinMQ
         def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
-          @federated_q.register_observer(self)
         end
 
         def name : String
@@ -245,27 +241,12 @@ module LavinMQ
           "queue"
         end
 
-        def stop
-          @federated_q.unregister_observer(self)
-          super
-        end
-
-        def on(event : QueueEvent, data)
-          return if stopping?
-          case event
-          in .deleted?, .closed?
-            @upstream.stop_link(@federated_q)
-          in .consumer_added?, .consumer_removed?
-            nil
-          end
-        rescue e
-          @log.error { "Could not process event=#{event} error=#{e.inspect_with_backtrace}" }
-        end
-
         private def start_link
           # Connect once up front so a bad upstream is reported right away,
           # even before the downstream queue has consumers.
           open_upstream
+          # A stop during setup must not be undone by going Running
+          return if stopping?
           set_state(State::Running)
           loop do
             unless has_consumers?
@@ -280,6 +261,8 @@ module LavinMQ
         private def open_upstream
           @upstream_session.close
           @upstream_session.open
+          # Stopped while connecting, when there was no session to close
+          return @upstream_session.close if stopping?
           declare_queue(@upstream_session, @upstream_q)
           @upstream_session.prefetch = @upstream.prefetch
         end
@@ -392,7 +375,7 @@ module LavinMQ
       #   upstream exchange --(downstream's bindings)--> x-federation-upstream
       #   exchange named like the queue --> queue "federation: X -> host:vhost:Y"
       class ExchangeLink < Link
-        include Observer(ExchangeEvent)
+        getter federated_ex
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -408,51 +391,44 @@ module LavinMQ
           "exchange"
         end
 
-        def stop
-          super
-          @federated_ex.unregister_observer(self)
-        end
-
         def delete
           stop
           cleanup
         end
 
-        def on(event : ExchangeEvent, data)
+        # Called (through UpstreamStore#exchange_bound) once a binding is
+        # stored on the federated exchange
+        def bound(b : AMQP::BindingDetails)
           return if stopping?
-          case event
-          in .deleted?
-            @upstream.stop_link(@federated_ex)
-          in .bind?
-            b = binding_details(data)
-            forward, args = bound_from(b.arguments)
-            @upstream_session.bind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
-          in .unbind?
-            b = binding_details(data)
-            forward, args = bound_from(b.arguments)
-            @upstream_session.unbind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
-          end
+          forward, args = bound_from(b.arguments)
+          @upstream_session.bind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
         rescue ex : Endpoint::Error
-          # Not connected: the bindings are replayed when the link reconnects
-          @log.debug { "Could not mirror event=#{event} to upstream: #{ex.message}" }
+          # Not connected: #setup replays all bindings when the link connects
+          @log.debug { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.message}" }
         rescue ex
-          @log.error { "Could not process event=#{event} error=#{ex.inspect_with_backtrace}" }
+          @log.error { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
         end
 
-        private def binding_details(data) : AMQP::BindingDetails
-          data.as?(AMQP::BindingDetails) || raise ArgumentError.new("Expected data to be of type AMQP::BindingDetails")
+        # Called once a binding is removed from the federated exchange
+        def unbound(b : AMQP::BindingDetails)
+          return if stopping?
+          forward, args = bound_from(b.arguments)
+          @upstream_session.unbind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
+        rescue ex : Endpoint::Error
+          @log.debug { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.message}" }
+        rescue ex
+          @log.error { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
         end
 
         private def start_link
           session = @upstream_session
           session.open
+          # Stopped while connecting, when there was no session to close:
+          # don't declare anything upstream
+          return if stopping?
           setup(session)
-          # A concurrent delete can stop the link while setup was waiting on
-          # the upstream; don't go Running, and don't leave a dead observer.
-          if stopping?
-            @federated_ex.unregister_observer(self)
-            return
-          end
+          # A stop during setup must not be undone by going Running
+          return if stopping?
           session.prefetch = @upstream.prefetch
           set_state(State::Running)
           no_ack = @upstream.ack_mode.no_ack?
@@ -494,10 +470,10 @@ module LavinMQ
             session.declare_exchange(@upstream_q, "x-federation-upstream", passive: false, args: ex_args)
           end
           session.bind_queue(@upstream_q, @upstream_q, "")
-          # Register before copying the bindings: exchanges store a binding
-          # before notifying observers, so one made in between is either in the
-          # copy or reported to us (binding twice is harmless).
-          @federated_ex.register_observer(self)
+          # The session is open, so #bound mirrors new bindings from here on.
+          # Exchanges store a binding before calling #bound, so one made
+          # meanwhile is in this copy or mirrored by #bound (binding twice is
+          # harmless).
           @federated_ex.bindings_details.each do |binding|
             forward, args = bound_from(binding.arguments)
             session.bind_exchange(@upstream_q, @upstream_exchange, binding.routing_key, args) if forward
