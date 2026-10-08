@@ -117,4 +117,4 @@ livelog.addEventListener('scroll', event => {
   lastScrollTop = st <= 0 ? 0 : st
 })
 
-livelog.addEventListener('beforeunload', () => livelog.close())
+window.addEventListener('beforeunload', () => evtSource.close())
