@@ -215,6 +215,7 @@ module LavinMQ
         publish_will
       rescue ex : ::IO::TimeoutError
         @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
+        disconnect(Protocol::Disconnect::ReasonCode::KeepAliveTimeout)
         publish_will
       rescue ex : ::IO::Error
         @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless closed_by_server?
@@ -320,13 +321,28 @@ module LavinMQ
       end
 
       # Server-initiated disconnect. v5 clients get a DISCONNECT carrying the
-      # reason code; v3 has no server DISCONNECT packet, so we just let the
-      # caller's cleanup close the socket. The socket close itself happens in
-      # read_loop's ensure block.
+      # reason code; v3 has no server DISCONNECT packet. The caller closes the
+      # socket afterwards.
+      #
+      # Best effort and bounded: a delivery blocked on a peer that stopped
+      # reading holds the write lock indefinitely, so the send runs in its own
+      # fiber. The caller's socket close fails that blocked write, which lets
+      # an abandoned send through to fail as well.
       private def disconnect(reason : Protocol::Disconnect::ReasonCode)
-        send(Protocol::Disconnect.new(reason)) if @io.version.v5?
-      rescue ::IO::Error
-        # peer may already be gone; read_loop's ensure still closes the socket
+        return unless @io.version.v5?
+        sent = ::Channel(Nil).new(1)
+        spawn(name: "mqtt disconnect #{@client_id}") do
+          send(Protocol::Disconnect.new(reason))
+        rescue ::IO::Error
+          # peer may already be gone
+        ensure
+          sent.send(nil)
+        end
+        select
+        when sent.receive
+        when timeout(1.second)
+          @log.debug { "DISCONNECT #{reason} not sent within 1s, closing anyway" }
+        end
       end
 
       # Map a shard reason byte to a DISCONNECT reason code, defaulting to a
@@ -729,10 +745,11 @@ module LavinMQ
       #
       # A client that never started has no read fiber to wait for:
       # `Broker#run_client` sees `closed?` and does not start it.
-      def close(reason = "")
+      def close(reason = "", disconnect_reason : Protocol::Disconnect::ReasonCode? = nil)
         unless @closed
           @log.info { "Closing connection: #{reason}" }
           @closed = true
+          disconnect(disconnect_reason) if disconnect_reason
           close_socket
         end
         # Every caller waits, not only the first: a takeover cancels the will

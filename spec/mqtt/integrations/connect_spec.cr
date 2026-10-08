@@ -544,5 +544,48 @@ module MqttSpecs
         end
       end
     end
+
+    it "sends DISCONNECT SessionTakenOver (0x8E) to the connection that loses a takeover [MQTT-3.1.4-3]" do
+      with_server do |server|
+        with_client_socket(server) do |first_socket|
+          first = v5_connect(first_socket, client_id: "taken")
+          with_client_socket(server) do |second_socket|
+            v5_connect(second_socket, client_id: "taken")
+
+            pkt = MQTT::Protocol::Packet.from_io(first)
+            pkt.should be_a(MQTT::Protocol::Disconnect)
+            pkt.as(MQTT::Protocol::Disconnect).reason_code
+              .should eq(MQTT::Protocol::Disconnect::ReasonCode::SessionTakenOver)
+            first.should be_closed
+          end
+        end
+      end
+    end
+
+    it "takes over a connection whose delivery is blocked on a full socket" do
+      with_server do |server|
+        with_client_socket(server) do |stalled_socket|
+          stalled_socket.recv_buffer_size = 4096
+          stalled = v5_connect(stalled_socket, client_id: "stalled")
+          subscribe(stalled, topic_filters: [subtopic("big", 0u8)])
+          with_client_io(server) do |publisher|
+            connect(publisher, client_id: "publisher")
+            payload = Bytes.new(256 * 1024)
+            40.times { publish(publisher, topic: "big", payload: payload, qos: 0u8) }
+            pingpong(publisher)
+          end
+          # The stalled client never reads, so its delivery fiber blocks in a
+          # write while holding the connection's write lock.
+          sleep 0.5.seconds
+
+          with_client_socket(server) do |socket|
+            socket.read_timeout = 5.seconds
+            io = v5_connect(socket, client_id: "stalled")
+            # The CONNACK precedes the takeover; a PINGREQ proves it completed.
+            pingpong(io).should be_a(MQTT::Protocol::PingResp)
+          end
+        end
+      end
+    end
   end
 end

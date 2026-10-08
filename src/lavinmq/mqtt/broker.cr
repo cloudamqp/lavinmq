@@ -89,7 +89,8 @@ module LavinMQ
         if prev_client = @clients[client_id]?
           prev_client.close(
             "New client #{connection_info.remote_address} " \
-            "(username=#{packet.username}) connected as #{client_id}")
+            "(username=#{packet.username}) connected as #{client_id}",
+            Protocol::Disconnect::ReasonCode::SessionTakenOver)
           remove_client_locked(prev_client)
         end
         interval = session_expiry_interval(packet)
