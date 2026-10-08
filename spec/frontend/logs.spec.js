@@ -73,6 +73,16 @@ test.describe('logs', _ => {
     expect(Math.abs(after.top - anchor.top)).toBeLessThan(2)
   })
 
+  test('closes the log stream when leaving the page', async ({ page }) => {
+    await fakeLogStream(page)
+    await page.goto('/logs')
+    const closed = await page.evaluate(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+      return window.__logStreamClosed === true
+    })
+    expect(closed).toBe(true)
+  })
+
   test('keeps following the log while taller rows are trimmed', async ({ page }) => {
     const stream = await fakeLogStream(page)
     await page.goto('/logs')
