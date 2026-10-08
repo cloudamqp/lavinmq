@@ -9,21 +9,30 @@ require "./socket_read_nonblock"
 # Each thread has its own cache of buffers (a LIFO stack, so the most recently
 # used buffer is reused first), so acquiring and releasing takes no locks.
 # A buffer may be released on another thread than it was acquired on, it then
-# goes into that thread's cache. Each cache keeps at most `MAX_PER_THREAD`
-# buffers, more are left to the GC.
+# goes into that thread's cache. Each cache keeps at most
+# `CACHE_BYTES_PER_THREAD` worth of buffers, more are left to the GC.
 class IO::BufferPool
-  MAX_PER_THREAD = 64
+  # Idle buffers kept per thread and pool: 256 buffers of the default 16 KiB.
+  # With hundreds of busy connections, about 350 buffers were in use at once,
+  # and 64 buffers made the pool drop and reallocate some of them.
+  CACHE_BYTES_PER_THREAD = 4 * 1024 * 1024
 
   # :nodoc:
   class Cache
-    getter buffers = Array(Pointer(UInt8)).new(MAX_PER_THREAD)
+    getter buffers : Array(Pointer(UInt8))
     property allocated = 0_i64
     property reused = 0_i64
     property released = 0_i64
     property dropped = 0_i64
+
+    def initialize(capacity : Int32)
+      @buffers = Array(Pointer(UInt8)).new(capacity)
+    end
   end
 
   getter buffer_size : Int32
+  # Max number of buffers cached per thread
+  getter max_cached : Int32
   getter id : Int32
   # All threads' caches for this pool, for stats
   @caches = Array(Cache).new
@@ -40,6 +49,7 @@ class IO::BufferPool
 
   def initialize(@buffer_size : Int32)
     @id = @@next_id.add(1, :relaxed)
+    @max_cached = Math.max(1, CACHE_BYTES_PER_THREAD // @buffer_size)
   end
 
   # Acquire a buffer from the current thread's cache, or allocate a new one
@@ -58,7 +68,7 @@ class IO::BufferPool
   def release(buffer : Pointer(UInt8)) : Nil
     return if buffer.null?
     cache = thread_cache
-    if cache.buffers.size < MAX_PER_THREAD
+    if cache.buffers.size < @max_cached
       cache.buffers.push(buffer)
       cache.released += 1
     else
@@ -76,7 +86,7 @@ class IO::BufferPool
   end
 
   private def new_thread_cache : Cache
-    cache = Cache.new
+    cache = Cache.new(@max_cached)
     @caches_lock.synchronize { @caches << cache }
     # the fiber may have moved to another thread while waiting for a lock,
     # so the thread local is read after taking them
@@ -111,7 +121,7 @@ class IO::BufferPool
 
   # Returns the pool for the given buffer size. Pools for other sizes (from
   # before a config reload) keep serving the connections that use them, their
-  # caches are bounded by `MAX_PER_THREAD`.
+  # caches are bounded by `CACHE_BYTES_PER_THREAD`.
   def self.for(buffer_size : Int32) : IO::BufferPool
     @@pools_lock.synchronize do
       @@pools[buffer_size] ||= IO::BufferPool.new(buffer_size)

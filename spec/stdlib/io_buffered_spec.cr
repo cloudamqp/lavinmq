@@ -20,15 +20,20 @@ describe IO::BufferPool do
     pool.acquire.should eq b
   end
 
-  it "keeps at most MAX_PER_THREAD buffers per thread" do
-    pool = IO::BufferPool.new(1024)
+  it "keeps at most CACHE_BYTES_PER_THREAD of buffers per thread" do
+    pool = IO::BufferPool.new(16384)
+    pool.max_cached.should eq 256
     extra = 5
-    buffers = Array.new(IO::BufferPool::MAX_PER_THREAD + extra) { pool.acquire }
+    buffers = Array.new(pool.max_cached + extra) { pool.acquire }
     buffers.each { |b| pool.release(b) }
     stats = pool.stats
-    stats[:available].should eq IO::BufferPool::MAX_PER_THREAD
-    stats[:released].should eq IO::BufferPool::MAX_PER_THREAD
+    stats[:available].should eq pool.max_cached
+    stats[:released].should eq pool.max_cached
     stats[:dropped].should eq extra
+  end
+
+  it "caches at least one buffer of a size above CACHE_BYTES_PER_THREAD" do
+    IO::BufferPool.new(IO::BufferPool::CACHE_BYTES_PER_THREAD * 2).max_cached.should eq 1
   end
 
   it "caches buffers per thread" do
