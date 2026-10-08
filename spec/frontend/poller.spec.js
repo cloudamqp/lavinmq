@@ -227,4 +227,52 @@ test.describe('refresh control', _ => {
     await expect.poll(() => overview.count).toBe(2)
     await expect(control).toHaveAttribute('data-state', 'live')
   })
+
+  test('a hung refresh stays a problem while other refreshes succeed', async ({ page }) => {
+    await page.clock.install()
+    const responseFor = path => page.waitForResponse(response => new URL(response.url()).pathname === path)
+    const exchangePath = '/api/exchanges/%2F/amq.topic'
+    const bindingsPath = '/api/exchanges/%2F/amq.topic/bindings/source'
+    const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
+    await page.goto('/exchange#vhost=%2F&name=amq.topic')
+    await loaded
+    await page.route(`**${exchangePath}`, () => {})
+    const control = page.locator('#refresh-control')
+    const states = []
+    for (let i = 0; i < 5; i++) {
+      const bindings = responseFor(bindingsPath)
+      await page.clock.runFor(5000)
+      await bindings
+      states.push(await control.getAttribute('data-state'))
+    }
+    const firstProblem = states.findIndex(state => state !== 'live')
+    expect(firstProblem).toBeGreaterThan(-1)
+    expect(states.slice(firstProblem)).not.toContain('live')
+    expect(states.at(-1)).toBe('stale')
+  })
+
+  test('a slow refresh that answers in the end counts as a success', async ({ page }) => {
+    await page.clock.install()
+    const responseFor = path => page.waitForResponse(response => new URL(response.url()).pathname === path)
+    const exchangePath = '/api/exchanges/%2F/amq.topic'
+    const bindingsPath = '/api/exchanges/%2F/amq.topic/bindings/source'
+    const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
+    await page.goto('/exchange#vhost=%2F&name=amq.topic')
+    await loaded
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    await page.route(`**${exchangePath}`, async route => { await gate; await route.fallback() })
+    const control = page.locator('#refresh-control')
+    for (let i = 0; i < 2; i++) {
+      const bindings = responseFor(bindingsPath)
+      await page.clock.runFor(5000)
+      await bindings
+    }
+    await expect(control).not.toHaveAttribute('data-state', 'live')
+
+    const answered = responseFor(exchangePath)
+    release()
+    await answered
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
 })
