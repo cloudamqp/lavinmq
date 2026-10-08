@@ -28,4 +28,10 @@ module MqttSpecs
     LavinMQ::Persister.drain_gate = nil
     gate.close
   end
+
+  # Lets exactly one drain run. The drain is on its own thread, so callers
+  # wait for its effect rather than for this to return.
+  def self.step_drain(gate) : Nil
+    gate.send(nil)
+  end
 end

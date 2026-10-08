@@ -97,6 +97,9 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      unless @max_awaiting_pubrel.positive?
+        raise Error.new("max_awaiting_pubrel must be positive (got #{@max_awaiting_pubrel})")
+      end
       validate_sni_tls!
     end
 

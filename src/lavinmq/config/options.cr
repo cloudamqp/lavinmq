@@ -312,6 +312,11 @@ module LavinMQ
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 
+      # QoS 2 packet ids a publisher may hold between PUBLISH and PUBREL. The
+      # default is every id, so it never disconnects a compliant client.
+      @[IniOpt(section: "mqtt")]
+      property max_awaiting_pubrel : UInt16 = UInt16::MAX
+
       @[IniOpt(ini_name: default_vhost, section: "mqtt")]
       property default_mqtt_vhost = "/"
 
