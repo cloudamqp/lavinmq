@@ -200,6 +200,11 @@ optimize-assets:
 node_modules/@playwright/test:
 	npm install @playwright/test
 
+.PHONY: test-sqs-sdk
+test-sqs-sdk:
+	python3 -m pip install -q -r spec/sqs/sdk/requirements.txt
+	python3 -m pytest -q spec/sqs/sdk $(SPEC)
+
 .PHONY: test-frontend
 test-frontend: node_modules/@playwright/test
 	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS)
