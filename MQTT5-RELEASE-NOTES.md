@@ -87,11 +87,12 @@ behaviour changes for existing users.
   its disk use and `max-length`. A subscriber never receives it either way. An
   AMQP queue bound to an MQTT topic does not expire it at all: the interval is
   kept as an `mqtt.*` header, not mapped onto AMQP `expiration`.
-- **No Receive Maximum of our own.** We do not advertise one, so clients assume
-  the 65535 default, which 16-bit packet ids cannot exceed anyway. The client's
+- **Receive Maximum counts only QoS 2.** We advertise `max_awaiting_pubrel`
+  (default 1024) and disconnect with `0x93` past it, but only QoS 2 publishes
+  awaiting PUBREL are counted; QoS 1 is not enforced. The count is per session,
+  so ids a client forgot across a reconnect keep counting. The client's
   Receive Maximum is honoured: the outbound window is the lower of it and
-  `Config#max_inflight_messages`. A client with more in flight towards us is
-  never disconnected with `0x93` (item Q, handled with QoS 2 durability).
+  `Config#max_inflight_messages`.
 - **Payload Format Indicator is not validated.** Spec 3.3.2.3.2 only says a
   server MAY check that a payload declared as UTF-8 really is, so we never answer
   `0x99` PayloadFormatInvalid. Validating means a String allocation plus a UTF-8

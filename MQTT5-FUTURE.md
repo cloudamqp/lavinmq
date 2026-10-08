@@ -10,10 +10,9 @@ advertised and rejected.
 
 QoS 2 itself comes from #2236, which this branch is built on. What it leaves:
 
-- **The QoS 2 state is in memory.** Inbound packet ids awaiting PUBREL and
-  outbound deliveries awaiting PUBCOMP survive a reconnect but neither a broker
-  restart nor a failover. Persisting them is the QoS 2 durability branch's work,
-  which also takes item Q (our own Receive Maximum).
+- **QoS 2 state of a clean session is in memory.** For a durable session #2367
+  persists and replicates the packet ids held in both directions; a clean
+  session's are lost with it, as is the session itself.
 - **Cross-protocol semantics.** AMQP 0-9-1 has no equivalent handshake, so
   exactly-once can only ever be a promise between two MQTT endpoints. A
   documentation decision, not code.

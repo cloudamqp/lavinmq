@@ -40,7 +40,7 @@ For durable sessions (`clean_session=false`) the QoS 2 packet IDs held in both d
 
 The inbound packet ID is recorded only after the routed message is synced, so a power loss can never keep an ID without its message. The opposite can happen: if the broker process dies (for example `kill -9` or the OOM killer) after routing a QoS 2 publish but before recording its ID, the message survives and the ID does not. No PUBREC was sent, so the client re-sends the PUBLISH and it is routed a second time. The same happens when power is lost after the message is synced but before its ID is, and on a failover when the message reached the followers but its ID record did not. This applies to every QoS 2 publish routed but not yet recorded when the process died, which under a burst of publishes can be hundreds of messages. The client's QoS 2 in-flight limit bounds it: a client with at most 100 publishes awaiting PUBREC gets at most 100 duplicates per crash. A graceful shutdown records every routed ID first.
 
-A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBLISH and PUBREL. The default, 65535, is every packet ID, so a compliant client never reaches it. A lower value bounds the memory a publisher that never sends PUBREL can hold; going over it closes the connection. Set it no lower than the number of QoS 2 messages your clients keep in flight: a client re-sends its whole window on reconnect before it can send a PUBREL, so one with a larger window goes over the cap again on every reconnect and never gets back in.
+A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBLISH and PUBREL. The default, 65535, is every packet ID, so a compliant client never reaches it. A lower value bounds the memory a publisher that never sends PUBREL can hold; going over it closes the connection. MQTT 5.0 clients are told the limit as Receive Maximum and get a DISCONNECT with reason `0x93` (Receive Maximum exceeded). Set it no lower than the number of QoS 2 messages your clients keep in flight: a client re-sends its whole window on reconnect before it can send a PUBREL, so one with a larger window goes over the cap again on every reconnect and never gets back in.
 
 ### Packet ID 0
 
@@ -177,7 +177,7 @@ A CONNECT that is refused is answered with the 5.0 reason code, for example `0x8
 
 ### Flow Control and Packet Size
 
-- **Receive Maximum**: LavinMQ sends a client no more unacknowledged QoS 1 and QoS 2 messages than the client's Receive Maximum, or `max_inflight_messages` if that is lower [MQTT-3.3.4-9]. LavinMQ advertises no Receive Maximum of its own
+- **Receive Maximum**: LavinMQ sends a client no more unacknowledged QoS 1 and QoS 2 messages than the client's Receive Maximum, or `max_inflight_messages` if that is lower [MQTT-3.3.4-9]. LavinMQ advertises `max_awaiting_pubrel` as its own Receive Maximum. A client with more QoS 2 publishes awaiting PUBREL is disconnected with `0x93`; QoS 1 publishes count towards the client's quota but LavinMQ does not enforce that part
 - **Maximum Packet Size**: LavinMQ never sends a client a packet larger than the client's Maximum Packet Size [MQTT-3.1.2-24]. A PUBLISH that is too large is dropped for that client only; any other packet that would be too large closes the connection, so a client with a limit below the size of the CONNACK (about 21 bytes) cannot connect. LavinMQ advertises `max_packet_size` as its own limit
 - **Assigned Client Identifier**: a client that connects with an empty client ID gets one assigned, and it is returned in the CONNACK
 
@@ -232,7 +232,7 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 | `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
 | `unix_path` | `[mqtt]` | (empty) | Unix socket path |
 | `max_inflight_messages` | `[mqtt]` | `65535` | Max outstanding packet IDs per session, must be at least `1`. A QoS 2 delivery holds its ID until PUBCOMP |
-| `max_awaiting_pubrel` | `[mqtt]` | `65535` | Max QoS 2 packet IDs a publisher may hold between PUBLISH and PUBREL, must be at least `1`. The default is every packet ID, so only a lower value can be exceeded. Going over it closes the connection, as MQTT 3.1.1 has no way to reject a single publish |
+| `max_awaiting_pubrel` | `[mqtt]` | `65535` | Max QoS 2 packet IDs a publisher may hold between PUBLISH and PUBREL, must be at least `1`. The default is every packet ID, so only a lower value can be exceeded. Going over it closes the connection, as MQTT 3.1.1 has no way to reject a single publish. Advertised to MQTT 5.0 clients as Receive Maximum |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |

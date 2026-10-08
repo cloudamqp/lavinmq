@@ -150,28 +150,16 @@ keeps this rare: it needs the window to shrink between the gate and `next_id`.
 A remembered packet id is the precise "sent before" signal, which is what
 `Session#expired_undelivered?` uses.
 
-## Q. Our own Receive Maximum is not enforced
-
-**Decided** (2026-10-07): handled in the QoS 2 durability branch, not this PR.
-The analysis below is the input for that work. We advertise no Receive Maximum, so clients
-assume 65535, and nothing counts the QoS 1 and QoS 2 PUBLISHes a client has in
-flight towards us. §3.3.4 says the server "uses" DISCONNECT `0x93` when a client
-exceeds it, but with no MUST and no statement id; the MUST, [MQTT-3.3.4-7], is
-on the client. Paho `test_flow_control2` sends 65536 QoS 2 PUBLISHes without
-PUBREL and waits for `0x93`: on 2026-10-05 the broker accepted them all and the
-client timed out after 180s. With 16-bit packet ids the 65536th has to reuse an
-id still held, which the QoS 2 dedupe treats as a re-send; how that meets a
-`0x93` count is not investigated.
-
-Options considered: count QoS 1 publishes awaiting their PUBACK (which waits
-for the persister) plus QoS 2 ids awaiting PUBREL, and DISCONNECT `0x93` past
-the limit; also advertise a lower limit.
-
 ## Resolved
 
 Kept as one line each so nobody re-opens them; the reasoning is in git and in
 `MQTT5-DESIGN.md`.
 
+- **Q** our own Receive Maximum: CONNACK advertises `max_awaiting_pubrel`
+  (#2367's QoS 2 cap) and going over it is DISCONNECT `0x93`. QoS 1 counts towards
+  the client's quota but is not enforced. The cap is per session while Receive
+  Maximum is per connection, so ids a client forgot across a reconnect stay held
+  and count; exact per-connection accounting waits until that is seen.
 - **B** subscription options, **D** session expiry, **E** will properties and
   Will Delay Interval (design record above), and all of **J** are done.
 - **F** the retain store keeps each message's QoS, v5 properties and publish time,

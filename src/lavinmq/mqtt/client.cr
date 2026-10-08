@@ -183,7 +183,6 @@ module LavinMQ
         socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def read_loop
         # Inside the rescues below, so an attach that fails on a disk error
         # still logs and publishes the Will [MQTT-3.1.2-8]
@@ -220,9 +219,6 @@ module LavinMQ
         # error as one of those situations.
         @log.warn { "Protocol violation, disconnecting client: #{ex.message}" }
         disconnect(ex.reason)
-        publish_will
-      rescue ex : Session::AwaitingPubrelLimitReached
-        @log.warn { "Closing connection: #{ex.message}" }
         publish_will
       rescue ex : Protocol::Error::ProtocolError
         # The shard raises this (with a reason byte) for codec-level protocol

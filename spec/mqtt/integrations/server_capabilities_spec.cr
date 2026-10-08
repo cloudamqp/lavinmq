@@ -21,6 +21,7 @@ module MqttSpecs
           props.subscription_identifier_available?.should be_false
           props.shared_subscription_available?.should be_false
           props.maximum_packet_size.should eq(LavinMQ::Config.instance.mqtt_max_packet_size)
+          props.receive_maximum.should eq(LavinMQ::Config.instance.max_awaiting_pubrel)
         end
       end
     end
