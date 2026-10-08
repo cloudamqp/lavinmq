@@ -428,6 +428,50 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    it "lets a pause finish before a concurrent close deletes the queue", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        errors = Atomic(Int32).new(0)
+        ctx = Fiber::ExecutionContext::Parallel.new("pause-close-delete-race", 4)
+        300.times do |i|
+          # A transient queue's data dir is removed when it's closed
+          name = "pause-close-delete-race-#{i}"
+          vhost.declare_queue(name, false, false)
+          q = vhost.queue(name)
+          race.call(ctx, 4, ->(j : Int32) do
+            if j == 0
+              q.close
+            else
+              begin
+                q.pause!
+              rescue
+                errors.add(1)
+              end
+            end
+            nil
+          end)
+          errors.get.should eq 0
+        end
+      end
+    end
+
+    it "keeps a queue deleted when it's closed concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        ctx = Fiber::ExecutionContext::Parallel.new("close-delete-race", 4)
+        500.times do |i|
+          name = "close-delete-race-#{i}"
+          vhost.declare_queue(name, true, false)
+          q = vhost.queue(name)
+          race.call(ctx, 4, ->(j : Int32) do
+            j.even? ? q.close : q.delete
+            nil
+          end)
+          q.state.deleted?.should be_true
+        end
+      end
+    end
   end
 
   describe "Restarting queues" do

@@ -619,7 +619,13 @@ module LavinMQ::AMQP
 
     def close : Bool
       return false if @closed.swap(true, :acquire_release)
-      @state.set(QueueState::Closed, :release)
+      # Under @state_lock so that a pause!/resume! that already changed the
+      # state finishes its side effects before the queue is torn down, and
+      # never replacing Deleted, set by a concurrent delete whose own close
+      # returned early
+      @state_lock.synchronize do
+        @state.set(QueueState::Closed, :release) unless state.deleted?
+      end
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
@@ -650,7 +656,7 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted.swap(true, :acquire_release)
       close
-      @state.set(QueueState::Deleted, :release)
+      @state_lock.synchronize { @state.set(QueueState::Deleted, :release) }
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
