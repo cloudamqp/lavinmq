@@ -88,6 +88,8 @@ Examples:
 - `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
 - `sensor/#` also matches `sensor`, because `#` includes the parent level
 
+A filter that starts with `#` or `+` does not match a topic that starts with `$`. To get messages on `$` topics, subscribe to a filter that starts with the `$` level, for example `$SYS/#`.
+
 ## MQTT-AMQP Bridge
 
 Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:

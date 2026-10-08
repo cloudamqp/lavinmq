@@ -199,6 +199,24 @@ describe LavinMQ::MQTT::SubscriptionTree do
       tree.each_entry("other") { |_s, _q, filter| matched << filter }
       matched.should be_empty
     end
+
+    it "'#' and '+/y' do not match topics starting with '$'" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("#", "hash", 0u8)
+      tree.subscribe("+/y", "plus", 0u8)
+      matched = Array(String).new
+      tree.each_entry("$x/y") { |session, _q, _f| matched << session }
+      matched.should be_empty
+    end
+
+    it "'$x/#' and '$x/+' match '$x/y'" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("$x/#", "hash", 0u8)
+      tree.subscribe("$x/+", "plus", 0u8)
+      matched = Array(String).new
+      tree.each_entry("$x/y") { |session, _q, _f| matched << session }
+      matched.sort.should eq ["hash", "plus"]
+    end
   end
 
   it "subscriptions is found" do
