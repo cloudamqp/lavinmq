@@ -2,7 +2,8 @@ require "log"
 require "socket"
 require "./protocol"
 require "./client"
-require "./brokers"
+require "./broker"
+require "../vhost_store"
 require "../auth/base_user"
 require "../client/connection_factory"
 require "../auth/authenticator"
@@ -13,7 +14,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "mqtt.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator,
-                     @brokers : Brokers, @config : Config)
+                     @vhosts : VHostStore, @config : Config)
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
@@ -69,10 +70,10 @@ module LavinMQ
         user = @authenticator.authenticate(context)
         raise Protocol::Error::NotAuthorized.new("authentication failure for user \"#{username}\"") unless user
         raise Protocol::Error::NotAuthorized.new("user \"#{username}\" lacks permission for vhost \"#{vhost}\"") unless user.find_permission(vhost)
-        broker = @brokers[vhost]?
-        raise Protocol::Error::NotAuthorized.new("no broker for vhost \"#{vhost}\"") unless broker
+        v = @vhosts[vhost]?
+        raise Protocol::Error::NotAuthorized.new("no broker for vhost \"#{vhost}\"") if v.nil? || v.closed?
 
-        {user, broker}
+        {user, v.mqtt_broker}
       end
 
       def assign_client_id(packet, username : String)

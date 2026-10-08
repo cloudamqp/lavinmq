@@ -3,13 +3,11 @@ require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
-require "../../observable"
 require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
 require "./state"
-require "./event"
 require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
@@ -22,7 +20,6 @@ require "../../queue_stats"
 module LavinMQ::AMQP
   class Queue
     include PolicyTarget
-    include Observable(QueueEvent)
     include SortableJSON
     include QueueStats
 
@@ -237,6 +234,8 @@ module LavinMQ::AMQP
 
     getter name, arguments, vhost
     getter? auto_delete, exclusive
+    # The connection that declared this exclusive queue, told when the queue is deleted
+    property exclusive_owner : AMQP::Client?
     getter? closed = false
     getter state = QueueState::Running
     getter empty : BoolChannel
@@ -605,6 +604,8 @@ module LavinMQ::AMQP
       return false if @closed
       @closed = true
       @state = QueueState::Closed
+      # Before yielding or deleting, so a redeclared queue can't get this link
+      @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
       @paused.close
@@ -626,7 +627,6 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -647,7 +647,7 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted, self)
+      @exclusive_owner.try &.exclusive_queue_deleted(self)
       true
     end
 
@@ -1087,7 +1087,6 @@ module LavinMQ::AMQP
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -1108,7 +1107,6 @@ module LavinMQ::AMQP
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?
@@ -1215,3 +1213,6 @@ module LavinMQ::AMQP
     class ClosedError < Error; end
   end
 end
+
+# Queue#exclusive_owner references AMQP::Client, whose requires subclass Queue
+require "../client"

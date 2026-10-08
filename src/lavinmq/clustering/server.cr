@@ -177,6 +177,24 @@ module LavinMQ
         end
       end
 
+      def delete_dir(path : String)
+        prefix = "#{strip_datadir path}/"
+        deleted = @file_index.lock do |files, checksums|
+          paths = files.keys.select!(&.starts_with?(prefix))
+          paths.each do |p|
+            files.delete(p)
+            checksums.delete(p)
+          end
+          paths
+        end
+        each_follower do |f|
+          deleted.each do |p|
+            f.delete(p)
+            f.forget_baseline(p)
+          end
+        end
+      end
+
       def nr_of_files
         @file_index.shared { |files, _checksums| files.size }
       end
