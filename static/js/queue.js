@@ -21,7 +21,7 @@ document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   setConsumers (consumers, totalCount) {
     this.items = {
       items: consumers,

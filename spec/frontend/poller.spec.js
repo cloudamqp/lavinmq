@@ -24,19 +24,26 @@ async function advance (page, ms) {
 }
 
 test.describe('poller', _ => {
-  test('stops polling while the tab is hidden and refreshes when it is shown', async ({ page }) => {
-    await page.clock.install()
-    const overview = countRequests(page, '/api/overview')
-    await page.goto('/')
-    await expect.poll(() => overview.count).toBe(1)
+  for (const { name, path, api } of [
+    { name: 'a page', path: '/', api: '/api/overview' },
+    { name: 'a table', path: '/queues', api: '/api/queues' }
+  ]) {
+    test(`stops polling ${name} while the tab is hidden and refreshes when it is shown`, async ({ page }) => {
+      await page.clock.install()
+      const requests = countRequests(page, api)
+      const loaded = page.waitForResponse(response => new URL(response.url()).pathname === api)
+      await page.goto(path)
+      await loaded
+      expect(requests.count).toBe(1)
 
-    await setTabHidden(page, true)
-    await page.clock.runFor(30000)
-    expect(overview.count).toBe(1)
+      await setTabHidden(page, true)
+      await advance(page, 30000)
+      expect(requests.count).toBe(1)
 
-    await setTabHidden(page, false)
-    await expect.poll(() => overview.count).toBe(2)
-  })
+      await setTabHidden(page, false)
+      await expect.poll(() => requests.count).toBe(2)
+    })
+  }
 
   test('does not send a request again while it is still pending', async ({ page }) => {
     await page.clock.install()

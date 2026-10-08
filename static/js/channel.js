@@ -15,7 +15,7 @@ let vhost = null
 document.title = channel + ' | LavinMQ'
 
 const consumersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   setConsumers (consumers) { this.items = consumers }
   reload () { }
 })()

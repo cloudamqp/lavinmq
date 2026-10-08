@@ -253,7 +253,7 @@ const queueChurnChart = Chart.render('queueChurnChart', '/s')
 const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
 
 const followersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   update (items) { this.items = items }
   reload () { }
 })()
