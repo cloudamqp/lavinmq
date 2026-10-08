@@ -322,6 +322,114 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "Close and delete concurrency" do
+    # Runs the block on *n* fibers of *ctx*, released at the same time
+    race = ->(ctx : Fiber::ExecutionContext::Parallel, n : Int32, blk : Int32 -> Nil) do
+      go = Atomic(Bool).new(false)
+      wg = WaitGroup.new(n)
+      n.times do |i|
+        ctx.spawn do
+          until go.get(:acquire)
+          end
+          blk.call(i)
+        ensure
+          wg.done
+        end
+      end
+      sleep 1.millisecond
+      go.set(true, :release)
+      wg.wait
+    end
+
+    it "tears the queue down only once when closed and deleted concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        ctx = Fiber::ExecutionContext::Parallel.new("close-delete-race", 4)
+        closes = Atomic(Int32).new(0)
+        deletes = Atomic(Int32).new(0)
+        errors = Atomic(Int32).new(0)
+        300.times do |i|
+          name = "close-delete-race-#{i}"
+          vhost.declare_queue(name, true, false)
+          q = vhost.queue(name)
+          closes.set(0)
+          deletes.set(0)
+          race.call(ctx, 4, ->(j : Int32) do
+            begin
+              if j.even?
+                closes.add(1) if q.close
+              else
+                deletes.add(1) if q.delete
+              end
+            rescue
+              errors.add(1)
+            end
+            nil
+          end)
+          closes.get.should be <= 1
+          deletes.get.should eq 1
+          errors.get.should eq 0
+          vhost.queue?(name).should be_nil
+        end
+      end
+    end
+
+    it "doesn't add a consumer to a queue that is closed concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("add-consumer-close-race", 4)
+          300.times do |i|
+            name = "add-consumer-close-race-#{i}"
+            vhost.declare_queue(name, true, false)
+            q = vhost.queue(name)
+            q.publish(LavinMQ::Message.new("", name, "body"))
+            consumers = Array.new(3) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, false, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame).tap { |c| server_ch.@consumers << c }
+            end
+            race.call(ctx, 4, ->(j : Int32) do
+              if j == 0
+                q.close
+              else
+                q.add_consumer(consumers[j - 1])
+              end
+              nil
+            end)
+            q.closed?.should be_true
+            q.consumers.should be_empty
+            q.delete
+          end
+        end
+      end
+    end
+
+    it "doesn't pause a queue that is closed concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        ctx = Fiber::ExecutionContext::Parallel.new("pause-close-race", 4)
+        300.times do |i|
+          name = "pause-close-race-#{i}"
+          vhost.declare_queue(name, true, false)
+          q = vhost.queue(name)
+          race.call(ctx, 4, ->(j : Int32) do
+            if j == 0
+              q.close
+            else
+              q.pause!
+            end
+            nil
+          end)
+          q.state.closed?.should be_true
+          q.delete
+        end
+      end
+    end
+  end
+
   describe "Restarting queues" do
     q_name = "restart"
     it "should restart a closed queue" do
