@@ -652,37 +652,49 @@ module LavinMQ
         awaiting_pubcomp.each { |id| @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil) }
         refresh_capacity
 
+        start_offline_window if client.nil?
         # Assigned before the writes below, which yield: `Session#publish`
         # drops a QoS 0 message while it is nil.
-        # A detach, or a claim that ends without attaching, starts the offline
-        # window with the interval of this moment: a DISCONNECT has applied its own.
-        if client.nil? && (@client || @resuming.value)
-          @offline_since = Time.instant
-          @offline_ttl = @session_expiry_interval
-        end
         @client = client
         # After the assignment: the window depends on the client's Receive
         # Maximum.
         refresh_capacity
-        unless client.nil? || awaiting_pubcomp.empty?
-          # Queued, so each leaves once the delete at its PUBREC is durable;
-          # `Client#run` attaches after CONNACK. [MQTT-4.4.0-1] does not order
-          # them against the replayed PUBLISHes.
-          @log.info { "resending #{awaiting_pubcomp.size} PUBREL" }
-          awaiting_pubcomp.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) }
-        end
-        @unknown_pubrecs.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) } if client
+        resend_pubrels(client, awaiting_pubcomp) if client
         @resuming.set(false)
         @has_client.set(!client.nil?)
-        # The expiry clock and a pending will's timer run in the deliver_loop,
-        # which a session with nothing to deliver has not started
-        ensure_deliver_loop if client.nil? && @registered && (expires? || @pending_will)
+        start_offline_timers if client.nil?
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
         end
         persist_username if client
 
         @log.debug { "client set to '#{client.try &.name}'" }
+      end
+
+      # A detach, or a claim that ends without attaching, starts the offline
+      # window with the interval of this moment: a DISCONNECT has applied its own.
+      private def start_offline_window : Nil
+        return unless @client || @resuming.value
+        @offline_since = Time.instant
+        @offline_ttl = @session_expiry_interval
+      end
+
+      # The expiry clock and a pending will's timer run in the deliver_loop,
+      # which a session with nothing to deliver has not started
+      private def start_offline_timers : Nil
+        ensure_deliver_loop if @registered && (expires? || @pending_will)
+      end
+
+      # Queued, so each leaves once the delete at its PUBREC is durable;
+      # `Client#run` attaches after CONNACK. [MQTT-4.4.0-1] does not order
+      # them against the replayed PUBLISHes.
+      private def resend_pubrels(client : MQTT::Client, awaiting_pubcomp : Array(UInt16)) : Nil
+        unless awaiting_pubcomp.empty?
+          @log.info { "resending #{awaiting_pubcomp.size} PUBREL" }
+          awaiting_pubcomp.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) }
+        end
+        not_found = Protocol::PubRel::ReasonCode::PacketIdentifierNotFound.value
+        @unknown_pubrecs.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id, reason: not_found) }
       end
 
       def durable? : Bool
@@ -1211,12 +1223,17 @@ module LavinMQ
           # take that re-send for a new message.
           if id.zero? || @msg_store.try(&.original_packet_id_in_use?(id))
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
+          elsif packet.reason_code.value >= 0x80
+            # The client already ended this exchange, so nothing is owed
+            # [MQTT-4.3.3-4]. Only v5 PUBREC carries one.
+            @log.debug { "Refusing PUBREC for unknown packet id '#{id}'" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
             # Held until PUBCOMP: the PUBREL waits for a drain, and a new
             # PUBLISH under this id before it would be released in its place.
             @unknown_pubrecs << id
-            send_pubrel(id)
+            # v5 sees 0x92 (3.6.2.1); the shard drops the reason tail on v3.
+            send_pubrel(id, Protocol::PubRel::ReasonCode::PacketIdentifierNotFound)
           end
           return false
         end
@@ -1371,8 +1388,8 @@ module LavinMQ
 
       # Through the ack writer, after the PUBREC's delete is durable. With no
       # client the id stays booked, so the next attach re-sends [MQTT-4.4.0-1].
-      private def send_pubrel(id : UInt16) : Nil
-        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id)
+      private def send_pubrel(id : UInt16, reason = Protocol::PubRel::ReasonCode::Success) : Nil
+        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id, reason: reason.value)
       end
 
       private def next_packet_id : UInt16?
