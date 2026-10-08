@@ -402,6 +402,16 @@ module LavinMQ
         @client.deliver(frame, msg, flush)
       end
 
+      # Builds the frame (and takes its delivery tag) under the client's write
+      # lock, see `Client#deliver`
+      def deliver(msg, redelivered = false, flush = true, &) : Nil
+        unless @running
+          yield # still take the tag, so the message is requeued on close
+          raise ClosedError.new("Channel is closed")
+        end
+        @client.deliver(msg, flush) { yield }
+      end
+
       def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
         if redelivered
           @redeliver_count.add(1, :relaxed)
@@ -487,14 +497,15 @@ module LavinMQ
             end
             @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
-              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-              unless frame.no_ack # track unacked messages
-                q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
+              deliver(env.message, env.redelivered) do
+                delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+                unless frame.no_ack # track unacked messages
+                  q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
+                end
+                AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
+                  env.redelivered, env.message.exchange_name,
+                  env.message.routing_key, q.message_count)
               end
-              get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
-                env.redelivered, env.message.exchange_name,
-                env.message.routing_key, q.message_count)
-              deliver(get_ok, env.message, env.redelivered)
             end
             send AMQP::Frame::Basic::GetEmpty.new(frame.channel) unless ok
           end
@@ -801,20 +812,19 @@ module LavinMQ
 
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
       def check_consumer_timeout
-        @unack_lock.synchronize do
+        timed_out = @unack_lock.synchronize do
           queues = Set(Queue).new # only check first delivered message per queue
-          @unacked.each do |unack|
-            if queues.add? unack.queue
-              if timeout = unack.queue.consumer_timeout
-                unacked_ms = RoughTime.instant - unack.delivered_at
-                if unacked_ms > timeout.milliseconds
-                  code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
-                  break
-                end
-              end
-            end
+          @unacked.any? do |unack|
+            next false unless queues.add? unack.queue
+            next false unless timeout = unack.queue.consumer_timeout
+            RoughTime.instant - unack.delivered_at > timeout.milliseconds
           end
+        end
+        # Sent after releasing @unack_lock: deliveries take it while holding
+        # the client's write lock, so the reverse order could deadlock
+        if timed_out
+          code = ChannelReplyCode::PRECONDITION_FAILED
+          send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
         end
       end
 
