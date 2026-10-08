@@ -545,7 +545,16 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         wait_for(15.seconds) { scrape.call(configs[1]).includes?("lavinmq_uptime") }
         scrape.call(configs[1]).should_not contain "lavinmq_cluster_received_bytes_total"
       ensure
-        launchers.try &.reverse_each &.stop
+        if launchers && exited
+          launchers.reverse_each &.stop
+          # Let the launchers release the data dirs before they're deleted
+          launchers.size.times do
+            select
+            when exited.receive
+            when timeout(10.seconds) then break
+            end
+          end
+        end
       end
     end
   end
