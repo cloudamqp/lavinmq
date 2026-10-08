@@ -808,7 +808,7 @@ describe LavinMQ::AMQP::Stream do
             consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
             store = q.stream_msg_store
             mfile = nil
-            q.consume_get(consumer) do |env|
+            q.consume_get(consumer.cursor) do |env|
               seg = env.segment_position.segment
               mfile = store.@segments[seg]
               20.times do
@@ -841,7 +841,7 @@ describe LavinMQ::AMQP::Stream do
             consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
             store = q.stream_msg_store
             mfile = nil
-            q.consume_get(consumer) do |env|
+            q.consume_get(consumer.cursor) do |env|
               seg = env.segment_position.segment
               mfile = store.@segments[seg]
               policy = s.vhosts["/"].add_policy("mlb", qname, "queues",
