@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - Crashes when a message store segment was unmapped while a message from it was still being delivered: stream retention (`max-length`, `max-length-bytes`, `max-age`, a policy or purge) with a slow consumer or during an HTTP stream read, a queue segment deleted during the delivery (e.g. the message acked or the queue purged meanwhile), or a queue, stream or MQTT session closed or deleted during a `basic.get`, an HTTP API read or an MQTT send. Segments are now kept mapped until in-flight deliveries finish [#2324](https://github.com/cloudamqp/lavinmq/pull/2324)
 - The queue API's `exclusive_consumer_tag` reports the tag of the queue's exclusive consumer. It was based on whether the queue itself was exclusive, so it showed the first consumer of an exclusive queue and nothing for a normal queue with an exclusive consumer [#2328](https://github.com/cloudamqp/lavinmq/pull/2328)
 - An exclusive consumer is refused with `ACCESS_REFUSED` when the queue already has non-exclusive-consumers [#2327](https://github.com/cloudamqp/lavinmq/pull/2327)
