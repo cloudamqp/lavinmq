@@ -39,16 +39,6 @@ module LavinMQ
       new(new_node(0u32, 0u32, 0, 0), 0)
     end
 
-    # Builds the map bottom-up in one pass, allocating every node once, which
-    # is much cheaper than one `put` per entry
-    def self.new(hash : Hash(K, V)) : self
-      return new if hash.empty?
-      entries = Slice({UInt64, K, V}).new(Pointer({UInt64, K, V}).malloc(hash.size), hash.size)
-      hash.each_with_index { |(k, v), i| entries[i] = {k.hash, k, v} }
-      scratch = Slice({UInt64, K, V}).new(hash.size) { |i| entries[i] }
-      new(build(entries, scratch, 0), hash.size)
-    end
-
     def empty? : Bool
       @size == 0
     end
@@ -352,55 +342,6 @@ module LavinMQ
         return {r, true}
       end
       {n, false}
-    end
-
-    # Partitions the entries on the hash fragment at this level (an MSD radix
-    # sort) and builds each node once. `entries` and `scratch` swap roles on
-    # each level down. Keys must be unique.
-    protected def self.build(entries : Slice({UInt64, K, V}), scratch : Slice({UInt64, K, V}), shift : Int32) : Node
-      if shift >= 64
-        r = alloc(2 + 2 * entries.size)
-        r[0] = COLLISION
-        r[1] = entries.size.to_u64
-        entries.each_with_index do |(_, k, v), i|
-          r[2 + 2 * i] = word(k)
-          r[3 + 2 * i] = word(v)
-        end
-        return r
-      end
-      counts = StaticArray(Int32, 32).new(0)
-      entries.each { |e| counts[(e[0] >> shift) & 31] += 1 }
-      starts = StaticArray(Int32, 33).new(0)
-      32.times { |f| starts[f + 1] = starts[f] + counts[f] }
-      fill = starts
-      entries.each do |e|
-        f = (e[0] >> shift) & 31
-        scratch[fill[f]] = e
-        fill[f] += 1
-      end
-      datamap = nodemap = 0u32
-      32.times do |f|
-        datamap |= 1u32 << f if counts[f] == 1
-        nodemap |= 1u32 << f if counts[f] > 1
-      end
-      data = datamap.popcount
-      r = new_node(datamap, nodemap, data, nodemap.popcount)
-      di = ci = 0
-      32.times do |f|
-        case counts[f]
-        when 0
-        when 1
-          _, k, v = scratch[starts[f]]
-          r[1 + 2 * di] = word(k)
-          r[2 + 2 * di] = word(v)
-          di += 1
-        else
-          range = starts[f]...starts[f + 1]
-          r[1 + 2 * data + ci] = build(scratch[range], entries[range], shift + 5).address
-          ci += 1
-        end
-      end
-      r
     end
   end
 

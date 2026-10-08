@@ -100,29 +100,6 @@ describe LavinMQ::PersistentMap do
     end
     map.empty?.should be_true
   end
-
-  it "builds from a Hash in one pass" do
-    ref = Hash(String, Value).new
-    50_000.times { |i| ref["q#{i}"] = Value.new("q#{i}") }
-    map = LavinMQ::PersistentMap(String, Value).new(ref)
-    assert_same_contents(map, ref)
-    # The bulk-built trie must accept further writes like any other
-    ref.keys.each_with_index do |k, i|
-      next unless i.even?
-      ref.delete(k)
-      map = map.delete(k)
-    end
-    ref["extra"] = extra = Value.new("extra")
-    map = map.put("extra", extra)
-    assert_same_contents(map, ref)
-  end
-
-  it "builds colliding keys from a Hash" do
-    ref = Hash(FixedHashKey, Value).new
-    3.times { |i| ref[FixedHashKey.new("c#{i}", 7u64)] = Value.new("c#{i}") }
-    ref[FixedHashKey.new("other", 8u64)] = Value.new("other")
-    assert_same_contents(LavinMQ::PersistentMap(FixedHashKey, Value).new(ref), ref)
-  end
 end
 
 describe LavinMQ::CowMap do
