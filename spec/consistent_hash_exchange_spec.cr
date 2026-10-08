@@ -258,7 +258,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "jump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
@@ -268,7 +268,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "ring"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
@@ -278,7 +278,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           LavinMQ::Config.instance.default_consistent_hash_algorithm.should eq LavinMQ::ConsistentHashAlgorithm::Ring
           ch.exchange(x_name, "x-consistent-hash")
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
@@ -289,7 +289,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "juump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
