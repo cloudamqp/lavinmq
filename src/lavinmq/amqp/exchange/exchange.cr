@@ -287,10 +287,15 @@ module LavinMQ
       # this exchange's own routing found nothing, whatever the queues set
       # already holds from other exchanges, so the result doesn't depend on
       # the order bindings are visited in.
+      #
+      # An exchange that was already visited (a diamond or a cycle of exchange
+      # bindings) counts as routed: the binding to it matched, and it made its
+      # own routing decision when it was first visited. That matches RabbitMQ,
+      # which uses an alternate exchange only when no binding matched.
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
                       exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Bool
-        return false unless exchanges.add? self
+        return true unless exchanges.add? self
         routed = false
         each_destination(routing_key, headers) do |d|
           case d
