@@ -85,3 +85,87 @@ test.describe('poller', _ => {
     await expect.poll(() => overview.count).toBe(2)
   })
 })
+
+test.describe('refresh control', _ => {
+  async function loadOverview (page) {
+    const loaded = page.waitForResponse(response => new URL(response.url()).pathname === '/api/overview')
+    await page.goto('/')
+    await loaded
+  }
+
+  test('pause stops refreshing and resume refreshes at once', async ({ page }) => {
+    await page.clock.install()
+    const overview = countRequests(page, '/api/overview')
+    await loadOverview(page)
+
+    await page.locator('#refresh-toggle').click()
+    await expect(page.locator('#refresh-toggle')).toHaveAttribute('aria-pressed', 'true')
+    await advance(page, 30000)
+    expect(overview.count).toBe(1)
+
+    await page.locator('#refresh-toggle').click()
+    await expect.poll(() => overview.count).toBe(2)
+  })
+
+  test('stays paused across a reload of the tab', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.locator('#refresh-toggle').click()
+
+    const overview = countRequests(page, '/api/overview')
+    await page.reload()
+    await expect(page.locator('#refresh-toggle')).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => overview.count).toBe(1)
+    await advance(page, 30000)
+    expect(overview.count).toBe(1)
+  })
+
+  test('refreshes at the selected rate and remembers it', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.locator('#refresh-rate').selectOption('30000')
+
+    const overview = countRequests(page, '/api/overview')
+    await page.reload()
+    await expect(page.locator('#refresh-rate')).toHaveValue('30000')
+    await expect.poll(() => overview.count).toBe(1)
+    await advance(page, 25000)
+    expect(overview.count).toBe(1)
+    await advance(page, 5000)
+    await expect.poll(() => overview.count).toBe(2)
+  })
+
+  test('sweeps a ring over the time until the next refresh', async ({ page }) => {
+    const sweep = () => page.evaluate(() =>
+      document.querySelector('.refresh-ring').getAnimations().map(a => a.effect.getTiming().duration))
+    await loadOverview(page)
+    await expect.poll(sweep).toEqual([5000])
+
+    await page.locator('#refresh-rate').selectOption('30000')
+    await expect.poll(sweep).toEqual([30000])
+
+    await page.locator('#refresh-toggle').click()
+    await expect.poll(sweep).toEqual([])
+  })
+
+  test('moves the ring in steps when reduced motion is preferred', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await loadOverview(page)
+    const easing = () => page.evaluate(() =>
+      document.querySelector('.refresh-ring').getAnimations().map(a => a.effect.getTiming().easing))
+    await expect.poll(easing).toEqual(['steps(8)'])
+  })
+
+  test('labels the toggle with what it will do', async ({ page }) => {
+    await loadOverview(page)
+    const toggle = page.locator('#refresh-toggle')
+    await expect(toggle).toHaveAttribute('aria-label', 'Pause auto-refresh')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-label', 'Resume auto-refresh')
+  })
+
+  test('is hidden on a page that does not refresh', async ({ page }) => {
+    await page.goto('/logs')
+    await expect(page.locator('#refresh-control')).toBeHidden()
+  })
+})

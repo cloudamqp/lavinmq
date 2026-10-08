@@ -2443,6 +2443,93 @@ pre.arguments .inactive-argument:before {
   box-shadow: 0 0 0 2px var(--color-border-primary);
 }
 
+#user-menu li#refresh-control[hidden] {
+  display: none;
+}
+
+.refresh-pill {
+  --refresh-attention: #d2a106;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--color-theme-switcher-bg);
+  border: 1px solid var(--color-theme-switcher-border);
+  border-radius: 14px;
+  padding: 2px;
+}
+
+@property --sweep {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+#refresh-toggle {
+  --ring-color: var(--color-success);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+#refresh-toggle:hover {
+  background-color: var(--color-bg-hover);
+}
+
+#refresh-toggle[aria-pressed="true"] {
+  border-color: var(--refresh-attention);
+  color: light-dark(#8a6d03, #e3b40f);
+  background: light-dark(rgb(210 161 6 / 12%), rgb(210 161 6 / 18%));
+}
+
+.refresh-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.9;
+  background: conic-gradient(var(--ring-color) var(--sweep), transparent 0);
+  mask: radial-gradient(closest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+}
+
+#refresh-toggle .icon-play,
+#refresh-toggle[aria-pressed="true"] .icon-pause {
+  display: none;
+}
+
+#refresh-toggle[aria-pressed="true"] .icon-play {
+  display: block;
+}
+
+#user-menu #refresh-rate {
+  cursor: pointer;
+  height: 20px;
+  min-width: auto;
+  max-width: none;
+  padding: 0 1.3rem 0 0.4rem;
+  font-size: 0.7rem;
+  border: none;
+  border-radius: 10px;
+  box-shadow: none;
+  background-color: transparent;
+  background-size: 1.1em 1.1em;
+  background-position: right 0.2rem center;
+  color: var(--color-text-primary);
+}
+
+#user-menu #refresh-rate:hover {
+  background-color: var(--color-bg-hover);
+}
+
 /* === UTILITIES === */
 .font-semibold {
   font-weight: 600;
