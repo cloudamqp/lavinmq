@@ -221,16 +221,25 @@ module LavinMQ
       def accepts? : Bool
         return false unless @flow
         return false if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
-        return false if @channel.global_prefetch_count > 0 && @channel.unacked.size >= @channel.global_prefetch_count
+        return false unless @channel.has_capacity?
         true
       end
 
-      def deliver(msg, sp, redelivered = false, recover = false)
-        unless @no_ack || recover
+      def deliver(msg, sp, redelivered = false)
+        unless @no_ack
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        send_deliver(msg, delivery_tag, redelivered)
+      end
+
+      # Redelivers an outstanding delivery with its original delivery tag (basic.recover requeue=false)
+      def redeliver(msg, delivery_tag : UInt64)
+        send_deliver(msg, delivery_tag, redelivered: true)
+      end
+
+      private def send_deliver(msg, delivery_tag : UInt64, redelivered : Bool)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
@@ -264,7 +273,7 @@ module LavinMQ
       end
 
       def unacked_messages
-        @channel.unacked
+        @channel.unacked.to_a.select { |unack| unack.consumer == self }
       end
 
       def details_tuple
