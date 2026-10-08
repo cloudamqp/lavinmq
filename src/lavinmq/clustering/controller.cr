@@ -14,7 +14,10 @@ class LavinMQ::Clustering::Controller
     new(config, etcd, EtcdCoordinator.new(config, etcd))
   end
 
-  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
+  # The metrics server, if any, is pointed at each follower client, so it keeps
+  # serving on the same socket across leader changes
+  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator,
+                 @metrics_server : HTTP::MetricsServer? = nil)
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
@@ -111,6 +114,7 @@ class LavinMQ::Clustering::Controller
         end
       end
       @repli_client = r = Clustering::Client.new(@config, @id, secret)
+      @metrics_server.try &.follower = r
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
