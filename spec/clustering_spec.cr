@@ -494,6 +494,62 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "keeps serving metrics on the same port when a follower is promoted", tags: "slow" do
+    with_datadir do |leader_dir|
+      with_datadir do |follower_dir|
+        prefix = "spec-metrics-#{Random.rand(Int32::MAX)}"
+        configs = {leader_dir, follower_dir}.map do |dir|
+          config = LavinMQ::Config.new
+          config.data_dir = dir
+          config.clustering = true
+          config.clustering_etcd_endpoints = "localhost:12379"
+          config.clustering_etcd_prefix = prefix
+          config.clustering_bind = "127.0.0.1"
+          config.clustering_port = TCPServer.open("127.0.0.1", 0, &.local_address.port)
+          config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
+          config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+          config.amqp_port = config.http_port = config.mqtt_port = 0
+          config.amqps_port = config.https_port = config.mqtts_port = -1
+          config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+          config.control_unix_path = File.join(dir, "control.sock")
+          config.metrics_http_bind = "127.0.0.1"
+          config.metrics_http_port = TCPServer.open("127.0.0.1", 0, &.local_address.port)
+          config
+        end
+        launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
+        scrape = ->(config : LavinMQ::Config) do
+          HTTP::Client.get("http://127.0.0.1:#{config.metrics_http_port}/metrics").body rescue ""
+        end
+        exited = Channel(Nil).new(2)
+        run = ->(launcher : LavinMQ::Launcher) do
+          spawn(name: "metrics promotion launcher spec") do
+            launcher.run
+          rescue SpecExit
+          ensure
+            exited.send nil
+          end
+        end
+
+        run.call(launchers[0])
+        wait_for(10.seconds) { scrape.call(configs[0]).includes?("lavinmq_uptime") }
+        run.call(launchers[1])
+        # The follower reports its replication client
+        wait_for(10.seconds) { scrape.call(configs[1]).includes?("lavinmq_cluster_received_bytes_total") }
+        # and can be promoted once it's in sync
+        follower_id = File.read(File.join(follower_dir, ".clustering_id")).to_i(36)
+        isr = LavinMQ::Clustering::EtcdCoordinator.new(configs[1], LavinMQ::Etcd.new(configs[1].clustering_etcd_endpoints))
+        wait_for(10.seconds) { isr.isr.try &.includes?(follower_id) }
+
+        launchers[0].stop
+        # Promoted, and its metrics endpoint switched to the broker's metrics
+        wait_for(15.seconds) { scrape.call(configs[1]).includes?("lavinmq_uptime") }
+        scrape.call(configs[1]).should_not contain "lavinmq_cluster_received_bytes_total"
+      ensure
+        launchers.try &.reverse_each &.stop
+      end
+    end
+  end
+
   it "will release lease on shutdown", tags: "slow" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"

@@ -1,6 +1,7 @@
 require "../etcd"
 require "./client"
 require "./etcd_coordinator"
+require "../http/metrics_server"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
@@ -8,6 +9,8 @@ class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  # Reports the replication client's metrics while following, see Launcher
+  property metrics_server : HTTP::MetricsServer? = nil
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -35,6 +38,7 @@ class LavinMQ::Clustering::Controller
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
+    report_metrics_of nil
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -61,6 +65,10 @@ class LavinMQ::Clustering::Controller
     @lease.try &.release
   end
 
+  private def report_metrics_of(client : Client?) : Nil
+    @metrics_server.try &.clustering_client = client
+  end
+
   # Each node in a cluster has an unique id, for tracking ISR
   private def clustering_id : Int32
     id_file_path = File.join(@config.data_dir, ".clustering_id")
@@ -84,6 +92,7 @@ class LavinMQ::Clustering::Controller
           next # if lost connection to etcd we continue follow the leader as is
         else
           repli_client.close
+          report_metrics_of nil
         end
       end
       if uri.nil? # no leader yet
@@ -111,6 +120,7 @@ class LavinMQ::Clustering::Controller
         end
       end
       @repli_client = r = Clustering::Client.new(@config, @id, secret)
+      report_metrics_of r
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
