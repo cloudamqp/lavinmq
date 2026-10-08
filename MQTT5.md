@@ -179,6 +179,8 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 - Granted QoS (up to 2) reported in SUBACK as a `ReasonCode`
 - Subscription Identifier rejected `0xA1`; `$share/` rejected `0x9E`, including
   when mixed with valid filters (the whole packet fails)
+- A client PUBLISH carrying a Subscription Identifier gets DISCONNECT `0x82`
+  [MQTT-3.3.4-6]
 - All three per-filter options honoured: No Local, Retain As Published, Retain
   Handling
 - Options persist in binding arguments as `mqtt.no-local` and
