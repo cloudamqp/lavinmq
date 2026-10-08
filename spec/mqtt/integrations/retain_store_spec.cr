@@ -91,6 +91,23 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "'#' and '+/y' do not match retained messages on '$' topics" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store.retain(publish_packet(topic: "$x/y", payload: "body".to_slice, retain: true))
+
+        topics = Array(String).new
+        store.each("#") { |topic, _io, _size| topics << topic }
+        store.each("+/y") { |topic, _io, _size| topics << topic }
+        topics.should be_empty
+
+        store.each("$x/#") { |topic, _io, _size| topics << topic }
+        store.each("$x/+") { |topic, _io, _size| topics << topic }
+        topics.should eq ["$x/y", "$x/y"]
+      ensure
+        store.try &.close
+      end
+
       it "handles multiple subscriptions" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)

@@ -69,20 +69,23 @@ module LavinMQ
       end
 
       def each(filter : String, &blk : (String, TEntity) -> _)
-        each(StringTokenIterator.new(filter, '/'), &blk)
+        # Filters that start with a wildcard never match '$' topics (MQTT-4.7.2-1)
+        skip_dollar = filter.starts_with?('#') || filter.starts_with?('+')
+        each(StringTokenIterator.new(filter, '/'), skip_dollar, &blk)
       end
 
-      def each(filter : StringTokenIterator, &blk : (String, TEntity) -> _)
+      def each(filter : StringTokenIterator, skip_dollar = false, &blk : (String, TEntity) -> _)
         current = filter.next
         if current == "#"
-          each &blk
+          each_leaf(skip_dollar, &blk)
+          @sublevels.each { |key, sublevel| sublevel.each(&blk) unless skip_dollar && key.starts_with?('$') }
           return
         end
         # "#" also matches its parent level, so "a/#" matches the leaf "a" (MQTT 3.1.1 §4.7.1.2)
         rest = filter
         rest_is_hash = rest.next == "#" && !rest.next?
         if current == "+"
-          each_plus(filter, rest_is_hash, &blk)
+          each_plus(filter, rest_is_hash, skip_dollar, &blk)
           return
         end
         if filter.next?
@@ -97,12 +100,16 @@ module LavinMQ
         end
       end
 
-      private def each_plus(filter : StringTokenIterator, rest_is_hash, &blk : (String, TEntity) -> _)
+      private def each_leaf(skip_dollar, & : (String, TEntity) -> _)
+        @leafs.each { |key, leaf| yield(leaf.first, leaf.last) unless skip_dollar && key.starts_with?('$') }
+      end
+
+      private def each_plus(filter : StringTokenIterator, rest_is_hash, skip_dollar, &blk : (String, TEntity) -> _)
         if filter.next?
-          @leafs.values.each &blk if rest_is_hash
-          @sublevels.values.each(&.each(filter, &blk))
+          each_leaf(skip_dollar, &blk) if rest_is_hash
+          @sublevels.each { |key, sublevel| sublevel.each(filter, &blk) unless skip_dollar && key.starts_with?('$') }
         else
-          @leafs.values.each &blk
+          each_leaf(skip_dollar, &blk)
         end
       end
 
