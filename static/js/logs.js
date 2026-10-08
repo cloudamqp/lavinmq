@@ -29,7 +29,20 @@ function paint () {
     rows.appendChild(buildRow(event))
   }
   tbody.appendChild(rows)
+  trimRows()
   if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
+  lastScrollTop = livelog.scrollTop
+}
+
+function trimRows () {
+  const excess = tbody.rows.length - MAX_LINES
+  if (excess <= 0) return
+  const heightBefore = livelog.scrollHeight
+  const range = document.createRange()
+  range.setStartBefore(tbody.rows[0])
+  range.setEndAfter(tbody.rows[excess - 1])
+  range.deleteContents()
+  if (!shouldAutoScroll) livelog.scrollTop -= heightBefore - livelog.scrollHeight
 }
 
 function buildRow (event) {
