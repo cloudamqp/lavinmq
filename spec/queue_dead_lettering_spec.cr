@@ -299,6 +299,32 @@ module DeadLetteringSpec
       end
     end
 
+    describe "segment leases" do
+      # q dead-letters into "middle", whose max-length drops its head into
+      # "last" as part of q's chain: middle's route only queues that publish,
+      # q's drain does it after middle's route has returned, so middle's
+      # segment must stay leased until then, and be released afterwards
+      it "keeps a dead-lettered message mapped until a nested chain publishes it" do
+        with_dead_lettering_setup(qargs: {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "middle"}) do |q, _, ch, s|
+          middle = ch.queue("middle", args: AMQP::Client::Arguments.new({
+            "x-max-length" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "last",
+          }))
+          last = ch.queue("last")
+          ch.default_exchange.publish_confirm("head of middle", middle.name)
+          vhost = s.vhosts["/"]
+          segment = vhost.queue(middle.name).@msg_store.@segments.first_value
+
+          ch.default_exchange.publish_confirm("from q", q.name)
+          get1(q, no_ack: false, &.reject(requeue: false))
+
+          get1(last).body_io.to_s.should eq "head of middle"
+          get1(middle).body_io.to_s.should eq "from q"
+          vhost.delete_queue(middle.name)
+          segment.closed?.should be_true
+        end
+      end
+    end
+
     describe "Complex Rejection Scenarios" do
       it "should dead letter on single nack" do
         with_dead_lettering_setup do |q, dlq, ch, _|

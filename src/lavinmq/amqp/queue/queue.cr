@@ -880,20 +880,31 @@ module LavinMQ::AMQP
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       if sp.has_dlx? || @dead_letter.dlx
         @log.debug { "Expiring #{sp} now due to #{reason}" }
-        # Dead-lettering escapes @msg_store_lock — the message is published
-        # into other queues after this method's lock hold — while a concurrent
-        # purge or queue/vhost delete can unmap the segment it lives in, so a
-        # zero-copy view (`@msg_store[sp]`) would be read after munmap. Route
-        # a copy that owns its memory instead.
-        msg = begin
-          @msg_store_lock.synchronize { @msg_store.copy(sp) }
+        # The message is published into other queues outside @msg_store_lock,
+        # while a concurrent purge or queue/vhost delete can delete or close
+        # its segment, so the segment is leased until the routed callback has
+        # run. That can be after #route returns, when an outer dead-lettering
+        # chain publishes the queued copies (see DeadLetterer#route).
+        env = begin
+          @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
         rescue KeyError | MessageStore::ClosedError
           # The segment (or whole store) is already gone: a racing purge or
           # delete removed the message, so there is nothing left to route.
           return
         end
-        @dead_letter.route(msg, reason, dlx_tasks) do
-          delete_message sp
+        routed = false
+        begin
+          @dead_letter.route(env.message, reason, dlx_tasks) do
+            routed = true
+            begin
+              delete_message sp
+            ensure
+              env.release
+            end
+          end
+        rescue ex
+          env.release unless routed
+          raise ex
         end
       else
         delete_message sp
