@@ -394,4 +394,258 @@ module MqttSpecs
       end
     end
   end
+
+  # Delivers `count` QoS 2 messages to a connected "sub", completing all but
+  # the last, so the last one goes out under a packet id other than 1.
+  def self.deliver_with_id_past_one(server, io, count = 3)
+    subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+    with_client_io(server) do |pub_io|
+      connect(pub_io, client_id: "pub")
+      count.times { |i| publish_qos2(pub_io, (i + 1).to_u16, topic: "a/b", payload: i.to_s.to_slice) }
+      disconnect(pub_io)
+    end
+    # All of them first: the session sends ahead of our acknowledgements
+    pubs = Array.new(count) { read_publish(io) }
+    pubs[0...-1].each do |pub|
+      pubrec(io, pub.packet_id.not_nil!)
+      read_packet(io).should be_a(MQTT::Protocol::PubRel)
+      pubcomp(io, pub.packet_id.not_nil!)
+    end
+    pingpong(io) # the PUBCOMPs are handled before a restart can close the session
+    pubs.last
+  end
+
+  describe "outbound QoS 2 across a broker restart" do
+    it "re-sends an unacknowledged PUBLISH under its original id with DUP [MQTT-4.4.0-1]" do
+      sent = nil
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          sent = deliver_with_id_past_one(server, io)
+          disconnect(io)
+        end
+      end
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          resent = read_publish(io)
+          resent.packet_id.should eq sent.not_nil!.packet_id
+          resent.dup?.should be_true
+          resent.payload.should eq sent.not_nil!.payload
+        end
+      end
+    end
+
+    it "re-sends the PUBREL owed after PUBREC, and not the message" do
+      id = 0u16
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          id = deliver_with_id_past_one(server, io).packet_id.not_nil!
+          pubrec(io, id)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          disconnect(io)
+        end
+      end
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
+          read_packet(io).should be_nil
+        end
+      end
+    end
+
+    # Invariant guard: passes before the log exists, protects the PUBCOMP record
+    it "re-sends nothing after PUBCOMP" do
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          pub = deliver_with_id_past_one(server, io)
+          pubrec(io, pub.packet_id.not_nil!)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          pubcomp(io, pub.packet_id.not_nil!)
+          pingpong(io)
+          disconnect(io)
+        end
+      end
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          read_packet(io).should be_nil
+        end
+      end
+    end
+
+    it "sends a QoS 2 PUBLISH only once its packet id is durable" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            with_drain_held do |gate|
+              publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+              ping(sub_io)
+              read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
+              read_packet(sub_io).should be_nil
+              release_drain(gate)
+              read_publish(sub_io).qos.should eq 2u8
+            end
+          end
+        end
+      end
+    end
+
+    it "syncs the ack file of the PUBREC'd message before the PUBREL" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          pub = deliver_with_id_past_one(server, io, count: 1)
+          pubrec(io, pub.packet_id.not_nil!)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          server.persister.last_sync.not_nil!.paths.any?(&.ends_with?("acks.0000000001")).should be_true
+        end
+      end
+    end
+
+    it "syncs the data dir before the PUBREL when the PUBREC deleted the segment" do
+      segment_size = LavinMQ::Config.instance.segment_size
+      LavinMQ::Config.instance.segment_size = 64 # one message per segment
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          msg_dir = server.vhosts["/"].session("mqtt.sub").@msg_store.@msg_dir
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            2.times { |i| publish_qos2(pub_io, (i + 1).to_u16, topic: "a/b") }
+          end
+          first = read_publish(io)
+          read_publish(io)
+          pubrec(io, first.packet_id.not_nil!)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          File.exists?(File.join(msg_dir, "msgs.0000000001")).should be_false
+          server.persister.last_sync.not_nil!.paths.should contain msg_dir
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.segment_size = segment_size.not_nil!
+    end
+
+    # Invariant guard: unchanged code writes no record for the `wait_for`.
+    # Without the wait the PUBLISH goes to the old connection and its requeue
+    # gives the same result. Protects the requeue `client=` does while the
+    # deliver_loop waits.
+    it "sends the PUBLISH once when the subscriber reconnects while it waits to be durable" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.not_nil!
+          with_drain_held do |gate|
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "pub")
+              publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+            end
+            wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
+            with_client_io(server) do |io2|
+              connect(io2, client_id: "sub", clean_session: false) # takeover
+              release_drain(gate)
+              resent = read_publish(io2)
+              {resent.packet_id, resent.dup?}.should eq({1u16, true})
+              read_packet(io2).should be_nil
+            end
+          end
+        end
+      end
+    end
+
+    # Invariant guard: passes on the unfixed code, protects the delete of a
+    # session whose deliver_loop waits for its packet id to be durable
+    it "deletes a session whose PUBLISH waits to be durable" do
+      deliver_loops = -> do
+        count = 0
+        Fiber.each { |f| count += 1 if f.name == "Session#deliver_loop" && !f.dead? }
+        count
+      end
+      loops = 0
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.not_nil!
+          with_drain_held do |gate|
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "pub")
+              publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+              disconnect(pub_io)
+            end
+            wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
+            loops = deliver_loops.call
+            server.vhosts["/"].delete_queue("mqtt.sub")
+            release_drain(gate)
+          end
+          wait_for { deliver_loops.call == loops - 1 }
+        end
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            publish_qos2(pub_io, 2u16, topic: "a/b", payload: "2".to_slice)
+          end
+          pub = read_publish(sub_io)
+          {pub.qos, String.new(pub.payload)}.should eq({2u8, "2"})
+        end
+      end
+    end
+
+    it "stops delivering QoS 2 once the persister has stopped" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.not_nil!
+          server.persister.close
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            3.times { |i| publish(pub_io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16, expect_response: false) }
+            pingpong(pub_io)
+          end
+          wait_for { log_size(log) >= 4 + 11 }
+          read_packet(sub_io).should be_nil
+          # One record, not one per message the deliver_loop walked past
+          log_size(log).should eq 4 + 11
+        end
+      end
+    end
+
+    it "recovers the same packet id held inbound and outbound independently" do
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "both", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          session = server.vhosts["/"].session("mqtt.both")
+          pointerof(session.@last_packet_id).value = 4u16
+          publish(io, topic: "a/b", payload: "x".to_slice, qos: 2u8, packet_id: 5u16, expect_response: false)
+          packets = {read_packet(io), read_packet(io)}
+          packets.count(&.is_a?(MQTT::Protocol::PubRec)).should eq 1
+          packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish).packet_id.should eq 5u16
+          disconnect(io)
+        end
+      end
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "both", clean_session: false)
+          resent = read_publish(io)
+          {resent.packet_id, resent.dup?}.should eq({5u16, true})
+          publish(io, topic: "a/b", payload: "x".to_slice, qos: 2u8, packet_id: 5u16, dup: true)
+          pubrel(io, 5u16)
+          read_packet(io).should be_a(MQTT::Protocol::PubComp)
+          read_packet(io).should be_nil # not routed a second time
+        end
+      end
+    end
+  end
 end
