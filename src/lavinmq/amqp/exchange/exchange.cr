@@ -281,36 +281,45 @@ module LavinMQ
         result
       end
 
+      # Adds the queues the message routes to, and returns whether this
+      # exchange routed it anywhere (directly, via bound exchanges, CC/BCC
+      # or its alternate exchange). The alternate exchange is only used when
+      # this exchange's own routing found nothing, whatever the queues set
+      # already holds from other exchanges, so the result doesn't depend on
+      # the order bindings are visited in.
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
-        return unless exchanges.add? self
+                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Bool
+        return false unless exchanges.add? self
+        routed = false
         each_destination(routing_key, headers) do |d|
           case d
           in AMQP::Queue
             # Prevent routing to own internal delayed queue to avoid infinite loops
             unless delayed? && d == @delayed_queue
               queues.add(d)
+              routed = true
             end
           in AMQP::Exchange
-            d.find_queues(routing_key, headers, queues, exchanges)
+            routed = true if d.find_queues(routing_key, headers, queues, exchanges)
           end
         end
 
         if hdrs = headers
-          find_cc_queues(hdrs, "CC", queues)
-          find_cc_queues(hdrs, "BCC", queues)
+          routed = true if find_cc_queues(hdrs, "CC", queues)
+          routed = true if find_cc_queues(hdrs, "BCC", queues)
         end
 
-        if queues.empty? && (ae_name = alternate_exchange)
+        if !routed && (ae_name = alternate_exchange)
           @vhost.exchange?(ae_name).try do |ae|
-            ae.find_queues(routing_key, headers, queues, exchanges)
+            routed = ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end
+        routed
       end
 
-      private def find_cc_queues(headers, key, queues)
-        return unless cc = headers[key]?
+      private def find_cc_queues(headers, key, queues) : Bool
+        return false unless cc = headers[key]?
         cc = cc.as?(Array(AMQP::Field))
 
         raise LavinMQ::Error::PreconditionFailed.new("#{key} header not a string array") unless cc
@@ -318,13 +327,15 @@ module LavinMQ
         hdrs = headers.clone
         hdrs.delete "CC"
         hdrs.delete key
+        routed = false
         cc.each do |rk|
           if rk = rk.as?(String)
-            find_queues(rk, hdrs, queues)
+            routed = true if find_queues(rk, hdrs, queues)
           else
             raise LavinMQ::Error::PreconditionFailed.new("#{key} header not a string array")
           end
         end
+        routed
       end
 
       private def should_delay_message?(headers)
