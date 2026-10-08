@@ -543,6 +543,37 @@ module MqttSpecs
       end
     end
 
+    it "answers a v5 PUBREC for an unknown packet id with PUBREL 0x92" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          pubrec(io, 4242u16)
+          pubrel = read_packet(io).as(MQTT::Protocol::PubRel)
+          pubrel.packet_id.should eq 4242u16
+          pubrel.reason_code.should eq MQTT::Protocol::PubRel::ReasonCode::PacketIdentifierNotFound
+          pubcomp(io, 4242u16)
+          disconnect(io)
+        end
+      end
+    end
+
+    it "does not answer a refused v5 PUBREC for an unknown packet id [MQTT-4.3.3-4]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          MQTT::Protocol::PubRec.new(4242u16,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+          session.@inflight.has_key?(4242u16).should be_false
+          disconnect(io)
+        end
+      end
+    end
+
     it "does not reuse an unknown PUBREC's id before the client's PUBCOMP" do
       # A new session starts its ids at 1, the ones a client from before a
       # restart still holds. Our PUBREL waits for a drain, and arriving after

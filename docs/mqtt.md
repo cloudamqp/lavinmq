@@ -166,7 +166,7 @@ Each topic filter in a 5.0 SUBSCRIBE carries three options, which are kept with 
 
 ### Reason Codes
 
-Acknowledgements carry a reason code. PUBACK and PUBREC answer `0x10` (No matching subscribers) when nothing received the message and `0x87` (Not authorized) when a permission check denied it. SUBACK and UNSUBACK carry one code per topic filter. On a protocol error, LavinMQ sends a DISCONNECT with the reason before closing the connection, for example `0x82` (Protocol Error).
+Acknowledgements carry a reason code. PUBACK and PUBREC answer `0x10` (No matching subscribers) when nothing received the message and `0x87` (Not authorized) when a permission check denied it. The PUBCOMP and PUBREL answering a PUBREL or PUBREC for an [unknown packet ID](#qos-2-exactly-once) carry `0x92` (Packet Identifier not found), and a PUBREC with a failure reason code for an unknown ID is not answered. SUBACK and UNSUBACK carry one code per topic filter. On a protocol error, LavinMQ sends a DISCONNECT with the reason before closing the connection, for example `0x82` (Protocol Error).
 
 A CONNECT that is refused is answered with the 5.0 reason code, for example `0x88` (Server unavailable) where the [session](#session-limits) or [connection](#connection-limits) limits above say return code 3, and `0x85` (Client Identifier not valid) where they say return code 2.
 

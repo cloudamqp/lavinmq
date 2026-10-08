@@ -902,13 +902,18 @@ module LavinMQ
           # take that re-send for a new message.
           if id.zero? || @msg_store.original_packet_id_in_use?(id)
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
+          elsif packet.reason_code.value >= 0x80
+            # The client already ended this exchange, so nothing is owed
+            # [MQTT-4.3.3-4]. Only v5 PUBREC carries one.
+            @log.debug { "Refusing PUBREC for unknown packet id '#{id}'" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
             # Booked until PUBCOMP: the PUBREL waits for a drain, and a new
             # PUBLISH under this id before it would be released in its place.
             @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
             refresh_capacity
-            send_pubrel(id)
+            # v5 sees 0x92 (3.6.2.1); the shard drops the reason tail on v3.
+            send_pubrel(id, Protocol::PubRel::ReasonCode::PacketIdentifierNotFound)
           end
           return false
         end
@@ -1043,8 +1048,8 @@ module LavinMQ
 
       # Through the ack writer, after the PUBREC's delete is durable. With no
       # client the id stays booked, so the next attach re-sends [MQTT-4.4.0-1].
-      private def send_pubrel(id : UInt16) : Nil
-        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id)
+      private def send_pubrel(id : UInt16, reason = Protocol::PubRel::ReasonCode::Success) : Nil
+        @client.try &.queue_ack(Client::PendingAck::PacketType::PubRel, id, reason: reason.value)
       end
 
       private def next_packet_id : UInt16?
