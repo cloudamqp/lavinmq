@@ -592,6 +592,26 @@ describe LavinMQCtl::TUI do
     server.try &.close
   end
 
+  it "reconnects on the control socket when the server closes the connection" do
+    path = File.tempname("lavinmqctl-tui", ".sock")
+    server = HTTP::Server.new do |context|
+      # As when the broker restarts between two requests
+      context.response.headers["Connection"] = "close"
+      context.response.content_type = "application/json"
+      context.response.print(context.request.path == "/api/overview" ? {lavinmq_version: "spec"}.to_json : "[]")
+    end
+    server.bind_unix(path)
+    spawn(name: "tui spec api") { server.listen }
+    connect = -> { HTTP::Client.new(UNIXSocket.new(path)) }
+    screen = FakeTUIScreen.new(events: [tui_key('2'), tui_key('1'), tui_key('q')] of TUI::Event)
+    TUI.new(connect.call, 60.0, screen, reconnect: connect).start
+
+    screen.text.should contain("vspec")
+    screen.text.should_not contain("reconnected")
+  ensure
+    server.try &.close
+  end
+
   it "keeps refreshing while keys are pressed" do
     with_tui_api do |client, requests|
       screen = KeyRepeatTUIScreen.new(presses: 30)

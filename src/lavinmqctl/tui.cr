@@ -369,7 +369,7 @@ class LavinMQCtl
       data.try(&.as_a?) || Fields.dig(data, "items").try(&.as_a?) || [] of JSON::Any
     end
 
-    private def fetch_json(path : String, label : String) : JSON::Any?
+    private def fetch_json(path : String, label : String, retry = true) : JSON::Any?
       if @closed && (reconnect = @reconnect)
         @client = reconnect.call
         @closed = false
@@ -383,15 +383,17 @@ class LavinMQCtl
     rescue ex : JSON::ParseException
       record_error("#{label}: invalid JSON (#{ex.message})")
       nil
-    rescue ex : IO::Error
+    rescue ex
       # The connection is broken, or still open after a timeout and the late
       # response would be read as the answer to the next request. A TCP client
       # reconnects by itself, @reconnect opens a new one for the next request.
       @client.close
       @closed = true
-      record_error("#{label}: #{ex.message || ex.class.name}")
-      nil
-    rescue ex
+      # A TCP client retries once on a new connection when the server has
+      # closed the one it had, a client on the control socket raises instead
+      if retry && @reconnect && !ex.is_a?(IO::Error)
+        return fetch_json(path, label, retry: false)
+      end
       record_error("#{label}: #{ex.message || ex.class.name}")
       nil
     end
