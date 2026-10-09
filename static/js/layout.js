@@ -1,5 +1,6 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import './refresh-control.js'
 
 Auth.whoAmI().catch(() => Auth.logout())
 
