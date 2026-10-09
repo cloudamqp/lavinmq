@@ -147,6 +147,17 @@ ensure
   cluster.try &.close
 end
 
+# Runs a membership change on the current leader, again on the next one if
+# leadership moved first
+private def on_current_leader(cluster, & : Raft::Node -> Raft::MembershipError?) : Raft::MembershipError?
+  result = nil
+  wait_for(5.seconds) do
+    result = yield cluster.wait_for_leader
+    !result.in?(Raft::MembershipError::NotLeader, Raft::MembershipError::NotServing)
+  end
+  result
+end
+
 describe Raft::Node do
   it "elects a leader over TCP and replicates the ISR" do
     with_raft_cluster do |c|
@@ -389,11 +400,13 @@ describe Raft::Node do
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
       addr, _ = c.start_extra(40, [c.address(0)])
-      leader.add_learner(addr).should be_nil
-      membership = leader.membership.not_nil!
+      # With its 100 ms election timeout a loaded runner can move leadership
+      # between finding the leader and asking it, so ask whoever leads then
+      on_current_leader(c, &.add_learner(addr)).should be_nil
+      membership = c.wait_for_leader.membership.not_nil!
       membership.learners.should eq Set{40}
       membership.addresses[40].should eq addr
-      leader.add_learner("127.0.0.1:1").should eq Raft::MembershipError::Unreachable
+      on_current_leader(c, &.add_learner("127.0.0.1:1")).should eq Raft::MembershipError::Unreachable
     end
   end
 
