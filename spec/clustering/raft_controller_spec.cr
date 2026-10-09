@@ -488,11 +488,15 @@ describe LavinMQ::Clustering::RaftController do
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       cluster.controllers.reject(first).each(&.stop)
-      select
-      when exit = cluster.exits.receive
-        exit.should eq({first, 3})
-      when timeout(5.seconds)
-        fail "leader cut off from the majority during startup kept running"
+      # Only the leader's exit counts, another node could have failed to bind
+      # a port picked by free_port
+      deadline = Time.instant + 5.seconds
+      loop do
+        exit = receive_within(cluster.exits, deadline - Time.instant)
+        fail "leader cut off from the majority during startup kept running" unless exit
+        next unless exit[0] == first
+        exit[1].should eq 3
+        break
       end
     end
   end
