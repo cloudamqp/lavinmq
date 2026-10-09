@@ -41,7 +41,7 @@ function renderTable (id, options = {}, renderRow) {
     toggleDisplayError(id, 'Error fetching data: ' + error.detail)
   })
   if (dataSource.autoReload) {
-    Poller.start(() => dataSource.reload())
+    Poller.start(signal => dataSource.reload({ signal }))
   } else {
     dataSource.reload()
   }

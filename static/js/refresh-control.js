@@ -16,6 +16,7 @@ function describe (paused, { state, lastSuccessAt, lastError }) {
   const updated = lastSuccessAt ? lastSuccessAt.toLocaleTimeString() : 'never'
   if (state === 'stale') return `No new data since ${updated}, retrying.\nLast error: ${lastError}`
   if (state === 'reconnecting') return `Connection trouble, retrying. Last update ${updated}.\nLast error: ${lastError}`
+  if (state === 'slow') return `Waiting for a slow response. Last update ${updated}`
   if (paused) return `Paused, last update ${updated}`
   return lastSuccessAt ? `Live, updated ${updated}` : 'Waiting for the first update'
 }

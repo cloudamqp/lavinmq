@@ -5,7 +5,8 @@ async function request (method, path, options = {}) {
   const headers = options.headers || new window.Headers()
   const opts = {
     method,
-    headers
+    headers,
+    signal: options.signal
   }
   if (body instanceof window.FormData) {
     headers.delete('Content-Type') // browser will set to multipart with boundary
@@ -19,7 +20,7 @@ async function request (method, path, options = {}) {
   try {
     response = await window.fetch(path, opts)
   } catch (err) {
-    Reachability.recordFailure(err.message)
+    Reachability.recordFailure(options.signal?.reason?.message ?? err.message)
     throw err
   }
   updateVersionFromResponse(response)

@@ -42,8 +42,9 @@ Poller.events.addEventListener('settled', () => {
   if (successWaiting && !Poller.isStalled()) recordSuccess()
 })
 
-Poller.events.addEventListener('stalled', event => {
-  recordFailure(`No response for ${Math.round(event.detail / 1000)}s`)
+Poller.events.addEventListener('stalled', () => {
+  if (failingSince === null) update('slow')
+  else recordFailure(lastError)
 })
 
 export { recordSuccess, recordFailure, getState, events }

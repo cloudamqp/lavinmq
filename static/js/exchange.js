@@ -17,8 +17,8 @@ document.title = exchange + ' | LavinMQ'
 
 const exchangeUrl = HTTP.url`api/exchanges/${vhost}/${exchange}`
 let detailsRendered = false
-function updateExchange () {
-  return HTTP.request('GET', exchangeUrl).then(item => {
+function updateExchange (signal) {
+  return HTTP.request('GET', exchangeUrl, { signal }).then(item => {
     Chart.update(chart, item.message_stats)
     if (!detailsRendered) {
       detailsRendered = true
