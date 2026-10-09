@@ -194,6 +194,8 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const td = Table.renderCell(tr, 0, '(Default exchange binding)')
     td.setAttribute('colspan', 4)
   } else {
+    // A subscription: the exchange has no page, and MQTT manages it
+    const mqtt = item.source === 'mqtt.default'
     const btn = DOM.button.delete({
       text: 'Unbind',
       click: function () {
@@ -204,15 +206,19 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       }
     })
 
-    const exchangeLink = document.createElement('a')
-    exchangeLink.href = HTTP.url`exchange#vhost=${vhost}&name=${item.source}`
-    exchangeLink.textContent = item.source
-    Table.renderCell(tr, 0, exchangeLink)
+    if (mqtt) {
+      Table.renderCell(tr, 0, item.source)
+    } else {
+      const exchangeLink = document.createElement('a')
+      exchangeLink.href = HTTP.url`exchange#vhost=${vhost}&name=${item.source}`
+      exchangeLink.textContent = item.source
+      Table.renderCell(tr, 0, exchangeLink)
+    }
     Table.renderCell(tr, 1, item.routing_key)
     const pre = document.createElement('pre')
     pre.textContent = JSON.stringify(item.arguments || {})
     Table.renderCell(tr, 2, pre)
-    Table.renderCell(tr, 3, btn, 'right')
+    Table.renderCell(tr, 3, mqtt ? null : btn, 'right')
   }
 })
 
