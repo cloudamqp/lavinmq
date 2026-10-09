@@ -1380,6 +1380,3 @@ end
 
 # Required after the class: DelayedQueue and its children subclass Queue, so a top require would fail on the not-yet-defined superclass.
 require "./delayed_queue"
-
-# Queue#exclusive_owner references AMQP::Client, whose requires subclass Queue
-require "../client"

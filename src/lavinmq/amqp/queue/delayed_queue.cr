@@ -119,3 +119,4 @@ end
 
 require "./delayed_exchange_queue"
 require "./delayed_retry_queue"
+require "../client"
