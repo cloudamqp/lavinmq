@@ -50,6 +50,8 @@ module LavinMQ
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @basic_get_unacked_count = Atomic(UInt32).new(0)
+      # Messages basic.recover has taken out of @unacked to deliver again
+      @recover_pending = Atomic(Int32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
@@ -687,6 +689,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = Array(Unack).new
         notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
@@ -701,15 +704,41 @@ module LavinMQ
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                # Delivered again below with a new delivery tag, which
+                # takes @unack_lock, so it can't happen in here
+                redeliver << unack
               else
                 unack.queue.reject(unack.sp, requeue: true)
-                true
+              end
+              true
+            end
+            # Still counts against the global prefetch until delivered again
+            @recover_pending.add(redeliver.size, :relaxed)
+          end
+        end
+        handed_over = 0
+        begin
+          redeliver.each do |unack|
+            consumer = unack.consumer.not_nil!
+            if consumer.closed?
+              handed_over += 1
+              unack.queue.reject(unack.sp, requeue: true)
+            else
+              unack.queue.read(unack.sp) do |env|
+                # deliver puts it back in @unacked before writing to the socket
+                handed_over += 1
+                consumer.deliver(env.message, env.segment_position, true, recover: true)
               end
             end
           end
+        ensure
+          # Requeue what is no longer in @unacked if a delivery raised
+          (handed_over...redeliver.size).each do |i|
+            unack = redeliver[i]
+            unack.consumer.try &.reject(unack.sp, requeue: true)
+            unack.queue.reject(unack.sp, requeue: true)
+          end
+          notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -795,7 +824,7 @@ module LavinMQ
 
       def has_capacity? : Bool
         return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
+        consumer_unacked = @unacked.size + @recover_pending.get(:relaxed) - @basic_get_unacked_count.get(:relaxed)
         consumer_unacked < @global_prefetch_count
       end
 
