@@ -239,7 +239,7 @@ module LavinMQ::AMQP
 
     private def commit_policy_arguments
       super
-      settings = @settings
+      settings = self.settings
       # drop_overflow mutates the store, so take @msg_store_lock like other
       # store access; it can run concurrently with publishes/consumes.
       @msg_store_lock.synchronize do

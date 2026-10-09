@@ -38,18 +38,18 @@ module LavinMQ::AMQP
           end
         end
 
-        @target = Target.new(nil, nil)
+        @target = Atomic(Target).new(Target.new(nil, nil))
 
         def dlx : String?
-          @target.dlx
+          @target.get(:acquire).dlx
         end
 
         def dlrk : String?
-          @target.dlrk
+          @target.get(:acquire).dlrk
         end
 
         def set_target(dlx : String?, dlrk : String?) : Nil
-          @target = Target.new(dlx, dlrk)
+          @target.set(Target.new(dlx, dlrk), :release)
         end
 
         @tasks = Tasks.new
@@ -83,7 +83,7 @@ module LavinMQ::AMQP
 
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          target = @target
+          target = @target.get(:acquire)
           return routed.call unless dlx = (msg.dlx || target.dlx)
           ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
 

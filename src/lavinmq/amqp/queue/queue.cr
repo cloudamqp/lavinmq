@@ -76,7 +76,9 @@ module LavinMQ::AMQP
       end
     end
 
-    @settings = Settings.new(Config.instance.consumer_timeout)
+    # Published with release and read with acquire ordering, so that a reader
+    # on another thread sees the fields as they were when it was published
+    @settings = Atomic(Settings).new(Settings.new(Config.instance.consumer_timeout))
     # Built by clear_policy_arguments/apply_policy_argument, published by
     # commit_policy_arguments
     @staged_settings = Settings.new
@@ -122,8 +124,12 @@ module LavinMQ::AMQP
 
     getter paused = BoolChannel.new(false)
 
+    def settings : Settings
+      @settings.get(:acquire)
+    end
+
     def consumer_timeout : UInt64?
-      @settings.consumer_timeout
+      settings.consumer_timeout
     end
 
     getter consumers_empty = BoolChannel.new(true)
@@ -161,13 +167,13 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break if @closed || !@settings.expires
+        break if @closed || !settings.expires
         select
         when @consumers_empty.when_true.receive
         when @queue_expiration_ttl_change.receive
           next
         end
-        break unless ttl = @settings.expires
+        break unless ttl = settings.expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
         when @queue_expiration_ttl_change.receive
@@ -323,7 +329,7 @@ module LavinMQ::AMQP
     end
 
     private def ensure_queue_expire_fiber
-      return if @closed || !@settings.expires
+      return if @closed || !settings.expires
       return if @queue_expire_fiber_active.swap(true)
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         queue_expire_loop
@@ -384,7 +390,7 @@ module LavinMQ::AMQP
     private def should_start_expire_fiber? : Bool
       return false if @msg_store.size == 0  # No messages to expire
       return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
-      return true if @settings.message_ttl  # Queue-level TTL means all messages need expiring
+      return true if settings.message_ttl   # Queue-level TTL means all messages need expiring
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
@@ -547,7 +553,7 @@ module LavinMQ::AMQP
     private def commit_policy_arguments
       settings = @staged_settings
       @dead_letter.set_target(settings.dlx, settings.dlrk)
-      @settings = settings
+      @settings.set(settings, :release)
       @queue_expiration_ttl_change.try_send? nil
       ensure_queue_expire_fiber
       @message_ttl_change.try_send? nil
@@ -720,7 +726,7 @@ module LavinMQ::AMQP
         state:                        @state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
-        effective_arguments:          @settings.effective_args,
+        effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
       }
@@ -760,7 +766,7 @@ module LavinMQ::AMQP
       ensure_consumers_deliver_loops if was_empty
 
       # Record activity if message has TTL (needs expiration)
-      if @settings.message_ttl || msg.properties.expiration
+      if settings.message_ttl || msg.properties.expiration
         ensure_expire_fiber
       end
 
@@ -777,7 +783,7 @@ module LavinMQ::AMQP
     end
 
     private def reject_on_overflow?(msg) : Bool
-      settings = @settings
+      settings = self.settings
       return false unless settings.reject_on_overflow?
       if ml = settings.max_length
         if @msg_store.size >= ml
@@ -805,7 +811,7 @@ module LavinMQ::AMQP
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
-      settings = @settings
+      settings = self.settings
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb
@@ -847,7 +853,7 @@ module LavinMQ::AMQP
 
     private def drop_redelivered : Nil
       counter = 0
-      if limit = @settings.delivery_limit
+      if limit = settings.delivery_limit
         @msg_store_lock.synchronize do
           loop do
             env = @msg_store.first? || break
@@ -884,11 +890,11 @@ module LavinMQ::AMQP
     end
 
     private def zero_ttl?(msg) : Bool
-      msg.ttl == 0 || @settings.message_ttl == 0
+      msg.ttl == 0 || settings.message_ttl == 0
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
-      if ttl = @settings.message_ttl
+      if ttl = settings.message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
         msg.timestamp + ttl
       elsif ttl = msg.ttl
@@ -992,7 +998,7 @@ module LavinMQ::AMQP
             expire_msg(env, :expired)
             next
           end
-          if @settings.delivery_limit && !no_ack
+          if settings.delivery_limit && !no_ack
             env = with_delivery_count_header(env) || next
           end
           sp = env.segment_position
@@ -1035,7 +1041,7 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @settings.delivery_limit
+      if settings.delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
@@ -1064,7 +1070,7 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @settings.delivery_limit
+      @deliveries.delete(sp) if settings.delivery_limit
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -1081,7 +1087,7 @@ module LavinMQ::AMQP
         if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
-          if delivery_limit = @settings.delivery_limit
+          if delivery_limit = settings.delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
               return expire_msg(sp, :delivery_limit)
             end

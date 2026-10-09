@@ -5,7 +5,13 @@ module LavinMQ
   module PolicyTarget
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter effective_policy_args = Array(String).new
+    # Replaced, never mutated, and published with release ordering
+    @effective_policy_args = Atomic(Array(String)).new(Array(String).new)
+
+    def effective_policy_args : Array(String)
+      @effective_policy_args.get(:acquire)
+    end
+
     # apply_policies is spawned per policy/parameter add & delete, so concurrent
     # applies can hit the same resource; serialize them to protect the shared
     # @effective_args / store state.
@@ -30,7 +36,7 @@ module LavinMQ
           # Skip an invalid policy argument and carry on with the rest.
           Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
         end
-        @effective_policy_args = effective_policy_args
+        @effective_policy_args.set(effective_policy_args, :release)
         @policy = policy
         @operator_policy = operator_policy
         commit_policy_arguments
@@ -41,7 +47,7 @@ module LavinMQ
     def clear_policy
       @policy_lock.synchronize do
         clear_policy_arguments
-        @effective_policy_args = Array(String).new
+        @effective_policy_args.set(Array(String).new, :release)
         @policy = nil
         @operator_policy = nil
         commit_policy_arguments

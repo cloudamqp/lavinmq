@@ -24,7 +24,8 @@ module LavinMQ
       @delayed_queue : DelayedExchangeQueue?
       @deleted = false
       @deduper : Deduplication::Deduper?
-      @effective_args = Array(String).new
+      # Replaced, never mutated, and published with release ordering
+      @effective_args = Atomic(Array(String)).new(Array(String).new)
       # Built by stage_arguments/apply_policy_argument, published by
       # commit_policy_arguments. A published array is never mutated.
       @staged_effective_args = Array(String).new
@@ -78,7 +79,7 @@ module LavinMQ
 
       private def commit_policy_arguments
         @alternate_exchange = @staged_alternate_exchange
-        @effective_args = @staged_effective_args
+        @effective_args.set(@staged_effective_args, :release)
       end
 
       private def stage_arguments
@@ -122,7 +123,7 @@ module LavinMQ
           operator_policy: operator_policy.try &.name,
           effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
           message_stats: current_stats_details,
-          effective_arguments: @effective_args,
+          effective_arguments: @effective_args.get(:acquire),
         }
       end
 
