@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 describe "Retry Queue" do
   describe "Scaffold" do
@@ -234,9 +235,26 @@ describe "Retry Queue" do
           msg.reject(requeue: true)
           wait_for { s.vhosts["/"].queue("amq.retry-retry-purge").message_count == 1 }
 
-          purged = ch.queue_purge("retry-purge")
-          purged[:message_count].should eq 1
+          Log.capture("lmq.*", :warn) do |logs|
+            purged = ch.queue_purge("retry-purge")
+            purged[:message_count].should eq 1
+            logs.empty
+          end
           s.vhosts["/"].queue("amq.retry-retry-purge").message_count.should eq 0
+        end
+      end
+    end
+
+    it "should refuse a multiplier above Int32 max" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delayed-retry-min"        => 1000,
+            "x-delayed-retry-multiplier" => 3_000_000_000_i64,
+          })
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+            ch.queue("retry-multiplier-overflow", args: args)
+          end
         end
       end
     end

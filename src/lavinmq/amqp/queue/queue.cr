@@ -26,10 +26,11 @@ module LavinMQ::AMQP
     include ArgumentTarget
     include Argument::DeadLettering
 
-    VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
-    VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
-    VALIDATOR_STRING   = ArgumentValidator::StringValidator.new
-    VALIDATOR_BOOL     = ArgumentValidator::BoolValidator.new
+    VALIDATOR_INT_ZERO  = ArgumentValidator::IntValidator.new(min_value: 0)
+    VALIDATOR_INT_ONE   = ArgumentValidator::IntValidator.new(min_value: 1)
+    VALIDATOR_INT32_ONE = ArgumentValidator::IntValidator.new(min_value: 1, max_value: Int32::MAX)
+    VALIDATOR_STRING    = ArgumentValidator::StringValidator.new
+    VALIDATOR_BOOL      = ArgumentValidator::BoolValidator.new
 
     DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
     DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
@@ -48,7 +49,7 @@ module LavinMQ::AMQP
     add_argument_validator "x-deduplication-header", VALIDATOR_STRING
     add_argument_validator "x-delayed-retry-min", VALIDATOR_INT_ONE
     add_argument_validator "x-delayed-retry-max", VALIDATOR_INT_ONE
-    add_argument_validator "x-delayed-retry-multiplier", VALIDATOR_INT_ONE
+    add_argument_validator "x-delayed-retry-multiplier", VALIDATOR_INT32_ONE
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,

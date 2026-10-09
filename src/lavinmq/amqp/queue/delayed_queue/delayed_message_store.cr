@@ -104,6 +104,15 @@ module LavinMQ::AMQP
         sp
       end
 
+      def purge_all
+        while sp = @requeued.shift?
+          @size -= 1
+          @bytesize -= sp.bytesize
+          delete(sp) if @segments.has_key?(sp.segment)
+        end
+        @empty.set true
+      end
+
       def requeue(sp : SegmentPosition)
         raise "BUG: messages should never be requeued to DelayedMessageStore"
       end
