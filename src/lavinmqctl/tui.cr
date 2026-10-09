@@ -641,7 +641,7 @@ class LavinMQCtl
     private def detail_value(hash : Hash(String, JSON::Any), key : String, field : JSON::Any) : String
       return "(hidden)" if key == "password_hash"
       text = detail_text(field)
-      bytes = key.ends_with?("bytes") || key.ends_with?("_oct")
+      bytes = key.includes?("bytes") || key.ends_with?("_oct")
       if bytes && (count = field.as_i64?) && count >= 1024
         text += " (#{Fields.human_bytes(count)})"
       end

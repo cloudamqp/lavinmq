@@ -493,7 +493,7 @@ describe LavinMQCtl::TUI do
       vhost: "seed", name: "seed.stream", state: "running", messages: 5,
       arguments: {"x-queue-type": "stream"},
       message_stats: {publish: 10, publish_details: {rate: 2.5}},
-      total_bytes: 3 * 1024 * 1024, ready_avg_bytes: 512,
+      total_bytes: 3 * 1024 * 1024, ready_avg_bytes: 512, message_bytes_ready: 2048,
       recv_oct: 4096, recv_oct_details: {rate: 2048},
       error: "x" * 300,
     }
@@ -506,6 +506,7 @@ describe LavinMQCtl::TUI do
     screen.text.should_not contain("publish_details")
     screen.text.should match(/total_bytes +3145728 \(3\.0MiB\)/)
     screen.text.should match(/ready_avg_bytes +512 /)
+    screen.text.should match(/message_bytes_ready +2048 \(2\.0KiB\)/)
     screen.text.should match(/recv_oct +4096 \(4\.0KiB\) \(2\.0KiB\/s\)/)
     screen.text.should contain("x" * 100) # long values wrap
   end
