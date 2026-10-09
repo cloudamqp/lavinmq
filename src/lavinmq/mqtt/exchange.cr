@@ -9,6 +9,7 @@ module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
+      @publish_seq = 0u64
 
       def type : String
         "mqtt"
@@ -30,10 +31,11 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         msg.needs_sync = packet.qos > 0
+        publish_seq = @publish_seq &+= 1
         count = 0u32
         @tree.each_entry(packet.topic) do |subscriber, qos, filter|
           msg.properties.delivery_mode = qos
-          if subscriber.deliver(msg, filter)
+          if subscriber.deliver(msg, filter, publish_seq)
             count += 1
             msg.body_io.rewind
           end

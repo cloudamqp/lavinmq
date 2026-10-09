@@ -212,14 +212,86 @@ module MqttSpecs
         queue = LavinMQ::AMQP::SyncFlagCapturingQueue.create(vhost, "sync_flag")
         exchange.bind(queue, "a/b", nil)
 
-        {true, false}.each do |needs_sync|
+        {true, false}.each_with_index do |needs_sync, i|
           msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
           msg.needs_sync = needs_sync
-          exchange.deliver(msg, "a/b").should be_true
+          exchange.deliver(msg, "a/b", i.to_u64 + 1).should be_true
           queue.needs_sync_seen.should eq needs_sync
         end
       ensure
         queue.try &.delete
+      end
+    end
+
+    # The tree calls #deliver once per matching filter, so stats must not be
+    # counted per call.
+    it "counts publish_in once per MQTT publish matched by several filters" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        {"q1" => "a/#", "q2" => "a/+", "q3" => "+/b"}.each do |q, filter|
+          vhost.declare_queue(q, true, false)
+          vhost.bind_queue(q, "xmqtt", filter)
+        end
+
+        with_client_io(server) do |io|
+          connect(io)
+          5.times { publish(io, topic: "a/b", payload: "x".to_slice, qos: 0u8) }
+          disconnect(io)
+        end
+
+        wait_for { {"q1", "q2", "q3"}.all? { |q| vhost.queue(q).message_count == 5 } }
+        exchange = vhost.exchange("xmqtt")
+        exchange.publish_in_count.should eq 5
+        exchange.publish_out_count.should eq 15
+        exchange.unroutable_count.should eq 0
+      end
+    end
+
+    it "does not count a publish refused for overflow as unroutable" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        args = LavinMQ::AMQP::Table.new({"x-max-length" => 0, "x-overflow" => "reject-publish"})
+        vhost.declare_queue("full", true, false, args)
+        vhost.bind_queue("full", "xmqtt", "a/#")
+
+        with_client_io(server) do |io|
+          connect(io)
+          3.times { publish(io, topic: "a/b", payload: "x".to_slice, qos: 0u8) }
+          disconnect(io)
+        end
+
+        exchange = vhost.exchange("xmqtt")
+        wait_for { exchange.publish_in_count == 3 }
+        exchange.publish_out_count.should eq 0
+        exchange.unroutable_count.should eq 0
+      end
+    end
+
+    # The order the tree yields filters in is not defined, so a filter that
+    # routes the publish can come after one that counted it as unroutable.
+    it "counts a publish as unroutable once, and only if no filter routes it" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
+        vhost.declare_queue("closed", true, false)
+        vhost.declare_queue("open", true, false)
+        exchange.bind(vhost.queue("closed").as(LavinMQ::AMQP::Queue), "a/#", nil)
+        exchange.bind(vhost.queue("open").as(LavinMQ::AMQP::Queue), "a/+", nil)
+        vhost.queue("closed").close
+        msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
+
+        exchange.deliver(msg, "a/#", 1u64).should be_false
+        exchange.unroutable_count.should eq 1
+        exchange.deliver(msg, "a/+", 1u64).should be_true
+        exchange.unroutable_count.should eq 0
+
+        exchange.deliver(msg, "a/#", 2u64).should be_false
+        exchange.deliver(msg, "a/#", 2u64).should be_false
+        exchange.unroutable_count.should eq 1
+        exchange.publish_in_count.should eq 2
       end
     end
 

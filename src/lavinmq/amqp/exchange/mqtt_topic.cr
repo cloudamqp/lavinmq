@@ -13,6 +13,10 @@ module LavinMQ
     class MqttTopicExchange < Exchange
       include MQTT::Subscriber
 
+      # Per-publish state for the stats in #deliver, see there.
+      @last_publish_seq = 0u64
+      @publish_handled = false
+      @publish_counted_unroutable = false
       @bindings = Hash(String, Set({AMQP::Destination, BindingKey})).new do |h, k|
         h[k] = Set({AMQP::Destination, BindingKey}).new
       end
@@ -80,26 +84,56 @@ module LavinMQ
       # A fresh Message struct: the one the tree walk hands out is shared and
       # its delivery_mode is rewritten per entry. delivery_mode 2 is metadata
       # only; persistence is derived from queue durability.
-      def deliver(msg : Message, filter : String) : Bool
+      #
+      # The tree calls this once per matching filter, so a publish matched by
+      # several filters arrives several times with the same publish_seq. It is
+      # counted in publish_in once, and in unroutable at most once.
+      def deliver(msg : Message, filter : String, publish_seq : UInt64) : Bool
         destinations = @bindings[filter]? || return false
-        @publish_in_count.add(1, :relaxed)
+        if publish_seq != @last_publish_seq
+          @last_publish_seq = publish_seq
+          @publish_in_count.add(1, :relaxed)
+          @publish_handled = false
+          @publish_counted_unroutable = false
+        end
         properties = AMQP::Properties.new
         properties.delivery_mode = 2u8
         message = Message.new(msg.timestamp, name, msg.routing_key, properties, msg.bodysize, msg.body_io)
         message.needs_sync = msg.needs_sync?
         count = 0u32
+        overflow = false
         destinations.each do |destination, _binding_key|
           case destination
           in AMQP::Queue
-            count += 1 if destination.publish(message).ok?
+            case destination.publish(message)
+            in .ok?       then count += 1
+            in .overflow? then overflow = true
+            in .dropped?  then nil
+            end
           in AMQP::Exchange
             count += 1 if destination.route_msg(message).routed?
           end
           message.body_io.rewind
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero?
+        count_unroutable(handled: count.positive? || overflow)
         count.positive?
+      end
+
+      # Like Exchange#route_msg: unroutable when no destination accepted the
+      # publish and none refused it for overflow. A later filter of the same
+      # publish can still route it, so an earlier count is taken back then.
+      private def count_unroutable(handled : Bool) : Nil
+        if handled
+          @publish_handled = true
+          if @publish_counted_unroutable
+            @unroutable_count.sub(1, :relaxed)
+            @publish_counted_unroutable = false
+          end
+        elsif !@publish_handled && !@publish_counted_unroutable
+          @unroutable_count.add(1, :relaxed)
+          @publish_counted_unroutable = true
+        end
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
