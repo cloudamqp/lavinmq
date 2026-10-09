@@ -387,6 +387,89 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 end
 
+describe "LavinMQ::HTTP::PrometheusController dead-lettered metrics" do
+  it "counts messages rejected or nacked without requeue" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+        plain.get(no_ack: false).not_nil!.reject(requeue: false)
+        dlx.get(no_ack: false).not_nil!.nack(requeue: false)
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "at_most_once") }
+        dead_lettered_counter(http, "expired", "disabled").should eq 0
+      end
+    end
+  end
+
+  it "counts messages expired by TTL" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-message-ttl" => 1} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages dropped by max-length and max-length-bytes as maxlen" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, _ = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        _, dlx = declare_dead_letter_queues(ch, {"x-max-length-bytes" => 1} of String => AMQ::Protocol::Field, suffix: "bytes")
+        3.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "disabled") }
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages exceeding the delivery limit" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-delivery-limit" => 1} of String => AMQ::Protocol::Field)
+        {plain, dlx}.each do |q|
+          q.publish_confirm "m"
+          2.times { wait_for { q.get(no_ack: false) }.not_nil!.reject(requeue: true) }
+        end
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "at_most_once") }
+      end
+    end
+  end
+
+  it "keeps counters when queues and vhosts are deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("dl_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        2.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+      end
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "disabled") }
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+
+      vhost.delete_queue("dl_plain")
+      vhost.delete_queue("dl_dlx")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
+
+      s.vhosts.delete("dl_mono")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
+    end
+  end
+end
+
 describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
   # Counter series must never decrease: rate()/increase() read a drop as a reset
   # and fabricate a spike. These exercise the queue/vhost churn that caused it.
@@ -552,6 +635,22 @@ end
 def prometheus_counter(http, key : String) : Float64
   raw = http.get("/metrics").body
   PrometheusSpecHelper.parse_prometheus(raw).find! { |m| m[:key] == key }[:value]
+end
+
+def dead_lettered_counter(http, reason : String, strategy : String) : Float64
+  raw = http.get("/metrics").body
+  PrometheusSpecHelper.parse_prometheus(raw).find! do |m|
+    m[:key] == "lavinmq_global_messages_dead_lettered_#{reason}_total" &&
+      m[:attrs]["dead_letter_strategy"]? == strategy
+  end[:value]
+end
+
+def declare_dead_letter_queues(ch, args : Hash(String, AMQ::Protocol::Field), *, suffix = "")
+  ch.queue("dl_target#{suffix}")
+  plain = ch.queue("dl_plain#{suffix}", args: AMQP::Client::Arguments.new(args))
+  dlx_args = args.merge({"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dl_target#{suffix}"} of String => AMQ::Protocol::Field)
+  dlx = ch.queue("dl_dlx#{suffix}", args: AMQP::Client::Arguments.new(dlx_args))
+  {plain, dlx}
 end
 
 class PrometheusSpecHelper

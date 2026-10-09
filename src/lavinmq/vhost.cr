@@ -36,6 +36,18 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
+    DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
+                        "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
+                        "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
+                        "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
+    {% for key in DEAD_LETTER_KEYS %}
+      @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
+
+      def {{ key.id }}_count : UInt64
+        @{{ key.id }}_count.get(:relaxed)
+      end
+    {% end %}
+
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
     getter closed = BoolChannel.new(true)
@@ -631,6 +643,19 @@ module LavinMQ
       in EventType::ClientDeliverNoAck
         @deliver_no_ack_count.add(1, :relaxed)
         @deliver_get_count.add(1, :relaxed)
+      end
+    end
+
+    def count_dead_lettered(reason : Symbol, *, dlx : Bool) : Nil
+      case reason
+      when :delivery_limit
+        dlx ? @dead_lettered_delivery_limit_at_most_once_count.add(1, :relaxed) : @dead_lettered_delivery_limit_disabled_count.add(1, :relaxed)
+      when :expired
+        dlx ? @dead_lettered_expired_at_most_once_count.add(1, :relaxed) : @dead_lettered_expired_disabled_count.add(1, :relaxed)
+      when :maxlen, :maxlenbytes
+        dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
+      when :rejected
+        dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
       end
     end
 

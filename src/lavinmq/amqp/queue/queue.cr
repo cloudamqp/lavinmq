@@ -878,7 +878,9 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      if sp.has_dlx? || @dead_letter.dlx
+      dlx = sp.has_dlx? || !@dead_letter.dlx.nil?
+      @vhost.count_dead_lettered(reason, dlx: dlx)
+      if dlx
         @log.debug { "Expiring #{sp} now due to #{reason}" }
         # Dead-lettering escapes @msg_store_lock — the message is published
         # into other queues after this method's lock hold — while a concurrent
