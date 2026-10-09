@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reading a stream through the HTTP API or management UI accepts a negative offset to start that many messages from the end, like `x-stream-offset`, and the offset can be a JSON number [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
 - `tcp_send_timeout` config option in `[main]` (default `15` seconds): a client that doesn't read what the server sends for that long is disconnected. Previously a write to such a client blocked forever, and so did closing the connection. Closing a connection now also aborts a write in progress, e.g. of a large message to a slowly reading client [#2363](https://github.com/cloudamqp/lavinmq/pull/2363)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
@@ -34,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A stream consumer whose segment was dropped by retention got wrong `x-stream-offset` headers and stored offsets [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
+- A stream consumer starting at `first` or `last` on an empty stream busy-looped until a message was published [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
+- The HTTP API returns 400 instead of 500 for an integer too large for its field, such as `count` or `truncate` on a queue get or stream read [#2386](https://github.com/cloudamqp/lavinmq/pull/2386)
 - `OverflowError` from the HTTP API or stats loop when a queue became empty while its average message size was read [#2384](https://github.com/cloudamqp/lavinmq/pull/2384)
 - Federation links of `federation-upstream-set` entries that override upstream settings are now stopped when the policy is removed or the set is updated or deleted; they used to keep running [#2371](https://github.com/cloudamqp/lavinmq/pull/2371)
 - The Prometheus metrics server is bound once for the lifetime of the process and serves follower or leader metrics depending on the node's role, instead of being closed and rebound when a follower is promoted to leader [#2387](https://github.com/cloudamqp/lavinmq/pull/2387)
