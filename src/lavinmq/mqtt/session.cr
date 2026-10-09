@@ -251,7 +251,7 @@ module LavinMQ
         end
       end
 
-      def deliver(msg : Message, filter : String, publish_seq : UInt64) : Bool
+      def deliver(msg : Message, filter : String, ctx : PublishContext) : Bool
         publish(msg)
       end
 

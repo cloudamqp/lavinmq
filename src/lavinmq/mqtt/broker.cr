@@ -100,9 +100,9 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish)
+      def publish(packet : Protocol::Publish, ctx : PublishContext)
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet)
+        @exchange.publish(packet, ctx)
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)

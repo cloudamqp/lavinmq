@@ -4,12 +4,12 @@ require "./subscription_tree"
 require "./session"
 require "./subscription_key"
 require "./subscription_details"
+require "./publish_context"
 
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
-      @publish_seq = 0u64
 
       def type : String
         "mqtt"
@@ -20,7 +20,8 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : Protocol::Publish) : UInt32
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
+        ctx.reset
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -31,11 +32,10 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         msg.needs_sync = packet.qos > 0
-        publish_seq = @publish_seq &+= 1
         count = 0u32
         @tree.each_entry(packet.topic) do |subscriber, qos, filter|
           msg.properties.delivery_mode = qos
-          if subscriber.deliver(msg, filter, publish_seq)
+          if subscriber.deliver(msg, filter, ctx)
             count += 1
             msg.body_io.rewind
           end

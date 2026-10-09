@@ -11,6 +11,19 @@ class LavinMQ::AMQP::SyncFlagCapturingQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Parks the publishing fiber inside #publish until released, the way a
+# contended store lock would, so another publish can interleave with it.
+class LavinMQ::AMQP::BlockingPublishQueue < LavinMQ::AMQP::Queue
+  getter entered = ::Channel(Nil).new(1)
+  getter release = ::Channel(Nil).new
+
+  def publish(msg : LavinMQ::Message) : PublishResult
+    @entered.send(nil)
+    @release.receive
+    super
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
 
@@ -212,10 +225,11 @@ module MqttSpecs
         queue = LavinMQ::AMQP::SyncFlagCapturingQueue.create(vhost, "sync_flag")
         exchange.bind(queue, "a/b", nil)
 
-        {true, false}.each_with_index do |needs_sync, i|
+        ctx = LavinMQ::MQTT::PublishContext.new
+        {true, false}.each do |needs_sync|
           msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
           msg.needs_sync = needs_sync
-          exchange.deliver(msg, "a/b", i.to_u64 + 1).should be_true
+          exchange.deliver(msg, "a/b", ctx.reset).should be_true
           queue.needs_sync_seen.should eq needs_sync
         end
       ensure
@@ -282,16 +296,57 @@ module MqttSpecs
         exchange.bind(vhost.queue("open").as(LavinMQ::AMQP::Queue), "a/+", nil)
         vhost.queue("closed").close
         msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
+        ctx = LavinMQ::MQTT::PublishContext.new
 
-        exchange.deliver(msg, "a/#", 1u64).should be_false
+        ctx.reset
+        exchange.deliver(msg, "a/#", ctx).should be_false
         exchange.unroutable_count.should eq 1
-        exchange.deliver(msg, "a/+", 1u64).should be_true
+        exchange.deliver(msg, "a/+", ctx).should be_true
         exchange.unroutable_count.should eq 0
 
-        exchange.deliver(msg, "a/#", 2u64).should be_false
-        exchange.deliver(msg, "a/#", 2u64).should be_false
+        ctx.reset
+        exchange.deliver(msg, "a/#", ctx).should be_false
+        exchange.deliver(msg, "a/#", ctx).should be_false
         exchange.unroutable_count.should eq 1
         exchange.publish_in_count.should eq 2
+      end
+    end
+
+    # Queue#publish can yield on a contended store lock, letting another
+    # client's publish into the same exchange run in the middle of this one's
+    # tree walk. The per-publish stats state must not be shared between them.
+    it "keeps per-publish stats apart when two publishes interleave" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
+        blocking = LavinMQ::AMQP::BlockingPublishQueue.create(vhost, "blocking")
+        vhost.declare_queue("open", true, false)
+        exchange.bind(blocking, "a/b", nil)
+        vhost.bind_queue("open", "xmqtt", "a/#")
+
+        with_client_io(server) do |first|
+          connect(first, client_id: "first")
+          publish(first, topic: "a/b", payload: "x".to_slice, qos: 0u8)
+          blocking.entered.receive
+
+          with_client_io(server) do |second|
+            connect(second, client_id: "second")
+            publish(second, topic: "a/c", payload: "y".to_slice, qos: 0u8)
+            disconnect(second)
+          end
+          wait_for { vhost.queue("open").message_count == 1 }
+
+          blocking.release.send(nil)
+          wait_for { vhost.queue("open").message_count == 2 }
+          disconnect(first)
+        end
+
+        exchange.publish_in_count.should eq 2
+        exchange.publish_out_count.should eq 3
+        exchange.unroutable_count.should eq 0
+      ensure
+        blocking.try &.delete
       end
     end
 

@@ -13,10 +13,6 @@ module LavinMQ
     class MqttTopicExchange < Exchange
       include MQTT::Subscriber
 
-      # Per-publish state for the stats in #deliver, see there.
-      @last_publish_seq = 0u64
-      @publish_handled = false
-      @publish_counted_unroutable = false
       @bindings = Hash(String, Set({AMQP::Destination, BindingKey})).new do |h, k|
         h[k] = Set({AMQP::Destination, BindingKey}).new
       end
@@ -86,16 +82,16 @@ module LavinMQ
       # only; persistence is derived from queue durability.
       #
       # The tree calls this once per matching filter, so a publish matched by
-      # several filters arrives several times with the same publish_seq. It is
-      # counted in publish_in once, and in unroutable at most once.
-      def deliver(msg : Message, filter : String, publish_seq : UInt64) : Bool
+      # several filters arrives several times with the same context. It is
+      # counted in publish_in once, and in unroutable at most once. The
+      # per-publish state lives in the context, on the publishing fiber, so a
+      # publish parked in a queue's store lock is not disturbed by another
+      # client's publish into this exchange.
+      def deliver(msg : Message, filter : String, ctx : MQTT::PublishContext) : Bool
         destinations = @bindings[filter]? || return false
-        if publish_seq != @last_publish_seq
-          @last_publish_seq = publish_seq
-          @publish_in_count.add(1, :relaxed)
-          @publish_handled = false
-          @publish_counted_unroutable = false
-        end
+        outcome = ctx.outcomes[self]?
+        @publish_in_count.add(1, :relaxed) unless outcome
+        outcome ||= MQTT::PublishContext::Outcome.new(handled: false, counted_unroutable: false)
         properties = AMQP::Properties.new
         properties.delivery_mode = 2u8
         message = Message.new(msg.timestamp, name, msg.routing_key, properties, msg.bodysize, msg.body_io)
@@ -111,28 +107,27 @@ module LavinMQ
             in .dropped?  then nil
             end
           in AMQP::Exchange
-            count += 1 if destination.route_msg(message).routed?
+            count += 1 if destination.route_msg(message, ctx.queues, ctx.exchanges).routed?
           end
           message.body_io.rewind
         end
         @publish_out_count.add(count, :relaxed)
-        count_unroutable(handled: count.positive? || overflow)
+        ctx.outcomes[self] = count_unroutable(outcome, handled: count.positive? || overflow)
         count.positive?
       end
 
       # Like Exchange#route_msg: unroutable when no destination accepted the
       # publish and none refused it for overflow. A later filter of the same
       # publish can still route it, so an earlier count is taken back then.
-      private def count_unroutable(handled : Bool) : Nil
+      private def count_unroutable(outcome : MQTT::PublishContext::Outcome, handled : Bool) : MQTT::PublishContext::Outcome
         if handled
-          @publish_handled = true
-          if @publish_counted_unroutable
-            @unroutable_count.sub(1, :relaxed)
-            @publish_counted_unroutable = false
-          end
-        elsif !@publish_handled && !@publish_counted_unroutable
+          @unroutable_count.sub(1, :relaxed) if outcome.counted_unroutable
+          MQTT::PublishContext::Outcome.new(handled: true, counted_unroutable: false)
+        elsif !outcome.handled && !outcome.counted_unroutable
           @unroutable_count.add(1, :relaxed)
-          @publish_counted_unroutable = true
+          MQTT::PublishContext::Outcome.new(handled: false, counted_unroutable: true)
+        else
+          outcome
         end
       end
 
