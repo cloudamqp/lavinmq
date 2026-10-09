@@ -17,6 +17,10 @@ function describe (paused, { state, lastSuccessAt, lastError }) {
   if (state === 'stale') return `No new data since ${updated}, retrying.\nLast error: ${lastError}`
   if (state === 'reconnecting') return `Connection trouble, retrying. Last update ${updated}.\nLast error: ${lastError}`
   if (state === 'slow') return `Waiting for a slow response. Last update ${updated}`
+  if (Poller.isStreaming()) {
+    if (paused) return `Paused, new lines held. Last activity ${updated}`
+    return lastSuccessAt ? `Live stream, last activity ${updated}` : 'Waiting for the log stream'
+  }
   if (paused) return `Paused, last update ${updated}`
   return lastSuccessAt ? `Live, updated ${updated}` : 'Waiting for the first update'
 }
@@ -28,7 +32,8 @@ function render () {
   control.dataset.state = reachability.state
   control.title = describe(paused, reachability)
   toggle.setAttribute('aria-pressed', String(paused))
-  toggle.setAttribute('aria-label', paused ? 'Resume auto-refresh' : 'Pause auto-refresh')
+  toggle.setAttribute('aria-label', `${paused ? 'Resume' : 'Pause'} ${Poller.isStreaming() ? 'log stream' : 'auto-refresh'}`)
+  control.dataset.mode = Poller.isStreaming() ? 'stream' : 'poll'
   rateSelect.value = String(Poller.getRate())
 }
 

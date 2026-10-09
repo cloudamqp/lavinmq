@@ -1,4 +1,8 @@
 /* global localStorage */
+import * as Poller from './poller.js'
+import * as Reachability from './reachability.js'
+
+const MAX_LINES = 10000
 
 let shouldAutoScroll = true
 const evtSource = new window.EventSource('api/livelog')
@@ -6,8 +10,62 @@ const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
 const btnToTop = document.getElementById('to-top')
 const btnToBottom = document.getElementById('to-bottom')
+const pending = []
+let paintScheduled = false
+let activityScheduled = false
+
+Poller.stream()
+Poller.events.addEventListener('change', schedulePaint)
+
+evtSource.onopen = () => Reachability.recordSuccess()
 
 evtSource.onmessage = (event) => {
+  recordActivity()
+  pending.push(event)
+  if (pending.length > MAX_LINES * 1.1) pending.splice(0, pending.length - MAX_LINES)
+  schedulePaint()
+}
+
+function recordActivity () {
+  if (activityScheduled) return
+  activityScheduled = true
+  window.requestAnimationFrame(() => {
+    activityScheduled = false
+    Reachability.recordSuccess()
+  })
+}
+
+function schedulePaint () {
+  if (paintScheduled || Poller.isPaused()) return
+  paintScheduled = true
+  window.requestAnimationFrame(paint)
+}
+
+function paint () {
+  paintScheduled = false
+  if (Poller.isPaused()) return
+  const rows = document.createDocumentFragment()
+  for (const event of pending.splice(0).slice(-MAX_LINES)) {
+    rows.appendChild(buildRow(event))
+  }
+  tbody.appendChild(rows)
+  trimRows()
+  if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
+  lastScrollTop = livelog.scrollTop
+}
+
+function trimRows () {
+  const excess = tbody.rows.length - MAX_LINES
+  if (excess <= 0) return
+  const heightBefore = livelog.scrollHeight
+  const range = document.createRange()
+  range.setStartBefore(tbody.rows[0])
+  range.setEndAfter(tbody.rows[excess - 1])
+  range.deleteContents()
+  if (!shouldAutoScroll) livelog.scrollTop -= heightBefore - livelog.scrollHeight
+}
+
+function buildRow (event) {
   const timestamp = new Date(parseInt(event.lastEventId))
   const [severity, source, message] = JSON.parse(event.data)
 
@@ -25,12 +83,11 @@ evtSource.onmessage = (event) => {
 
   const tr = document.createElement('tr')
   tr.append(tdTs, tdSev, tdSrc, tdMsg)
-  const row = tbody.appendChild(tr)
-
-  if (shouldAutoScroll) row.scrollIntoView()
+  return tr
 }
 
 evtSource.onerror = () => {
+  if (evtSource.readyState !== window.EventSource.CLOSED) Reachability.recordFailure('Log stream disconnected')
   window.fetch('api/whoami')
     .then(response => response.json())
     .then(whoami => {
@@ -81,4 +138,4 @@ livelog.addEventListener('scroll', event => {
   lastScrollTop = st <= 0 ? 0 : st
 })
 
-livelog.addEventListener('beforeunload', () => livelog.close())
+window.addEventListener('beforeunload', () => evtSource.close())
