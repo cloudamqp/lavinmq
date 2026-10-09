@@ -69,6 +69,7 @@ module LavinMQ::AMQP
     @delayed_retry_max : Int64?
     @delayed_retry_multiplier : Int32?
     @delayed_retry_queue : DelayedRetryQueue?
+    @logged_retry_policy_conflict : String?
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
@@ -535,7 +536,10 @@ module LavinMQ::AMQP
 
     private def apply_delayed_retry_policy(key : String, value : Int64) : Bool
       if reason = delayed_retry_policy_conflict
-        @log.warn { "Policy #{key} ignored reason=#{reason}" } if key == "delayed-retry-min"
+        if key == "delayed-retry-min" && @logged_retry_policy_conflict != reason
+          @logged_retry_policy_conflict = reason
+          @log.warn { "Policy #{key} ignored reason=#{reason}" }
+        end
         return false
       end
       if value < 1
@@ -547,6 +551,10 @@ module LavinMQ::AMQP
         return false if @delayed_retry_min.try &.< value
         @delayed_retry_min = value
       when "delayed-retry-multiplier"
+        if value > Int32::MAX
+          @log.warn { "Policy #{key} ignored reason=value_too_large value=#{value}" }
+          return false
+        end
         return false if @delayed_retry_multiplier.try &.< value
         @delayed_retry_multiplier = value.to_i32
       when "delayed-retry-max"
@@ -630,6 +638,7 @@ module LavinMQ::AMQP
     end
 
     def after_policy_applied
+      @logged_retry_policy_conflict = nil unless Policy.merge_definitions(policy, operator_policy).has_key?("delayed-retry-min")
       configure_delayed_retry
     rescue ex
       @log.error(ex) { "Failed to configure retry queue" }
@@ -889,7 +898,7 @@ module LavinMQ::AMQP
 
     def publish(msg : Message) : PublishResult
       strip_delivery_count(msg)
-      publish_internal(msg)
+      publish_internal(msg, nil, delivery_count: nil)
     end
 
     # On retry-enabled queues the x-delivery-count header carries the retry
@@ -905,7 +914,7 @@ module LavinMQ::AMQP
       end
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?, *, delivery_count : Int32?) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
         if d.duplicate?(msg)
@@ -919,8 +928,9 @@ module LavinMQ::AMQP
       pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
-        @msg_store.push(msg)
+        sp = @msg_store.push(msg)
         pushed = true
+        record_delivery_count(sp, delivery_count)
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
@@ -1207,6 +1217,15 @@ module LavinMQ::AMQP
         env.message.properties.headers = headers
       end
       env
+    end
+
+    protected def counts_deliveries? : Bool
+      !(@delivery_limit.nil? && @delayed_retry_min.nil?)
+    end
+
+    private def record_delivery_count(sp : SegmentPosition, delivery_count : Int32?) : Nil
+      return unless delivery_count && counts_deliveries?
+      @deliveries[sp] = delivery_count
     end
 
     # See #strip_delivery_count for why the header can be trusted here

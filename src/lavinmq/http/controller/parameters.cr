@@ -178,12 +178,14 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
+            definition.keys.each do |k|
               case k
               when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              when "delayed-retry-min", "delayed-retry-multiplier", "delayed-retry-max"
+              when "delayed-retry-min", "delayed-retry-max"
                 bad_request(context, "Policy definition '#{k}' should be an Int of at least 1") unless definition[k].as_i64?.try &.>= 1
+              when "delayed-retry-multiplier"
+                bad_request(context, "Policy definition '#{k}' should be an Int between 1 and #{Int32::MAX}") unless definition[k].as_i64?.try { |v| 1 <= v <= Int32::MAX }
               else
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
@@ -238,7 +240,7 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
+            definition.keys.each do |k|
               case k
               when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?

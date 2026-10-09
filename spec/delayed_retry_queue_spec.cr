@@ -853,6 +853,63 @@ describe "Retry Queue" do
       end
     end
 
+    it "should keep counting deliveries against the argument limit after the policy is removed" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          dlq = ch.queue("retry-policy-count-dlq")
+          q = ch.queue("retry-policy-count", args: AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 3,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-policy-count-dlq",
+          }))
+          vhost.add_policy("retry", "^retry-policy-count$", "queues",
+            {"delayed-retry-min" => JSON::Any.new(500_i64)}, 0_i8)
+          wait_for { vhost.queue?("amq.retry-retry-policy-count") }
+          q.publish_confirm "m"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { vhost.queue("amq.retry-retry-policy-count").message_count == 1 }
+
+          vhost.delete_policy("retry")
+          wait_for { vhost.queue("retry-policy-count").policy.nil? }
+
+          deliveries = 1
+          until dlq.message_count > 0
+            if msg = q.get(no_ack: false)
+              deliveries += 1
+              msg.reject(requeue: true)
+            else
+              sleep 10.milliseconds
+            end
+          end
+          deliveries.should eq 4
+        end
+      end
+    end
+
+    it "should not leave a stale delivery count when the policy is removed" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-policy-stale-count")
+          vhost.add_policy("retry", "^retry-policy-stale-count$", "queues", {
+            "delayed-retry-min" => JSON::Any.new(500_i64),
+            "delivery-limit"    => JSON::Any.new(3_i64),
+          }, 0_i8)
+          wait_for { vhost.queue?("amq.retry-retry-policy-stale-count") }
+          q.publish_confirm "m"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { vhost.queue("amq.retry-retry-policy-stale-count").message_count == 1 }
+
+          vhost.delete_policy("retry")
+          wait_for { vhost.queue("retry-policy-stale-count").policy.nil? }
+
+          msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+        end
+      end
+    end
+
     it "should keep a draining retry queue when the policy is re-added" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
@@ -931,6 +988,24 @@ describe "Retry Queue" do
           q.publish_confirm "m"
           wait_for { q.get(no_ack: false) }.reject(requeue: true)
           wait_for { q.get(no_ack: true) }.body_io.to_s.should eq "m"
+        end
+      end
+    end
+
+    it "should log a retry policy conflict once" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.queue("retry-policy-dedup-log", args: AMQP::Client::Arguments.new({"x-message-deduplication" => true}))
+          Log.capture("lmq.*", :warn) do |logs|
+            vhost.add_policy("retry", "^retry-policy-dedup-log$", "queues",
+              {"delayed-retry-min" => JSON::Any.new(100_i64)}, 0_i8)
+            queue = vhost.queue("retry-policy-dedup-log")
+            wait_for { queue.policy }
+            vhost.apply_policies
+            vhost.apply_policies
+            logs.@entries.count(&.message.includes?("reason=message_deduplication")).should eq 1
+          end
         end
       end
     end

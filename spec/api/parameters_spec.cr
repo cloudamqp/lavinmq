@@ -699,6 +699,9 @@ describe LavinMQ::HTTP::ParametersController do
           response = http.put("/api/policies/%2f/name", body: body)
           response.status_code.should eq 400
         end
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 3000000000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
         body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 2, "delayed-retry-max": 1000}})
         response = http.put("/api/policies/%2f/name", body: body)
         response.status_code.should eq 201

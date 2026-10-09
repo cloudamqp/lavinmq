@@ -68,12 +68,15 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
+      delivery_count = nil
       if headers = msg.properties.headers
         headers.delete("x-delay")
+        delivery_count = headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
+        headers.delete("x-delivery-count") unless @primary_queue.counts_deliveries?
         msg.properties.headers = headers
       end
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body)), nil, delivery_count: delivery_count)
       return redelay(env) unless result.ok?
       delete_message sp
       notify_if_drained
