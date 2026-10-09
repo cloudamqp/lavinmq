@@ -29,6 +29,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.server"
 
       @lock = Mutex.new(:unchecked)
+      @closed = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
@@ -503,13 +504,19 @@ module LavinMQ
         followers.each &.request_syncfs
       end
 
+      def closed? : Bool
+        @closed.get
+      end
+
       def wait_for_followers : Nil
+        return if closed?
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for_confirm }
         flush_isr if !all_acked || isr_dirty?
       end
 
       def close
+        @closed.set(true)
         @listeners.each &.close
         @lock.synchronize do
           @followers.each &.close
@@ -534,6 +541,9 @@ module LavinMQ
       # node isn't the leader anymore it raises Coordinator::StaleLeadership,
       # so the operation fails instead of being acknowledged.
       private def each_follower(& : Follower -> Nil) : Nil
+        # Nobody to replicate to, and the ISR may not be ours to change
+        # anymore, e.g. the broker closing after leadership was lost
+        return if closed?
         dirty = false
         @lock.synchronize do
           broken = nil

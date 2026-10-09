@@ -196,6 +196,11 @@ module LavinMQ
       # stays unreachable the leader's lease expires and the process exits.
       begin
         replicator.try &.wait_for_followers
+        if replicator.try &.closed?
+          # Replication stopped before this was on the followers, e.g. this
+          # node is stepping down after losing leadership
+          raise Clustering::Coordinator::StaleLeadership.new("Replication closed")
+        end
       rescue Clustering::Coordinator::StaleLeadership
         # A new leader decides what's in sync now, so nothing waiting here
         # can be confirmed. Clients see their connections closed when this

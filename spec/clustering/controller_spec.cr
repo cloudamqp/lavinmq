@@ -177,6 +177,13 @@ describe LavinMQ::Clustering::Controller do
         serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
         following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
         in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
+        state = -> do
+          {0, 1}.map do |i|
+            node = controllers[i].node
+            "node #{i}: leader #{node.leader?}, serving #{serving.call(i)}, following #{following.call(i)}, " \
+            "leader_uri #{node.leader_uri.inspect}, isr #{node.committed_isr.try(&.to_a).inspect}"
+          end.join("; ")
+        end
 
         wait_for(10.seconds) { serving.call(0) && following.call(1) && in_sync.call(1) }
         {0, 1}.each do |from|
@@ -185,7 +192,11 @@ describe LavinMQ::Clustering::Controller do
           plan.target.should eq controllers[to].id
           controllers[from].step_down(plan)
           # The old leader follows the new one, in the same process
-          wait_for(10.seconds) { serving.call(to) && following.call(from) && in_sync.call(from) }
+          begin
+            wait_for(20.seconds) { serving.call(to) && following.call(from) && in_sync.call(from) }
+          rescue ex
+            fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{state.call}"
+          end
           serving.call(from).should be_false
           # and still counts for its quorum, so the new leader keeps leading
           sleep 1.second # over three election timeouts

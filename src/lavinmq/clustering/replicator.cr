@@ -37,6 +37,14 @@ module LavinMQ
       abstract def request_syncfs : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
+
+      # Once closed nothing is replicated anymore: writes still complete
+      # locally (the broker may be closing too), but nothing that has to be
+      # on the in-sync followers may be acknowledged, see Persister
+      def closed? : Bool
+        false
+      end
+
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String

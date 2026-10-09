@@ -9,13 +9,20 @@ require "lz4"
 class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
+  @stale = false
   getter isr_updates = Array(Set(Int32)).new
 
   def update_isr(synced_node_ids : Set(Int32)) : Nil
     @lock.synchronize do
+      raise LavinMQ::Clustering::Coordinator::StaleLeadership.new("Not the leader (spec)") if @stale
       raise Error.new("coordinator unavailable (spec)") if @failing
       @isr_updates << synced_node_ids.dup
     end
+  end
+
+  # Not the leader anymore, as the raft backend reports it
+  def stale=(value : Bool)
+    @lock.synchronize { @stale = value }
   end
 
   def failing=(value : Bool)
@@ -113,6 +120,26 @@ describe LavinMQ::Clustering::Server do
       client_io.try &.close
       server.try &.close
       tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "after losing leadership" do
+    it "lets the broker's own writes complete once replication is closed" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      coordinator.stale = true
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      path = File.join(data_dir, "file")
+      File.write(path, "x")
+      # A new server's ISR is dirty, so a replicated write commits it first
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { server.replace_file(path) }
+      server.close
+      # As when the vhosts are closed after stepping down
+      server.replace_file(path)
+    ensure
+      server.try &.close
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end
