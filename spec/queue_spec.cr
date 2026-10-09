@@ -370,6 +370,8 @@ describe LavinMQ::AMQP::Queue do
           deletes.get.should eq 1
           errors.get.should eq 0
           vhost.queue?(name).should be_nil
+          # A close that lost the race to delete must not overwrite Deleted
+          q.state.deleted?.should be_true
         end
       end
     end
@@ -452,23 +454,6 @@ describe LavinMQ::AMQP::Queue do
             nil
           end)
           errors.get.should eq 0
-        end
-      end
-    end
-
-    it "keeps a queue deleted when it's closed concurrently", tags: "slow" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        ctx = Fiber::ExecutionContext::Parallel.new("close-delete-race", 4)
-        500.times do |i|
-          name = "close-delete-race-#{i}"
-          vhost.declare_queue(name, true, false)
-          q = vhost.queue(name)
-          race.call(ctx, 4, ->(j : Int32) do
-            j.even? ? q.close : q.delete
-            nil
-          end)
-          q.state.deleted?.should be_true
         end
       end
     end
