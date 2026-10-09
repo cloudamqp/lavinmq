@@ -235,7 +235,7 @@ class UrlDataSource extends DataSource {
       window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     }
     this._lastLoadedUrl = url.toString()
-    return HTTP.request('GET', url)
+    return HTTP.request('GET', url, { signal: opts.signal })
   }
 }
 

@@ -81,13 +81,13 @@ function cacheKey () {
   return 'api/overview/' + vhost
 }
 
-function update (cb) {
+function update (cb, signal) {
   const vhost = window.sessionStorage.getItem('vhost')
   const headers = new window.Headers()
   if (vhost && vhost !== '_all') {
     headers.append('x-vhost', vhost)
   }
-  return HTTP.request('GET', 'api/overview', { headers }).then(function (response) {
+  return HTTP.request('GET', 'api/overview', { headers, signal }).then(function (response) {
     try {
       window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
     } catch (e) {
@@ -111,5 +111,5 @@ function render (data) {
 }
 
 function start (cb) {
-  Poller.start(() => update(cb))
+  Poller.start(signal => update(cb, signal))
 }

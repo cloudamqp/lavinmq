@@ -2530,6 +2530,37 @@ pre.arguments .inactive-argument:before {
   background-color: var(--color-bg-hover);
 }
 
+#refresh-control[data-state="reconnecting"] #refresh-toggle,
+#refresh-control[data-state="stale"] #refresh-toggle {
+  --ring-color: var(--refresh-attention);
+}
+
+#refresh-control[data-state="stale"] #refresh-toggle {
+  border-color: var(--refresh-attention);
+  color: light-dark(#8a6d03, #e3b40f);
+  background: light-dark(rgb(210 161 6 / 12%), rgb(210 161 6 / 18%));
+}
+
+#refresh-control[data-state="reconnecting"] .refresh-ring {
+  animation: refresh-pulse 1s ease-in-out infinite alternate;
+}
+
+#refresh-control[data-state="stale"] .refresh-ring {
+  --sweep: 100%;
+  animation: refresh-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes refresh-pulse {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-ring {
+    animation: none !important;
+  }
+}
+
 /* === UTILITIES === */
 .font-semibold {
   font-weight: 600;
