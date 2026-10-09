@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
+- Automatic retries can be enabled on existing queues with the `delayed-retry-min`, `delayed-retry-multiplier` and `delayed-retry-max` policy keys. Removing the policy drains the delayed messages back to the queue on their schedule [#2415](https://github.com/cloudamqp/lavinmq/pull/2415)
 - `tcp_send_timeout` config option in `[main]` (default `15` seconds): a client that doesn't read what the server sends for that long is disconnected. Previously a write to such a client blocked forever, and so did closing the connection. Closing a connection now also aborts a write in progress, e.g. of a large message to a slowly reading client [#2363](https://github.com/cloudamqp/lavinmq/pull/2363)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)

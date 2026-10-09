@@ -33,6 +33,7 @@ module LavinMQ::AMQP
 
     DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
     DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
+    DELAYED_RETRY_DRAIN_REDELAY_MS       = 1000_i64
 
     add_argument_validator "x-expires", VALIDATOR_INT_ONE
     add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
@@ -293,6 +294,8 @@ module LavinMQ::AMQP
           @paused.set(true)
         end
         handle_arguments
+        recover_retry_queue
+        configure_delayed_retry
         ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
         true
@@ -511,6 +514,8 @@ module LavinMQ::AMQP
           schedule_policy_limits
           return true
         end
+      when "delayed-retry-min", "delayed-retry-multiplier", "delayed-retry-max"
+        return apply_delayed_retry_policy(key, value.as_i64)
       when "federation-upstream"
         @vhost.upstreams.try &.link(value.as_s, self)
         return true
@@ -525,6 +530,38 @@ module LavinMQ::AMQP
         end
       end
       false
+    end
+
+    private def apply_delayed_retry_policy(key : String, value : Int64) : Bool
+      if reason = delayed_retry_policy_conflict
+        @log.warn { "Policy #{key} ignored reason=#{reason}" } if key == "delayed-retry-min"
+        return false
+      end
+      if value < 1
+        @log.warn { "Policy #{key} ignored reason=value_below_1 value=#{value}" }
+        return false
+      end
+      case key
+      when "delayed-retry-min"
+        return false if @delayed_retry_min.try &.< value
+        @delayed_retry_min = value
+      when "delayed-retry-multiplier"
+        return false if @delayed_retry_multiplier.try &.< value
+        @delayed_retry_multiplier = value.to_i32
+      when "delayed-retry-max"
+        return false if @delayed_retry_max.try &.< value
+        @delayed_retry_max = value
+      end
+      @effective_args.delete("x-#{key}")
+      true
+    end
+
+    private def delayed_retry_policy_conflict : String?
+      if @deduper
+        "message_deduplication"
+      elsif "amq.retry-#{@name}".bytesize > DelayedQueue::MAX_NAME_LENGTH
+        "retry_queue_name_too_long"
+      end
     end
 
     private def clear_policy_arguments
@@ -577,14 +614,12 @@ module LavinMQ::AMQP
           raise LavinMQ::Error::PreconditionFailed.new(
             "x-delayed-retry-min cannot be combined with x-message-deduplication")
         end
-        @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
         @effective_args << "x-delayed-retry-min"
-        @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
-        @effective_args << "x-delayed-retry-multiplier" if @delayed_retry_multiplier
-        @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
-        @effective_args << "x-delayed-retry-max" if @delayed_retry_max
-        init_retry_queue
       end
+      @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
+      @effective_args << "x-delayed-retry-multiplier" if @delayed_retry_multiplier
+      @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
+      @effective_args << "x-delayed-retry-max" if @delayed_retry_max
     end
 
     private macro parse_header(header, type)
@@ -593,8 +628,41 @@ module LavinMQ::AMQP
       end
     end
 
-    private def init_retry_queue
+    def after_policy_applied
+      configure_delayed_retry
+    rescue ex
+      @log.error(ex) { "Failed to configure retry queue" }
+    end
+
+    private def configure_delayed_retry : Nil
+      if @delayed_retry_min
+        @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        @retry_queue_lock.synchronize { create_retry_queue.resume_retries }
+      else
+        @delayed_retry_multiplier = nil
+        @delayed_retry_max = nil
+        @effective_args.reject! &.in?("x-delayed-retry-multiplier", "x-delayed-retry-max")
+        @effective_policy_args.reject! &.in?("delayed-retry-multiplier", "delayed-retry-max")
+        @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.drain
+      end
+    end
+
+    private def recover_retry_queue : Nil
+      return if internal? || !durable? || @delayed_retry_queue
+      q_name = "amq.retry-#{@name}"
+      return if q_name.bytesize > DelayedQueue::MAX_NAME_LENGTH
+      return unless Dir.exists?(File.join(@vhost.data_dir, Digest::SHA1.hexdigest(q_name)))
       @retry_queue_lock.synchronize { create_retry_queue }
+    end
+
+    protected def retry_queue_drained(retry_queue : DelayedRetryQueue) : Nil
+      @retry_queue_lock.synchronize do
+        return unless @delayed_retry_queue.same?(retry_queue)
+        return unless retry_queue.draining? && retry_queue.empty?
+        @delayed_retry_queue = nil
+        @log.info { "Retry queue drained, deleting it" }
+        retry_queue.delete
+      end
     end
 
     # Recreates the retry queue if it was deleted or closed itself on a store error.
@@ -649,7 +717,7 @@ module LavinMQ::AMQP
     end
 
     protected def retry_delay_for(delivery_count : Int32) : Int64
-      calculate_retry_delay(@delayed_retry_min || 1_i64, delivery_count)
+      calculate_retry_delay(@delayed_retry_min || DELAYED_RETRY_DRAIN_REDELAY_MS, delivery_count)
     end
 
     # Delay for attempt n: base × n, or base × multiplier^(n-1) with a multiplier,

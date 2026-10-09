@@ -691,6 +691,20 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 400
       end
     end
+
+    it "should reject delayed retry values below 1" do
+      with_http_server do |http, s|
+        {"\"0\"", "0", "-1"}.each do |value|
+          body = %({"pattern": ".*", "definition": {"delayed-retry-min": #{value}}})
+          response = http.put("/api/policies/%2f/name", body: body)
+          response.status_code.should eq 400
+        end
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 2, "delayed-retry-max": 1000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+        s.vhosts["/"].policies["name"].definition["delayed-retry-max"].as_i.should eq 1000
+      end
+    end
   end
 
   describe "PUT /api/operator-policies/vhost/name" do

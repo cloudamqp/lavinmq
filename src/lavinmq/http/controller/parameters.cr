@@ -182,6 +182,8 @@ module LavinMQ
               case k
               when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
+              when "delayed-retry-min", "delayed-retry-multiplier", "delayed-retry-max"
+                bad_request(context, "Policy definition '#{k}' should be an Int of at least 1") unless definition[k].as_i64?.try &.>= 1
               else
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
