@@ -3030,3 +3030,80 @@ html[data-reachability="stale"] .refresh-ring {
     flex-shrink: 0;
   }
 }
+
+@media (max-width: 1000px) {
+  .theme-light #usermenu-button:not(.open-menu)::before {
+    filter: invert(1);
+  }
+
+  header #user-menu ul {
+    display: grid;
+    grid-template-columns: 1fr auto auto 1fr;
+    align-items: stretch;
+    width: 100%;
+    padding: 8px 16px 16px;
+  }
+
+  header #user-menu ul li {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    text-align: center;
+  }
+
+  header #user-menu ul li::after {
+    display: none;
+  }
+
+  header #user-menu li:has(#user-vhost) {
+    order: -1;
+    grid-column: 1 / -1;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--color-border-separator);
+  }
+
+  header #user-menu li:has(#user-vhost) :is(form, label, select) {
+    display: block;
+    width: 100%;
+    max-width: none;
+  }
+
+  header #user-menu li:is(#refresh-control, :has(#theme-switcher), :has(#signoutLink)) {
+    padding: 0 12px;
+    border-left: 1px solid var(--color-border-separator);
+  }
+
+  /* one button at a time: the next theme in light, dark, system order */
+  #theme-switcher button {
+    display: none;
+  }
+
+  #theme-switcher button.active + button,
+  #theme-switcher:has(#theme-system.active) #theme-light {
+    display: flex;
+    width: 32px;
+    height: 32px;
+  }
+
+  /* a solo icon: no pill around it, no circle on hover or tap */
+  #theme-switcher {
+    padding: 0;
+    border: none;
+    background: none;
+  }
+
+  #theme-switcher button:hover,
+  #theme-switcher button:focus:not(:focus-visible) {
+    background: none;
+    box-shadow: none;
+    transform: none;
+  }
+
+  #theme-switcher button img {
+    width: 16px;
+    height: 16px;
+    opacity: 1;
+  }
+}
