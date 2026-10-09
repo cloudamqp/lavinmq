@@ -122,6 +122,8 @@ class LavinMQCtl
     WHITE    = Termisu::Color.rgb(238, 244, 252)
     # Braille cells filled from the bottom, a quarter at a time
     GRAPH_FILL = {'⣀', '⣤', '⣶', '⣿'}
+    # Braille cells with one row of dots, from the bottom
+    GRAPH_LINE = {'⣀', '⠤', '⠒', '⠉'}
     # Matches the password in scheme://user:password@host
     URI_PASSWORD = %r{(//[^/:@]*):[^/@]*@}
 
@@ -454,7 +456,7 @@ class LavinMQCtl
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
       max = draw_graph(graph, @publish_history, CYAN, @deliver_history, MAGENTA)
       print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ publish", CYAN, PANEL_BG)
-      print_at(rect.inner_x + 15, rect.bottom - 1, "⣿ deliver", MAGENTA, PANEL_BG)
+      print_at(rect.inner_x + 15, rect.bottom - 1, "⠤ deliver", MAGENTA, PANEL_BG)
       draw_graph_scale(rect, "%.1f/s" % max)
     end
 
@@ -466,7 +468,7 @@ class LavinMQCtl
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
       max = draw_graph(graph, @ready_history, GREEN, @unacked_history, ORANGE)
       print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ ready", GREEN, PANEL_BG)
-      print_at(rect.inner_x + 14, rect.bottom - 1, "⣿ unacked", ORANGE, PANEL_BG)
+      print_at(rect.inner_x + 14, rect.bottom - 1, "⠤ unacked", ORANGE, PANEL_BG)
       draw_graph_scale(rect, max.to_i64.to_s)
     end
 
@@ -826,34 +828,34 @@ class LavinMQCtl
       print_at(x + label_width + bar_width + 1, y, fit(value_text, value_width - 1), color, PANEL_BG, Termisu::Attribute::Bold)
     end
 
-    # Draws two series as bar graphs on a shared scale, newest to the right,
-    # with the smaller value of each column in front so both stay visible.
-    # Returns the top of the scale.
-    private def draw_graph(rect : Rect, a : Array(Float64), a_color, b : Array(Float64), b_color) : Float64
+    # Draws *area* as a filled graph and *line* as a line in front of it, on
+    # a shared scale with the newest values to the right, so both stay
+    # visible when they're equal. Returns the top of the scale.
+    private def draw_graph(rect : Rect, area : Array(Float64), area_color, line : Array(Float64), line_color) : Float64
       return 0.0 if rect.width <= 0 || rect.height <= 0
 
       draw_graph_grid(rect)
-      a = a.last(rect.width)
-      b = b.last(rect.width)
-      max = {a.max? || 0.0, b.max? || 0.0}.max
+      area = area.last(rect.width)
+      line = line.last(rect.width)
+      max = {area.max? || 0.0, line.max? || 0.0}.max
       return max unless max > 0.0
 
       levels = rect.height * GRAPH_FILL.size
       rect.width.times do |i|
-        va = a[-1 - i]? || 0.0
-        vb = b[-1 - i]? || 0.0
-        bars = va >= vb ? { {va, a_color}, {vb, b_color} } : { {vb, b_color}, {va, a_color} }
-        bars.each do |value, color|
-          draw_graph_column(rect, rect.right - i, (value / max * levels).ceil.to_i, color)
+        x = rect.right - i
+        if value = area[-1 - i]?
+          full, partial = (value / max * levels).ceil.to_i.divmod(GRAPH_FILL.size)
+          full.times { |row| set_cell(x, rect.bottom - row, GRAPH_FILL[-1], area_color, PANEL_BG) }
+          set_cell(x, rect.bottom - full, GRAPH_FILL[partial - 1], area_color, PANEL_BG) if partial > 0
+        end
+        if value = line[-1 - i]?
+          # Zero is drawn on the bottom row, the line never disappears
+          level = {(value / max * levels).ceil.to_i, 1}.max
+          row, dot = (level - 1).divmod(GRAPH_LINE.size)
+          set_cell(x, rect.bottom - row, GRAPH_LINE[dot], line_color, PANEL_BG)
         end
       end
       max
-    end
-
-    private def draw_graph_column(rect : Rect, x : Int32, level : Int32, color)
-      full, partial = level.divmod(GRAPH_FILL.size)
-      full.times { |row| set_cell(x, rect.bottom - row, GRAPH_FILL[-1], color, PANEL_BG) }
-      set_cell(x, rect.bottom - full, GRAPH_FILL[partial - 1], color, PANEL_BG) if partial > 0
     end
 
     private def draw_graph_scale(panel : Rect, max : String)
