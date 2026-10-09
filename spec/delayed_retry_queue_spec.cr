@@ -1011,6 +1011,31 @@ describe "Retry Queue" do
       end
     end
 
+    it "should keep an empty retry queue across restart until the policy is applied" do
+      with_amqp_server do |s|
+        s.vhosts["/"].add_policy("retry", "^retry-policy-restart-empty$", "queues",
+          {"delayed-retry-min" => JSON::Any.new(1_i64)}, 0_i8)
+        with_channel(s) do |ch|
+          q = ch.queue("retry-policy-restart-empty", durable: true)
+          wait_for { s.vhosts["/"].queue?("amq.retry-retry-policy-restart-empty") }
+          q.publish_confirm "persist", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { q.get(no_ack: false) }.ack
+          s.vhosts["/"].queue("amq.retry-retry-policy-restart-empty").message_count.should eq 0
+        end
+
+        restart_server(s)
+
+        vhost = s.vhosts["/"]
+        retry_q = vhost.queue("amq.retry-retry-policy-restart-empty").as(LavinMQ::AMQP::DelayedRetryQueue)
+        retry_q.draining?.should be_false
+        queue = vhost.queue("retry-policy-restart-empty")
+        wait_for { queue.policy }
+        queue.@delayed_retry_queue.should be retry_q
+        retry_q.closed?.should be_false
+      end
+    end
+
     it "should keep draining after restart when the policy was removed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
