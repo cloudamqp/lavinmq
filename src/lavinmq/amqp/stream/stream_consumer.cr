@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
@@ -12,6 +13,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true

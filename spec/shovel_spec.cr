@@ -2158,7 +2158,7 @@ describe LavinMQ::Shovel do
         runner.details_tuple[:consecutive_failures].should eq 1
         runner.pending_backoff.should be <= 0.5.seconds
         # ...whereas the next round after the deadline doubles the window.
-        sleep runner.pending_backoff + 0.2.seconds # past the deadline as the 100ms rough clock sees it
+        sleep runner.pending_backoff + 20.milliseconds # past the deadline as the coarse clock sees it
         runner.report(3_u64, LavinMQ::Shovel::Outcome::Retry)
         runner.details_tuple[:consecutive_failures].should eq 2
         runner.pending_backoff.should be > 0.5.seconds
@@ -2190,7 +2190,7 @@ describe LavinMQ::Shovel do
           runner.pause
           runner.resume
           wait_for { runner.running? }
-          sleep 0.6.seconds # the old run's backoff has ended by now
+          sleep 0.5.seconds # the old run's backoff has ended by now
           dest.pushes.should eq 0
           runner.running?.should be_true
         ensure

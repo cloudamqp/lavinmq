@@ -57,7 +57,7 @@ module LavinMQ
         return false unless destinations.add?({destination, binding_key})
         @vhost.mqtt_subscription_tree.subscribe(routing_key, self, 1u8) if first_for_filter
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        upstreams_bound(data)
         true
       end
 
@@ -71,7 +71,7 @@ module LavinMQ
         end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        upstreams_unbound(data)
 
         delete if @auto_delete && @bindings.empty?
         true

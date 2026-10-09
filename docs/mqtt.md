@@ -86,6 +86,9 @@ MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wil
 Examples:
 - `sensor/+/temperature` matches `sensor/room1/temperature` but not `sensor/room1/sub/temperature`
 - `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
+- `sensor/#` also matches `sensor`, because `#` includes the parent level
+
+A filter that starts with `#` or `+` does not match a topic that starts with `$`. To get messages on `$` topics, subscribe to a filter that starts with the `$` level, for example `$SYS/#`.
 
 ## MQTT-AMQP Bridge
 

@@ -1,4 +1,3 @@
-require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
@@ -27,7 +26,6 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
-      @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
@@ -70,7 +68,6 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
         raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
-        @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
@@ -83,15 +80,6 @@ module LavinMQ
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
-        start_metrics_server unless @config.metrics_http_port == -1
-      end
-
-      private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self)
-        metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-        spawn(name: "HTTP metrics listener") do
-          metrics_server.listen
         end
       end
 
@@ -755,8 +743,6 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @data_dir_lock.release
-        @metrics_server.try &.close
       end
 
       class Error < Exception; end

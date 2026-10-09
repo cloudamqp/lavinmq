@@ -73,7 +73,7 @@ module LavinMQ::AMQP
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          Envelope.new(sp, msg, redelivered: true)
+          Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
           raise MessageStore::Error.new(seg, cause: ex)
         end
@@ -88,7 +88,7 @@ module LavinMQ::AMQP
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          Envelope.new(sp, msg, redelivered: true)
+          Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           raise MessageStore::Error.new(segment, cause: ex)
         end
