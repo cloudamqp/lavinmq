@@ -35,11 +35,12 @@ class LavinMQCtl
         events = [] of KeyEvent
         i = 0
         while i < @pending.size
-          if @discarding
-            @discarding = !(0x40..0x7e).includes?(@pending[i])
+          if @discarding && sequence_byte?(@pending[i])
+            @discarding = !final_byte?(@pending[i])
             i += 1
             next
           end
+          @discarding = false
           size, event = next_key(i)
           if size.zero? # incomplete
             break unless flush
@@ -49,11 +50,22 @@ class LavinMQCtl
           i += size
         end
         @pending = @pending[i..]
+        @discarding = false if flush
         events
       end
 
       def pending? : Bool
-        !@pending.empty?
+        !@pending.empty? || @discarding
+      end
+
+      # Control characters, like ESC and Ctrl-C, abort a sequence and are
+      # read as keys of their own
+      private def sequence_byte?(byte : UInt8) : Bool
+        (0x20..0x7e).includes?(byte)
+      end
+
+      private def final_byte?(byte : UInt8) : Bool
+        (0x40..0x7e).includes?(byte)
       end
 
       # Size of the key at *i* and its event, size 0 if more bytes are needed
@@ -89,6 +101,10 @@ class LavinMQCtl
                else
                  return {1, nil}
                end
+        (1...size).each do |k|
+          break if i + k >= @pending.size
+          return {1, nil} unless @pending[i + k] & 0xc0 == 0x80
+        end
         return {0, nil} if i + size > @pending.size
         char = String.new(Slice.new(size) { |j| @pending[i + j] }).char_at(0)
         {size, char == Char::REPLACEMENT ? nil : KeyEvent.char(char)}
@@ -100,6 +116,8 @@ class LavinMQCtl
         when '['.ord then csi(i)
         when 'O'.ord
           return {0, nil} if i + 2 >= @pending.size
+          # Alt-O and then a control character otherwise
+          return {1, KeyEvent.new(Key::Escape)} unless final_byte?(@pending[i + 2])
           {3, ss3_key(@pending[i + 2].unsafe_chr)}
         else
           # Alt and a key, taken as Escape and the key
@@ -112,7 +130,8 @@ class LavinMQCtl
         j = i + 2
         while j < @pending.size
           byte = @pending[j]
-          if (0x40..0x7e).includes?(byte)
+          return {j - i, nil} unless sequence_byte?(byte)
+          if final_byte?(byte)
             params = String.new(Slice.new(j - i - 2) { |k| @pending[i + 2 + k] })
             return {j - i + 1, csi_key(params, byte.unsafe_chr)}
           end

@@ -642,6 +642,17 @@ describe LavinMQCtl::TUI::KeyParser do
     key_names(parser.parse("1;2qb".to_slice)).should eq %w[b]
     parser.pending?.should be_false
   end
+
+  it "never takes Escape or Ctrl-C as part of a broken sequence" do
+    parser = TUI::KeyParser.new
+    parser.parse(("\e[" + "9;" * 30).to_slice).should be_empty
+    key_names(parser.parse("\e[A".to_slice)).should eq %w[Up]
+    key_names(parser.parse("\e[1;\x03\xe9\x03\eO\x03".to_slice)).should eq %w[CtrlC CtrlC Escape O CtrlC]
+    parser.parse(("\e[" + "9;" * 30).to_slice).should be_empty
+    parser.pending?.should be_true
+    parser.parse(Bytes.empty, flush: true).should be_empty
+    key_names(parser.parse("1".to_slice)).should eq %w[1]
+  end
 end
 
 describe LavinMQCtl::TUI::Renderer do
