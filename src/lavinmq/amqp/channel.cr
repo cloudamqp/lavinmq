@@ -50,6 +50,8 @@ module LavinMQ
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @basic_get_unacked_count = Atomic(UInt32).new(0)
+      # Messages basic.recover has taken out of @unacked to deliver again
+      @recover_pending = Atomic(Int32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
@@ -402,6 +404,16 @@ module LavinMQ
         @client.deliver(frame, msg, flush)
       end
 
+      # Builds the frame (and takes its delivery tag) under the client's write
+      # lock, see `Client#deliver`
+      def deliver(msg, redelivered = false, flush = true, &) : Nil
+        unless @running
+          yield # requeues the message and raises ClosedError, see next_delivery_tag
+          raise ClosedError.new("Channel is closed")
+        end
+        @client.deliver(msg, flush) { yield }
+      end
+
       def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
         if redelivered
           @redeliver_count.add(1, :relaxed)
@@ -487,14 +499,15 @@ module LavinMQ
             end
             @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
-              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-              unless frame.no_ack # track unacked messages
-                q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
+              deliver(env.message, env.redelivered) do
+                delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+                unless frame.no_ack # track unacked messages
+                  q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
+                end
+                AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
+                  env.redelivered, env.message.exchange_name,
+                  env.message.routing_key, q.message_count)
               end
-              get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
-                env.redelivered, env.message.exchange_name,
-                env.message.routing_key, q.message_count)
-              deliver(get_ok, env.message, env.redelivered)
             end
             send AMQP::Frame::Basic::GetEmpty.new(frame.channel) unless ok
           end
@@ -687,6 +700,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = Array(Unack).new
         notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
@@ -701,15 +715,41 @@ module LavinMQ
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                # Delivered again below with a new delivery tag, which
+                # takes @unack_lock, so it can't happen in here
+                redeliver << unack
               else
                 unack.queue.reject(unack.sp, requeue: true)
-                true
+              end
+              true
+            end
+            # Still counts against the global prefetch until delivered again
+            @recover_pending.add(redeliver.size, :relaxed)
+          end
+        end
+        handed_over = 0
+        begin
+          redeliver.each do |unack|
+            consumer = unack.consumer.not_nil!
+            if consumer.closed?
+              handed_over += 1
+              unack.queue.reject(unack.sp, requeue: true)
+            else
+              unack.queue.read(unack.sp) do |env|
+                # deliver puts it back in @unacked before writing to the socket
+                handed_over += 1
+                consumer.deliver(env.message, env.segment_position, true, recover: true)
               end
             end
           end
+        ensure
+          # Requeue what is no longer in @unacked if a delivery raised
+          (handed_over...redeliver.size).each do |i|
+            unack = redeliver[i]
+            unack.consumer.try &.reject(unack.sp, requeue: true)
+            unack.queue.reject(unack.sp, requeue: true)
+          end
+          notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -761,41 +801,53 @@ module LavinMQ
         @client.close_channel(self)
       end
 
+      # Raises ClosedError if the channel is closed. A delivery can wait for
+      # the client's write lock while the channel closes, and the close has
+      # then already requeued @unacked, so the message is requeued here
+      # instead (no_ack deliveries are requeued by the queue on the error).
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag.add(1, :relaxed)
-        unless no_ack
-          @unack_lock.synchronize do
-            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
-          end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
-          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
+        if no_ack
+          raise ClosedError.new("Channel is closed") unless @running
+          return @delivery_tag.add(1, :relaxed)
         end
+        # The tag is taken under the lock so that @unacked stays sorted by
+        # tag, which acks rely on, even when deliveries run in parallel
+        tag = @unack_lock.synchronize do
+          unless @running
+            queue.reject(sp, requeue: true)
+            raise ClosedError.new("Channel is closed")
+          end
+          next_tag = @delivery_tag.add(1, :relaxed)
+          @unacked.push Unack.new(next_tag, queue, sp, consumer, RoughTime.instant)
+          next_tag
+        end
+        add = consumer ? 0u32 : 1u32
+        basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+        @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         tag
       end
 
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
       def check_consumer_timeout
-        @unack_lock.synchronize do
+        timed_out = @unack_lock.synchronize do
           queues = Set(Queue).new # only check first delivered message per queue
-          @unacked.each do |unack|
-            if queues.add? unack.queue
-              if timeout = unack.queue.consumer_timeout
-                unacked_ms = RoughTime.instant - unack.delivered_at
-                if unacked_ms > timeout.milliseconds
-                  code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
-                  break
-                end
-              end
-            end
+          @unacked.any? do |unack|
+            next false unless queues.add? unack.queue
+            next false unless timeout = unack.queue.consumer_timeout
+            RoughTime.instant - unack.delivered_at > timeout.milliseconds
           end
+        end
+        # Sent after releasing @unack_lock: deliveries take it while holding
+        # the client's write lock, so the reverse order could deadlock
+        if timed_out
+          code = ChannelReplyCode::PRECONDITION_FAILED
+          send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
         end
       end
 
       def has_capacity? : Bool
         return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
+        consumer_unacked = @unacked.size + @recover_pending.get(:relaxed) - @basic_get_unacked_count.get(:relaxed)
         consumer_unacked < @global_prefetch_count
       end
 

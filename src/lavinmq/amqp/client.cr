@@ -303,8 +303,17 @@ module LavinMQ
       @write_lock = Mutex.new(:checked)
 
       def deliver(frame, msg, flush = true)
-        return false if closed?
+        deliver(msg, flush) { frame }
+      end
+
+      # The block builds the frame while the write lock is held, so a delivery
+      # tag taken in it reaches the socket in the order the tags were handed
+      # out. It runs even when the connection is closed, so the message is
+      # still tracked as unacked and requeued when the channel closes.
+      def deliver(msg, flush = true, &)
         @write_lock.synchronize do
+          frame = yield
+          return false if closed?
           socket = @socket
           websocket = socket.is_a? WebSocketIO
           {% unless flag?(:release) %}
@@ -365,6 +374,8 @@ module LavinMQ
         @log.info { "Timeout while sending (#{ex.inspect})" }
         close_socket
         false
+      rescue ex : AMQP::Channel::ClosedError
+        raise ex # the channel closed while the delivery waited, not an error
       rescue ex
         @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
         raise ex
