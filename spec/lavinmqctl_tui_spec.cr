@@ -257,6 +257,7 @@ private TUI_RESPONSES = {
       uptime:       7_200_000,
       mem_used:     42_000_000,
       disk_free:    8_500_000_000,
+      disk_total:   10_000_000_000,
       fd_used:      18,
       sockets_used: 4,
       run_queue:    0,
@@ -370,7 +371,7 @@ end
 
 describe LavinMQCtl::TUI do
   {
-    {'1', "Overview", ["Object totals", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
+    {'1', "Overview", ["Object totals", "Disk used", "1.4GiB", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
     {'2', "Queues", ["seed.ready", "1-1 of 25", "Msgs ▼"]},
     {'3', "Connections", ["127.0.0.1:50000", "8.0KiB/s", "seed-app"]},
     {'4', "Channels", ["Unacked"]},

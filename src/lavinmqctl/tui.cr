@@ -801,7 +801,7 @@ class LavinMQCtl
       disk_total = Fields.float(node, "disk_total")
       disk_free = Fields.float(node, "disk_free")
       if disk_total > 0
-        draw_bar(x, y + 4, width, "Disk", disk_total - disk_free, disk_total, YELLOW, bytes: true)
+        draw_bar(x, y + 4, width, "Disk used", disk_total - disk_free, disk_total, YELLOW, bytes: true)
       else
         print_at(x, y + 4, "Disk free #{Fields.bytes(node, "disk_free")}", MUTED_FG, PANEL_BG, max_width: width)
       end
