@@ -1,10 +1,4 @@
 require "spec"
-
-# termisu and systemd.cr (required by the launcher specs) bind poll(2) with
-# different signatures and can't be compiled into the same binary, so these
-# specs only run with -Dtui_specs, which `make test` passes in a separate run
-{% skip_file unless flag?(:tui_specs) %}
-
 require "../src/lavinmqctl/cli"
 require "../src/lavinmqctl/tui"
 
@@ -116,6 +110,21 @@ class KeyRepeatTUIScreen < FakeTUIScreen
     sleep 10.milliseconds
     @presses -= 1
     TUI::KeyEvent.char(@presses > 0 ? 'x' : 'q')
+  end
+end
+
+# Calls *restart* before the first event
+class RestartTUIScreen < FakeTUIScreen
+  def initialize(events : Array(TUI::Event), @restart : -> Nil)
+    super(events: events)
+  end
+
+  def poll_event(timeout : Time::Span) : TUI::Event?
+    if restart = @restart
+      @restart = nil
+      restart.call
+    end
+    super
   end
 end
 
@@ -361,7 +370,7 @@ end
 
 describe LavinMQCtl::TUI do
   {
-    {'1', "Overview", ["Object totals", "in 2.0KiB/s  out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
+    {'1', "Overview", ["Object totals", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
     {'2', "Queues", ["seed.ready", "1-1 of 25", "Msgs ▼"]},
     {'3', "Connections", ["127.0.0.1:50000", "8.0KiB/s", "seed-app"]},
     {'4', "Channels", ["Unacked"]},
@@ -551,6 +560,38 @@ describe LavinMQCtl::TUI do
     end
   end
 
+  it "reconnects on the control socket after the connection is lost" do
+    path = File.tempname("lavinmqctl-tui", ".sock")
+    version = "before"
+    server = HTTP::Server.new do |context|
+      context.response.content_type = "application/json"
+      context.response.print(context.request.path == "/api/overview" ? {lavinmq_version: version}.to_json : "[]")
+    end
+    server.bind_unix(path)
+    spawn(name: "tui spec api") { server.listen }
+    sockets = [] of UNIXSocket
+    connect = -> {
+      socket = UNIXSocket.new(path)
+      socket.read_timeout = 1.second
+      sockets << socket
+      HTTP::Client.new(socket)
+    }
+    client = connect.call
+    # Drops the connection before the first key, as when the broker restarts
+    events = [tui_key('2'), tui_key('3'), tui_key('1'), tui_key('q')] of TUI::Event
+    screen = RestartTUIScreen.new(events, -> {
+      sockets.each(&.close)
+      version = "after"
+      nil
+    })
+    TUI.new(client, 60.0, screen, reconnect: connect).start
+
+    screen.text.should contain("vafter")
+  ensure
+    sockets.try &.each(&.close)
+    server.try &.close
+  end
+
   it "keeps refreshing while keys are pressed" do
     with_tui_api do |client, requests|
       screen = KeyRepeatTUIScreen.new(presses: 30)
@@ -568,5 +609,80 @@ describe LavinMQCtl::TUI do
       screen.text.should contain("overview: HTTP 401 UNAUTHORIZED")
       screen.closed?.should be_true
     end
+  end
+end
+
+private def key_names(events : Array(TUI::KeyEvent)) : Array(String)
+  events.map { |e| e.key.char? ? e.char.to_s : e.key.to_s }
+end
+
+describe LavinMQCtl::TUI::KeyParser do
+  it "parses characters, control keys and escape sequences" do
+    events = TUI::KeyParser.new.parse("a\e[A\e[B\e[1;5C\eOD\e[5~\e[6~\eOH\e[4~\e[Z\r\x7f\t\x03é队".to_slice)
+    key_names(events).should eq %w[a Up Down Right Left PageUp PageDown Home End BackTab Enter Backspace Tab CtrlC é 队]
+  end
+
+  it "waits for the rest of a split escape sequence or character" do
+    parser = TUI::KeyParser.new
+    parser.parse("\e[".to_slice).should be_empty
+    key_names(parser.parse("A\xe9\x98".to_slice)).should eq %w[Up]
+    key_names(parser.parse("\x9f".to_slice)).should eq %w[队]
+  end
+
+  it "takes a lone ESC as the Escape key once no more bytes come" do
+    parser = TUI::KeyParser.new
+    parser.parse("\e".to_slice).should be_empty
+    key_names(parser.parse(Bytes.empty, flush: true)).should eq %w[Escape]
+  end
+
+  it "drops unknown and overlong sequences and invalid UTF-8" do
+    parser = TUI::KeyParser.new
+    key_names(parser.parse("\e[9;9X\xff\xfeb".to_slice)).should eq %w[b]
+    parser.parse(("\e[" + "1;" * 40).to_slice).should be_empty
+    key_names(parser.parse("1;2qb".to_slice)).should eq %w[b]
+    parser.pending?.should be_false
+  end
+end
+
+describe LavinMQCtl::TUI::Renderer do
+  it "only writes the cells that changed" do
+    io = IO::Memory.new
+    renderer = TUI::Renderer.new(io, 10, 2)
+    renderer.set_cell(0, 0, 'a', TUI::WHITE, TUI::BG, false)
+    renderer.render
+    io.clear
+    renderer.render
+    io.to_s.should eq "\e[?2026h\e[?2026l"
+
+    io.clear
+    renderer.set_cell(5, 1, 'b', TUI::WHITE, TUI::BG, false)
+    renderer.render
+    io.to_s.should eq "\e[?2026h\e[2;6H\e[0;38;2;238;244;252;48;2;6;10;18mb\e[?2026l"
+  end
+
+  it "positions the cursor after characters terminals may count differently" do
+    io = IO::Memory.new
+    renderer = TUI::Renderer.new(io, 10, 1)
+    renderer.set_cell(0, 0, '队', TUI::WHITE, TUI::BG, false)
+    renderer.set_cell(2, 0, 'x', TUI::WHITE, TUI::BG, false)
+    renderer.render
+    io.to_s.should contain("队\e[1;3Hx")
+  end
+
+  it "never writes control characters" do
+    io = IO::Memory.new
+    renderer = TUI::Renderer.new(io, 4, 1)
+    "\e]\u009b\a".each_char_with_index { |c, i| renderer.set_cell(i, 0, c, TUI::WHITE, TUI::BG, false) }
+    renderer.render
+    io.to_s.should contain("?]??")
+    io.to_s.should_not contain("\e]")
+  end
+
+  it "uses the 256 color palette without truecolor" do
+    TUI::Renderer.xterm256(TUI::Color.rgb(0, 0, 0)).should eq 16
+    TUI::Renderer.xterm256(TUI::Color.rgb(255, 255, 255)).should eq 231
+    TUI::Renderer.xterm256(TUI::Color.rgb(255, 0, 0)).should eq 196
+    TUI::Renderer.xterm256(TUI::Color.rgb(128, 128, 128)).should eq 244
+    TUI::Renderer.xterm256(TUI::Color.rgb(6, 10, 18)).should eq 232
   end
 end

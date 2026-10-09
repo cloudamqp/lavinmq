@@ -3,7 +3,7 @@ require "http/client"
 require "uri"
 require "./cli"
 require "./tui/screen"
-require "./tui/termisu_screen"
+require "./tui/terminal"
 
 class LavinMQCtl
   class TUI
@@ -108,7 +108,7 @@ class LavinMQCtl
 
     # *reconnect* opens a new connection after a timeout, for clients that
     # can't reconnect by themselves, like one on the control socket
-    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TermisuScreen.new, @reconnect : Proc(HTTP::Client)? = nil)
+    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TerminalScreen.new, @reconnect : Proc(HTTP::Client)? = nil)
       @running = true
       @closed = false
       @width = 0
@@ -383,12 +383,13 @@ class LavinMQCtl
     rescue ex : JSON::ParseException
       record_error("#{label}: invalid JSON (#{ex.message})")
       nil
-    rescue ex : IO::TimeoutError
-      # The connection is kept open, so the late response would be read as the
-      # answer to the next request
+    rescue ex : IO::Error
+      # The connection is broken, or still open after a timeout and the late
+      # response would be read as the answer to the next request. A TCP client
+      # reconnects by itself, @reconnect opens a new one for the next request.
       @client.close
       @closed = true
-      record_error("#{label}: #{ex.message}")
+      record_error("#{label}: #{ex.message || ex.class.name}")
       nil
     rescue ex
       record_error("#{label}: #{ex.message || ex.class.name}")
@@ -665,7 +666,7 @@ class LavinMQCtl
       recv = Fields.bytes_rate(overview, "recv_oct_details", "rate")
       send = Fields.bytes_rate(overview, "send_oct_details", "rate")
       print_at(x, y + 7, "Network", MUTED_FG, PANEL_BG)
-      print_at(x + 10, y + 7, "in #{recv}  out #{send}", TEXT_FG, PANEL_BG, max_width: width - 10)
+      print_at(x + 8, y + 7, "in #{recv} out #{send}", TEXT_FG, PANEL_BG, max_width: width - 8)
       return if y + 8 >= rect.bottom
       followers = Fields.dig(node, "followers").try(&.as_a?) || [] of JSON::Any
       cluster = if followers.empty?
@@ -675,7 +676,7 @@ class LavinMQCtl
                   "#{followers.size} follower#{"s" if followers.size > 1}, lag #{Fields.human_bytes(lag)}"
                 end
       print_at(x, y + 8, "Cluster", MUTED_FG, PANEL_BG)
-      print_at(x + 10, y + 8, cluster, TEXT_FG, PANEL_BG, max_width: width - 10)
+      print_at(x + 8, y + 8, cluster, TEXT_FG, PANEL_BG, max_width: width - 8)
     end
 
     private def draw_rate_graph(rect : Rect, overview : JSON::Any)
