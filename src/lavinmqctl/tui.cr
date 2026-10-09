@@ -629,15 +629,25 @@ class LavinMQCtl
             detail_fields(field, "#{prefix}#{key}.", fields)
             next
           end
-          text = key == "password_hash" ? "(hidden)" : detail_text(field)
-          details = hash["#{key}_details"]?
-          text += " (#{Fields.rate(details, "rate")}/s)" if Fields.dig(details, "rate")
-          fields << {"#{prefix}#{key}", text}
+          fields << {"#{prefix}#{key}", detail_value(hash, key, field)}
         end
       elsif array = value.as_a?
         array.each_with_index { |field, i| detail_fields(JSON::Any.new({i.to_s => field}), prefix, fields) }
       end
       fields
+    end
+
+    # With its size if it counts bytes, and its rate if it has one
+    private def detail_value(hash : Hash(String, JSON::Any), key : String, field : JSON::Any) : String
+      return "(hidden)" if key == "password_hash"
+      text = detail_text(field)
+      bytes = key.ends_with?("bytes") || key.ends_with?("_oct")
+      if bytes && (count = field.as_i64?) && count >= 1024
+        text += " (#{Fields.human_bytes(count)})"
+      end
+      details = hash["#{key}_details"]?
+      return text unless Fields.dig(details, "rate")
+      text + (bytes ? " (#{Fields.bytes_rate(details, "rate")})" : " (#{Fields.rate(details, "rate")}/s)")
     end
 
     private def detail_text(value : JSON::Any) : String
