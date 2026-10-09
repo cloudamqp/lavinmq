@@ -123,6 +123,7 @@ test.describe('refresh control', _ => {
   test('refreshes at the selected rate and remembers it', async ({ page }) => {
     await page.clock.install()
     await loadOverview(page)
+    await expect(page.locator('#refresh-live')).toBeHidden()
     await page.locator('#refresh-rate').selectOption('30000')
 
     const overview = countRequests(page, '/api/overview')
