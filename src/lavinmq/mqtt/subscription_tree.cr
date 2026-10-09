@@ -105,6 +105,21 @@ module LavinMQ
         false
       end
 
+      # The QoS `session` subscribed to exactly `filter` with, nil if it didn't.
+      def qos?(filter : String, session : T) : UInt8?
+        if filter.index('#').nil? && filter.index('+').nil?
+          return @non_wildcards[filter]?.try &.[session]?
+        end
+        qos?(BytesTokenIterator.new(filter.to_slice), session)
+      end
+
+      protected def qos?(filter : BytesTokenIterator, session : T) : UInt8?
+        return @leafs[session]? unless current = filter.next
+        return @wildcard_rest[session]? if current == HASH
+        return @plus.try &.qos?(filter, session) if current == PLUS
+        @sublevels[current]?.try &.qos?(filter, session)
+      end
+
       def empty?
         return false unless @non_wildcards.empty? || @non_wildcards.values.all? &.empty?
         return false unless @leafs.empty?

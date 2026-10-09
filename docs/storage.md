@@ -48,6 +48,7 @@ For standard and priority queues, when all messages in a segment have been ackno
   vhosts.json                # Vhost list
   <vhost_sha1>/              # Per-vhost directory (SHA1 of vhost name)
     definitions.amqp         # Exchange, queue, binding, policy definitions
+    definitions.mqtt         # MQTT sessions and subscriptions
     <queue_sha1>/            # Per-queue directory (SHA1 of queue name)
       msgs.0000000000        # Message segment files
       acks.0000000000        # Ack tracking files

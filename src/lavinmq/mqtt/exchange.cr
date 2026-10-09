@@ -59,6 +59,10 @@ module LavinMQ
         true
       end
 
+      def qos?(session : MQTT::Session, topic_filter : String) : UInt8?
+        @tree.qos?(topic_filter, session)
+      end
+
       def unsubscribe(session : MQTT::Session, topic_filter : String) : Bool
         @tree.unsubscribe(topic_filter, session)
         true

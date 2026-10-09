@@ -28,7 +28,7 @@ A PUBACK acknowledges the broker's handling of a publish, not delivery to a subs
 
 ## Sessions
 
-Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
+Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
 
 ### Clean Sessions
 
@@ -46,6 +46,7 @@ When a client connects with `clean_session=false`:
 - Subscriptions are preserved
 - Unacknowledged QoS 1 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
 - The session queue is durable
+- The session and its subscriptions are stored in the vhost's `definitions.mqtt`. Earlier versions kept them in `definitions.amqp`; they are moved on the first start, so downgrading afterwards loses them
 
 The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs. If a `max-length` policy or a purge discards a message the session still owes, its packet ID is forgotten along with it; the messages that remain keep theirs.
 

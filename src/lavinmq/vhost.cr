@@ -198,7 +198,7 @@ module LavinMQ
       @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self)
+      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self, @data_dir, @replicator, @log)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log, mqtt)
       load!
       @mqtt_broker = MQTT::Broker.new(self)
@@ -382,6 +382,7 @@ module LavinMQ
     # Flush definitions written with fsync: false (e.g. during bulk import).
     def fsync_definitions
       definitions.fsync
+      mqtt.fsync
     end
 
     def queue_bindings(queue : AMQP::Queue)
@@ -498,6 +499,7 @@ module LavinMQ
       each_exchange &.close
       Fiber.yield
       definitions.close
+      mqtt.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
     end
 
@@ -544,6 +546,7 @@ module LavinMQ
     end
 
     private def load!
+      mqtt.load!
       definitions.load!
       has_parameters = !@parameters.empty?
       has_policies = !@policies.empty? || !@operator_policies.empty?

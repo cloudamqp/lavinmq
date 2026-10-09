@@ -270,9 +270,10 @@ module LavinMQ
     Log = LavinMQ::Log.for "schema_version"
 
     VERSIONS = {
-      definition: 1,
-      message:    4,
-      index:      4,
+      definition:      1,
+      mqtt_definition: 1,
+      message:         4,
+      index:           4,
     }
 
     def self.verify(file : File, type) : Int32

@@ -1,5 +1,47 @@
 require "./spec_helper"
 require "../src/lavinmqctl/cli"
+require "file_utils"
+
+# `definitions` reads a data dir without a server, so these build one by hand.
+private def with_offline_data_dir(&)
+  data_dir = File.tempname("lavinmq", "ctlspec")
+  dir = Digest::SHA1.hexdigest("/")
+  vhost_dir = File.join(data_dir, dir)
+  Dir.mkdir_p vhost_dir
+  File.write(File.join(data_dir, "vhosts.json"), [{name: "/", dir: dir}].to_json)
+  File.write(File.join(data_dir, "users.json"), "[]")
+  yield data_dir, vhost_dir
+ensure
+  FileUtils.rm_rf data_dir.to_s
+end
+
+# A session and subscription in the shape they had before definitions.mqtt.
+private def write_legacy_mqtt_definitions(vhost_dir, name, topic_filter, qos)
+  File.open(File.join(vhost_dir, "definitions.amqp"), "w") do |f|
+    LavinMQ::SchemaVersion.prefix(f, :definition)
+    f.write_bytes LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, true,
+      false, false, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+    f.write_bytes LavinMQ::AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, name,
+      LavinMQ::MQTT::EXCHANGE, topic_filter, false, LavinMQ::MQTT.qos_arguments(qos))
+  end
+end
+
+private def write_mqtt_definitions(vhost_dir, name, topic_filter, qos)
+  File.open(File.join(vhost_dir, "definitions.mqtt"), "w") do |f|
+    LavinMQ::SchemaVersion.prefix(f, :mqtt_definition)
+    f.write LavinMQ::MQTT::DefinitionsFormat.session_record(:session_add, name)
+    f.write LavinMQ::MQTT::DefinitionsFormat.subscription_record(:subscribe, name,
+      topic_filter, qos)
+  end
+end
+
+private def mqtt_session(json, name)
+  json["queues"].as_a.select { |q| q["name"] == name }
+end
+
+private def mqtt_subscriptions(json, name)
+  json["bindings"].as_a.select { |b| b["destination"] == name }
+end
 
 # Helper to run lavinmqctl commands against test server
 def run_lavinmqctl(http_addr : String, argv : Array(String))
@@ -380,6 +422,60 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
         json = JSON.parse(result[:stdout])
         json.as_a?.should_not be_nil
+      end
+    end
+  end
+
+  describe "definitions" do
+    it "generates mqtt sessions and subscriptions from a live data dir" do
+      with_http_server do |(http, s)|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.offline", true, false, mqtt_args)
+        s.vhosts["/"].bind_queue("mqtt.offline", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::MQTT.qos_arguments(1u8))
+
+        result = run_lavinmqctl(http.addr.to_s, ["definitions", s.data_dir])
+        result[:exit].should eq(0)
+        json = JSON.parse(result[:stdout])
+        sessions = mqtt_session(json, "mqtt.offline")
+        sessions.size.should eq 1
+        sessions.first["arguments"]["x-queue-type"].should eq "mqtt"
+        sessions.first["durable"].should be_true
+        subscriptions = mqtt_subscriptions(json, "mqtt.offline")
+        subscriptions.size.should eq 1
+        subscriptions.first["source"].should eq LavinMQ::MQTT::EXCHANGE
+        subscriptions.first["routing_key"].should eq "a/b"
+        subscriptions.first["arguments"][LavinMQ::MQTT::QOS_HEADER].should eq 1
+      end
+    end
+
+    it "generates mqtt definitions from a data dir that has not been migrated" do
+      with_offline_data_dir do |data_dir, vhost_dir|
+        write_legacy_mqtt_definitions(vhost_dir, "mqtt.legacy", "a/b", 1u8)
+
+        result = run_lavinmqctl("127.0.0.1:0", ["definitions", data_dir])
+        result[:exit].should eq(0)
+        json = JSON.parse(result[:stdout])
+        mqtt_session(json, "mqtt.legacy").size.should eq 1
+        subscriptions = mqtt_subscriptions(json, "mqtt.legacy")
+        subscriptions.size.should eq 1
+        subscriptions.first["routing_key"].should eq "a/b"
+        subscriptions.first["arguments"][LavinMQ::MQTT::QOS_HEADER].should eq 1
+      end
+    end
+
+    it "lets definitions.mqtt win over frames a half-finished migration left" do
+      with_offline_data_dir do |data_dir, vhost_dir|
+        write_legacy_mqtt_definitions(vhost_dir, "mqtt.crash", "a/b", 0u8)
+        write_mqtt_definitions(vhost_dir, "mqtt.crash", "a/b", 1u8)
+
+        result = run_lavinmqctl("127.0.0.1:0", ["definitions", data_dir])
+        result[:exit].should eq(0)
+        json = JSON.parse(result[:stdout])
+        mqtt_session(json, "mqtt.crash").size.should eq 1
+        subscriptions = mqtt_subscriptions(json, "mqtt.crash")
+        subscriptions.size.should eq 1
+        subscriptions.first["arguments"][LavinMQ::MQTT::QOS_HEADER].should eq 1
       end
     end
   end
