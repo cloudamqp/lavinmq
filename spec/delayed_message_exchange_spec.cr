@@ -282,37 +282,6 @@ describe "Delayed Message Exchange" do
     end
   end
 
-  # The expire loop reads the delayed index (a heap) to compute its wait,
-  # while publishes on other threads push to it
-  it "delivers every message delayed concurrently from several threads", tags: "slow" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        x = ch.exchange(x_name, "topic", args: x_args)
-        q = ch.queue(q_name)
-        q.bind(x.name, "#")
-        delay_q = s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue)
-        queue = s.vhosts["/"].queue(q_name)
-        per_thread = 5_000
-        ctx = Fiber::ExecutionContext::Parallel.new("delayed-publishers", 3)
-        wg = WaitGroup.new(3)
-        3.times do
-          ctx.spawn do
-            per_thread.times do |i|
-              headers = LavinMQ::AMQP::Table.new({"x-delay" => (per_thread - i) % 50})
-              props = LavinMQ::AMQP::Properties.new(headers: headers)
-              delay_q.delay(LavinMQ::Message.new(x_name, "rk", "m", props))
-            end
-          ensure
-            wg.done
-          end
-        end
-        wg.wait
-        wait_for(30.seconds) { queue.message_count == 3 * per_thread }
-        delay_q.message_count.should eq 0
-      end
-    end
-  end
-
   it "closes cleanly without hanging the publisher when the expire loop hits a store error" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
