@@ -295,7 +295,7 @@ module LavinMQ::AMQP
         end
         handle_arguments
         recover_retry_queue
-        configure_delayed_retry
+        configure_delayed_retry unless awaiting_policy?
         ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
         true
@@ -645,6 +645,10 @@ module LavinMQ::AMQP
         @effective_policy_args.reject! &.in?("delayed-retry-multiplier", "delayed-retry-max")
         @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.drain
       end
+    end
+
+    private def awaiting_policy? : Bool
+      @delayed_retry_min.nil? && !@vhost.policies.empty?
     end
 
     private def recover_retry_queue : Nil
