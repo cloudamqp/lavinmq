@@ -98,10 +98,15 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # leadership and continue as a follower, see #run. Returns right away, the
   # transfer was already claimed by #request_transfer.
   def step_down(target : Transfer) : Nil
+    # Accepted in a term this node has lost since, it must neither be done
+    # nor take the place of a later one
+    return if stale?(target)
     select
     when @step_down_requested.send(target)
     else
       Log.warn { "A step down is already pending, not handing over to #{target.address}" }
+      # Don't leave the claim behind, or no later transfer could be requested
+      @transfer_lock.synchronize { @transfer_target = nil if @transfer_target == target.target }
     end
   end
 

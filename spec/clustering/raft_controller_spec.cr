@@ -586,6 +586,12 @@ describe LavinMQ::Clustering::RaftController do
       leader.step_down(LavinMQ::Clustering::RaftController::Transfer.new(other.id, cluster.address(other), term - 1))
       receive_within(cluster.demotions, 1.second).should be_nil
       leader.node.leader?.should be_true
+      # and it doesn't get in the way of one requested now
+      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      plan = leader.request_transfer(cluster.address(other)).as(LavinMQ::Clustering::RaftController::Transfer)
+      leader.step_down(plan)
+      receive_within(cluster.demotions, 5.seconds).should eq({leader, false})
+      cluster.next_leader.should eq other
     end
   end
 
