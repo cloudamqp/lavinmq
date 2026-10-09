@@ -127,9 +127,14 @@ lint-js:
 lint-openapi:
 	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
+# The TUI's termisu and the server's systemd.cr bind poll(2) with different
+# signatures, so the TUI specs are only compiled with -Dtui_specs, on their own
+TUI_SPEC := spec/lavinmqctl_tui_spec.cr
+
 .PHONY: test
 test: lib views
-	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
+	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(if $(SPEC),-Dtui_specs $(SPEC))
+	$(if $(SPEC),,crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') -Dtui_specs $(TUI_SPEC))
 
 .PHONY: format
 format:
