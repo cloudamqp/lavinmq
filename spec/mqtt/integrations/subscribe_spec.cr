@@ -120,7 +120,7 @@ module MqttSpecs
           # Verify that we subscribed as qos1
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
           # ... in place of the qos0 subscription, not next to it
-          server.vhosts["/"].mqtt_exchange.binding_count.should eq 1
+          server.vhosts["/"].mqtt.exchange.binding_count.should eq 1
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -164,7 +164,7 @@ module MqttSpecs
 
     it "binds a qos2 subscription as qos1" do
       with_server do |server|
-        exchange = server.vhosts["/"].mqtt_exchange
+        exchange = server.vhosts["/"].mqtt.exchange
         with_client_io(server) do |io|
           connect(io)
           suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 2})).as(MQTT::Protocol::SubAck)
@@ -190,16 +190,16 @@ module MqttSpecs
       with_server do |server|
         vhost = server.vhosts["/"]
         vhost.declare_queue("mqtt.gone", true, false, LavinMQ::MQTT::Session::ARGUMENTS)
-        session = vhost.session("mqtt.gone")
+        session = vhost.mqtt.session("mqtt.gone")
         session.delete
-        vhost.session?("mqtt.gone").should be_nil
+        vhost.mqtt.session?("mqtt.gone").should be_nil
 
         broker = server.mqtt_server.broker("/")
         [0u8, 1u8, 2u8].each do |qos|
           broker.grant(session, subtopic("a/b", qos))
             .should eq MQTT::Protocol::SubAck::ReturnCode::Failure
         end
-        vhost.mqtt_exchange.binding_count.should eq 0
+        vhost.mqtt.exchange.binding_count.should eq 0
       end
     end
 
@@ -214,8 +214,8 @@ module MqttSpecs
         restart_server(server)
 
         vhost = server.vhosts["/"]
-        vhost.session?("mqtt.sub").should_not be_nil
-        exchange = vhost.mqtt_exchange
+        vhost.mqtt.session?("mqtt.sub").should_not be_nil
+        exchange = vhost.mqtt.exchange
         exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
       end
     end
@@ -231,7 +231,7 @@ module MqttSpecs
 
         restart_server(server)
 
-        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+        server.vhosts["/"].mqtt.exchange.bindings_details.should be_empty
       end
     end
   end

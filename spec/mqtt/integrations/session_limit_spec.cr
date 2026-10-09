@@ -26,8 +26,8 @@ module MqttSpecs
                                       MQTT::Protocol::SubAck::ReturnCode::Failure]
         end
 
-        vhost.sessions_size.should eq 1
-        vhost.session?("mqtt.b").should be_nil
+        vhost.mqtt.sessions_size.should eq 1
+        vhost.mqtt.session?("mqtt.b").should be_nil
       end
     end
 
@@ -70,7 +70,7 @@ module MqttSpecs
           ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
         end
 
-        vhost.sessions_size.should eq 0
+        vhost.mqtt.sessions_size.should eq 0
       end
     end
 
@@ -84,7 +84,7 @@ module MqttSpecs
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 0}))
           disconnect(io)
         end
-        wait_for { vhost.sessions_size.zero? }
+        wait_for { vhost.mqtt.sessions_size.zero? }
 
         with_client_io(server) do |io|
           connect(io, client_id: "b", clean_session: true)
