@@ -63,6 +63,7 @@ module LavinMQ::AMQP
     @max_length_bytes : Int64?
     @expires : Int64?
     @delivery_limit : Int64?
+    @delivery_limit_default = false
     @reject_on_overflow = false
     @delayed_retry_min : Int64?
     @delayed_retry_max : Int64?
@@ -510,6 +511,7 @@ module LavinMQ::AMQP
       when "delivery-limit"
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
+          @delivery_limit_default = false
           @effective_args.delete("x-delivery-limit")
           schedule_policy_limits
           return true
@@ -587,6 +589,7 @@ module LavinMQ::AMQP
       @message_ttl_change.try_send? nil
       ensure_expire_fiber if @message_ttl
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
+      @delivery_limit_default = false
       @effective_args << "x-delivery-limit" if @delivery_limit
       overflow = parse_header("x-overflow", String)
       @reject_on_overflow = overflow == "reject-publish"
@@ -636,7 +639,10 @@ module LavinMQ::AMQP
 
     private def configure_delayed_retry : Nil
       if @delayed_retry_min
-        @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        if @delivery_limit.nil?
+          @delivery_limit = DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+          @delivery_limit_default = true
+        end
         @retry_queue_lock.synchronize { create_retry_queue.resume_retries }
       else
         @delayed_retry_multiplier = nil
@@ -875,6 +881,24 @@ module LavinMQ::AMQP
         effective_arguments:          @effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        delayed_retry:                delayed_retry_details,
+        primary_queue:                primary_queue_name,
+      }
+    end
+
+    def primary_queue_name : String?
+    end
+
+    private def delayed_retry_details
+      return unless min = @delayed_retry_min
+      {
+        min:                    min,
+        multiplier:             @delayed_retry_multiplier,
+        max:                    @delayed_retry_max,
+        delivery_limit:         @delivery_limit,
+        delivery_limit_default: @delivery_limit_default,
+        messages_delayed:       @delayed_retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:            DelayedRetryQueue.queue_name(@name),
       }
     end
 
