@@ -332,10 +332,13 @@ describe "Queue policy re-apply" do
       2.times do
         wg.add(1)
         ctx.spawn do
-          until stop.get
+          # Yield, and stop at the deadline, so that the appliers aren't
+          # starved on a runner with fewer cores than threads
+          until stop.get || Time.instant >= deadline
             unless queue.publish(LavinMQ::Message.new("", queue.name, "body")).overflow?
               accepted.add(1)
             end
+            Fiber.yield
           end
         ensure
           wg.done

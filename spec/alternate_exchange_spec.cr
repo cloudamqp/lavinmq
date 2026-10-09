@@ -70,9 +70,12 @@ describe "Alternate Exchange policy" do
       2.times do
         wg.add(1)
         ctx.spawn do
-          until stop.get
+          # Yield, and stop at the deadline, so that the appliers aren't
+          # starved on a runner with fewer cores than threads
+          until stop.get || Time.instant >= deadline
             msg = LavinMQ::Message.new(ex.name, "rk", "body")
             unrouted.add(1) unless ex.route_msg(msg).routed?
+            Fiber.yield
           end
         ensure
           wg.done
