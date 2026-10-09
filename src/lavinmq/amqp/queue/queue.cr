@@ -155,7 +155,8 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
+          # A consumer added as the TTL fired keeps the queue alive
+          next unless expire_queue
           close
           break
         end

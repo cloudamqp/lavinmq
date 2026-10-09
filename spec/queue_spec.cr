@@ -12,6 +12,20 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Adds a consumer when the queue's TTL fires, just before expire_queue checks
+# for consumers, like a consume racing the expiry on another thread
+class ConsumerAtExpiryQueue < LavinMQ::AMQP::Queue
+  property late_consumer : LavinMQ::AMQP::Consumer? = nil
+
+  private def expire_queue : Bool
+    if consumer = @late_consumer
+      @late_consumer = nil
+      add_consumer(consumer)
+    end
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -1281,6 +1295,29 @@ describe LavinMQ::AMQP::Queue do
             q.consumers.size.should eq 1
             vhost.delete_queue(name)
           end
+        end
+      end
+    end
+
+    it "doesn't expire a queue a consumer was added to as its TTL fired" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          q = ConsumerAtExpiryQueue.create(vhost, "expiry-consumer-race",
+            arguments: LavinMQ::AMQP::Table.new({"x-expires" => 50}))
+          frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, q.name, "c",
+            false, false, false, false, AMQ::Protocol::Table.new)
+          consumer = LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+          q.late_consumer = consumer
+          vhost.register_queue(q)
+          should_eventually(be_nil) { q.late_consumer }
+          sleep 100.milliseconds
+          q.closed?.should be_false
+          q.consumers.should eq [consumer]
+        ensure
+          q.try &.delete
         end
       end
     end
