@@ -1,6 +1,7 @@
 import * as Pagination from './pagination.js'
 import * as TableHeaderSort from './tableheadersort.js'
 import { UrlDataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 function renderTable (id, options = {}, renderRow) {
   const countId = options.countId ?? 'pagename-label'
@@ -39,7 +40,11 @@ function renderTable (id, options = {}, renderRow) {
     console.log(error)
     toggleDisplayError(id, 'Error fetching data: ' + error.detail)
   })
-  dataSource.reload()
+  if (dataSource.autoReload) {
+    Poller.start(() => dataSource.reload())
+  } else {
+    dataSource.reload()
+  }
 
   function on (event, args) {
     events.addEventListener(event, args)
