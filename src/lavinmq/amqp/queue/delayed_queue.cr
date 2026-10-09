@@ -98,7 +98,7 @@ module LavinMQ::AMQP
       PublishResult::Dropped
     end
 
-    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?, *, delivery_count : Int32?) : PublishResult
       PublishResult::Dropped
     end
 

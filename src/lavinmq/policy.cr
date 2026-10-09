@@ -55,7 +55,8 @@ module LavinMQ
     SUPPORTED_POLICIES = {"max-length", "max-length-bytes", "message-ttl", "expires", "overflow",
                           "dead-letter-exchange", "dead-letter-routing-key", "federation-upstream",
                           "federation-upstream-set", "delivery-limit", "max-age",
-                          "alternate-exchange", "delayed-message"}
+                          "alternate-exchange", "delayed-message", "delayed-retry-min",
+                          "delayed-retry-multiplier", "delayed-retry-max"}
     enum Target
       All
       Queues

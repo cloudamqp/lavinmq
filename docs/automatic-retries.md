@@ -4,7 +4,7 @@ Automatic retries let the broker redeliver rejected messages after a growing bac
 
 ## How It Works
 
-1. Declare a queue with the `x-delayed-retry-min` argument to enable the feature
+1. Declare a queue with the `x-delayed-retry-min` argument, or apply a policy with `delayed-retry-min`, to enable the feature
 2. When a consumer rejects a message with `requeue=true` (via `basic.reject` or `basic.nack`), the broker delays it in an internal retry queue (`amq.retry-<queue>`) instead of requeuing it immediately
 3. When the backoff delay expires, the message is redelivered to the queue
 4. When the delivery count exceeds `x-delivery-limit`, the message is dead-lettered (or dropped without a dead letter exchange)
@@ -34,6 +34,25 @@ x-dead-letter-routing-key:  failed-messages
 
 Retry delays are 500 ms, 1 s, 2 s, 4 s, 8 s. When the 6th delivery is also rejected, the message is routed to the `failed-messages` queue with `x-death` reason `delivery_limit`.
 
+## Policies
+
+Queue arguments cannot be changed after declaration, so a policy is the way to add retries to an existing queue. The policy keys mirror the arguments without the `x-` prefix:
+
+| Policy key | Argument |
+|------------|----------|
+| `delayed-retry-min` | `x-delayed-retry-min` |
+| `delayed-retry-multiplier` | `x-delayed-retry-multiplier` |
+| `delayed-retry-max` | `x-delayed-retry-max` |
+| `delivery-limit` | `x-delivery-limit` |
+
+Values must be integers of at least 1. Like the other numeric policy keys, each key applies when the queue has no matching argument, or when the policy value is lower than the argument. `delayed-retry-multiplier` and `delayed-retry-max` only take effect when retries are enabled by `delayed-retry-min` or `x-delayed-retry-min`. When retries are enabled and neither an argument nor a policy sets a delivery limit, the limit defaults to 20.
+
+A policy cannot refuse a queue the way a declaration can, so on a queue with `x-message-deduplication`, or with a name that leaves no room for the `amq.retry-` prefix, the retry keys are ignored and a warning is logged. The other keys of the policy still apply.
+
+Changing the retry values of a policy affects subsequent retries only: messages already waiting in the retry queue keep the delay they were given.
+
+When retries are disabled by removing or changing the policy, messages already waiting in the retry queue are not lost or released early: they are published back to the queue when their delay expires, and the retry queue is deleted once it is empty. Messages rejected with `requeue=true` after the policy is removed are requeued instantly. The delivery limit returns to the value set by argument or the remaining policy, or no limit when neither sets one.
+
 ## What Triggers a Retry
 
 | Consumer action | Behavior |
@@ -55,6 +74,6 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - Retry cannot be combined with `x-message-deduplication`: the declaration is refused, since a retried message would always be dropped as a duplicate
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
 - If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period
-- The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
+- The retry arguments and policy keys are refused on streams
 - If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff and the retry queue is recreated on the next reject
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit

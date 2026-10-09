@@ -6,6 +6,7 @@ module LavinMQ::AMQP
   # Created and deleted together with the primary queue.
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
+    getter? draining = false
 
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
@@ -19,6 +20,28 @@ module LavinMQ::AMQP
 
     protected def initialize(@vhost : VHost, @name : String, @primary_queue : Queue)
       super(@vhost, @name, false, false, AMQP::Table.new)
+    end
+
+    def drain : Nil
+      return if @draining
+      @draining = true
+      @log.info { "Retries disabled, draining delayed messages back to #{@primary_queue.name}" }
+      notify_if_drained
+    end
+
+    def resume_retries : Nil
+      @draining = false
+    end
+
+    def purge(max_count : Int = UInt32::MAX) : UInt32
+      super.tap { notify_if_drained }
+    end
+
+    private def notify_if_drained : Nil
+      return if !@draining || @closed || !empty?
+      spawn(name: "DelayedRetryQueue#drained #{@vhost.name}/#{@name}") do
+        @primary_queue.retry_queue_drained(self)
+      end
     end
 
     def delay(msg : Message) : Bool
@@ -45,14 +68,18 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
+      delivery_count = nil
       if headers = msg.properties.headers
         headers.delete("x-delay")
+        delivery_count = headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
+        headers.delete("x-delivery-count") unless @primary_queue.counts_deliveries?
         msg.properties.headers = headers
       end
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body)), nil, delivery_count: delivery_count)
       return redelay(env) unless result.ok?
       delete_message sp
+      notify_if_drained
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
