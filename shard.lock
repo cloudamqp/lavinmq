@@ -26,5 +26,5 @@ shards:
 
   termisu:
     git: https://github.com/omarluq/termisu.git
-    version: 0.6.3
+    version: 0.6.3+git.commit.7739f8e621bddad3eca8450207280bf7b6504811
 

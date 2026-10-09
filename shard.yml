@@ -37,7 +37,7 @@ dependencies:
     github: 84codes/mqtt-protocol.cr
   termisu:
     github: omarluq/termisu
-    version: ">= 0.6.3"
+    commit: 7739f8e621bddad3eca8450207280bf7b6504811 # v0.6.3
 
 development_dependencies:
   ameba:
