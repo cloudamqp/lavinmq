@@ -9,6 +9,7 @@ let successWaiting = false
 
 function update (next) {
   state = next
+  document.documentElement.dataset.reachability = state
   events.dispatchEvent(new Event('change'))
 }
 
@@ -35,6 +36,8 @@ function recordFailure (reason) {
 function getState () {
   return { state, lastSuccessAt, lastError }
 }
+
+document.documentElement.dataset.reachability = state
 
 window.addEventListener('offline', () => recordFailure('Browser is offline'))
 
