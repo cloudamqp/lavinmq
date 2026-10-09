@@ -29,7 +29,6 @@ function render () {
   const paused = Poller.isPaused()
   const reachability = Reachability.getState()
   control.hidden = !Poller.isActive()
-  control.dataset.state = reachability.state
   control.title = describe(paused, reachability)
   toggle.setAttribute('aria-pressed', String(paused))
   toggle.setAttribute('aria-label', `${paused ? 'Resume' : 'Pause'} ${Poller.isStreaming() ? 'log stream' : 'auto-refresh'}`)

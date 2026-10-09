@@ -169,24 +169,24 @@ test.describe('refresh control', _ => {
     await page.clock.install()
     await loadOverview(page)
     const control = page.locator('#refresh-control')
-    await expect(control).toHaveAttribute('data-state', 'live')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
 
     await page.route('**/api/overview', route => route.fulfill({ status: 503, json: { reason: 'Server is starting' } }))
     const pillBorder = () => page.locator('.refresh-pill').evaluate(pill => getComputedStyle(pill).borderColor)
     const pulse = () => page.locator('.refresh-ring').evaluate(ring => getComputedStyle(ring).animationName)
     const liveBorder = await pillBorder()
     await advance(page, 5000)
-    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'reconnecting')
     expect(await pulse()).toBe('refresh-pulse')
     await advance(page, 5000)
-    await expect(control).toHaveAttribute('data-state', 'stale')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'stale')
     await expect(control).toHaveAttribute('title', /\nLast error: Server is starting/)
     expect(await pulse()).toBe('refresh-pulse')
     expect(await pillBorder()).toBe(liveBorder)
 
     await page.unroute('**/api/overview')
     await advance(page, 5000)
-    await expect(control).toHaveAttribute('data-state', 'live')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
   })
 
   for (const status of [404, 500]) {
@@ -195,7 +195,7 @@ test.describe('refresh control', _ => {
       await loadOverview(page)
       await page.route('**/api/overview', route => route.fulfill({ status, json: { reason: 'Nope' } }))
       await advance(page, 10000)
-      await expect(page.locator('#refresh-control')).toHaveAttribute('data-state', 'live')
+      await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
     })
   }
 
@@ -205,7 +205,7 @@ test.describe('refresh control', _ => {
     await page.route('**/api/overview', () => {})
     await advance(page, 10000)
     const control = page.locator('#refresh-control')
-    await expect(control).toHaveAttribute('data-state', 'slow')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'slow')
     await expect(control).toHaveAttribute('title', /^Waiting for a slow response/)
   })
 
@@ -218,7 +218,7 @@ test.describe('refresh control', _ => {
     await advance(page, 35000)
     await failed
     const control = page.locator('#refresh-control')
-    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'reconnecting')
     await expect(control).toHaveAttribute('title', /Last error: No response after 30s/)
     await advance(page, 5000)
     expect(overview.count).toBe(2)
@@ -231,12 +231,12 @@ test.describe('refresh control', _ => {
     const control = page.locator('#refresh-control')
 
     await context.setOffline(true)
-    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'reconnecting')
     await expect(control).toHaveAttribute('title', /Browser is offline/)
 
     await context.setOffline(false)
     await expect.poll(() => overview.count).toBe(2)
-    await expect(control).toHaveAttribute('data-state', 'live')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
   })
 
   test('a hung refresh stays a problem while other refreshes succeed', async ({ page }) => {
@@ -248,13 +248,12 @@ test.describe('refresh control', _ => {
     await page.goto('/exchange#vhost=%2F&name=amq.topic')
     await loaded
     await page.route(`**${exchangePath}`, () => {})
-    const control = page.locator('#refresh-control')
     const states = []
     for (let i = 0; i < 10; i++) {
       const bindings = responseFor(bindingsPath)
       await page.clock.runFor(5000)
       await bindings
-      states.push(await control.getAttribute('data-state'))
+      states.push(await page.locator('html').getAttribute('data-reachability'))
     }
     const firstProblem = states.findIndex(state => state !== 'live')
     expect(firstProblem).toBeGreaterThan(-1)
@@ -273,17 +272,16 @@ test.describe('refresh control', _ => {
     let release
     const gate = new Promise(resolve => { release = resolve })
     await page.route(`**${exchangePath}`, async route => { await gate; await route.fallback() })
-    const control = page.locator('#refresh-control')
     for (let i = 0; i < 2; i++) {
       const bindings = responseFor(bindingsPath)
       await page.clock.runFor(5000)
       await bindings
     }
-    await expect(control).toHaveAttribute('data-state', 'slow')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'slow')
 
     const answered = responseFor(exchangePath)
     release()
     await answered
-    await expect(control).toHaveAttribute('data-state', 'live')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
   })
 })
