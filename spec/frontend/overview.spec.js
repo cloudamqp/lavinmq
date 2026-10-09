@@ -19,6 +19,25 @@ test.describe("overview", _ => {
     }
   })
 
+  test('draws a connected chart line at a slower refresh rate', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('lmq.refreshInterval', '30000'))
+    await page.clock.install()
+    const overviewLoaded = () => page.waitForResponse(response => new URL(response.url()).pathname === '/api/overview')
+    const loaded = overviewLoaded()
+    await page.goto('/')
+    await loaded
+    for (let i = 0; i < 3; i++) {
+      const refreshed = overviewLoaded()
+      await page.clock.runFor(30000)
+      await refreshed
+    }
+    const points = await page.evaluate(async () => {
+      const { Chart } = await import('/js/lib/chart.js')
+      return Chart.getChart(document.querySelector('#msgChart canvas')).data.datasets[0].data.map(point => point.y)
+    })
+    expect(points).not.toContain(null)
+  })
+
   test('definitions export trigger GET to /api/definitions for all vhosts', async ({ page }) => {
     const definitionsRequest  = helpers.waitForPathRequest(page, '/api/definitions')
     await page.goto('/')
