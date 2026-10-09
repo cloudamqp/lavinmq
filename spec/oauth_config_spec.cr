@@ -47,9 +47,9 @@ describe LavinMQ::Config do
     it "parses oauth section from config with issuer_url" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -60,10 +60,10 @@ describe LavinMQ::Config do
     it "parses resource_server_id" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        resource_server_id = my-service
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          resource_server_id = my-service
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -74,10 +74,10 @@ describe LavinMQ::Config do
     it "parses preferred_username_claims as comma-separated list" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        preferred_username_claims = email, preferred_username, sub
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          preferred_username_claims = email, preferred_username, sub
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -88,10 +88,10 @@ describe LavinMQ::Config do
     it "parses additional_scopes_keys" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        additional_scopes_keys = custom_permissions
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          additional_scopes_keys = custom_permissions
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -102,10 +102,10 @@ describe LavinMQ::Config do
     it "parses multiple comma-separated additional_scopes_keys" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        additional_scopes_keys = roles, permissions
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          additional_scopes_keys = roles, permissions
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -116,10 +116,10 @@ describe LavinMQ::Config do
     it "parses scope_prefix" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        scope_prefix = mq.
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          scope_prefix = mq.
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -130,10 +130,10 @@ describe LavinMQ::Config do
     it "parses mgmt_scopes" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        mgmt_scopes = openid email offline_access
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          mgmt_scopes = openid email offline_access
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -144,10 +144,10 @@ describe LavinMQ::Config do
     it "parses verify_aud as boolean" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        verify_aud = false
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          verify_aud = false
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -158,10 +158,10 @@ describe LavinMQ::Config do
     it "parses audience" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        audience = lavinmq-api
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          audience = lavinmq-api
+          CONFIG
       end
 
       config = LavinMQ::Config.new
@@ -172,10 +172,10 @@ describe LavinMQ::Config do
     it "parses jwks_cache_ttl as seconds" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
-        [oauth]
-        issuer = https://auth.example.com
-        jwks_cache_ttl = 7200
-        CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          jwks_cache_ttl = 7200
+          CONFIG
       end
 
       config = LavinMQ::Config.new

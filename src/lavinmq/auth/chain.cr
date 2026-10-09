@@ -37,7 +37,7 @@ module LavinMQ
           # Default to local auth if no backends configured
           authenticators << LocalAuthenticator.new(users)
         end
-        self.new(authenticators)
+        new(authenticators)
       end
 
       def cleanup

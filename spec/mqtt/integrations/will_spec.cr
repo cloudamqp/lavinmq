@@ -99,7 +99,7 @@ module MqttSpecs
           pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
           pub.payload.should eq("dead".to_slice)
           pub.topic.should eq("will/t")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
 
           disconnect(io)
         end

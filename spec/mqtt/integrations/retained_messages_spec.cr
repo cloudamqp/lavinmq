@@ -17,7 +17,7 @@ module MqttSpecs
           subscribe(io, topic_filters: [subtopic("a/b")])
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           disconnect(io)
         end
       end
@@ -36,7 +36,7 @@ module MqttSpecs
           end
 
           msg = read_packet(sub_io).as(MQTT::Protocol::Publish)
-          msg.retain?.should eq(false)
+          msg.retain?.should be_false
         end
       end
     end
@@ -56,8 +56,8 @@ module MqttSpecs
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.qos.should eq(1u8)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
-          pub.dup?.should eq(false)
+          pub.retain?.should be_true
+          pub.dup?.should be_false
         end
 
         with_client_io(server) do |io|
@@ -65,8 +65,8 @@ module MqttSpecs
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.qos.should eq(1u8)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
-          pub.dup?.should eq(true)
+          pub.retain?.should be_true
+          pub.dup?.should be_true
           puback(io, pub.packet_id)
         end
       end

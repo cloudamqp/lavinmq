@@ -18,6 +18,85 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should only return queues in the given state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
+
+    it "should filter on multiple states" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues?state=paused,closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"].as_s).sort!.should eq ["q_closed", "q_paused"]
+      end
+    end
+
+    it "should return 400 for an invalid state" do
+      with_http_server do |http, _|
+        response = http.get("/api/queues?state=foo")
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should apply the state filter on top of a name filter, not instead of it" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("orders_paused", false, false)
+        vhost.declare_queue("orders_running", false, false)
+        vhost.declare_queue("events_paused", false, false)
+        vhost.queue("orders_paused").pause!
+        vhost.queue("events_paused").pause!
+
+        response = http.get("/api/queues?state=paused&name=orders")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"]).should eq ["orders_paused"]
+      end
+    end
+
+    it "should apply the state filter on top of a regex name filter" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_paused_1", false, false)
+        vhost.declare_queue("q_paused_2", false, false)
+        vhost.declare_queue("other_paused", false, false)
+        ["q_paused_1", "q_paused_2", "other_paused"].each { |n| vhost.queue(n).pause! }
+
+        response = http.get("/api/queues?state=paused&name=^q_&use_regex=true")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"].as_s).sort!.should eq ["q_paused_1", "q_paused_2"]
+      end
+    end
+
+    it "should keep total_count unfiltered when filtering on state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?page=1&state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["total_count"].should eq 2
+        body["filtered_count"].should eq 1
+        body["items"].as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
   end
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
@@ -29,6 +108,19 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.empty?.should be_false
       end
     end
+
+    it "should only return queues in the given state for a vhost" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues/%2f?state=closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_closed"]
+      end
+    end
   end
   describe "GET /api/queues/vhost/name" do
     it "should return queue" do
@@ -36,6 +128,28 @@ describe LavinMQ::HTTP::QueuesController do
         s.vhosts["/"].declare_queue("q0", false, false)
         response = http.get("/api/queues/%2f/q0")
         response.status_code.should eq 200
+      end
+    end
+
+    it "should return the tag of an exclusive consumer" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_consumer_tag")
+          q.subscribe(tag: "the-exclusive-one", exclusive: true) { }
+          response = http.get("/api/queues/%2f/exclusive_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should eq "the-exclusive-one"
+        end
+      end
+    end
+
+    it "should not return an exclusive consumer tag for a normal consumer on an exclusive queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_queue_consumer_tag", exclusive: true)
+          q.subscribe(tag: "not-exclusive") { }
+          response = http.get("/api/queues/%2f/exclusive_queue_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should be_nil
+        end
       end
     end
 
@@ -322,14 +436,18 @@ describe LavinMQ::HTTP::QueuesController do
 
     it "should require durable to be the same when overwriting" do
       with_http_server do |http, _|
-        body = %({
-        "durable": true
-      })
+        body = <<-JSON
+          {
+            "durable": true
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 201
-        body = %({
-        "durable": false
-      })
+        body = <<-JSON
+          {
+            "durable": false
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 400
       end
@@ -347,9 +465,11 @@ describe LavinMQ::HTTP::QueuesController do
         # supplying 'x-dead-letter-routing-key' is only valid if
         # 'x-dead-letter-exchange' is also in the request
         # so this request generates a Error::PreconditionFailed
-        body = %({
-        "arguments": {"x-dead-letter-routing-key": "value"}
-      })
+        body = <<-JSON
+          {
+            "arguments": {"x-dead-letter-routing-key": "value"}
+          }
+          JSON
         response = http.put("/api/queues/%2f/precond-failed", body: body)
         response.status_code.should eq 400
       end
@@ -378,11 +498,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "reject_requeue_true",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q3/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -479,17 +601,45 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not double-decrement unacked_count when an ack fails mid-batch" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q4")
+          q4 = s.vhosts["/"].queue("q4").as(LavinMQ::AMQP::Queue)
+          3.times { q.publish_confirm "m1" }
+          wait_for { q4.message_count == 3 }
+
+          # Let the first ack of the batch succeed and the next one fail. The
+          # failing ack has already decremented unacked_count, so the recovery
+          # path must only requeue the messages it hasn't finalized yet.
+          q4.@msg_store.raise_on_delete_after = 1
+
+          body = %({ "count": 3, "ack_mode": "get", "encoding": "auto" })
+          begin
+            http.post("/api/queues/%2f/q4/get", body: body)
+          rescue # the endpoint re-raises the injected failure
+          end
+          q4.@msg_store.raise_on_delete_after = nil
+
+          q4.unacked_count.should eq 0
+          http.get("/api/overview").status_code.should eq 200
+        end
+      end
+    end
+
     it "should handle count > message_count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 2,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 2,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q5/get", body: body)
           response.status_code.should eq 200
         end
@@ -500,11 +650,13 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           ch.queue("q6")
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q6/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -519,11 +671,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q7")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q7/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -538,12 +692,14 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q8")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "requeue": true,
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "requeue": true,
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q8/get", body: body)
           response.status_code.should eq 400
           body = JSON.parse(response.body)

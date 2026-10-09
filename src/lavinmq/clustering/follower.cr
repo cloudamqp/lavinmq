@@ -21,11 +21,11 @@ module LavinMQ
 
       # Write timeout used during full_sync. A syncing follower isn't in the ISR
       # yet, so its slowness can't stall publish confirms, and the bulk transfer
-      # legitimately blocks the leader's writes while the follower hashes its
-      # local files or persists received ones. The aggressive ACK_TIMEOUT is for
-      # the steady-state streaming phase; using it during full_sync wrongly drops
-      # a merely-slow follower. Still bounded so a genuinely wedged follower can't
-      # hold the sync lock forever.
+      # legitimately blocks the leader's writes while the follower persists the
+      # files it receives. The aggressive ACK_TIMEOUT is for the steady-state
+      # streaming phase; using it during full_sync wrongly drops a merely-slow
+      # follower. Still bounded so a genuinely wedged follower can't hold the
+      # sync lock forever.
       SYNC_WRITE_TIMEOUT = 60.seconds
 
       @acked_bytes = Atomic(Int64).new(0)
@@ -45,7 +45,10 @@ module LavinMQ
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
       @synced_baseline = Hash(String, Int64).new
+      # Fsync requests not yet written to the stream, guarded by @write_lock
+      @pending_fsyncs = Array(String).new
       getter id = -1
+      getter protocol_version = 1
       getter remote_address
       getter state
 
@@ -96,31 +99,30 @@ module LavinMQ
         # last ack (which would be stale after an idle period).
         unacked_since : Time::Instant? = nil
         loop do
-          begin
-            len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-            @acked_bytes.add(len)
-            unacked_since = nil       # progress; restart the deadline
-            @ack_notify.try_send(nil) # wake any publish-confirm waiter
-          rescue IO::TimeoutError
-            @write_lock.synchronize do
-              @lz4.flush
+          len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          @acked_bytes.add(len)
+          unacked_since = nil       # progress; restart the deadline
+          @ack_notify.try_send(nil) # wake any publish-confirm waiter
+        rescue IO::TimeoutError
+          @write_lock.synchronize do
+            write_pending_fsyncs
+            @lz4.flush
+          end
+          # A connected follower that stops acking while data is outstanding
+          # (blocked on its own sync, GC pause, half-open socket) would
+          # otherwise stall publish confirms indefinitely. Drop it from the
+          # replica set like the write_timeout path does for blocked writes;
+          # it will re-sync on reconnect. Healthy-but-behind followers keep
+          # acking, so unacked_since keeps resetting and they're never dropped.
+          if lag_in_bytes > 0
+            now = Time.instant
+            unacked_since ||= now
+            if now - unacked_since > ack_timeout
+              Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
+              break
             end
-            # A connected follower that stops acking while data is outstanding
-            # (blocked on its own sync, GC pause, half-open socket) would
-            # otherwise stall publish confirms indefinitely. Drop it from the
-            # replica set like the write_timeout path does for blocked writes;
-            # it will re-sync on reconnect. Healthy-but-behind followers keep
-            # acking, so unacked_since keeps resetting and they're never dropped.
-            if lag_in_bytes > 0
-              now = Time.instant
-              unacked_since ||= now
-              if now - unacked_since > ack_timeout
-                Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
-                break
-              end
-            else
-              unacked_since = nil
-            end
+          else
+            unacked_since = nil
           end
         end
       rescue IO::EOFError | Socket::Error | IO::Error
@@ -145,7 +147,10 @@ module LavinMQ
       # swallowed: a broken socket is detected by ack_loop, which closes
       # @ack_notify so a wait_for_confirm waiter still unblocks.
       private def flush : Nil
-        @write_lock.synchronize { @lz4.flush }
+        @write_lock.synchronize do
+          write_pending_fsyncs
+          @lz4.flush
+        end
       rescue IO::Error | Socket::Error
       end
 
@@ -197,8 +202,11 @@ module LavinMQ
         buf = uninitialized UInt8[8]
         slice = buf.to_slice
         @socket.read_fully(slice)
-        if slice != Start
-          @socket.write(Start)
+        case slice
+        when StartV2 then @protocol_version = 2
+        when Start   then @protocol_version = 1
+        else
+          @socket.write(StartV2)
           raise InvalidStartHeaderError.new(slice)
         end
       end
@@ -268,7 +276,7 @@ module LavinMQ
       # When `caps` is set, a file missing from it is capped at 0 (sent empty,
       # then filled via the change stream); otherwise the file is uncapped.
       private def cap_for(caps : Hash(String, Int64)?, path : String) : Int64?
-        return nil unless caps
+        return unless caps
         caps[path]? || 0i64
       end
 
@@ -347,7 +355,50 @@ module LavinMQ
         end
       end
 
+      # Ask the follower to fsync `paths` (relative to the data dir) before it
+      # acks past this point in the stream. The bytes are counted as sent right
+      # away, so a later wait_for_confirm covers them, and they're written
+      # before anything sent after them (see #write_pending_fsyncs). Only
+      # buffers, never touches the socket, so it's safe to call from the
+      # isolated publish confirm loop. Version 1 followers sync before every
+      # ack and don't understand fsync requests.
+      def request_fsync(paths : Enumerable(String)) : Nil
+        return if @protocol_version < 2
+        @write_lock.synchronize do
+          paths.each do |path|
+            @sent_bytes.add(fsync_record_size(path))
+            @pending_fsyncs << path
+          end
+        end
+        request_flush
+      end
+
+      # Ask the follower to sync its whole data dir, an fsync request without a path
+      def request_syncfs : Nil
+        request_fsync({""})
+      end
+
+      private def fsync_record_size(path) : Int64
+        (sizeof(Int32) + 1 + path.bytesize + sizeof(Int64)).to_i64
+      end
+
+      # Caller must hold @write_lock. Written ahead of every other record, so
+      # stream order matches the order in which bytes were counted as sent,
+      # and the follower's cumulative ack can't pass a fsync request's bytes
+      # before it has handled it.
+      private def write_pending_fsyncs : Nil
+        return if @pending_fsyncs.empty?
+        @pending_fsyncs.each do |path|
+          @lz4.write_bytes (path.bytesize + 1).to_i32, IO::ByteFormat::LittleEndian
+          @lz4.write_byte FSYNC_PREFIX.ord.to_u8
+          @lz4.write path.to_slice
+          @lz4.write_bytes 0i64
+        end
+        @pending_fsyncs.clear
+      end
+
       private def send_filename(path)
+        write_pending_fsyncs
         @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         @lz4.write path.to_slice
       end
@@ -394,6 +445,14 @@ module LavinMQ
 
       def lag_in_bytes : Int64
         @sent_bytes.get - @acked_bytes.get
+      end
+
+      def sent_bytes : Int64
+        @sent_bytes.get
+      end
+
+      def acked_bytes : Int64
+        @acked_bytes.get
       end
 
       def syncing?

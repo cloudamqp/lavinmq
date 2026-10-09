@@ -11,7 +11,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       etcd.del("foo")
-      etcd.put("foo", "bar").should eq nil
+      etcd.put("foo", "bar").should be_nil
       etcd.get("foo").should eq "bar"
       etcd.put("foo", "bar2").should eq "bar"
     end
@@ -60,7 +60,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       etcd.put "foo", "rab"
       w.receive.should eq "rab"
       etcd.del "foo"
-      w.receive.should eq nil
+      w.receive.should be_nil
     end
   end
 
@@ -80,11 +80,9 @@ describe LavinMQ::Etcd, tags: "etcd" do
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
-        begin
-          etcd.elect(key, "bar2", 1)
-        rescue SpecExit
-          # expect this when etcd nodes are terminated
-        end
+        etcd.elect(key, "bar2", 1)
+      rescue SpecExit
+        # expect this when etcd nodes are terminated
       end
       select
       when new = leader.receive
@@ -173,9 +171,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
       isr_key = "#{prefix}/isr"
       stale_etcd = LavinMQ::Etcd.new(cluster.endpoints)
       current_etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      stale_lease = nil
-      current_lease = nil
-
       begin
         config = LavinMQ::Config.new
         config.clustering = true
@@ -200,7 +195,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
           elected.close
         end
         sl.release
-        stale_lease = nil
 
         select
         when elected.receive

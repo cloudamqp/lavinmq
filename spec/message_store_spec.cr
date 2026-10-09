@@ -44,6 +44,9 @@ class SpyReplicator
     @deleted_files << path
   end
 
+  def delete_dir(path : String)
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
@@ -64,6 +67,12 @@ class SpyReplicator
   end
 
   def wait_for_followers : Nil
+  end
+
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
   end
 
   def close
@@ -122,7 +131,80 @@ def setup_orphaned_ack_scenario(dir)
   end
 end
 
+private def synced_message(body) : LavinMQ::Message
+  msg = LavinMQ::Message.new("", "rk", body)
+  msg.needs_sync = true
+  msg
+end
+
 describe LavinMQ::MessageStore do
+  describe "#copy" do
+    # Regression: dead-lettering routes a message after releasing the queue's
+    # @msg_store_lock, while a racing purge/queue delete can munmap the
+    # segment. A zero-copy `store[sp]` read would then segfault mid-copy;
+    # `#copy` must return a message that owns all its memory (body and
+    # headers included).
+    it "returns a message that stays valid after its segment is unmapped" do
+      mktmpdir do |dir|
+        body = "dead letter me"
+        headers = LavinMQ::AMQP::Table.new({"x-dead-letter-exchange" => "dlx"})
+        props = LavinMQ::AMQP::Properties.new(headers: headers)
+        store = LavinMQ::MessageStore.new(dir, nil)
+        msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "ex", "rk", props,
+          body.bytesize.to_u64, IO::Memory.new(body))
+        sp = store.push(msg)
+        copy = store.copy(sp)
+        store.close # unmaps every segment
+        String.new(copy.body).should eq body
+        copy.exchange_name.should eq "ex"
+        copy.routing_key.should eq "rk"
+        copy.properties.headers.should eq headers
+      end
+    end
+
+    it "raises KeyError when the segment is gone" do
+      with_store do |store|
+        sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        gone = LavinMQ::SegmentPosition.new(sp.segment + 1, sp.position, sp.bytesize)
+        expect_raises(KeyError) { store.copy(gone) }
+      end
+    end
+  end
+
+  # Regression: avg_bytesize is read without the queue's lock (HTTP API,
+  # stats), so the store can become empty between its zero check and the
+  # division, which turned into Infinity and raised OverflowError
+  it "#avg_bytesize doesn't raise while the store empties concurrently", tags: "slow" do
+    with_store do |store|
+      sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      ctx = Fiber::ExecutionContext::Parallel.new("avg-bytesize", 4)
+      done = Atomic(Bool).new(false)
+      errors = Atomic(Int32).new(0)
+      wg = WaitGroup.new
+      3.times do
+        wg.add(1)
+        ctx.spawn do
+          until done.get(:acquire)
+            begin
+              store.avg_bytesize
+            rescue OverflowError
+              errors.add(1, :relaxed)
+            end
+          end
+        ensure
+          wg.done
+        end
+      end
+      200_000.times do
+        store.shift?.should_not be_nil
+        store.requeue(sp)
+      end
+      done.set(true, :release)
+      wg.wait
+      errors.get.should eq 0
+    end
+  end
+
   it "deletes orphaned ack files" do
     mktmpdir do |dir|
       # Create a dummy msgs file
@@ -358,6 +440,58 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "#purge_all" do
+    it "acks requeued messages on disk so they don't come back after restart" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        3.times { |i| store.push LavinMQ::Message.new("ex", "rk", "body#{i}") }
+        env = store.shift?.should_not be_nil
+        store.requeue env.segment_position
+        store.size.should eq 3
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.shift?.should be_nil
+        ensure
+          store.close
+        end
+      end
+    end
+
+    it "purges msgs in a segment that was acked out of order before a restart" do
+      mktmpdir do |dir|
+        third_seg = LavinMQ::Config.instance.segment_size.to_u64 // 3 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, third_seg, IO::Memory.new("a" * third_seg))
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        6.times { store.push(big) } # seg 1 = [m1, m2], seg 2 = [m3, m4], seg 3 = [m5, m6]
+        envs = Array(LavinMQ::Envelope).new
+        4.times { envs << store.shift?.not_nil! }
+        store.delete(envs[2].segment_position) # ack m3 only, seg 2 is partially acked
+        store.close
+
+        # A reopen resets @rfile_id to the first segment, so seg 2 counts as
+        # unread, but @segment_msg_count still counts the acked m3 while @size
+        # doesn't. purge_all must not subtract that ack from @size, or its
+        # shift loop underflows and leaves the rest of the msgs on disk.
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 5
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 0
+        store.close
+      end
+    end
+  end
+
   it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
@@ -412,6 +546,45 @@ describe LavinMQ::MessageStore do
   end
 
   describe "replication" do
+    it "sends the shortened segment to followers after dropping a torn trailing record" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("ex", "rk", "a stored message")) }
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        # Tear the last record and remove the meta file, so produce_metadata
+        # rebuilds the segment and resizes it past the incomplete record.
+        File.open(seg_path, "r+") { |f| f.truncate(f.size - 3) }
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.close
+        replicator.replaced_files.should contain(seg_path)
+      end
+    end
+
+    it "does not send intact segments to followers when it rebuilds metadata" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("ex", "rk", "a stored message")) }
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        # Remove only the meta file. The segment itself is intact, so the
+        # metadata rebuild must not re-replicate it.
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.close
+        replicator.replaced_files.should_not contain(seg_path)
+      end
+    end
+
     it "registers the initial segment file" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new
@@ -827,4 +1000,65 @@ describe LavinMQ::MessageStore do
       end
     end
   end
+
+  {% if flag?(:linux) %}
+    describe "random access advice" do
+      it "advises every segment random access" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
+      it "advises the next full segment sequential for a reader that read the previous one fast" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          first, second, third = store.@segments.values.map(&.path)
+          3.times { store.shift?.should_not be_nil }
+          vm_flags(first).should contain "rr" # no read before it to go by
+          vm_flags(second).should_not contain "rr"
+          vm_flags(second).should contain "sr"
+          vm_flags(third).should contain "rr" # the write segment
+          store.close
+        end
+      end
+
+      it "keeps random access for a reader that read the previous segment slowly" do
+        LavinMQ::Config.instance.segment_size = 64 * 1024
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          second = store.@segments.values[1].path
+          store.shift?.should_not be_nil
+          sleep 200.milliseconds # 64 KiB in 200 ms is below 1 MiB/s
+          store.shift?.should_not be_nil
+          store.@rfile.path.should eq second
+          vm_flags(second).should contain "rr"
+          store.close
+        end
+      end
+
+      it "advises ack files" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          2.times { |i| store.push(LavinMQ::Message.new("", "rk", "m#{i}")) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position)
+          vm_flags(store.@acks[env.segment_position.segment].path).should contain "rr"
+          store.close
+        end
+      end
+    end
+  {% end %}
 end

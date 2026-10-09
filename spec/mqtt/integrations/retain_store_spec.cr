@@ -14,9 +14,7 @@ module MqttSpecs
       it "adds to index and writes msg file" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
-        store.retain("a", msg.body_io, msg.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
 
         index.size.should eq(1)
         index.@leafs.has_key?("a").should be_true
@@ -30,14 +28,12 @@ module MqttSpecs
       it "empty body deletes" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
 
-        store.retain("a", msg.body_io, msg.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         index.size.should eq(1)
         entry = index["a"]?.should be_a String
 
-        store.retain("a", msg.body_io, 0)
+        store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true))
         index.size.should eq(0)
         File.exists?(File.join("tmp/retain_store", entry)).should be_false
       ensure
@@ -49,9 +45,7 @@ module MqttSpecs
       it "can be called multiple times" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
-        store.retain("a", msg.body_io, msg.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         10.times do
           store.each("a") do |_topic, body_io, body_bytesize|
             body = Bytes.new(body_bytesize)
@@ -66,11 +60,8 @@ module MqttSpecs
       it "calls block with correct arguments" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
-        store.retain("a", msg.body_io, msg.bodysize)
-        msg.body_io.rewind
-        store.retain("b", msg.body_io, msg.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
 
         called = [] of Tuple(String, Bytes)
         store.each("a") do |topic, body_io, body_bytesize|
@@ -86,14 +77,42 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "'a/#' matches the retained message on the parent topic 'a'" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store.retain(publish_packet(topic: "sport", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "sport/tennis", payload: "body".to_slice, retain: true))
+
+        topics = Array(String).new
+        store.each("sport/#") { |topic, _io, _size| topics << topic }
+
+        topics.sort.should eq ["sport", "sport/tennis"]
+      ensure
+        store.try &.close
+      end
+
+      it "'#' and '+/y' do not match retained messages on '$' topics" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store.retain(publish_packet(topic: "$x/y", payload: "body".to_slice, retain: true))
+
+        topics = Array(String).new
+        store.each("#") { |topic, _io, _size| topics << topic }
+        store.each("+/y") { |topic, _io, _size| topics << topic }
+        topics.should be_empty
+
+        store.each("$x/#") { |topic, _io, _size| topics << topic }
+        store.each("$x/+") { |topic, _io, _size| topics << topic }
+        topics.should eq ["$x/y", "$x/y"]
+      ensure
+        store.try &.close
+      end
+
       it "handles multiple subscriptions" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg1 = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
-        msg2 = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
-        store.retain("a", msg1.body_io, msg1.bodysize)
-        store.retain("b", msg2.body_io, msg2.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
 
         called = [] of Tuple(String, Bytes)
         store.each("a") do |topic, body_io, body_bytesize|
@@ -121,10 +140,8 @@ module MqttSpecs
       it "restores the index from a file" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
 
-        store.retain("a", msg.body_io, msg.bodysize)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         store.close
 
         new_index = IndexTree.new
@@ -138,10 +155,8 @@ module MqttSpecs
     it "survives a restart" do
       index = IndexTree.new
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-      props = LavinMQ::AMQP::Properties.new
-      msg = LavinMQ::Message.new(100, "test", "topic", props, 4, IO::Memory.new("body"))
 
-      store.retain("topic", msg.body_io, msg.bodysize)
+      store.retain(publish_packet(topic: "topic", payload: "body".to_slice, retain: true))
       store.close
 
       # Reopen
@@ -173,7 +188,7 @@ module MqttSpecs
           # Should receive the retained message without crashing
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")
 
           disconnect(io)
@@ -197,7 +212,7 @@ module MqttSpecs
           # Should receive the retained message without crashing
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")
 
           disconnect(io)

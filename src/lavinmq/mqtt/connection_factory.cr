@@ -2,7 +2,8 @@ require "log"
 require "socket"
 require "./protocol"
 require "./client"
-require "./brokers"
+require "./broker"
+require "../vhost_store"
 require "../auth/base_user"
 require "../client/connection_factory"
 require "../auth/authenticator"
@@ -13,7 +14,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "mqtt.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator,
-                     @brokers : Brokers, @config : Config)
+                     @vhosts : VHostStore, @config : Config)
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
@@ -23,12 +24,16 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
-            user, broker = authenticate(io, packet)
+            user, broker = authenticate(packet, connection_info)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?
             validate_client_id!(packet.client_id, user.name)
+            if broker.connection_limit_reached?(packet.client_id)
+              raise Protocol::Error::ServerUnavailable.new(
+                "too many connections to vhost \"#{broker.vhost.name}\"")
+            end
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
             connack io, session_present, Protocol::Connack::ReturnCode::Accepted
-            return broker.run_client(io, connection_info, user, packet)
+            broker.run_client(io, connection_info, user, packet)
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
@@ -36,7 +41,7 @@ module LavinMQ
             connack io, false, Protocol::Connack::ReturnCode.new(ex.return_code)
           end
           socket.close
-        rescue ex : ::IO::EOFError
+        rescue ::IO::EOFError
           socket.close
         rescue ex
           logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
@@ -49,7 +54,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io : Protocol::IO, packet)
+      def authenticate(packet, connection_info : ConnectionInfo)
         username = packet.username
         password = packet.password
         raise Protocol::Error::NotAuthorized.new("missing credentials") unless username && password
@@ -60,15 +65,15 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        context = Auth::Context.new(username, password, io.io)
+        context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
 
         user = @authenticator.authenticate(context)
         raise Protocol::Error::NotAuthorized.new("authentication failure for user \"#{username}\"") unless user
         raise Protocol::Error::NotAuthorized.new("user \"#{username}\" lacks permission for vhost \"#{vhost}\"") unless user.find_permission(vhost)
-        broker = @brokers[vhost]?
-        raise Protocol::Error::NotAuthorized.new("no broker for vhost \"#{vhost}\"") unless broker
+        v = @vhosts[vhost]?
+        raise Protocol::Error::NotAuthorized.new("no broker for vhost \"#{vhost}\"") if v.nil? || v.closed?
 
-        {user, broker}
+        {user, v.mqtt_broker}
       end
 
       def assign_client_id(packet, username : String)
@@ -81,7 +86,8 @@ module LavinMQ
           packet.keepalive,
           packet.username,
           packet.password,
-          packet.will)
+          packet.will,
+          packet.version)
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil

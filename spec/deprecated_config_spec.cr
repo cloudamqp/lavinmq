@@ -12,7 +12,7 @@ module LavinMQ
         {% for ivar in @type.instance_vars %}
           {% anno = ivar.annotation(IniOpt) %}
           {% if anno && anno[:deprecated] %}
-            {{ivar.name.stringify}} => { {{anno[:section]}}, {{(anno[:ini_name] || ivar.name).stringify}} },
+            {{ ivar.name.stringify }} => { {{ anno[:section] }}, {{ (anno[:ini_name] || ivar.name).stringify }} },
           {% end %}
         {% end %}
       }
@@ -26,7 +26,7 @@ module LavinMQ
         {% for ivar in @type.instance_vars %}
           {% anno = ivar.annotation(CliOpt) %}
           {% if anno && anno[:deprecated] %}
-            {{ivar.name.stringify}} => {{anno.args[1]}},
+            {{ ivar.name.stringify }} => {{ anno.args[1] }},
           {% end %}
         {% end %}
       }
@@ -38,7 +38,7 @@ module LavinMQ
       {% begin %}
       case name
       {% for ivar in @type.instance_vars %}
-      when {{ivar.name.stringify}} then @{{ivar.name}}.to_s
+      when {{ ivar.name.stringify }} then @{{ ivar.name }}.to_s
       {% end %}
       else raise "Unknown config option: #{name}"
       end

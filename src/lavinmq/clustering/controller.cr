@@ -1,3 +1,4 @@
+require "../http/metrics_server"
 require "../etcd"
 require "./client"
 require "./etcd_coordinator"
@@ -14,7 +15,10 @@ class LavinMQ::Clustering::Controller
     new(config, etcd, EtcdCoordinator.new(config, etcd))
   end
 
-  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
+  # The metrics server, if any, is pointed at each follower client, so it keeps
+  # serving on the same socket across leader changes
+  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator,
+                 @metrics_server : HTTP::MetricsServer? = nil)
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
@@ -111,6 +115,7 @@ class LavinMQ::Clustering::Controller
         end
       end
       @repli_client = r = Clustering::Client.new(@config, @id, secret)
+      @metrics_server.try &.follower = r
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
@@ -183,16 +188,14 @@ class LavinMQ::Clustering::Controller
     Log.info { "Executing #{event} hook in background: #{command}" }
 
     spawn name: "#{event} hook" do
-      begin
-        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-        if status.success?
-          Log.info { "#{event} hook completed successfully" }
-        else
-          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
-        end
-      rescue ex
-        Log.error(exception: ex) { "Failed to execute #{event} hook" }
+      status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      if status.success?
+        Log.info { "#{event} hook completed successfully" }
+      else
+        Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
       end
+    rescue ex
+      Log.error(exception: ex) { "Failed to execute #{event} hook" }
     end
   end
 

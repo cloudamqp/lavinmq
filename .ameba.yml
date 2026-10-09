@@ -29,3 +29,8 @@ Lint/NotNil:
 # Run `ameba --only Documentation/DocumentationAdmonition` for details
 Documentation/DocumentationAdmonition:
   Enabled: false
+
+# `Process.on_terminate` only buys Windows portability, and the signal traps
+# also cover USR1/USR2/SEGV, so they're Unix-only anyway.
+Lint/SignalTrap:
+  Enabled: false

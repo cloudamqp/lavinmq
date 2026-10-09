@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../../clustering/client"
 
 module LavinMQ
   module HTTP
@@ -93,11 +94,9 @@ module LavinMQ
         mem = 0
         elapsed = Time.measure do
           mem = Benchmark.memory do
-            begin
-              yield
-            rescue ex
-              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
-            end
+            yield
+          rescue ex
+            Log.error(exception: ex) { "Error while reporting prometheus metrics" }
           end
         end
         writer = PrometheusWriter.new(io, "telemetry")
@@ -170,7 +169,7 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize
+      def initialize(@clustering_client : LavinMQ::Clustering::Client? = nil)
         register_routes
       end
 
@@ -187,6 +186,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
+            cluster_metrics(writer)
           end
           context
         end
@@ -198,6 +198,15 @@ module LavinMQ
           report(context.response) { }
           context
         end
+      end
+
+      private def cluster_metrics(writer)
+        client = @clustering_client
+        return unless client
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: client.streamed_bytes,
+                      type:  "counter",
+                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
       end
     end
 
@@ -221,7 +230,6 @@ module LavinMQ
         vhosts.to_a
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/metrics" do |context, _|
           context.response.content_type = "text/plain"
@@ -332,27 +340,33 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
+        deleted_stats = @server.vhosts.deleted_stats
         message_stats = @server.vhosts.map { |_, v| v.message_details[:message_stats] }
         writer.write({name:  "global_messages_delivered_total",
-                      value: @server.deleted_vhosts_messages_delivered_total +
+                      value: deleted_stats.deliver_get +
                              message_stats.sum { |ms| ms[:deliver_get] },
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
-                      value: @server.deleted_vhosts_messages_redelivered_total +
+                      value: deleted_stats.redeliver +
                              message_stats.sum { |ms| ms[:redeliver] },
                       type: "counter",
                       help: "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
-                      value: @server.deleted_vhosts_messages_acknowledged_total +
+                      value: deleted_stats.ack +
                              message_stats.sum { |ms| ms[:ack] },
                       type: "counter",
                       help: "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: @server.deleted_vhosts_messages_confirmed_total +
+                      value: deleted_stats.confirm +
                              message_stats.sum { |ms| ms[:confirm] },
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
+        writer.write({name:  "global_messages_unroutable_returned_total",
+                      value: deleted_stats.return_unroutable +
+                             message_stats.sum { |ms| ms[:return_unroutable] },
+                      type: "counter",
+                      help: "Total number of unroutable messages returned to publishers"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
@@ -439,6 +453,16 @@ module LavinMQ
                         value:  f.lag_in_bytes,
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
+          writer.write({name:   "follower_bytes_sent_total",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.sent_bytes,
+                        type:   "counter",
+                        help:   "Bytes streamed to the follower over its current connection, counted from when it starts streaming; resets on reconnect"})
+          writer.write({name:   "follower_bytes_acked_total",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.acked_bytes,
+                        type:   "counter",
+                        help:   "Bytes the follower acknowledged over its current connection, counted from when it starts streaming; resets on reconnect"})
         end
         writer.write({name:  "mfile_count",
                       value: MFile.mmap_count,
@@ -450,8 +474,9 @@ module LavinMQ
                         :queue_declared, :queue_deleted, :consumer_added, :consumer_removed}
 
       private def vhost_stats(vhosts)
+        deleted_stats = @server.vhosts.deleted_stats
         {% for sm in SERVER_METRICS %}
-          {{ sm.id }} = 0_u64
+          {{ sm.id }} = deleted_stats.{{ sm.id }}
         {% end %}
         vhosts.each do |vhost|
           stats_details = vhost.stats_details
@@ -551,6 +576,24 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_messages_delivered_total", "counter",
+          "Total number of messages delivered to consumers or fetched via basic.get for this queue")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_delivered_total", q.deliver_get_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_messages_acked_total", "counter",
+          "Total number of messages acknowledged for this queue")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_acked_total", q.ack_count, labels)
           end
         end
       end

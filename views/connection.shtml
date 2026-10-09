@@ -92,6 +92,7 @@
                 <th data-sort-key="consumer_count">Consumers<span></span></th>
                 <th data-sort-key="prefetch_count">Prefetch limit<span></span></th>
                 <th data-sort-key="messages_unacknowledged">Messages Unacknowledged<span></span></th>
+                <th></th>
               </tr>
             </thead>
             <tbody></tbody>

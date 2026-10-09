@@ -1,5 +1,6 @@
 require "../stats"
 require "./client"
+require "./reply_text"
 require "./consumer"
 require "./stream/stream_consumer"
 require "../error"
@@ -10,14 +11,16 @@ require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
+require "../persister"
 
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
 
-      getter id, name
+      getter id, name, client
       property? running = true
       getter? flow = true
       @consumers = Array(AMQP::Consumer).new
@@ -282,6 +285,7 @@ module LavinMQ
           return
         end
 
+        msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
@@ -289,7 +293,7 @@ module LavinMQ
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           code = ChannelReplyCode::PRECONDITION_FAILED
-          send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
+          send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, e.message), 60_u16, 40_u16)
           Exchange::PublishResult::None
         end
       end
@@ -381,6 +385,7 @@ module LavinMQ
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count.add(1, :relaxed)
+        @client.vhost.event_tick(EventType::ClientReturnUnroutable)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
@@ -437,7 +442,11 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
             return
           end
-          if q.has_exclusive_consumer?
+          if q.internal?
+            @client.send_internal_queue_refused(frame, frame.queue)
+            return
+          end
+          if q.in_exclusive_use?(frame.exclusive)
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
@@ -461,6 +470,8 @@ module LavinMQ
         if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
+          elsif q.internal?
+            @client.send_internal_queue_refused(frame, frame.queue)
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           elsif q.is_a? Stream
@@ -740,6 +751,16 @@ module LavinMQ
         true
       end
 
+      # Closes the channel from the server side, e.g. from the management API.
+      # The client is told why with a Channel::Close frame. Consumers, unacked
+      # messages and buffers are released right away, so a client that never
+      # replies with Channel::CloseOk can't keep any of them alive.
+      def close(reason : String) : Nil
+        code = ChannelReplyCode::PRECONDITION_FAILED
+        send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        @client.close_channel(self)
+      end
+
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
@@ -763,7 +784,7 @@ module LavinMQ
                 unacked_ms = RoughTime.instant - unack.delivered_at
                 if unacked_ms > timeout.milliseconds
                   code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - consumer timeout", 60_u16, 20_u16)
+                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
                   break
                 end
               end

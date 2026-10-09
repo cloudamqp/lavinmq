@@ -87,6 +87,16 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      # 0 is not "unlimited": the capacity gate would never open, so every MQTT
+      # session would accept publishes and deliver none of them.
+      unless @max_inflight_messages.positive?
+        raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
+      end
+      # Without it a client that stops reading would block its writers, and
+      # closing the connection, forever
+      unless @tcp_send_timeout.positive?
+        raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
     end
 
     private def parse_config_from_cli(argv)
@@ -108,15 +118,15 @@ module LavinMQ
     # dropped after the warning. Shared by `parse_cli` and `parse_section`.
     private macro assign_option(var_name, value, transform, deprecation_message)
       {% if deprecation_message %}
-        @io.puts "WARNING: {{deprecation_message.id}}"
+        @io.puts "WARNING: {{ deprecation_message.id }}"
         # Since deprecation_message is set, the variable is deprecated. It may
         # be forwarded to another variable using a setter, but it may also be
         # completley removed, therefore we need to check for a setter.
         {% if @type.has_method?("#{var_name.id}=") %}
-          self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
         {% end %}
       {% else %}
-        self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
       {% end %}
     end
 
@@ -124,8 +134,8 @@ module LavinMQ
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
         {% for ann in ivar.annotations(EnvOpt) %}
           {% env_name, transform = ann.args %}
-          if v = ENV.fetch({{env_name}}, nil)
-            @{{ivar}} = parse_value(v, {{transform || ivar.type}})
+          if v = ENV.fetch({{ env_name }}, nil)
+            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }})
           end
         {% end %}
       {% end %}
@@ -157,8 +167,8 @@ module LavinMQ
           %}
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
-          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}) do |value|
-            assign_option({{ivar.name}}, value, {{value_parser}}, {{cli_opt[:deprecated]}})
+          sections[:{{ section_id }}][:options] << Option.new({{ parser_arg.splat }}) do |value|
+            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }})
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -184,8 +194,8 @@ module LavinMQ
       ini.each do |section, settings|
         case section
         {% for section in INI_SECTIONS %}
-        when {{section}}
-          parse_section({{section}}, settings)
+        when {{ section }}
+          parse_section({{ section }}, settings)
         {% end %}
         when "http"
           @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
@@ -211,37 +221,45 @@ module LavinMQ
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"        then host.tls_cert = v
-        when "tls_key"         then host.tls_key = v
-        when "tls_min_version" then host.tls_min_version = v
-        when "tls_ciphers"     then host.tls_ciphers = v
-        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"     then host.tls_ca_cert = v
-        when "tls_keylog_file" then host.tls_keylog_file = v
+        when "tls_cert"                  then host.tls_cert = v
+        when "tls_key"                   then host.tls_key = v
+        when "tls_min_version"           then host.tls_min_version = v
+        when "tls_ciphers"               then host.tls_ciphers = v
+        when "tls_ciphersuites"          then host.tls_ciphersuites = v
+        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
+        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"               then host.tls_ca_cert = v
+        when "tls_keylog_file"           then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"        then host.amqp_tls_cert = v
-        when "amqp_tls_key"         then host.amqp_tls_key = v
-        when "amqp_tls_min_version" then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"     then host.amqp_tls_ciphers = v
-        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
+        when "amqp_tls_key"                   then host.amqp_tls_key = v
+        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
+        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
+        when "amqp_tls_ciphersuites"          then host.amqp_tls_ciphersuites = v
+        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
+        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"         then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version" then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"     then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
+        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
+        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
+        when "mqtt_tls_ciphersuites"          then host.mqtt_tls_ciphersuites = v
+        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
+        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"        then host.http_tls_cert = v
-        when "http_tls_key"         then host.http_tls_key = v
-        when "http_tls_min_version" then host.http_tls_min_version = v
-        when "http_tls_ciphers"     then host.http_tls_ciphers = v
-        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when "http_tls_cert"                  then host.http_tls_cert = v
+        when "http_tls_key"                   then host.http_tls_key = v
+        when "http_tls_min_version"           then host.http_tls_min_version = v
+        when "http_tls_ciphers"               then host.http_tls_ciphers = v
+        when "http_tls_ciphersuites"          then host.http_tls_ciphersuites = v
+        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
+        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
         else
           @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
@@ -278,26 +296,26 @@ module LavinMQ
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
-          when "{{var[:ini_name]}}"
-            assign_option({{var[:var_name]}}, v, {{var[:transform]}}, {{var[:deprecated]}})
+          when "{{ var[:ini_name] }}"
+            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }})
         {% end %}
      else
-       @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
+       @io.puts "WARNING: Unknown setting '#{name}' in section [{{ section.id }}]"
       end
     rescue ex
-      raise Error.new("Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}")
+      raise Error.new("Failed to handle value for '#{name}' in [{{ section.id }}]: #{ex.message}")
     end
   {% end %}
     end
 
     {% for int in [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64] %}
-      private def parse_value(value, type : {{int}}.class)
-        {{int}}.new(value)
+      private def parse_value(value, type : {{ int }}.class)
+        {{ int }}.new(value)
       end
 
-      private def parse_value(value, type : {{int}}?.class)
+      private def parse_value(value, type : {{ int }}?.class)
         if v = value
-          {{int}}.new(v)
+          {{ int }}.new(v)
         end
       end
     {% end %}
@@ -307,7 +325,7 @@ module LavinMQ
     end
 
     private def parse_value(value, type : Bool.class)
-      true?(value.downcase)
+      true?(value)
     end
 
     private def parse_value(value, type : Proc)
@@ -368,7 +386,7 @@ module LavinMQ
     # variable and is untouched, keeping `Config.instance` references valid.
     protected def apply(other : self)
       {% for ivar in @type.instance_vars %}
-        @{{ivar.id}} = other.@{{ivar.id}}
+        @{{ ivar.id }} = other.@{{ ivar.id }}
       {% end %}
     end
 
@@ -432,12 +450,14 @@ module LavinMQ
       end
     end
 
+    # Folded here, not at the call sites: the [sni:] branch passes raw ini
+    # values, so a capitalised TRUE read as false there but true in [main].
     private def false?(str : String?)
-      {"0", "false", "no", "off", "n"}.includes? str
+      {"0", "false", "no", "off", "n"}.includes? str.try &.downcase
     end
 
     private def true?(str : String?)
-      {"1", "true", "yes", "on", "y"}.includes? str
+      {"1", "true", "yes", "on", "y"}.includes? str.try &.downcase
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.
@@ -453,7 +473,7 @@ module LavinMQ
       end
 
       def <=>(other : Option)
-        self.compare_value <=> other.compare_value
+        compare_value <=> other.compare_value
       end
 
       # Sort options alphabetically by short flag. Options without short flags

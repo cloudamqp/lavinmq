@@ -1,3 +1,4 @@
+require "./filesystem"
 require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
@@ -45,7 +46,7 @@ module LavinMQ
       @blocks_out = rusage.blocks_out.to_i64
 
       @data_dir = @config.data_dir
-      Dir.mkdir_p @data_dir
+      FileSystem.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
@@ -298,12 +299,6 @@ module LavinMQ
     getter stats_rates_collection_duration_seconds = Time::Span.new
     getter stats_system_collection_duration_seconds = Time::Span.new
     getter gc_stats = GC.prof_stats
-
-    # Message stats for deleted vhosts, required to keep accurate global counters
-    property deleted_vhosts_messages_delivered_total = 0_u64
-    property deleted_vhosts_messages_redelivered_total = 0_u64
-    property deleted_vhosts_messages_acknowledged_total = 0_u64
-    property deleted_vhosts_messages_confirmed_total = 0_u64
 
     private def control_flow!
       if disk_full?

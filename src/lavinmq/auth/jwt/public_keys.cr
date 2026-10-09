@@ -19,8 +19,8 @@ module LavinMQ
 
         def get? : Hash(String, String)?
           @mutex.synchronize do
-            return nil if @keys.nil?
-            return nil if expired?
+            return if @keys.nil?
+            return if expired?
             @keys
           end
         end

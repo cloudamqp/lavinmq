@@ -154,6 +154,46 @@ def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
 
+def amqp_tls_port(s)
+  tls_listeners = s.amqp_server.@tls_contexts.keys.compact_map(&.as?(TCPServer))
+  tls_listeners.first.local_address.port
+end
+
+def with_raw_amqp_connection(s, &)
+  io = TCPSocket.new("localhost", amqp_port(s))
+  io.read_timeout = 5.seconds
+
+  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+  io.flush
+  stream = AMQ::Protocol::Stream.new(io)
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+  response = "\u0000guest\u0000guest"
+  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+    AMQ::Protocol::Table.new, "PLAIN", response, ""),
+    IO::ByteFormat::NetworkEndian)
+  io.flush
+  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
+  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+    IO::ByteFormat::NetworkEndian
+  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+  io.flush
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
+
+  yield io, stream
+ensure
+  io.try &.close
+end
+
+# Enables the PROXY protocol with the default user limited to loopback. The config is reset after each example.
+def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
+  config = LavinMQ::Config.instance
+  config.default_user_only_loopback = true
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = trusted_sources
+  yield
+end
+
 # Poll interval for the wait_for/should_eventually loops below. We sleep
 # (rather than busy-spinning with Fiber.yield) so the polling fiber blocks on
 # an event-loop timer instead of re-enqueueing itself every round. A tight
@@ -201,6 +241,7 @@ end
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
@@ -214,6 +255,12 @@ def with_amqp_server(tls = false, replicator = nil,
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
+    end
+    if extra_tls_listener
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      amqp_server.bind_tls("localhost", 0, ctx)
     end
     spawn(name: "amqp listener") { amqp_server.listen }
     Fiber.yield
@@ -241,11 +288,91 @@ def with_amqp_server(tls = false, replicator = nil,
   end
 end
 
+# Every method a Clustering::Replicator must answer, doing nothing. Specs that
+# need one behaviour subclass this and override that single method.
+class NoOpReplicator
+  include LavinMQ::Clustering::Replicator
+
+  def register_file(path : String)
+  end
+
+  def register_file(file : File)
+  end
+
+  def register_file(mfile : MFile)
+  end
+
+  def replace_file(path : String)
+  end
+
+  def replace_file(mfile : MFile)
+  end
+
+  def append(path : String, pos : Int, length : Int)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+  end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
+  end
+
+  def delete_file(path : String)
+  end
+
+  def delete_dir(path : String)
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
+  end
+
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
+  end
+
+  def close
+  end
+
+  def listen(server : TCPServer)
+  end
+
+  def clear
+  end
+
+  def password : String
+    ""
+  end
+end
+
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     replicator = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, &)
-  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
+  with_amqp_server(replicator: replicator, authenticator: authenticator,
+    extra_tls_listener: extra_tls_listener, file: file, line: line) do |s|
     h = s.http_server
-    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
     spawn(name: "http listen") { h.listen }
     Fiber.yield
     yield({HTTPSpecHelper.new(addr), s})
@@ -256,7 +383,7 @@ end
 def serve_metrics(amqp_server, &)
   h = LavinMQ::HTTP::MetricsServer.new(amqp_server)
   begin
-    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
     spawn(name: "metrics listen") { h.listen }
     Fiber.yield
     yield HTTPSpecHelper.new(addr)
@@ -277,6 +404,18 @@ def with_follower_metrics_server(&)
   # Passing nil for amqp_server wires up FollowerPrometheusController — the same path a real follower takes.
   serve_metrics(nil) do |http|
     yield http
+  end
+end
+
+def serve_follower_metrics(clustering_client, &)
+  h = LavinMQ::HTTP::MetricsServer.new(clustering_client: clustering_client)
+  begin
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    spawn(name: "follower metrics listen") { h.listen }
+    Fiber.yield
+    yield HTTPSpecHelper.new(addr)
+  ensure
+    h.close
   end
 end
 
@@ -353,13 +492,11 @@ Spec.around_each do |example|
   done = Channel(Exception?).new
 
   spawn(name: "Spec: #{example.example.description}") do
-    begin
-      example.run
-    rescue e
-      done.send(e)
-    else
-      done.send(nil)
-    end
+    example.run
+  rescue e
+    done.send(e)
+  else
+    done.send(nil)
   end
 
   timeout = SPEC_TIMEOUT
@@ -397,4 +534,18 @@ Spec.around_each do |example|
   ensure
     FileUtils.rm_rf data_dir
   end
+end
+
+# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
+# mapping of the file at `path`
+def vm_flags(path : String) : Array(String)
+  in_mapping = false
+  File.each_line("/proc/self/smaps") do |line|
+    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
+      in_mapping = line.ends_with?(" #{path}")
+    elsif in_mapping && line.starts_with?("VmFlags:")
+      return line.split[1..]
+    end
+  end
+  fail "#{path} isn't mapped"
 end

@@ -31,11 +31,13 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
-            arr = e.bindings_details.select { |db| db.destination == q }
+            # `e` is the virtual exchange type, so `bindings_details` may be either an
+            # AMQP or MQTT array; collect into one array so the default binding can be prepended.
+            arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
+            e.bindings_details.each { |db| arr << db if db.destination == q }
             if e.name.empty?
-              binding_key = BindingKey.new(q.name)
-              default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
-              arr.unshift(default_binding)
+              binding_key = AMQP::BindingKey.new(q.name)
+              arr.unshift(AMQP::BindingDetails.new("", q.vhost.name, binding_key, q))
             end
             page(context, arr)
           end
@@ -53,6 +55,8 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
+            elsif q.internal?
+              access_refused(context, "Queue '#{q.name}' is an internal queue")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -62,7 +66,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            props = BindingKey.new(routing_key, arguments).properties_key
+            props = AMQP::BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             Log.debug do
@@ -146,7 +150,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            props = BindingKey.new(routing_key, arguments).properties_key
+            props = AMQP::BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end

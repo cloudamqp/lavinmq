@@ -22,9 +22,11 @@ module LavinMQ
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
+        states = extract_state_filter(context)
         total_count = items.size
         all_items = items.compact_map do |i|
           next unless i.search_match?(search_term) if search_term
+          next unless i.state_match?(states) if states
           i.details_tuple
         rescue ex
           Log.warn(exception: ex) { "Could not list all items" }
@@ -81,6 +83,8 @@ module LavinMQ
           sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
         when String
           sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
+        when Bool
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Bool) ? 1 : 0 }
         when QueueState
           sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
         when Nil
@@ -143,6 +147,13 @@ module LavinMQ
         end
       end
 
+      private def extract_state_filter(context) : Array(QueueState)?
+        return unless param = context.request.query_params["state"]?
+        param.split(',').map do |s|
+          QueueState.parse?(s) || bad_request(context, "Invalid queue state '#{s}'")
+        end
+      end
+
       private def redirect_back(context)
         context.response.headers["Location"] = context.request.headers["Referer"]
         halt(context, 302)
@@ -167,7 +178,7 @@ module LavinMQ
         else
           bad_request(context, "Request body required")
         end
-      rescue e : JSON::ParseException
+      rescue JSON::ParseException
         bad_request(context, "Malformed JSON")
       end
 
@@ -202,9 +213,12 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, *, vhost_key = "vhost", &)
-        if (name = params[vhost_key]?) && (vhost = @server.vhosts[name]?)
+        name = params[vhost_key]?
+        if name && (vhost = @server.vhosts[name]?)
           refuse_unless_vhost_access(context, user(context), vhost)
           yield vhost
+        elsif user(context).tags.any? &.administrator?
+          not_found(context, "Vhost #{name} does not exist")
         else
           access_refused(context)
         end

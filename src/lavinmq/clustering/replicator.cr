@@ -16,6 +16,7 @@ module LavinMQ
       abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
       abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
       abstract def delete_file(path : String)
+      abstract def delete_dir(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       # ISR bookkeeping for the publish-confirm path: a confirm may only be
@@ -29,6 +30,11 @@ module LavinMQ
       # acknowledged to a client (publish confirms via the Persister,
       # definition changes via the DefinitionsStore).
       abstract def wait_for_followers : Nil
+      # Ask every in-sync follower to fsync these (absolute) paths, or to sync
+      # its whole data dir, before acking past what has been replicated so far.
+      # Callers then wait_for_followers.
+      abstract def request_fsync(paths : Enumerable(String)) : Nil
+      abstract def request_syncfs : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
       abstract def listen(server : TCPServer)

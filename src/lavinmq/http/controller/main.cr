@@ -7,7 +7,7 @@ module LavinMQ
     class MainController < Controller
       include StatsHelpers
 
-      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
+      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject", "return_unroutable"}
       EXCHANGE_TYPES = {
         {name: "direct", human: "Direct"},
         {name: "fanout", human: "Fanout"},
@@ -41,6 +41,16 @@ module LavinMQ
           {{ name.id }} = 0_u64
           {{ name.id }}_rate = 0_f64
           {% end %}
+
+          unless x_vhost
+            deleted_stats = @server.vhosts.deleted_stats
+            {% for name in OVERVIEW_STATS %}
+            {{ name.id }}_count += deleted_stats.{{ name.id }}
+            {% end %}
+            {% for name in CHURN_STATS %}
+            {{ name.id }} += deleted_stats.{{ name.id }}
+            {% end %}
+          end
 
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
@@ -146,9 +156,10 @@ module LavinMQ
               4_u64,
               IO::Memory.new("test"))
             routed = vhost.publish(msg).routed?
-            env = nil
-            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = routed && env && String.new(env.message.body) == "test"
+            # Compare inside the block, the segment can be deleted once it returns
+            body_ok = false
+            vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
+            ok = routed && body_ok
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end

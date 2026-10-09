@@ -37,7 +37,7 @@ module LavinMQ
         if auth = context.request.headers["Authorization"]?
           if auth.starts_with? "Basic "
             base64 = auth[6..]
-            return decode(base64)
+            decode(base64)
           end
         end
       end
@@ -49,7 +49,7 @@ module LavinMQ
           return if m.value.starts_with?("|oauth:")
           if idx = m.value.rindex(':')
             auth = URI.decode(m.value[idx + 1..])
-            return decode(auth)
+            decode(auth)
           end
         end
       end

@@ -1,6 +1,7 @@
 require "../version"
 require "../logger"
 require "./client"
+require "./reply_text"
 require "../auth/user_store"
 require "../vhost_store"
 require "../client/connection_factory"
@@ -22,11 +23,11 @@ module LavinMQ
         if confirm_header(socket, logger)
           stream = AMQ::Protocol::Stream.new(socket)
           if start_ok = start(stream, logger)
-            if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
+            if user = authenticate(stream, connection_info, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
-                  return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
+                  LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
               end
             end
@@ -109,12 +110,12 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, start_ok, log)
+      def authenticate(socket, connection_info : ConnectionInfo, start_ok, log)
         username, password = credentials(start_ok)
         context = Auth::Context.new(
           username,
           password.to_slice,
-          loopback: remote_address.loopback?
+          loopback: connection_info.loopback?
         )
         user = @authenticator.authenticate(context)
         return user if user
@@ -169,7 +170,7 @@ module LavinMQ
         vhost_name = open.vhost.empty? ? "/" : open.vhost
         if vhost = @vhosts[vhost_name]?
           if user.find_permission(vhost_name)
-            if vhost.max_connections.try { |max| vhost.connections_size >= max }
+            if vhost.connection_limit_reached?
               log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
               reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
@@ -190,7 +191,7 @@ module LavinMQ
       end
 
       private def close_connection(socket, code : ConnectionReplyCode, text, frame)
-        text = "#{code} - #{text}"
+        text = ReplyText.build(code, text)
         socket.write_bytes(
           AMQP::Frame::Connection::Close.new(
             code.value,

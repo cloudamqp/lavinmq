@@ -59,7 +59,6 @@ module LavinMQ::AMQP
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
 
-        # ameba:disable Metrics/CyclomaticComplexity
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           return routed.call unless dlx = (msg.dlx || dlx())
@@ -70,13 +69,14 @@ module LavinMQ::AMQP
           props = create_message_properties(msg, reason)
           routing_headers = props.headers
 
-          # If a dead lettering key exists, no routing to CC/BCC should be done
-          # but the header should be maintained, so we must clone and remove them
-          # for routing
-          if dlrk && (rk = routing_headers.try &.clone)
-            rk.delete("CC")
-            rk.delete("BCC")
-            routing_headers = rk
+          # If a dead lettering key exists, CC/BCC must be stripped from the
+          # message entirely — the new routing key supersedes them.
+          if dlrk
+            props.headers.try do |h|
+              h.delete("CC")
+              h.delete("BCC")
+            end
+            routing_headers = props.headers
           end
           routing_rk = (dlrk || msg.routing_key).to_s
 
@@ -197,3 +197,6 @@ module LavinMQ::AMQP
     end
   end
 end
+
+# Required after the module: Queue includes DeadLettering, so a top require would break the include.
+require "../queue/queue"

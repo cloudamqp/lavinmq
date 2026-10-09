@@ -47,6 +47,8 @@ LavinMQ creates a default user on first start with the `administrator` tag.
 | `default_password_hash` | `[main]` | (hash of `guest`) | Hashed password for the default user. Expects a hash value, not plaintext. |
 | `default_user_only_loopback` | `[main]` | `true` | If true, the default user can only connect from loopback (127.0.0.1, ::1) |
 
+The check uses the real socket address. A connection with a PROXY protocol header never counts as loopback, so the default user cannot log in through a proxy or through a cluster follower. See the Proxy Protocol section in [connections](connections.md#proxy-protocol).
+
 ## OAuth2 / OIDC Authentication
 
 JWT-based authentication using an external identity provider.
@@ -167,12 +169,12 @@ A token with these filtered scopes:
 
 ```
 tag:management
-read:%2F/.*
-write:%2F/orders
-configure:staging/temp.*
+read:%2F/*
+write:%2F/orders*
+configure:staging/temp*
 ```
 
-Grants the user the `management` tag, full read access on the `/` vhost, write access only to resources starting with `orders` on `/`, and configure access to resources matching `temp*` on the `staging` vhost.
+Grants the user the `management` tag, full read access on the `/` vhost, write access only to resources starting with `orders` on `/`, and configure access to resources starting with `temp` on the `staging` vhost.
 
 ### Token Refresh
 

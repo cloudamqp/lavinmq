@@ -192,6 +192,7 @@ module LavinMQ
     private def accept_unix(client)
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
+        set_write_timeout(client)
         set_buffer_size(client)
         if conn_info = ProxyProtocol.parse(client)
           # PROXY protocol over unix socket
@@ -212,8 +213,11 @@ module LavinMQ
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, client.local_address, remote_addr)
+      rescue ex : OpenSSL::SSL::Error
+        Log.warn { "Error accepting TLS connection from #{remote_addr}: #{ex.message}" }
+        client.close rescue nil
       rescue ex
-        Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+        Log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
     end
@@ -264,6 +268,13 @@ module LavinMQ
       socket.tcp_nodelay = true if @config.tcp_nodelay?
       @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
+      set_write_timeout(socket)
+    end
+
+    # Writes, and closing the connection, wait for the client's write lock,
+    # so a client that stops reading mustn't block a write forever
+    private def set_write_timeout(socket)
+      socket.write_timeout = @config.tcp_send_timeout.seconds
     end
 
     private def set_buffer_size(socket)

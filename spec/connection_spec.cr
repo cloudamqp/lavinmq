@@ -57,30 +57,29 @@ class AMQP::Client::UnsafeClient < AMQP::Client
   end
 end
 
-def with_raw_amqp_connection(s, &)
-  io = TCPSocket.new("localhost", amqp_port(s))
-  io.read_timeout = 5.seconds
-
-  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
-  io.flush
-  stream = AMQ::Protocol::Stream.new(io)
-  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
-  response = "\u0000guest\u0000guest"
-  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
-    AMQ::Protocol::Table.new, "PLAIN", response, ""),
-    IO::ByteFormat::NetworkEndian)
-  io.flush
-  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
-  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
-    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
-    IO::ByteFormat::NetworkEndian
-  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
-  io.flush
-  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
-
-  yield io, stream
-ensure
-  io.try &.close
+# Opens a raw AMQP connection that consumes from *queue* but never reads,
+# and publishes until the server's write to it blocks
+def with_stuck_consumer(s, queue, body_size = 64 * 1024, count = 200, &)
+  with_raw_amqp_connection(s) do |io, stream|
+    io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+    io.flush
+    stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+    with_channel(s) do |ch|
+      q = ch.queue(queue)
+      io.write_bytes AMQ::Protocol::Frame::Basic::Consume.new(1_u16, 0_u16, queue, "", false, true, false, false,
+        AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+      io.flush
+      stream.next_frame.as(AMQ::Protocol::Frame::Basic::ConsumeOk)
+      client = s.connections.find! do |c|
+        c.as(LavinMQ::AMQP::Client).connection_info.remote_address.port == io.local_address.port
+      end.as(LavinMQ::AMQP::Client)
+      body = Bytes.new(body_size)
+      # more than the socket buffers can hold, so delivery to the client blocks
+      count.times { q.publish body }
+      wait_for { s.vhosts["/"].queue(queue).message_count > 0 }
+      yield client, io, stream
+    end
+  end
 end
 
 describe LavinMQ::Server do
@@ -103,6 +102,41 @@ describe LavinMQ::Server do
           stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
 
           io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
+    it "discards a method frame pipelined after a server-initiated channel close" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # A passive declare of a missing queue makes the server close the channel.
+          # The client cannot know that yet, so it pipelines another method frame on
+          # the same channel. The server must discard it and keep the connection.
+          io.write_bytes AMQ::Protocol::Frame::Queue::Declare.new(1_u16, 0_u16, "no-such-queue",
+            true, false, false, false, false, AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Basic::Qos.new(1_u16, 0_u32, 1_u16, false),
+            IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Channel::Close)
+          close.reply_code.should eq 404
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # The id is free again once the client has replied CloseOk.
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
           io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
             IO::ByteFormat::NetworkEndian
           io.flush
@@ -328,6 +362,86 @@ describe LavinMQ::Server do
           conn.unsafe_write AMQ::Protocol::Frame::Header.new(ch.id, 60_u16, 0_u16, bytes.to_u64, AMQ::Protocol::Properties.new)
           conn.unsafe_write AMQ::Protocol::Frame::BytesBody.new(ch.id, bytes, Slice.new(bytes.to_i32, 0_u8))
           conn.channel # We need to do something blocking on the channel to trigger the error
+        end
+      end
+    end
+  end
+
+  describe "tcp_send_timeout" do
+    it "disconnects a consumer that doesn't read" do
+      LavinMQ::Config.instance.tcp_send_timeout = 1
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout") do |client|
+          wait_for(10.seconds) { client.closed? }
+        end
+      end
+    end
+
+    it "doesn't resend buffered data when disconnecting a consumer that doesn't read" do
+      LavinMQ::Config.instance.tcp_send_timeout = 1
+      with_amqp_server do |s|
+        # small messages go through the socket's write buffer
+        with_stuck_consumer(s, "tcp_send_timeout_resend", body_size: 100, count: 100_000) do |client, io, stream|
+          sleep 1.5.seconds # the first write has timed out, the connection is closing
+          io.read_timeout = 10.seconds
+          frames = 0
+          loop do
+            stream.next_frame # raises on a duplicated, so misaligned, frame
+            frames += 1
+          rescue IO::EOFError
+            break
+          end
+          frames.should be > 0
+          client.closed?.should be_true
+        end
+      end
+    end
+
+    it "can force close a connection while a delivery to it is blocked" do
+      LavinMQ::Config.instance.tcp_send_timeout = 2
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_force_close") do |client|
+          closed = Channel(Nil).new
+          spawn do
+            client.force_close
+            closed.send nil
+          end
+          select
+          when closed.receive
+          when timeout(10.seconds)
+            fail "force_close didn't complete"
+          end
+          client.closed?.should be_true
+        end
+      end
+    end
+
+    it "can force close a connection while a large message is delivered to a slow reader" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_slow_reader", body_size: 32 * 1024 * 1024, count: 2) do |client, io|
+          # reads too slowly for the delivery to finish, but fast enough for
+          # the write not to time out
+          spawn do
+            buf = Bytes.new(1024)
+            loop do
+              break if io.read(buf).zero?
+              sleep 10.milliseconds
+            end
+          rescue IO::Error
+          end
+          sleep 0.5.seconds # the delivery is in progress, holding the write lock
+          closed = Channel(Nil).new
+          spawn do
+            client.force_close
+            closed.send nil
+          end
+          select
+          when closed.receive
+          when timeout(5.seconds)
+            fail "force_close didn't complete"
+          end
+          client.closed?.should be_true
         end
       end
     end

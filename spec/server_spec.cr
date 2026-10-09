@@ -103,7 +103,7 @@ describe LavinMQ::Server do
         m1 = q.get(no_ack: false)
         m1.try(&.reject)
         m1 = q.get(no_ack: false)
-        m1.should eq(nil)
+        m1.should be_nil
       end
     end
   end
@@ -255,8 +255,8 @@ describe LavinMQ::Server do
   it "can handle messages going to no queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.basic_publish_confirm("m1", "amq.direct", "none").should eq true
-        ch.basic_publish_confirm("m2", "amq.direct", "none").should eq true
+        ch.basic_publish_confirm("m1", "amq.direct", "none").should be_true
+        ch.basic_publish_confirm("m2", "amq.direct", "none").should be_true
       end
     end
   end
@@ -277,9 +277,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end
@@ -493,7 +493,7 @@ describe LavinMQ::Server do
         tag = q.subscribe { |msg| msgs << msg }
         q.unsubscribe(tag)
         sleep 10.milliseconds
-        ch.has_subscriber?(tag).should eq false
+        ch.has_subscriber?(tag).should be_false
       end
     end
   end
@@ -766,6 +766,27 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue("exlusive_consumer", auto_delete: true)
         q.subscribe { }
+      end
+    end
+  end
+
+  it "refuses an exclusive consumer when the queue already has consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("exclusive_consumer_after_shared", auto_delete: true)
+        q.subscribe { }
+
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+          with_channel(s) do |ch2|
+            q2 = ch2.queue("exclusive_consumer_after_shared", passive: true)
+            q2.subscribe(exclusive: true) { }
+          end
+        end
+
+        # The refused exclusive consumer must not lock out further consumers
+        with_channel(s) do |ch3|
+          ch3.queue("exclusive_consumer_after_shared", passive: true).subscribe { }
+        end
       end
     end
   end

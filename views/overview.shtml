@@ -13,51 +13,57 @@
       </div>
       <div id="overview" class="card overview-card">
         <div>
+          <div class="counter-header">Connections</div>
           <div class="counter" id="connections">0</div>
-          <div class="counter-header"><a href="connections">Connections</a></div>
+          <div class="overview-col-footer"><a href="connections">View connections →</a></div>
         </div>
-        <div class="overview-divider"></div>
         <div>
+          <div class="counter-header">Channels</div>
           <div class="counter" id="channels">0</div>
-          <div class="counter-header"><a href="channels">Channels</a></div>
+          <div class="overview-col-footer"><a href="channels">View channels →</a></div>
         </div>
-        <div class="overview-divider"></div>
         <div>
+          <div class="counter-header">Consumers</div>
           <div class="counter" id="consumers">0</div>
-          <div class="counter-header"><a href="consumers">Consumers</a></div>
+          <div class="overview-col-footer"><a href="consumers">View consumers →</a></div>
         </div>
-        <div class="overview-divider"></div>
         <div>
+          <div class="counter-header">Exchanges</div>
           <div class="counter" id="exchanges">0</div>
-          <div class="counter-header"><a href="exchanges">Exchanges</a></div>
+          <div class="overview-col-footer"><a href="exchanges">View exchanges →</a></div>
         </div>
-        <div class="overview-divider"></div>
         <div>
+          <div class="counter-header">Queues</div>
           <div class="counter" id="queues">0</div>
-          <div class="counter-header"><a href="queues">Queues</a></div>
+          <div class="overview-col-footer"><a href="queues">View queues →</a></div>
         </div>
-        <div class="overview-divider"></div>
         <div>
-          <div class="counter" id="bindings">0</div>
           <div class="counter-header">Bindings</div>
+          <div class="counter" id="bindings">0</div>
+          <div class="overview-col-footer"></div>
         </div>
-        <div class="overview-divider"></div>
         <div class="flex-1">
           <div class="counter" id="uptime">0s</div>
-          <div class="counter-header">Uptime</div>
+          <div class="overview-col-footer uptime-footer">Uptime</div>
         </div>
       </div>
-      <section class="card cols-4 cols-6-md">
-        <h3>Queued messages</h3>
-        <div class="chart-container relative" id="msgChart"></div>
+      <section class="card tb-card cols-4 cols-6-md">
+        <h3 class="form-card-title">Queued messages</h3>
+        <div class="form-card-inner">
+          <div class="chart-container relative" id="msgChart"></div>
+        </div>
       </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Data rates</h3>
-        <div class="chart-container relative" id="dataChart"></div>
+      <section class="card tb-card cols-4 cols-6-md">
+        <h3 class="form-card-title">Data rates</h3>
+        <div class="form-card-inner">
+          <div class="chart-container relative" id="dataChart"></div>
+        </div>
       </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Message rates</h3>
-        <div class="chart-container relative" id="rateChart"></div>
+      <section class="card tb-card cols-4 cols-6-md">
+        <h3 class="form-card-title">Message rates</h3>
+        <div class="form-card-inner">
+          <div class="chart-container relative" id="rateChart"></div>
+        </div>
       </section>
       <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card align-start tb-card cols-6 require-administrator">
         <h3 class="form-card-title">Upload definitions</h3>

@@ -1,9 +1,11 @@
 require "./logger"
+require "./filesystem"
 require "./schema"
 require "./event_type"
 require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
+require "./mqtt/exchange"
 
 module LavinMQ
   class DefinitionsStore
@@ -11,10 +13,18 @@ module LavinMQ
 
     @definitions_file : File
 
+    # The vhost's MQTT exchange. Created with the store rather than declared, so
+    # that it's always there when frames are applied — bindings with it as
+    # source would be dropped otherwise. It isn't durable, which is what keeps
+    # it out of the definitions file.
+    getter mqtt_exchange : MQTT::Exchange
+
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, AMQP::Queue).new
       @sessions = Hash(String, MQTT::Session).new
+      @mqtt_exchange = MQTT::Exchange.new(@vhost, MQTT::EXCHANGE)
+      @exchanges[MQTT::EXCHANGE] = @mqtt_exchange
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       # Unbuffered (sync) writes: replication offsets (store_definition) and a
@@ -23,7 +33,9 @@ module LavinMQ
       # fds, so a frame must never sit in a user-space write buffer where they
       # can't see it — a follower joining in that window would be marked
       # synced while permanently missing the frame.
+      created = !File.exists?(@definitions_file_path)
       @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
+      FileSystem.fsync_dir(@data_dir) if created
       @replicator.try &.register_file(@definitions_file)
       @definitions_deletes = 0
     end
@@ -35,7 +47,10 @@ module LavinMQ
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
-        @replicator.try &.wait_for_followers
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
       end
     end
 
@@ -216,20 +231,27 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f, fsync: fsync) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
         end
         true
       end
     end
 
-    def queue_bindings(queue : Queue) : Array(BindingDetails)
-      default_binding = BindingDetails.new("", @vhost.name, BindingKey.new(queue.name), queue)
+    # Bindings are stored so they can be restored on boot. The MQTT exchange is
+    # not durable — it's created with the store, never declared — but bindings
+    # from durable sessions to it must survive a restart.
+    private def persist_binding?(x : Exchange, q : Queue) : Bool
+      q.durable? && !q.exclusive? && (x.durable? || x.same?(@mqtt_exchange))
+    end
+
+    def queue_bindings(queue : Queue)
+      default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end
@@ -292,7 +314,7 @@ module LavinMQ
           else
             raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
           end
-        rescue ex : IO::EOFError
+        rescue IO::EOFError
           break
         end
       end
@@ -337,6 +359,8 @@ module LavinMQ
         # @definitions_file after the rename.
         io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
+        # Durable only, which is what keeps the MQTT exchange out: it's created
+        # with the store, and `make_exchange` can't build its type from a frame.
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable?, e.auto_delete?, e.internal?,
@@ -353,24 +377,30 @@ module LavinMQ
             s.auto_delete?, false, s.arguments)
           io.write_bytes f
         end
-        @exchanges.each_value.select(&.durable?).each do |e|
+        # Not filtered on the source being durable: the bindings written here
+        # are the ones the incremental path in `apply` would have stored, which
+        # includes bindings from durable sessions to the (non-durable) MQTT exchange.
+        @exchanges.each_value do |e|
           e.bindings_details.each do |binding|
             args = binding.arguments || AMQP::Table.new
-            frame = case binding.destination
+            frame = case d = binding.destination
                     when Queue
-                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
+                      if persist_binding?(e, d)
+                        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name,
+                          binding.routing_key, false, args)
+                      end
                     when Exchange
-                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
+                      if e.durable? && d.durable?
+                        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, d.name, e.name,
+                          binding.routing_key, false, args)
+                      end
                     end
             if f = frame
               io.write_bytes f
             end
           end
         end
-        io.fsync
-        File.rename io.path, @definitions_file_path
+        FileSystem.durable_rename(io, @definitions_file_path)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
@@ -396,7 +426,10 @@ module LavinMQ
         # could elect a follower lacking the acknowledged change. A follower
         # that doesn't ack within its deadline is disconnected and its ISR
         # removal committed before this returns.
-        @replicator.try &.wait_for_followers
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
       end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

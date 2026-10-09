@@ -27,6 +27,7 @@ Shovel:
         - Paused
         - Terminated
         - Error
+        - Aborted
       example: "Running"
     error:
       type: string
@@ -38,6 +39,28 @@ Shovel:
       description: Number of messages processed by the shovel
       minimum: 0
       example: 1542
+    confirmed:
+      type: integer
+      description: Deliveries with the Confirmed outcome
+    retried:
+      type: integer
+      description: Deliveries with the Retry outcome
+    rejected:
+      type: integer
+      description: Deliveries with the Reject outcome
+    aborted:
+      type: integer
+      description: Deliveries with the Abort outcome
+    consecutive_failures:
+      type: integer
+      description: Retry rounds in a row, which drive the delivery backoff
+    consecutive_aborts:
+      type: integer
+      description: Abort outcomes in a row
+    abort_threshold:
+      type: integer
+      description: Consecutive Abort outcomes that move the shovel to the Aborted state
+      example: 10
   required:
     - name
     - vhost

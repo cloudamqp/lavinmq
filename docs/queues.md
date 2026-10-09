@@ -94,6 +94,12 @@ A queue can be in one of the following states:
 
 Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
 
+The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
+
 ## Reserved Queue Name Prefixes
 
 Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use. Client queue declarations using these prefixes will be rejected, except for `amq.direct.reply-to.*` queues used for direct reply-to consumers.
+
+## Internal Queues
+
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect, purge and delete them. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.

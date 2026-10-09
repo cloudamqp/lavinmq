@@ -115,6 +115,10 @@
             <input type="text" name="dest-endpoint" list="shovel-dest-list">
             <datalist id="shovel-dest-list"></datalist>
           </label>
+          <label class="http-dest-field hide">
+            <span>Timeout (seconds)</span>
+            <input type="number" name="dest-timeout" min="0.1" step="0.1" placeholder="30">
+          </label>
         </fieldset>
         <label>
           <span>Reconnect delay</span>

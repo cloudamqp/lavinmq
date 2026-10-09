@@ -49,11 +49,8 @@ const prefetchForm = (cb) => {
     event.preventDefault()
     const prefetch = parseInt(input.value)
     HTTP.request('PUT', channelUrl, { body: { prefetch } })
-      .then((r) => {
-        if (!(r && r.is_error)) {
-          cb(prefetch)
-        }
-      })
+      .then(() => cb(prefetch))
+      .catch(() => {})
   })
   form.append(input, save, reset)
   const updateForm = (value) => { input.value = value }
@@ -118,7 +115,16 @@ function updateChannel () {
       chMode.replaceChildren(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
-  })
+  }).catch(() => {})
 }
 updateChannel()
 setInterval(updateChannel, 5000)
+
+document.querySelector('#closeChannel').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const headers = new window.Headers({
+    'X-Reason': document.querySelector('[name=reason]').value
+  })
+  HTTP.request('DELETE', channelUrl, { headers })
+    .then(() => { window.location = 'channels' })
+})

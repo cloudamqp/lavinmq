@@ -131,7 +131,7 @@ module LavinMQ
         rk = TopicBindingKey.new(routing_key.split("."))
         return false unless @bindings[rk].add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        upstreams_bound(data)
         true
       end
 
@@ -144,13 +144,13 @@ module LavinMQ
         @bindings.delete(rk) if bds.empty?
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        upstreams_unbound(data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         bindings = @bindings
 
         return if bindings.empty?

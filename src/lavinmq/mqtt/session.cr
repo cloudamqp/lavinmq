@@ -1,3 +1,4 @@
+require "../filesystem"
 require "digest/sha1"
 require "./protocol"
 require "../mqtt"
@@ -9,6 +10,8 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
+require "./permission_service"
+require "./session_message_store"
 
 module LavinMQ
   module MQTT
@@ -25,16 +28,27 @@ module LavinMQ
 
       getter name : String
       getter vhost : VHost
+      getter? internal = false
       getter? auto_delete
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
       @msg_store_lock = Mutex.new(:reentrant)
-      @msg_store : MessageStore
+      @msg_store : SessionMessageStore
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      @permission_service : PermissionService
+      # Derived from the queue name, so a restored session with no client
+      # attached still knows its client id.
+      @client_id : String
+      # Carries the user of the last attached client. The username is kept in
+      # the .metadata file so a restored session keeps its member rules until a
+      # client reconnects.
+      @permission_context : PermissionService::Context
+      @metadata_file : String
+      @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
 
@@ -43,18 +57,29 @@ module LavinMQ
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
+        @client_id = @name.lchop(SESSION_PREFIX)
+        @permission_service = @vhost.mqtt_permission_service
         @unacked = Hash(UInt16, SegmentPosition).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
+        @log = Logger.new(Log, @metadata)
         data_dir = File.join(
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
-        replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+        FileSystem.mkdir_p(data_dir)
+        @replicator = durable? ? @vhost.@replicator : nil
+        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+        @metadata_file = File.join(data_dir, ".metadata")
+        username = nil
+        if File.exists?(@metadata_file)
+          @replicator.try &.register_file(@metadata_file)
+          username = read_metadata_file
+        else
+          write_metadata_file(nil)
+        end
+        @permission_context = PermissionService::Context.new(username, @client_id)
 
-        @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -95,6 +120,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.delete
         end
+        @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
       end
@@ -126,6 +152,27 @@ module LavinMQ
         end
       end
 
+      # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
+      # unless that id is still in flight - reissuing it would overwrite the
+      # `@unacked` entry holding it - or is `0`, which may not go on the wire
+      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      private def delivery_id(sp : SegmentPosition) : UInt16?
+        if id = @msg_store.packet_id?(sp)
+          return id unless id.zero? || @unacked.has_key?(id)
+        end
+        next_id
+      end
+
+      # `@has_capacity` mirrors "the in-flight window has room". Recomputed from
+      # `@unacked` rather than written as a literal, since it is updated from both
+      # the deliver_loop and the client's fiber and a stale `false` parks the
+      # deliver_loop with no ack left to reopen the gate. `swap` rather than `set`
+      # because this runs per delivery and per ack, and `set` takes both channel
+      # locks even when the value is unchanged.
+      private def refresh_capacity : Nil
+        @has_capacity.swap(@unacked.size < Config.instance.max_inflight_messages)
+      end
+
       def client : MQTT::Client?
         @client
       end
@@ -134,9 +181,13 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
+        # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
+        # persistent one requeues what it owes and remembers the packet ids, to
+        # resend under the ids the client already knows [MQTT-4.4.0-1].
         unless clean_session?
           @msg_store_lock.synchronize do
-            @unacked.values.each do |sp|
+            @unacked.each do |packet_id, sp|
+              @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
           end
@@ -145,10 +196,14 @@ module LavinMQ
         @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
-        @has_capacity.set(true)
+        refresh_capacity
 
         @client = client
         @has_client.set(!client.nil?)
+        if client && (username = client.user.name) != @permission_context.username
+          @permission_context = PermissionService::Context.new(username, @client_id)
+          write_metadata_file(username)
+        end
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
@@ -157,11 +212,32 @@ module LavinMQ
         !clean_session?
       end
 
-      def subscribe(tf, qos)
-        arguments = AMQP::Table.new
-        arguments[QOS_HEADER] = qos
+      # The .metadata file is to a session what .queue is to a queue: it names
+      # the owner of a data directory. It also holds the last attached username.
+      # Anything that is not a JSON object with a string username is treated
+      # as an unknown user; a bad file must never stop the session from loading.
+      private def read_metadata_file : String?
+        JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
+      rescue ex : JSON::ParseException | IO::Error
+        @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
+        nil
+      end
+
+      # Written to a temporary file and renamed into place, so a crash
+      # mid-write leaves the previous file rather than a truncated one.
+      private def write_metadata_file(username : String?) : Nil
+        FileSystem.replace(@metadata_file) do |f|
+          {name: @name, client_id: @client_id, username: username}.to_json(f)
+        end
+        @replicator.try &.replace_file(@metadata_file)
+      end
+
+      # A concurrent API deletion can make the bind fail.
+      # TODO: Check session identity under the definitions lock before binding.
+      def subscribe(tf, qos) : Bool
+        arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
+          return true if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
@@ -173,7 +249,13 @@ module LavinMQ
         end
       end
 
+      # Returns whether the message was accepted, so the exchange only counts
+      # deliveries that happened.
       def publish(msg : Message) : Bool
+        unless @permission_service.can_read?(@permission_context, msg.routing_key)
+          @log.debug { "Message refused: no topic permission rule allows user '#{@permission_context.username}' to read topic '#{msg.routing_key}'" }
+          return false
+        end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
@@ -199,51 +281,60 @@ module LavinMQ
       private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if closed?
         loop do
-          env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-          sp = env.segment_position
-          no_ack = env.message.properties.delivery_mode == 0
-          if no_ack
-            begin
-              packet = build_packet(env, nil)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              raise ex
-            end
-            delete_message(sp)
-          else
-            begin
-              id = next_id
-              unless id
+          # The payload is sent straight from the segment, which a close or
+          # delete of the session can unmap while the send is suspended
+          @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+            sp = env.segment_position
+            no_ack = env.message.properties.delivery_mode == 0
+            if no_ack
+              begin
+                packet = build_packet(env, nil)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_no_ack_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+              rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                return false
+                raise ex
               end
-              packet = build_packet(env, id)
-              @unacked_count.add(1, :relaxed)
-              @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
+              delete_message(sp)
+            else
+              begin
+                id = delivery_id(sp)
+                unless id
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  # Without this the deliver_loop spins: the store is non-empty and
+                  # capacity still reads true. Recomputed rather than closed
+                  # outright, since an ack can free a slot while the requeue above
+                  # waits on a contended @msg_store_lock.
+                  refresh_capacity
+                  return false
+                end
+                packet = build_packet(env, id)
+                @unacked_count.add(1, :relaxed)
+                @unacked_bytesize.add(sp.bytesize, :relaxed)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+                @unacked[id] = sp
+                @msg_store.forget_packet_id(sp)
+                refresh_capacity
+              rescue ex # requeue failed delivery
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                raise ex
               end
-              @unacked[id] = sp
-              @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
-              raise ex
             end
-          end
-          return true
+            return true
+          end || break
         end
         false
       rescue ex : MessageStore::Error
@@ -300,7 +391,7 @@ module LavinMQ
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
           ensure
-            @has_capacity.set(true)
+            refresh_capacity
           end
         else
           raise ::IO::Error.new("No message inflight for id '#{id}'")
@@ -364,6 +455,10 @@ module LavinMQ
 
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
+      end
+
+      def state_match?(states : Array(QueueState)) : Bool
+        states.includes?(state)
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32

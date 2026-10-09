@@ -18,7 +18,7 @@ function update (cb) {
     if (cb) {
       cb(response)
     }
-  })
+  }).catch(() => {})
 }
 
 function render (data) {
@@ -76,17 +76,22 @@ const renderGCStats = (gc) => {
     row.append(th, td)
     table.append(row)
   }
+  DOM.wireTooltipAnchors(table)
 }
 
 const refreshGCStats = () => {
-  return HTTP.request('GET', 'api/nodes/gc_stats').then(renderGCStats)
+  return HTTP.request('GET', 'api/nodes/gc_stats')
+    .then(renderGCStats)
+    .catch(() => {})
 }
 
 const gcRefreshBtn = document.getElementById('gc-refresh-btn')
 if (gcRefreshBtn) {
   gcRefreshBtn.addEventListener('click', () => {
     gcRefreshBtn.disabled = true
-    refreshGCStats().finally(() => { gcRefreshBtn.disabled = false })
+    refreshGCStats()
+      .finally(() => { gcRefreshBtn.disabled = false })
+      .catch(() => {})
   })
 }
 
@@ -100,6 +105,7 @@ if (gcBtn) {
         return refreshGCStats()
       })
       .finally(() => { gcBtn.disabled = false })
+      .catch(() => {})
   })
   // Only admins may read GC stats; the gc-btn element is in the DOM for all
   // users (require-administrator only hides it via CSS), so fetching here
@@ -107,7 +113,7 @@ if (gcBtn) {
   // initial load on the (persisted, synchronously applied) admin role class;
   // afterwards fetch only on demand.
   if (Helpers.stateClasses.has('user-is-administrator')) {
-    refreshGCStats()
+    refreshGCStats().catch(() => {})
   }
 }
 

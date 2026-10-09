@@ -1,10 +1,10 @@
 # Definitions
 
-Definitions are the complete declarative state of a LavinMQ server: vhosts, users, permissions, exchanges, queues, bindings, policies, and parameters.
+Definitions are the complete declarative state of a LavinMQ server: vhosts, users, permissions, MQTT permission groups, exchanges, queues, bindings, policies, and parameters.
 
 ## Export
 
-Export all definitions as JSON:
+Export all definitions as JSON. Exclusive queues and internal queues (e.g. delayed exchange queues, which are recreated by their exchange) are not included:
 
 ```
 # Via API
@@ -37,6 +37,8 @@ lavinmqctl import_definitions definitions.json
 ```
 
 Import is additive: new resources are created and bindings/policies/parameters/users with the same name are replaced. Re-declaring an existing queue or exchange with mismatching properties (durable, auto-delete, arguments) returns a `precondition_failed` error rather than overwriting.
+
+MQTT permission groups are imported additively too. A vhost that the import creates gets no automatic `default` group when the definitions have an `mqtt_permissions` key. See [MQTT topic permissions](mqtt.md#definitions).
 
 ## Load on startup
 

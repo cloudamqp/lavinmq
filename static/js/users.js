@@ -56,6 +56,7 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
       DOM.toast(toastText)
       evt.target.reset()
     })
+    .catch(() => {})
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {

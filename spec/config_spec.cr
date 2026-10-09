@@ -21,7 +21,7 @@ describe LavinMQ::Config do
         data_dir = /tmp/lavinmq-spec
         [mgmt]
         [amqp]
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -41,7 +41,7 @@ describe LavinMQ::Config do
         [main]
         log_level = fatal
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
     config = LavinMQ::Config.new
@@ -57,7 +57,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
     config = LavinMQ::Config.new
@@ -74,7 +74,7 @@ describe LavinMQ::Config do
       File.write(config_file.path, <<-CONFIG
         [main]
         log_level = info
-      CONFIG
+        CONFIG
       )
       config = LavinMQ::Config.new
       argv = ["-c", config_file.path]
@@ -85,7 +85,7 @@ describe LavinMQ::Config do
       File.write(config_file.path, <<-CONFIG
         [main]
         log_level = debug
-      CONFIG
+        CONFIG
       )
       config.reload
       config.log_level.should eq ::Log::Severity::Debug
@@ -97,9 +97,8 @@ describe LavinMQ::Config do
   end
 
   it "Can parse all INI arguments" do
-    begin
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
           [main]
           data_dir = /tmp/lavinmq-test
           log_level = debug
@@ -108,12 +107,14 @@ describe LavinMQ::Config do
           stats_log_size = 240
           set_timestamp = true
           socket_buffer_size = 32768
-          tcp_nodelay = true
+          tcp_nodelay = false
           segment_size = 16777216
           sync = false
+          syncfs_threshold = 8
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
+          tcp_send_timeout = 30
           log_exchange = true
           free_disk_min = 1073741824
           free_disk_warn = 5368709120
@@ -128,6 +129,8 @@ describe LavinMQ::Config do
           data_dir_lock = false
           tls_cert = /etc/lavinmq/cert.pem
           tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
+          tls_ciphersuites = TLS_AES_128_GCM_SHA256
+          tls_prefer_server_ciphers = true
           tls_key = /etc/lavinmq/key.pem
           tls_min_version = 1.3
           tls_keylog_file = /tmp/keylog.txt
@@ -181,93 +184,96 @@ describe LavinMQ::Config do
           on_leader_elected = echo "Leader elected"
           on_leader_lost = echo "Leader lost"
         CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path]
-      config.parse(argv)
-
-      # Main section
-      config.data_dir.should eq "/tmp/lavinmq-test"
-      config.log_level.should eq ::Log::Severity::Debug
-      config.log_file.should eq "/tmp/lavinmq-test.log"
-      config.stats_interval.should eq 10000
-      config.stats_log_size.should eq 240
-      config.set_timestamp?.should be_true
-      config.socket_buffer_size.should eq 32768
-      config.tcp_nodelay?.should be_true
-      config.segment_size.should eq 16777216
-      config.sync?.should be_false
-      config.tcp_keepalive.should eq({120, 20, 5})
-      config.tcp_recv_buffer_size.should eq 65536
-      config.tcp_send_buffer_size.should eq 65536
-      config.log_exchange?.should be_true
-      config.free_disk_min.should eq 1073741824
-      config.free_disk_warn.should eq 5368709120
-      config.max_deleted_definitions.should eq 16384
-      config.consumer_timeout.should eq 3600
-      config.consumer_timeout_loop_interval.should eq 120
-      config.auth_backends.should eq ["ldap", "basic"]
-      config.default_consumer_prefetch.should eq 1000
-      config.default_user.should eq "admin"
-      config.default_user_only_loopback?.should be_false
-      config.data_dir_lock?.should be_false
-      config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
-      config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
-      config.tls_key_path.should eq "/etc/lavinmq/key.pem"
-      config.tls_min_version.should eq "1.3"
-      config.tls_keylog_file.should eq "/tmp/keylog.txt"
-      config.metrics_http_bind.should eq "0.0.0.0"
-      config.metrics_http_port.should eq 9090
-      config.control_unix_path.should eq "/tmp/lavinmqctl-ini.sock"
-
-      # AMQP section
-      config.amqp_bind.should eq "0.0.0.0"
-      config.amqp_port.should eq 5673
-      config.amqps_port.should eq 5674
-      config.unix_path.should eq "/tmp/lavinmq.sock"
-      config.tcp_proxy_protocol?.should be_true
-      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
-      config.heartbeat.should eq 600
-      config.frame_max.should eq 262144
-      config.channel_max.should eq 4096
-      config.max_message_size.should eq 268435456
-      config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
-
-      # MQTT section
-      config.mqtt_bind.should eq "0.0.0.0"
-      config.mqtt_port.should eq 1884
-      config.mqtts_port.should eq 8884
-      config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
-      config.mqtt_permission_check_enabled?.should be_true
-      config.mqtt_max_packet_size.should eq 536870910
-      config.max_inflight_messages.should eq 100
-      config.default_mqtt_vhost.should eq "/mqtt"
-      config.mqtt_client_id_validation.should eq LavinMQ::MQTT::ClientIdValidation::Username
-
-      # MGMT section
-      config.http_bind.should eq "0.0.0.0"
-      config.http_port.should eq 15673
-      config.https_port.should eq 15674
-      config.http_unix_path.should eq "/tmp/mgmt.sock"
-      config.http_systemd_socket_name.should eq "custom-http.socket"
-
-      # Experimental section
-      config.yield_each_received_bytes.should eq 262144
-      config.yield_each_delivered_bytes.should eq 2097152
-
-      # Clustering section
-      config.clustering?.should be_true
-      config.clustering_bind.should eq "0.0.0.0"
-      config.clustering_port.should eq 5680
-      config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
-      config.clustering_etcd_prefix.should eq "test-lavinmq"
-      config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
-      config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
-      config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
-    ensure
-      # Reset log level to default for other specs
-      Log.setup(:fatal)
     end
+    config = LavinMQ::Config.new
+    argv = ["-c", config_file.path]
+    config.parse(argv)
+
+    # Main section
+    config.data_dir.should eq "/tmp/lavinmq-test"
+    config.log_level.should eq ::Log::Severity::Debug
+    config.log_file.should eq "/tmp/lavinmq-test.log"
+    config.stats_interval.should eq 10000
+    config.stats_log_size.should eq 240
+    config.set_timestamp?.should be_true
+    config.socket_buffer_size.should eq 32768
+    config.tcp_nodelay?.should be_false
+    config.segment_size.should eq 16777216
+    config.sync?.should be_false
+    config.syncfs_threshold.should eq 8
+    config.tcp_keepalive.should eq({120, 20, 5})
+    config.tcp_recv_buffer_size.should eq 65536
+    config.tcp_send_buffer_size.should eq 65536
+    config.tcp_send_timeout.should eq 30
+    config.log_exchange?.should be_true
+    config.free_disk_min.should eq 1073741824
+    config.free_disk_warn.should eq 5368709120
+    config.max_deleted_definitions.should eq 16384
+    config.consumer_timeout.should eq 3600
+    config.consumer_timeout_loop_interval.should eq 120
+    config.auth_backends.should eq ["ldap", "basic"]
+    config.default_consumer_prefetch.should eq 1000
+    config.default_user.should eq "admin"
+    config.default_user_only_loopback?.should be_false
+    config.data_dir_lock?.should be_false
+    config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
+    config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
+    config.tls_prefer_server_ciphers?.should be_true
+    config.tls_key_path.should eq "/etc/lavinmq/key.pem"
+    config.tls_min_version.should eq "1.3"
+    config.tls_keylog_file.should eq "/tmp/keylog.txt"
+    config.metrics_http_bind.should eq "0.0.0.0"
+    config.metrics_http_port.should eq 9090
+    config.control_unix_path.should eq "/tmp/lavinmqctl-ini.sock"
+
+    # AMQP section
+    config.amqp_bind.should eq "0.0.0.0"
+    config.amqp_port.should eq 5673
+    config.amqps_port.should eq 5674
+    config.unix_path.should eq "/tmp/lavinmq.sock"
+    config.tcp_proxy_protocol?.should be_true
+    config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
+    config.heartbeat.should eq 600
+    config.frame_max.should eq 262144
+    config.channel_max.should eq 4096
+    config.max_message_size.should eq 268435456
+    config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
+
+    # MQTT section
+    config.mqtt_bind.should eq "0.0.0.0"
+    config.mqtt_port.should eq 1884
+    config.mqtts_port.should eq 8884
+    config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
+    config.mqtt_permission_check_enabled?.should be_true
+    config.mqtt_max_packet_size.should eq 536870910
+    config.max_inflight_messages.should eq 100
+    config.default_mqtt_vhost.should eq "/mqtt"
+    config.mqtt_client_id_validation.should eq LavinMQ::MQTT::ClientIdValidation::Username
+
+    # MGMT section
+    config.http_bind.should eq "0.0.0.0"
+    config.http_port.should eq 15673
+    config.https_port.should eq 15674
+    config.http_unix_path.should eq "/tmp/mgmt.sock"
+    config.http_systemd_socket_name.should eq "custom-http.socket"
+
+    # Experimental section
+    config.yield_each_received_bytes.should eq 262144
+    config.yield_each_delivered_bytes.should eq 2097152
+
+    # Clustering section
+    config.clustering?.should be_true
+    config.clustering_bind.should eq "0.0.0.0"
+    config.clustering_port.should eq 5680
+    config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
+    config.clustering_etcd_prefix.should eq "test-lavinmq"
+    config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
+    config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
+    config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
+  ensure
+    # Reset log level to default for other specs
+    Log.setup(:fatal)
   end
 
   it "can parse all CLI argumetns" do
@@ -291,6 +297,8 @@ describe LavinMQ::Config do
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
       "--ciphers=ECDHE-RSA-AES256-GCM-SHA384",
+      "--ciphersuites=TLS_AES_128_GCM_SHA256",
+      "--tls-prefer-server-ciphers=true",
       "--key=/etc/ssl/key.pem",
       "--tls-min-version=1.3",
       "--metrics-http-bind=0.0.0.0",
@@ -331,6 +339,8 @@ describe LavinMQ::Config do
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
+    config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/ssl/key.pem"
     config.tls_min_version.should eq "1.3"
     config.metrics_http_bind.should eq "0.0.0.0"
@@ -362,88 +372,90 @@ describe LavinMQ::Config do
   end
 
   it "can parse all ENV arguments" do
-    begin
-      ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = "/etc/custom"
-      ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
-      ENV["LAVINMQ_AMQP_PORT"] = "5674"
-      ENV["LAVINMQ_AMQP_BIND"] = "10.1.1.1"
-      ENV["LAVINMQ_AMQPS_PORT"] = "5676"
-      ENV["LAVINMQ_HTTP_BIND"] = "10.2.2.2"
-      ENV["LAVINMQ_HTTP_PORT"] = "15674"
-      ENV["LAVINMQ_HTTPS_PORT"] = "15676"
-      ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
-      ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
-      ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
-      ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
-      ENV["LAVINMQ_DEFAULT_CONSUMER_PREFETCH"] = "2000"
-      ENV["LAVINMQ_DEFAULT_USER"] = "envuser"
-      ENV["LAVINMQ_CLUSTERING"] = "true"
-      ENV["LAVINMQ_CLUSTERING_ADVERTISED_URI"] = "lavinmq://env:5679"
-      ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
-      ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
-      ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
-      ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
-      ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
-      ENV["LAVINMQ_SYNC"] = "false"
-      ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
+    ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = "/etc/custom"
+    ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
+    ENV["LAVINMQ_AMQP_PORT"] = "5674"
+    ENV["LAVINMQ_AMQP_BIND"] = "10.1.1.1"
+    ENV["LAVINMQ_AMQPS_PORT"] = "5676"
+    ENV["LAVINMQ_HTTP_BIND"] = "10.2.2.2"
+    ENV["LAVINMQ_HTTP_PORT"] = "15674"
+    ENV["LAVINMQ_HTTPS_PORT"] = "15676"
+    ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
+    ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
+    ENV["LAVINMQ_TLS_CIPHERSUITES"] = "TLS_AES_128_GCM_SHA256"
+    ENV["LAVINMQ_TLS_PREFER_SERVER_CIPHERS"] = "true"
+    ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
+    ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
+    ENV["LAVINMQ_DEFAULT_CONSUMER_PREFETCH"] = "2000"
+    ENV["LAVINMQ_DEFAULT_USER"] = "envuser"
+    ENV["LAVINMQ_CLUSTERING"] = "true"
+    ENV["LAVINMQ_CLUSTERING_ADVERTISED_URI"] = "lavinmq://env:5679"
+    ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
+    ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
+    ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
+    ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
+    ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
+    ENV["LAVINMQ_SYNC"] = "false"
+    ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
 
-      config.data_dir.should eq "/tmp/lavinmq-env"
-      config.amqp_port.should eq 5674
-      config.amqp_bind.should eq "10.1.1.1"
-      config.amqps_port.should eq 5676
-      config.http_bind.should eq "10.2.2.2"
-      config.http_port.should eq 15674
-      config.https_port.should eq 15676
-      config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
-      config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
-      config.tls_key_path.should eq "/etc/certs/env-key.pem"
-      config.tls_min_version.should eq "1.2"
-      config.default_consumer_prefetch.should eq 2000
-      config.default_user.should eq "envuser"
-      config.clustering?.should be_true
-      config.clustering_advertised_uri.should eq "lavinmq://env:5679"
-      config.clustering_bind.should eq "10.3.3.3"
-      config.clustering_etcd_endpoints.should eq "env-etcd:2379"
-      config.clustering_etcd_prefix.should eq "env-prefix"
-      config.clustering_port.should eq 5681
-      config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
-    ensure
-      ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
-      ENV.delete("LAVINMQ_DATADIR")
-      ENV.delete("LAVINMQ_AMQP_PORT")
-      ENV.delete("LAVINMQ_AMQP_BIND")
-      ENV.delete("LAVINMQ_AMQPS_PORT")
-      ENV.delete("LAVINMQ_HTTP_BIND")
-      ENV.delete("LAVINMQ_HTTP_PORT")
-      ENV.delete("LAVINMQ_HTTPS_PORT")
-      ENV.delete("LAVINMQ_TLS_CERT_PATH")
-      ENV.delete("LAVINMQ_TLS_CIPHERS")
-      ENV.delete("LAVINMQ_TLS_KEY_PATH")
-      ENV.delete("LAVINMQ_TLS_MIN_VERSION")
-      ENV.delete("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")
-      ENV.delete("LAVINMQ_DEFAULT_USER")
-      ENV.delete("LAVINMQ_CLUSTERING")
-      ENV.delete("LAVINMQ_CLUSTERING_ADVERTISED_URI")
-      ENV.delete("LAVINMQ_CLUSTERING_BIND")
-      ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
-      ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
-      ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
-      ENV.delete("LAVINMQ_CLUSTERING_PORT")
-      ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
-    end
+    config.data_dir.should eq "/tmp/lavinmq-env"
+    config.amqp_port.should eq 5674
+    config.amqp_bind.should eq "10.1.1.1"
+    config.amqps_port.should eq 5676
+    config.http_bind.should eq "10.2.2.2"
+    config.http_port.should eq 15674
+    config.https_port.should eq 15676
+    config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
+    config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
+    config.tls_prefer_server_ciphers?.should be_true
+    config.tls_key_path.should eq "/etc/certs/env-key.pem"
+    config.tls_min_version.should eq "1.2"
+    config.default_consumer_prefetch.should eq 2000
+    config.default_user.should eq "envuser"
+    config.clustering?.should be_true
+    config.clustering_advertised_uri.should eq "lavinmq://env:5679"
+    config.clustering_bind.should eq "10.3.3.3"
+    config.clustering_etcd_endpoints.should eq "env-etcd:2379"
+    config.clustering_etcd_prefix.should eq "env-prefix"
+    config.clustering_port.should eq 5681
+    config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
+  ensure
+    ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+    ENV.delete("LAVINMQ_DATADIR")
+    ENV.delete("LAVINMQ_AMQP_PORT")
+    ENV.delete("LAVINMQ_AMQP_BIND")
+    ENV.delete("LAVINMQ_AMQPS_PORT")
+    ENV.delete("LAVINMQ_HTTP_BIND")
+    ENV.delete("LAVINMQ_HTTP_PORT")
+    ENV.delete("LAVINMQ_HTTPS_PORT")
+    ENV.delete("LAVINMQ_TLS_CERT_PATH")
+    ENV.delete("LAVINMQ_TLS_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_CIPHERSUITES")
+    ENV.delete("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_KEY_PATH")
+    ENV.delete("LAVINMQ_TLS_MIN_VERSION")
+    ENV.delete("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")
+    ENV.delete("LAVINMQ_DEFAULT_USER")
+    ENV.delete("LAVINMQ_CLUSTERING")
+    ENV.delete("LAVINMQ_CLUSTERING_ADVERTISED_URI")
+    ENV.delete("LAVINMQ_CLUSTERING_BIND")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
+    ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
+    ENV.delete("LAVINMQ_CLUSTERING_PORT")
+    ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
   end
 
   it "uses systemd STATE_DIRECTORY as default for data_dir" do
-    begin
-      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
-      config.data_dir.should eq "/var/lib/custom-state"
-    ensure
-      ENV.delete("STATE_DIRECTORY")
-    end
+    ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
+    config.data_dir.should eq "/var/lib/custom-state"
+  ensure
+    ENV.delete("STATE_DIRECTORY")
   end
 
   it "STATE_DIRECTORY takes precedence over INI data_dir" do
@@ -451,7 +463,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     begin
       ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
@@ -464,16 +476,14 @@ describe LavinMQ::Config do
   end
 
   it "LAVINMQ_DATADIR takes precedence over STATE_DIRECTORY" do
-    begin
-      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
-      ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
-      config.data_dir.should eq "/var/lib/lavinmq-explicit"
-    ensure
-      ENV.delete("STATE_DIRECTORY")
-      ENV.delete("LAVINMQ_DATADIR")
-    end
+    ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+    ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
+    config.data_dir.should eq "/var/lib/lavinmq-explicit"
+  ensure
+    ENV.delete("STATE_DIRECTORY")
+    ENV.delete("LAVINMQ_DATADIR")
   end
 
   it "uses systemd CONFIGURATION_DIRECTORY for config file lookup" do
@@ -520,7 +530,7 @@ describe LavinMQ::Config do
         data_dir = /tmp/lavinmq-spec
         [http]
         port = 15699
-      CONFIG
+        CONFIG
     end
     io = IO::Memory.new
     config = LavinMQ::Config.new(io)
@@ -556,7 +566,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [invalid_section]
         some_option = value
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -568,7 +578,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         invalid_option = value
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new(IO::Memory.new)
     argv = ["-c", config_file.path]
@@ -589,7 +599,7 @@ describe LavinMQ::Config do
         log_level = fatal
         data_dir = /tmp/lavinmq-spec
         pidfile = /tmp/lavinmq.pid
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -612,7 +622,7 @@ describe LavinMQ::Config do
         file.print <<-CONFIG
           [main]
           stats_interval = 500
-        CONFIG
+          CONFIG
       end
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
@@ -625,12 +635,46 @@ describe LavinMQ::Config do
           file.print <<-CONFIG
             [main]
             stats_interval = #{ms}
-          CONFIG
+            CONFIG
         end
         config = LavinMQ::Config.new
         expect_raises(LavinMQ::Config::Error, /stats_interval/) do
           config.parse(["-c", config_file.path])
         end
+      end
+    end
+  end
+
+  describe "tcp_send_timeout" do
+    it "defaults to 15 seconds" do
+      LavinMQ::Config.new.tcp_send_timeout.should eq 15
+    end
+
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          tcp_send_timeout = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /tcp_send_timeout/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
+  describe "max_inflight_messages" do
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [mqtt]
+          max_inflight_messages = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /max_inflight_messages/) do
+        config.parse(["-c", config_file.path])
       end
     end
   end
@@ -710,20 +754,20 @@ describe LavinMQ::Config do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
         File.write(config_file.path, <<-INI)
-        [sni:foobar.localhost]
-        tls_cert = spec/resources/foobar_localhost_certificate.pem
-        tls_key = spec/resources/foobar_localhost_key.pem
-        INI
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          INI
         config = LavinMQ::Config.new
         config.parse(["-c", config_file.path])
         config.sni_manager.get_host("foobar.localhost").should_not be_nil
         config.sni_manager.get_host("test.example.com").should be_nil
 
         File.write(config_file.path, <<-INI)
-        [sni:*.example.com]
-        tls_cert = spec/resources/wildcard_example_certificate.pem
-        tls_key = spec/resources/wildcard_example_key.pem
-        INI
+          [sni:*.example.com]
+          tls_cert = spec/resources/wildcard_example_certificate.pem
+          tls_key = spec/resources/wildcard_example_key.pem
+          INI
         config.reload
 
         # reload swaps in a fresh SNIManager: the new host resolves, the old one is gone.
@@ -764,17 +808,75 @@ describe LavinMQ::Config do
 
   describe "tcp_proxy_protocol" do
     {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
-      it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do
+      it "sets tcp_proxy_protocol to {{ expected }} when value is {{ value }}" do
         config_file = File.tempfile do |file|
           file.print <<-CONFIG
                 [amqp]
-                tcp_proxy_protocol = {{value}}
+                tcp_proxy_protocol = {{ value }}
               CONFIG
         end
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
-        config.tcp_proxy_protocol?.should eq {{expected}}
+        config.tcp_proxy_protocol?.should eq {{ expected }}
+      end
+    {% end %}
+  end
+
+  # [main] parses booleans through parse_value, which downcases first; the
+  # [sni:] branch calls true? on the raw value. Anything but all-lowercase is
+  # silently off under SNI while it is on in [main], so a host meant to pin the
+  # server's cipher order quietly negotiates the client's instead.
+  describe "tls_prefer_server_ciphers" do
+    {% for value in ["true", "TRUE", "True", "YES"] %}
+      it "is on in both [main] and [sni:] when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            tls_prefer_server_ciphers = {{ value.id }}
+
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_prefer_server_ciphers = {{ value.id }}
+            mqtt_tls_prefer_server_ciphers = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          config.tls_prefer_server_ciphers?.should be_true
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_prefer_server_ciphers?.should be_true
+          host.mqtt_tls_prefer_server_ciphers.should be_true
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+
+    {% for value in ["false", "FALSE"] %}
+      it "is off in both [main] and [sni:] when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            tls_prefer_server_ciphers = {{ value.id }}
+
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_prefer_server_ciphers = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          config.tls_prefer_server_ciphers?.should be_false
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_prefer_server_ciphers?.should be_false
+        ensure
+          File.delete?(config_file.path)
+        end
       end
     {% end %}
   end
@@ -809,6 +911,33 @@ ensure
   tcp_server.try &.close
 end
 
+private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : String?
+  tcp_server = TCPServer.new("127.0.0.1", 0)
+  port = tcp_server.local_address.port
+  spawn do
+    if client = tcp_server.accept?
+      begin
+        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
+      rescue
+        # ignore handshake errors, the client assertion will surface them
+      ensure
+        client.close rescue nil
+      end
+    end
+  end
+  Fiber.yield
+  tcp_client = TCPSocket.new("127.0.0.1", port)
+  client_ctx = OpenSSL::SSL::Context::Client.new
+  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "localhost")
+  cipher = ssl_client.cipher
+  ssl_client.close
+  tcp_client.close
+  cipher
+ensure
+  tcp_server.try &.close
+end
+
 private def with_launcher(ini : String, &)
   data_dir = File.tempname("lavinmq", "reload-spec")
   Dir.mkdir_p data_dir
@@ -832,44 +961,6 @@ describe LavinMQ::Launcher do
   describe "config reload" do
     it "serves the configured SNI certificate, and a rotated one after reload" do
       with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-
-      [sni:foobar.localhost]
-      tls_cert = spec/resources/foobar_localhost_certificate.pem
-      tls_key = spec/resources/foobar_localhost_key.pem
-      INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
-        served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
-
-        # Rotate the SNI host's certificate and reload.
-        File.write(config_file.path, <<-INI)
-        [main]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-
-        [sni:foobar.localhost]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-        INI
-        launcher.reload!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "anders"
-      end
-    end
-
-    it "serves a per-host certificate for an SNI host added on reload" do
-      with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
-
-        # Add an SNI host and reload, as a SIGHUP would.
-        File.write(config_file.path, <<-INI)
         [main]
         tls_cert = spec/resources/server_certificate.pem
         tls_key = spec/resources/server_key.pem
@@ -878,8 +969,90 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/foobar_localhost_certificate.pem
         tls_key = spec/resources/foobar_localhost_key.pem
         INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+        served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
+
+        # Rotate the SNI host's certificate and reload.
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          INI
+        launcher.reload!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders"
+      end
+    end
+
+    it "serves a per-host certificate for an SNI host added on reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
+
+        # Add an SNI host and reload, as a SIGHUP would.
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          INI
         launcher.reload!
         served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+      end
+    end
+
+    it "applies and clears tls_prefer_server_ciphers on reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_prefer_server_ciphers = true
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          tls_prefer_server_ciphers = false
+          INI
+        launcher.reload!
+        amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
+      end
+    end
+
+    it "applies tls_ciphersuites, also after reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_min_version = 1.3
+        tls_ciphersuites = TLS_AES_128_GCM_SHA256
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_128_GCM_SHA256"
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          tls_min_version = 1.3
+          tls_ciphersuites = TLS_AES_256_GCM_SHA384
+          INI
+        launcher.reload!
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
       end
     end
 
@@ -887,10 +1060,10 @@ describe LavinMQ::Launcher do
       with_launcher("[main]\nstats_interval = 5000\n") do |launcher, _config, config_file|
         launcher.@amqp_tls_context.should be_nil
         File.write(config_file.path, <<-INI)
-        [main]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-        INI
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          INI
         Log.capture("lmq.launcher", :warn) do |logs|
           launcher.reload!
           logs.check(:warn, /Enabling TLS requires a restart/)
@@ -901,10 +1074,10 @@ describe LavinMQ::Launcher do
 
     it "warns that disabling TLS requires a restart" do
       with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
         launcher.@amqp_tls_context.should_not be_nil
         File.write(config_file.path, "[main]\ntls_cert =\n")
         Log.capture("lmq.launcher", :warn) do |logs|

@@ -30,7 +30,7 @@ class JumpConsistentHasher(T) < Hasher(T)
   end
 
   def get(key : String) : T?
-    return nil if @buckets.empty?
+    return if @buckets.empty?
     return @buckets.first if @buckets.size == 1
 
     bucket_index = jump_hash(hash_key64(key), @buckets.size)

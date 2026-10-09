@@ -43,7 +43,7 @@ const performMultiAction = (el) => {
         document.getElementById('multi-check-all').checked = false
         queuesTable.reload()
       }
-    }).catch(e => {
+    }).catch(() => {
       DOM.toast.error(`Failed to perform action on ${data.name}`)
       queuesTable.reload()
     })
@@ -172,13 +172,13 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: DOM.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then((response) => {
-      if (response?.is_error) { return }
+    .then(() => {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
       DOM.toast('Queue ' + queue + ' created')
     })
+    .catch(() => {})
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')

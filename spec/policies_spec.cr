@@ -380,7 +380,7 @@ describe LavinMQ::VHost do
         sleep 10.milliseconds
         vhost.queue("test1").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
         vhost.queue("test2").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
-        vhost.queue("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
+        vhost.queue("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should be_nil
       end
     end
   end

@@ -4,6 +4,10 @@ require "../controller"
 module LavinMQ
   module HTTP
     module ConnectionsHelper
+      private def can_access_connection?(c : Client, user : Auth::BaseUser) : Bool
+        c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
+      end
+
       private def connections(user : Auth::BaseUser)
         if user.tags.any? { |t| t.administrator? || t.monitoring? }
           @server.connections
@@ -78,10 +82,6 @@ module LavinMQ
         access_refused(context) unless can_access_connection?(connection, user)
         yield connection
         context
-      end
-
-      private def can_access_connection?(c : Client, user : Auth::BaseUser) : Bool
-        c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
       end
     end
   end

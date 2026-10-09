@@ -1,0 +1,89 @@
+---
+permission-group-summaries:
+  type: array
+  items:
+    "$ref": "#/permission-group-summary"
+permission-group-summary:
+  type: object
+  properties:
+    name:
+      type: string
+      description: Name of the group. Alphanumerics, hyphens and underscores, max 255 characters.
+      example: devices
+    vhost:
+      type: string
+      description: Name of the vhost.
+      example: /
+    member_count:
+      type: integer
+      description: Number of members in the group.
+      example: 1
+    rule_count:
+      type: integer
+      description: Number of rules in the group.
+      example: 2
+permission-group-members:
+  type: array
+  items:
+    type: object
+    properties:
+      username:
+        type: string
+        description: Username of the member, or `*` for every user.
+        example: "*"
+permission-group-rules:
+  type: array
+  items:
+    "$ref": "#/permission-group-rule"
+permission-group-rule:
+  type: object
+  properties:
+    identifier:
+      type: string
+      description: Identifier of the rule within its group. Alphanumerics and hyphens.
+      example: own-chat
+    pattern:
+      type: string
+      description: MQTT topic filter. May contain the `{client_id}` variable.
+      example: "chat/{client_id}/#"
+    read:
+      type: boolean
+      description: Allow receiving messages on matching topics.
+      example: true
+    write:
+      type: boolean
+      description: Allow publishing to matching topics.
+      example: true
+PutRuleRequestBody:
+  type: object
+  properties:
+    pattern:
+      type: string
+      description: MQTT topic filter. May contain the `{client_id}` variable.
+      example: "chat/{client_id}/#"
+    read:
+      type: boolean
+      description: Allow receiving messages on matching topics.
+      default: false
+    write:
+      type: boolean
+      description: Allow publishing to matching topics.
+      default: false
+  required:
+  - pattern
+permission-groups:
+  type: array
+  description: Full permission groups, as exported in definitions under `mqtt_permissions`.
+  items:
+    type: object
+    properties:
+      name:
+        type: string
+      vhost:
+        type: string
+      members:
+        type: array
+        items:
+          type: string
+      rules:
+        "$ref": "#/permission-group-rules"

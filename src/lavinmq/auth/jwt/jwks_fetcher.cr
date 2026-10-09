@@ -94,20 +94,18 @@ module LavinMQ
           max_retry_delay = 5.minutes
           spawn do
             loop do
-              begin
-                @fetch_lock.synchronize { update_keys }
-                retry_delay = 5.seconds
-                wait_time = calculate_wait_time
-                select
-                when @stopped.when_true.receive
-                  break
-                when timeout(wait_time)
-                end
-              rescue ex
-                Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
-                sleep retry_delay
-                retry_delay = {retry_delay * 2, max_retry_delay}.min
+              @fetch_lock.synchronize { update_keys }
+              retry_delay = 5.seconds
+              wait_time = calculate_wait_time
+              select
+              when @stopped.when_true.receive
+                break
+              when timeout(wait_time)
               end
+            rescue ex
+              Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
+              sleep retry_delay
+              retry_delay = {retry_delay * 2, max_retry_delay}.min
             end
           end
         end

@@ -54,6 +54,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_redelivered_total` | counter | Total messages redelivered to consumers |
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
+| `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
 
 #### Runtime and clustering
 
@@ -67,7 +68,24 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `stats_system_collection_duration_seconds` | gauge | Time to collect system metrics |
 | `total_connected_followers` | gauge | Number of follower nodes connected |
 | `follower_lag_in_bytes` | gauge | Bytes not yet synchronized to a follower (labeled by `id`) |
+| `follower_bytes_sent_total` | counter | Bytes streamed to a follower since it started streaming (labeled by `id`), served on the leader |
+| `follower_bytes_acked_total` | counter | Bytes a follower acknowledged since it started streaming (labeled by `id`), served on the leader |
+| `cluster_received_bytes_total` | counter | Bytes streamed from the current leader, served on a follower |
 | `mfile_count` | gauge | Number of memory-mapped files (`MFile` instances) currently open |
+
+The three replication byte counters measure the ongoing replication stream: the
+changes a leader sends a follower that has caught up. They reset at different
+points. On the leader, `follower_bytes_sent_total` and
+`follower_bytes_acked_total` count per connection and start over when the
+follower reconnects. On the follower, `cluster_received_bytes_total` keeps
+counting across reconnects and starts over only when the follower switches to a
+new leader or restarts, so it does not show whether the follower reconnected.
+Use `rate()` and `increase()` to query all three.
+
+A joining follower first copies files in bulk and starts streaming once it is
+caught up. That phase is reported per follower by `GET /api/nodes`, where
+`uncompressed_bytes` and `compressed_bytes` cover every byte written to the
+follower, bulk transfer included.
 
 #### Garbage collection
 
@@ -106,7 +124,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `connection_churn_metrics` | Connection open/close totals |
 | `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
 | `channel_metrics` | Per-channel metrics |
-| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
 

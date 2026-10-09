@@ -20,11 +20,11 @@ module Spec::Expectations
   # a loaded runner (e.g. federation delivery on macOS CI). Pass an explicit,
   # shorter timeout when asserting something is *not* received within a bound.
   macro be_receiving(value, *, timeout = 15.seconds)
-    ChannelReceiveExpectation.new({{value}}, {{timeout}})
+    ChannelReceiveExpectation.new({{ value }}, {{ timeout }})
   end
 
   macro be_sending(value, *, timeout = 15.seconds)
-    ChannelSendExpectation.new({{value}}, {{timeout}})
+    ChannelSendExpectation.new({{ value }}, {{ timeout }})
   end
 end
 

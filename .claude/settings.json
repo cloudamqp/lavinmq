@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path | select(endswith(\".cr\"))' | xargs -r lib/ameba/bin/ameba --silent --fix"
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".cr\"))' | xargs -r bin/ameba --silent --fix"
           },
           {
             "type": "command",
@@ -19,5 +19,10 @@
         ]
       }
     ]
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
   }
 }

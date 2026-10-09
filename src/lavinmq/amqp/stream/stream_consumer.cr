@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
@@ -11,6 +12,8 @@ module LavinMQ
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
+      property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true
@@ -86,7 +89,10 @@ module LavinMQ
       end
 
       private def deliver_loop
-        i = 0
+        delivered_bytes = 0_i32
+        iterations = 0
+        yield_each_delivered_bytes = Config.instance.yield_each_delivered_bytes
+
         loop do
           wait_for_capacity
           loop do
@@ -101,8 +107,14 @@ module LavinMQ
           {% end %}
           stream_queue.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
+            delivered_bytes &+= env.segment_position.bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          iterations &+= 1
+          if delivered_bytes >= yield_each_delivered_bytes || iterations >= 32_768
+            delivered_bytes = 0
+            iterations = 0
+            Fiber.yield
+          end
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
@@ -120,7 +132,7 @@ module LavinMQ
             @new_message_available.set(false) # Reset the flag
           when @notify_closed.receive
           end
-          return true
+          true
         end
       end
 

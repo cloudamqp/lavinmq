@@ -23,6 +23,42 @@ describe "Websocket support" do
     end
   end
 
+  it "sets tcp_send_timeout as write timeout on wss connections" do
+    LavinMQ::Config.instance.tcp_send_timeout = 7
+    with_amqp_server do |s|
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      addr = s.http_server.bind_tls("127.0.0.1", 0, ctx)
+      spawn(name: "https listen") { s.http_server.listen }
+      Fiber.yield
+      conn = AMQP::Client.new("wss://#{addr}?verify=none").connect
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+      client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      ws_io = client.@socket.as(LavinMQ::WebSocketIO)
+      tls = ws_io.@ws.@ws.@io.as(OpenSSL::SSL::Socket)
+      tls.write_timeout.should eq 7.seconds
+      conn.close
+    end
+  end
+
+  it "shuts down the underlying connection of wss connections" do
+    with_amqp_server do |s|
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      addr = s.http_server.bind_tls("127.0.0.1", 0, ctx)
+      spawn(name: "https listen") { s.http_server.listen }
+      Fiber.yield
+      conn = AMQP::Client.new("wss://#{addr}?verify=none").connect
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+      client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      client.@socket.as(LavinMQ::WebSocketIO).shutdown_read_write
+      wait_for { client.closed? }
+      wait_for { conn.closed? }
+    end
+  end
+
   it "tracks AMQP websocket connections on the vhost" do
     with_http_server do |http, s|
       c = AMQP::Client.new("ws://#{http.addr}")
@@ -221,8 +257,7 @@ describe "Websocket support" do
         end
 
         it "should accept mqtt client" do
-          with_http_server do |http, s|
-            s.@config.default_user_only_loopback = false
+          with_http_server do |http, _|
             headers = ::HTTP::Headers{
               "Sec-WebSocket-Protocol" => header,
             }
@@ -249,6 +284,7 @@ describe "Websocket support" do
             select
             when pkt = ch.receive
               pkt.should be_a MQTT::Protocol::Connack
+              pkt.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
             when timeout(1.second)
               websocket.close
               fail("no response?")

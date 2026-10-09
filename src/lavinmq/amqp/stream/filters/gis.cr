@@ -25,7 +25,7 @@ module LavinMQ::AMQP
         io << "Point(lat=" << @lat << ", lon=" << @lon << ")"
       end
 
-      def self.from_headers(headers : AMQP::Table | Nil) : Point | Nil
+      def self.from_headers(headers : AMQP::Table?) : Point?
         return unless headers
 
         lat = headers["x-geo-lat"]?

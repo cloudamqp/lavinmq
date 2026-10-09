@@ -230,11 +230,9 @@ module LavinMQPerf
         @io.print "Publish rate: #{pub_rate} msgs/s Consume rate: #{cons_rate} msgs/s"
         if @measure_latency
           stats = @latencies_mutex.synchronize do
-            begin
-              calculate_percentiles(@last_latencies)
-            ensure
-              @last_latencies.clear
-            end
+            calculate_percentiles(@last_latencies)
+          ensure
+            @last_latencies.clear
           end
           if stats
             @io.print " | Latency (ms) min/median/75th/95th/99th: #{stats[:min].round(3)}/#{stats[:median].round(3)}/#{stats[:p75].round(3)}/#{stats[:p95].round(3)}/#{stats[:p99].round(3)}"

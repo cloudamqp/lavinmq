@@ -59,7 +59,7 @@ module LavinMQ
         return false unless @bindings.add?({destination, binding_key})
         @hasher.add(destination.name, w, destination)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        upstreams_bound(data)
         true
       end
 
@@ -73,13 +73,13 @@ module LavinMQ
         end
         @hasher.remove(destination.name, w) unless has_other_binding
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        upstreams_unbound(data)
 
         delete if @auto_delete && @bindings.empty?
         true
       end
 
-      def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         key = hash_key(routing_key, headers)
         if d = @hasher.get(key)
           yield d

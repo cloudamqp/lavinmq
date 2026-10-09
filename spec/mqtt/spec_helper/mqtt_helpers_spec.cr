@@ -101,7 +101,7 @@ module MqttHelpers
     MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8)
   end
 
-  def publish(io, expect_response = true, **args)
+  def publish_packet(**args) : MQTT::Protocol::Publish
     pub_args = {
       packet_id: next_packet_id,
       payload:   "data".to_slice,
@@ -109,8 +109,21 @@ module MqttHelpers
       qos:       0u8,
       retain:    false,
     }.merge(args)
-    MQTT::Protocol::Publish.new(**pub_args).to_io(io)
-    MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
+    MQTT::Protocol::Publish.new(**pub_args)
+  end
+
+  def publish(io, expect_response = true, **args)
+    packet = publish_packet(**args)
+    packet.to_io(io)
+    MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
+  end
+
+  # After a QoS 1 publish to a topic the same client subscribes to: the PUBACK
+  # is sent once the publish is durable, so it can come after the delivery.
+  def read_delivery_and_puback(io) : MQTT::Protocol::Publish
+    packets = {read_packet(io), read_packet(io)}
+    packets.count(&.is_a?(MQTT::Protocol::PubAck)).should eq 1
+    packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
   end
 
   def puback(io, packet_id : UInt16?)
@@ -135,5 +148,22 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io)
   rescue IO::TimeoutError
     nil
+  end
+
+  # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
+  # QoS needs one and none at QoS 0 [MQTT-2.3.1-5]. Use this instead of casting
+  # `read_packet` when comparing packet ids: `packet_id` is nilable, so a pair of
+  # nils would otherwise satisfy an equality assertion.
+  def read_publish(io) : MQTT::Protocol::Publish
+    # `should be_a` rather than `as`: on a read timeout `read_packet` returns nil,
+    # and a cast would report "cast from Nil" instead of naming the PUBLISH that
+    # never arrived.
+    pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+    if pub.qos.positive?
+      pub.packet_id.should_not be_nil
+    else
+      pub.packet_id.should be_nil
+    end
+    pub
   end
 end

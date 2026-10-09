@@ -3,23 +3,52 @@ require "socket"
 require "../client"
 require "../error"
 require "../rough_time"
+require "../../stdlib/io_buffered_discard"
+require "../../stdlib/socket_shutdown"
 require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
 require "../stats"
+require "../persister"
+require "sync/exclusive"
 
 module LavinMQ
   module MQTT
+    # Protocol level from the CONNECT packet:
+    # level 3 is MQTT 3.1 (MQIsdp), level 4 is MQTT 3.1.1 (MQTT).
+    enum ProtocolVersion : UInt8
+      V3_1   = 3
+      V3_1_1 = 4
+
+      def name
+        case self
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
+        end
+      end
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
+
+      # A QoS 1 publish waiting for its PUBACK, which is sent once the
+      # persister has made the publish durable. `seq` orders the publishes, so
+      # the persister's cumulative confirm releases every PUBACK up to it.
+      record PendingPubAck, seq : UInt64, packet_id : UInt16
 
       getter log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
+      @protocol : String
+      @publish_seq = 0u64
+      @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
+      # Created with the PUBACK writer fiber on the first QoS 1 publish
+      @puback_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -49,9 +78,12 @@ module LavinMQ
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
+                     protocol_version : ProtocolVersion,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
+        @protocol = protocol_version.name
+        @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -112,6 +144,7 @@ module LavinMQ
         when Auth::OAuthUser
           user.cleanup
         end
+        @puback_mailbox.try &.close
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
@@ -171,16 +204,70 @@ module LavinMQ
           close_socket
           return
         end
+        # A topic denial acks and drops, it never closes the connection.
+        unless @broker.permission_service.can_write?(@permission_context, packet.topic)
+          Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
+          # Queued like the others, as PUBACKs must be sent in publish order
+          if packet.qos > 0 && (packet_id = packet.packet_id)
+            enqueue_puback(packet_id)
+          end
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(Protocol::PubAck.new(packet_id))
+          enqueue_puback(packet_id)
+        end
+      end
+
+      # QoS 1 publishes are acked like publish confirms, once durable. The
+      # PUBACK is sent by the writer fiber, so the read loop never waits for
+      # the disk.
+      private def enqueue_puback(packet_id : UInt16) : Nil
+        unless @puback_mailbox
+          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
+          spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
+        end
+        seq = @publish_seq &+= 1
+        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
+        vhost.enqueue_ack(self, seq)
+      end
+
+      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
+      # (confirms are cumulative).
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = @puback_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def puback_writer(mailbox : ::Channel(UInt64))
+        while seq = mailbox.receive?
+          while pending = next_puback(seq)
+            send(Protocol::PubAck.new(pending.packet_id))
+          end
+        end
+      rescue ::IO::Error
+      end
+
+      private def next_puback(seq : UInt64) : PendingPubAck?
+        @pending_pubacks.lock do |pending|
+          pending.shift if pending.first?.try(&.seq.<= seq)
         end
       end
 
       def recieve_puback(packet : Protocol::PubAck)
-        @broker.sessions[@client_id].ack(packet)
+        # No session means we never delivered anything to ack
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubAck from client without a session" }
+          close_socket
+          return
+        end
+        session.ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
@@ -192,6 +279,9 @@ module LavinMQ
             return
           end
         end
+        # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
+        # may subscribe to a filter it cannot read. Mosquitto also filters at
+        # delivery, but it additionally refuses the filter in the SUBACK.
         qos = @broker.subscribe(self, packet.topic_filters)
         send(Protocol::SubAck.new(qos, packet.packet_id))
       end
@@ -205,12 +295,16 @@ module LavinMQ
         {
           vhost:             @broker.vhost.name,
           user:              @user.name,
-          protocol:          "MQTT 3.1.1",
+          protocol:          @protocol,
           client_id:         @client_id,
           name:              @name,
           timeout:           @keepalive,
           connected_at:      @connected_at,
           state:             state,
+          host:              @connection_info.local_address.address,
+          port:              @connection_info.local_address.port,
+          peer_host:         @connection_info.remote_address.address,
+          peer_port:         @connection_info.remote_address.port,
           ssl:               @connection_info.ssl?,
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
@@ -236,6 +330,10 @@ module LavinMQ
         if will = @will
           if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            return
+          end
+          unless @broker.permission_service.can_write?(@permission_context, will.topic)
+            Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
           @broker.publish(Protocol::Publish.new(
@@ -268,13 +366,21 @@ module LavinMQ
         close_socket
       end
 
+      # The connection is first shut down, which makes an ongoing write,
+      # e.g. of a large message to a slowly reading client, fail right away
+      # instead of holding the write lock. The socket is then closed under
+      # the write lock, so that closing never runs concurrently with a write.
+      # Buffered data is dropped instead of flushed: after a failed write it
+      # may already have been partly sent, and the connection is being
+      # abandoned anyway.
       private def close_socket
-        socket = @io
-        if socket.responds_to?(:"write_timeout=")
-          socket.write_timeout = 1.seconds
+        socket = @io.io # Protocol::IO forwards methods, which responds_to? doesn't see
+        socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
+        @lock.synchronize do
+          socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
+          socket.close
         end
-        socket.close
-      rescue ::IO::Error
+      rescue ::IO::Error | OpenSSL::SSL::Error
       end
     end
   end

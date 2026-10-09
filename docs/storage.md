@@ -16,16 +16,28 @@ Segment files are accessed via `mmap(MAP_SHARED)` rather than `read`/`write` sys
 
 This avoids the syscall and copy overhead of buffered I/O — hot data is served straight from the page cache as a memory access — and lets LavinMQ keep its memory footprint small while still benefiting from all the RAM the OS chooses to use as cache.
 
+Streams release a segment's resident pages as soon as its last reader leaves, for example when a consumer advances to another segment or is cancelled. The active write segment is excluded from this cleanup. Releasing pages does not delete the segment or its messages; a later reader can load them again from disk. This keeps memory usage during a stream replay from accumulating across all the segments already read.
+
+### Read Ahead
+
+The first write to a new segment makes the kernel read ahead up to the block device's `read_ahead_kb` of the empty segment. This happens synchronously, in the publish path. With a large read ahead and a page cache full of retained data, for example streams, that can stall publishers for tens of milliseconds at every segment rollover. At startup LavinMQ logs the read ahead of the data directory's block device, and warns if it is above 1 MiB. The kernel default of 128 KiB is a good value:
+
+```sh
+echo 128 > /sys/block/<device>/queue/read_ahead_kb
+```
+
 ## Acknowledgment Tracking
 
-Each segment has a corresponding ack file (`acks.{segment_id}`) that tracks which messages have been acknowledged (deleted):
+For standard and priority queues, each segment has a corresponding ack file (`acks.{segment_id}`) that tracks which messages have been acknowledged (deleted):
 
 - When a message is acked, its position is recorded in the ack file
 - The ack file is a compact list of deleted message positions within the segment
 
+Streams do not record individual message deletions in ack files. Acknowledgments can persist consumer offsets, while retention determines when messages are removed. Any leftover stream ack files are discarded when the stream loads. See [Streams](streams.md) for offset tracking and retention.
+
 ## Segment Garbage Collection
 
-When all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages.
+For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
 ## Data Directory Layout
 
@@ -44,7 +56,7 @@ When all messages in a segment have been acknowledged, the segment and its ack f
 
 ## Data Directory Locking
 
-LavinMQ acquires an exclusive file lock on the data directory to prevent multiple instances from corrupting data. This is enabled by default and can be disabled with `--no-data-dir-lock` (not recommended).
+LavinMQ acquires an exclusive file lock on the data directory to prevent multiple instances from corrupting data. The lock is taken at startup, before the server or the clustering follower touches the data directory, and held until shutdown. If another process holds the lock, LavinMQ logs which process holds it and exits with status 1. This is enabled by default and can be disabled with `--no-data-dir-lock` (not recommended).
 
 ## Disk Space Monitoring
 

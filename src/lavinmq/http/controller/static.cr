@@ -129,7 +129,6 @@ module LavinMQ
         end
       {% end %}
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def mime_type(path)
         case File.extname(path)
         when ".txt"        then "text/plain;charset=utf-8"

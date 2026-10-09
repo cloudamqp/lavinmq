@@ -1,4 +1,7 @@
+require "../filesystem"
 require "./topic_tree"
+require "./protocol"
+require "../persister"
 require "digest/md5"
 
 module LavinMQ
@@ -11,8 +14,8 @@ module LavinMQ
 
       alias IndexTree = TopicTree(String)
 
-      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new)
-        Dir.mkdir_p @dir
+      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new, @persister : Persister? = nil)
+        FileSystem.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
           file = File.new(File.join(@dir, file_name))
           file.read_buffering = false
@@ -66,28 +69,42 @@ module LavinMQ
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
       end
 
-      def retain(topic : String, body_io : ::IO, size : UInt64) : Nil
+      def retain(packet : Protocol::Publish) : Nil
         @lock.synchronize do
-          Log.debug { "retain topic=#{topic} body.bytesize=#{size}" }
+          topic = packet.topic
+          payload = packet.payload
+          Log.debug { "retain topic=#{topic} body.bytesize=#{payload.bytesize}" }
           # An empty message with retain flag means clear the topic from retained messages
-          if size.zero?
+          # QoS 1 publishes are acked when durable, so like publish confirms
+          # they sync what they changed before the persister acks them
+          needs_sync = packet.qos > 0
+          if payload.empty?
             delete_from_index(topic)
+            @persister.try &.mark_dirty(@dir) if needs_sync
             return
           end
 
           unless msg_file_name = @index[topic]?
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
+            @persister.try &.mark_dirty(@index_file_name) if needs_sync
           end
 
           file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
           file.sync = true
           file.read_buffering = false
-          len = ::IO.copy(body_io, file, size)
-          raise ::IO::EOFError.new("Copied only #{len} of #{size} bytes") if len != size
+          # sync = true, so this writes the payload straight to the fd, no
+          # intermediate buffer and no copy
+          file.write payload
           final_file_path = File.join(@dir, msg_file_name)
           file.rename(final_file_path)
           @replicator.try &.replace_file(final_file_path)
+          # Synced by the persister before the PUBACK, not inline on the read
+          # loop while holding @lock
+          if needs_sync
+            @persister.try &.mark_dirty(final_file_path)
+            @persister.try &.mark_dirty(@dir)
+          end
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
         end
@@ -102,8 +119,7 @@ module LavinMQ
         @index.each do |topic|
           f.puts topic
         end
-        f.flush
-        f.rename @index_file_name
+        FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end

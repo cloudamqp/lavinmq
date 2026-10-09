@@ -24,6 +24,36 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "saves the MQTT default group when the vhost is created" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test")
+      path = File.join(vhost.data_dir, "mqtt_permissions.json")
+      original = vhost.mqtt_permission_service.to_json
+      JSON.parse(File.read(path)).should eq JSON.parse(original)
+
+      restart_server(s)
+
+      s.vhosts["test"].mqtt_permission_service.to_json.should eq original
+    end
+  end
+
+  it "keeps a deleted MQTT default group deleted after close and restart" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test")
+      path = File.join(vhost.data_dir, "mqtt_permissions.json")
+      vhost.mqtt_permission_service.delete("default")
+
+      restart_server(s)
+
+      JSON.parse(File.read(path)).as_a.should be_empty
+      service = s.vhosts["test"].mqtt_permission_service
+      service.size.should eq 0
+      context = LavinMQ::MQTT::PermissionService::Context.new("guest", "dev")
+      service.can_read?(context, "anything").should be_false
+      service.can_write?(context, "anything").should be_false
+    end
+  end
+
   it "should be able to persist durable exchanges" do
     with_amqp_server do |s|
       s.vhosts.create("test")
@@ -132,6 +162,25 @@ describe LavinMQ::VHost do
       s.vhosts["/"].queue?("mqtt.persist").should be_nil
     end
   end
+
+  it "should keep durable mqtt session bindings after compaction and restart" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.max_deleted_definitions = 8
+      v = s.vhosts["/"]
+      v.declare_queue("mqtt.persist", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+      v.bind_queue("mqtt.persist", LavinMQ::MQTT::EXCHANGE, "a/b",
+        LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 1u8}))
+      LavinMQ::Config.instance.max_deleted_definitions.times do
+        v.declare_queue("q", true, false)
+        v.delete_queue("q")
+      end
+      restart_server(s)
+      bindings = s.vhosts["/"].mqtt_exchange.bindings_details
+      bindings.map(&.binding_key.routing_key).should eq ["a/b"]
+      bindings.first.arguments.try &.[](LavinMQ::MQTT::QOS_HEADER).should eq 1u8
+    end
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       with_amqp_server do |s|

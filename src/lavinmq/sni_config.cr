@@ -12,6 +12,8 @@ module LavinMQ
     property tls_key : String = ""
     property tls_min_version : String = ""
     property tls_ciphers : String = ""
+    property tls_ciphersuites : String = ""
+    property? tls_prefer_server_ciphers : Bool = false
     property? tls_verify_peer : Bool = false
     property tls_ca_cert : String = ""
     property tls_keylog_file : String = ""
@@ -21,6 +23,8 @@ module LavinMQ
     property amqp_tls_key : String? = nil
     property amqp_tls_min_version : String? = nil
     property amqp_tls_ciphers : String? = nil
+    property amqp_tls_ciphersuites : String? = nil
+    property amqp_tls_prefer_server_ciphers : Bool? = nil
     property amqp_tls_verify_peer : Bool? = nil
     property amqp_tls_ca_cert : String? = nil
     property amqp_tls_keylog_file : String? = nil
@@ -30,6 +34,8 @@ module LavinMQ
     property mqtt_tls_key : String? = nil
     property mqtt_tls_min_version : String? = nil
     property mqtt_tls_ciphers : String? = nil
+    property mqtt_tls_ciphersuites : String? = nil
+    property mqtt_tls_prefer_server_ciphers : Bool? = nil
     property mqtt_tls_verify_peer : Bool? = nil
     property mqtt_tls_ca_cert : String? = nil
     property mqtt_tls_keylog_file : String? = nil
@@ -39,6 +45,8 @@ module LavinMQ
     property http_tls_key : String? = nil
     property http_tls_min_version : String? = nil
     property http_tls_ciphers : String? = nil
+    property http_tls_ciphersuites : String? = nil
+    property http_tls_prefer_server_ciphers : Bool? = nil
     property http_tls_verify_peer : Bool? = nil
     property http_tls_ca_cert : String? = nil
     property http_tls_keylog_file : String? = nil
@@ -57,6 +65,8 @@ module LavinMQ
         @amqp_tls_key || @tls_key,
         @amqp_tls_min_version || @tls_min_version,
         @amqp_tls_ciphers || @tls_ciphers,
+        @amqp_tls_ciphersuites || @tls_ciphersuites,
+        {@amqp_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
         {@amqp_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @amqp_tls_ca_cert || @tls_ca_cert,
         @amqp_tls_keylog_file || @tls_keylog_file
@@ -70,6 +80,8 @@ module LavinMQ
         @mqtt_tls_key || @tls_key,
         @mqtt_tls_min_version || @tls_min_version,
         @mqtt_tls_ciphers || @tls_ciphers,
+        @mqtt_tls_ciphersuites || @tls_ciphersuites,
+        {@mqtt_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
         {@mqtt_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @mqtt_tls_ca_cert || @tls_ca_cert,
         @mqtt_tls_keylog_file || @tls_keylog_file
@@ -83,13 +95,16 @@ module LavinMQ
         @http_tls_key || @tls_key,
         @http_tls_min_version || @tls_min_version,
         @http_tls_ciphers || @tls_ciphers,
+        @http_tls_ciphersuites || @tls_ciphersuites,
+        {@http_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
         {@http_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @http_tls_ca_cert || @tls_ca_cert,
         @http_tls_keylog_file || @tls_keylog_file
       )
     end
 
-    private def create_tls_context(cert_path, key_path, min_version, ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def create_tls_context(cert_path, key_path, min_version, ciphers, ciphersuites, prefer_server_ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
 
@@ -117,6 +132,10 @@ module LavinMQ
 
       # Set ciphers
       context.ciphers = ciphers unless ciphers.empty?
+      context.cipher_suites = ciphersuites unless ciphersuites.empty?
+
+      # Let the server's cipher order win over the client's
+      context.add_options(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE) if prefer_server_ciphers
 
       # Set client certificate verification (mTLS)
       if verify_peer
