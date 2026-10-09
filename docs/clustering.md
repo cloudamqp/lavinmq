@@ -111,7 +111,7 @@ If the leader stops sending heartbeats for `election_timeout` (1500 ms by defaul
 
 A new leader starts with an ISR of only itself; followers are added back as they finish syncing from it.
 
-A leader that can't reach a majority of the voters for `election_timeout` steps down and exits (code 3), like when it loses leadership in any other way. A leader shutting down gracefully hands leadership over to a caught up ISR member right away instead.
+A leader that can't reach a majority of the voters for `election_timeout` steps down, like when it loses leadership in any other way. It disconnects its followers first, so nothing more is confirmed, then stops serving clients and continues as a follower in the same process: its raft node keeps running, so it can vote and be elected again without a restart. If stopping to serve fails or takes longer than 60 seconds, the node exits (code 3) instead. A leader shutting down gracefully hands leadership over to a caught up ISR member right away.
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
@@ -169,7 +169,7 @@ The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_mem
 
 ### Transferring leadership
 
-`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR (without `--target`, any caught up one). The leader stops serving clients, tells the target to take over, and exits cleanly (code 0), so that its supervisor restarts it as a follower. That needs `Restart=always` in the systemd unit, which the shipped units use. Without a restarting supervisor the node stays down. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers proxy HTTP to the leader and a leader starts HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that.
+`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR (without `--target`, any caught up one). The leader stops serving clients, tells the target to take over, and continues as a follower of the target in the same process. Its raft node keeps running throughout, so the new leader keeps its quorum also when only a majority of the voters is up. If the target doesn't take over within two election timeouts, the leader serves again. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers proxy HTTP to the leader and a leader starts HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that.
 
 ### Relocating a replica
 
@@ -178,7 +178,7 @@ To move a replica from node A to a new node D:
 1. Start D with `seeds` listing at least one existing member, the same shared password, and no `bootstrap`. It doesn't campaign with an empty log. **Don't** list only D in `seeds`, a node that is its only seed bootstraps a new cluster of its own.
 2. `lavinmqctl add_cluster_member <D>`. D gets the Raft log and syncs the broker data. `cluster_status` shows `in_isr` for D when it is done.
 3. `lavinmqctl promote_cluster_member <D>`.
-4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A restarts as a follower.
+4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A continues as a follower.
 5. `lavinmqctl remove_cluster_member <A>`, then shut A down and wipe its data dir before reusing it. A removed node logs that it isn't a member and keeps retrying until it is stopped.
 
 ### Changing a node's address

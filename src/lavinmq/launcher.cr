@@ -23,7 +23,10 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @controller : Clustering::Controller?
     @raft_controller : Clustering::RaftController?
+    # Serializes stopping to serve as the leader with a shutdown
+    @role_lock = Mutex.new
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -43,10 +46,10 @@ module LavinMQ
 
       if @config.clustering?
         @runner = controller = Clustering::Controller.create(@config)
-        @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
+        @controller = controller
         if controller.is_a?(Clustering::RaftController)
           @raft_controller = controller
-          controller.on_step_down { |target| spawn(step_down(target), name: "Step down") }
+          controller.on_demote { |hand_over| demote(hand_over) }
         end
       else
         @runner = StandaloneRunner.new
@@ -65,12 +68,17 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
+      # A fresh replicator for each term this node leads, see #demote
+      if controller = @controller
+        @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
+      end
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller,
+        @config.control_unix_path)
       start_listeners(amqp_server, mqtt_server, http_server)
       @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
@@ -91,31 +99,59 @@ module LavinMQ
       @runner.run do
         start
       end
-      @replicator.try &.close if @server # only a leader started it
+      @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
     end
 
-    # Hands leadership over to `target` after a request from an operator: stops
-    # serving clients, lets the target take over, and exits cleanly (0). The
-    # supervisor, with systemd's Restart=always, restarts this node as a
-    # follower.
-    private def step_down(target : String) : Nil
-      Log.warn { "Stepping down, handing over leadership to #{target}" }
-      stop
-      exit 0
+    # Stops serving as the leader, without exiting: the raft controller keeps
+    # its raft node running and makes this node follow the new leader, and
+    # the next time it's elected #start serves again. When leadership was
+    # lost (no *hand_over*) the followers are disconnected first, so nothing
+    # more can be confirmed. When it's handed over the clients are
+    # disconnected first, and leadership is handed over before the followers
+    # are, so they have everything that was confirmed and the target is
+    # still in the ISR.
+    private def demote(hand_over : Proc(Nil)?) : Nil
+      @role_lock.synchronize do
+        return if @closed
+        close_replicator unless hand_over
+        @http_server.try &.close rescue nil
+        @amqp_server.try &.close rescue nil
+        @mqtt_server.try &.close rescue nil
+        if server = @server
+          # Not #stop, that also clears the replicator's checksums, which the
+          # replication client reuses when it starts following
+          server.close rescue nil
+          server.authenticator.cleanup rescue nil
+        end
+        hand_over.try &.call
+        close_replicator
+        @metrics_server.try &.stop_reporting_broker
+        @http_server = nil
+        @amqp_server = nil
+        @mqtt_server = nil
+        @server = nil
+      end
+    end
+
+    private def close_replicator : Nil
+      @replicator.try &.close rescue nil
+      @replicator = nil
     end
 
     def stop
-      return if @closed
-      @closed = true
-      Log.warn { "Stopping" }
-      SystemD.notify_stopping
-      @runner.stopping
-      @http_server.try &.close rescue nil
-      @amqp_server.try &.close rescue nil
-      @mqtt_server.try &.close rescue nil
-      @server.try &.close rescue nil
-      @metrics_server.try &.close rescue nil
+      @role_lock.synchronize do
+        return if @closed
+        @closed = true
+        Log.warn { "Stopping" }
+        SystemD.notify_stopping
+        @runner.stopping
+        @http_server.try &.close rescue nil
+        @amqp_server.try &.close rescue nil
+        @mqtt_server.try &.close rescue nil
+        @server.try &.close rescue nil
+        @metrics_server.try &.close rescue nil
+      end
       @runner.stop
     end
 

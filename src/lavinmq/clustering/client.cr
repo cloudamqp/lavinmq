@@ -108,7 +108,7 @@ module LavinMQ
         @host = host
         @port = port
         if @serve_control_socket && !local_leader_host?(host)
-          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server
+          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server(path: @config.control_unix_path)
         end
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"

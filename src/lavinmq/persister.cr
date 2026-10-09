@@ -4,6 +4,7 @@ require "./mfile"
 require "./filesystem"
 require "./clustering/replicator"
 require "./clustering/follower"
+require "./clustering/coordinator"
 require "sync/exclusive"
 
 module LavinMQ
@@ -48,6 +49,9 @@ module LavinMQ
     {% end %}
 
     @data_dir_fd : Int32 = -1
+    # Set when this node lost its leadership while waiting for the followers:
+    # nothing is confirmed from then on, and #sync raises
+    @leadership_lost = Atomic(Bool).new(false)
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
@@ -97,12 +101,20 @@ module LavinMQ
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
+        raise_if_leadership_lost
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
       waiter.receive?
+      raise_if_leadership_lost
+    end
+
+    private def raise_if_leadership_lost : Nil
+      if @leadership_lost.get
+        raise Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
+      end
     end
 
     def close : Nil
@@ -135,6 +147,11 @@ module LavinMQ
         end
       end
       return unless batch
+      if @leadership_lost.get
+        # Never confirmed, the waiters raise
+        batch.waiters.each &.close
+        return
+      end
 
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
@@ -177,7 +194,17 @@ module LavinMQ
       # the coordinator is unreachable confirms stall (publishers time out,
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
-      replicator.try &.wait_for_followers
+      begin
+        replicator.try &.wait_for_followers
+      rescue Clustering::Coordinator::StaleLeadership
+        # A new leader decides what's in sync now, so nothing waiting here
+        # can be confirmed. Clients see their connections closed when this
+        # node steps down, and resend what wasn't confirmed.
+        Log.warn { "Not the leader anymore, not confirming pending publishes" }
+        @leadership_lost.set(true)
+        batch.waiters.each &.close
+        return
+      end
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)

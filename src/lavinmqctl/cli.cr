@@ -737,7 +737,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
-  @[Cmd("Hand over leadership to a node, the leader restarts as a follower", "[--target=address|node_id] [--wait] [--timeout=seconds]", section: "Cluster")]
+  @[Cmd("Hand over leadership to a node, the leader continues as a follower", "[--target=address|node_id] [--wait] [--timeout=seconds]", section: "Cluster")]
   @[Opt("--target=address|node_id", "Raft address or clustering id of the node to hand over to, default any caught up voter", options: "target")]
   @[Opt("--wait", "Wait until the target is the leader", options: "wait", value: "true")]
   @[Opt("--timeout=seconds", "How long to wait with --wait (60)", options: "timeout")]

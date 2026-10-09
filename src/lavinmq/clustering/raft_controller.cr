@@ -15,7 +15,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   @transport : Raft::TCPTransport? = nil
   # Serves lavinmqctl this node's view of the cluster until it leads
   @control_server : ::HTTP::Server? = nil
-  @step_down : (String ->)? = nil
+  # Stops serving as the leader, see #on_demote
+  @demote : (Proc(Nil)? ->)? = nil
+  @step_down_requested = Channel(Transfer).new(1)
   @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
   @stop_signal = Channel(Nil).new
@@ -40,10 +42,19 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
-  # Registers what to do when an operator asks this leader to hand over
-  # leadership, see #step_down. The Launcher shuts the node down gracefully.
-  def on_step_down(&block : String ->) : Nil
-    @step_down = block
+  # How long stopping to serve, or a startup that lost leadership, may take
+  # before the process exits instead, so a node that isn't the leader anymore
+  # never keeps serving
+  property demotion_timeout : Time::Span = 60.seconds
+
+  # Registers how the Launcher stops serving when this node stops being the
+  # leader, without exiting: the raft node keeps running and this node
+  # follows the new leader. When leadership is handed over the block gets
+  # the handover to call once clients are disconnected, while the followers
+  # are still connected (the target has to stay in the ISR). When it was
+  # lost, it gets nil.
+  def on_demote(&block : Proc(Nil)? ->) : Nil
+    @demote = block
   end
 
   # Checks that `target` (a clustering id or raft address, or without one any
@@ -84,44 +95,31 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   # Gracefully step down in favour of `target`: stop serving, hand over
-  # leadership and restart as a follower, see Launcher#step_down.
+  # leadership and continue as a follower, see #run. Returns right away, the
+  # transfer was already claimed by #request_transfer.
   def step_down(target : Transfer) : Nil
-    if callback = @step_down
-      callback.call(target.address)
+    select
+    when @step_down_requested.send(target)
     else
-      Log.warn { "No step down handler registered, can't hand over leadership to #{target.address}" }
+      Log.warn { "A step down is already pending, not handing over to #{target.address}" }
     end
   end
 
+  # Follows the leader, and yields to start serving whenever this node
+  # becomes the leader. When it stops being the leader (leadership lost, or
+  # handed over) the broker is stopped (see #on_demote) and this node
+  # follows again, all in this process: the raft node keeps running, so a
+  # node that hands over leadership still counts for the new leader's quorum.
+  # Returns once the node is stopped.
   def run(&)
     start_node
-    spawn(follow_leader, name: "Follower monitor")
-    select
-    when @promoted.receive?
-    when @stop_signal.receive?
-      return
+    loop do
+      break unless await_promotion
+      transfer = lead { yield }
+      break if @stopping
+      step_down_as_leader(transfer)
     end
-    return if @stopped
-    ensure_in_isr!
-    @repli_client.try &.close
-    # The leader's HTTP server binds the control socket when it starts
-    close_control_server
-    # No follower is replicating from this node yet, so none of them can be
-    # trusted to have what it's about to confirm. They rejoin the ISR as they
-    # finish syncing.
-    @coordinator.update_isr(Set{@id})
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    # Startup can block on replicated writes that never complete without
-    # leadership, so watch for its loss from here on, not after the yield.
-    spawn(exit_on_leadership_loss, name: "Leadership monitor")
-    yield
     @stop_signal.receive?
-  rescue RaftCoordinator::StaleLeadership
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopping
-      Log.fatal { "Lost leadership before starting to serve" }
-      exit 3
-    end
   end
 
   def stop
@@ -145,12 +143,122 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @control_server = nil
   end
 
-  private def exit_on_leadership_loss : Nil
-    @node.serving.when_false.receive
+  # Follows the leader until this node is a serving leader. False if the
+  # node is stopped first.
+  private def await_promotion : Bool
+    @promoted = Channel(Nil).new
+    spawn(follow_leader, name: "Follower monitor")
+    select
+    when @promoted.receive?
+    when @stop_signal.receive?
+      return false
+    end
+    !@stopping
+  end
+
+  # Serves as the leader until leadership is lost, a transfer is requested,
+  # or the node stops. Returns the requested transfer, if that's why.
+  private def lead(&) : Transfer?
+    ensure_in_isr!
+    if repli_client = @repli_client
+      repli_client.close
+      @repli_client = nil
+      report_metrics_of nil
+    end
+    # The leader's HTTP server binds the control socket when it starts
+    close_control_server
+    # No follower is replicating from this node yet, so none of them can be
+    # trusted to have what it's about to confirm. They rejoin the ISR as they
+    # finish syncing.
+    @coordinator.update_isr(Set{@id})
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    started = Channel(Nil).new
+    spawn(watch_startup(started), name: "Startup watchdog")
+    begin
+      yield
+    ensure
+      started.close
+    end
+    select
+    when @node.serving.when_false.receive
+      nil
+    when transfer = @step_down_requested.receive
+      transfer
+    when @stop_signal.receive?
+      nil
+    end
+  rescue RaftCoordinator::StaleLeadership
+    # Lost while starting to serve, replicated writes during startup fail
+    # with it
+    nil
+  end
+
+  private def step_down_as_leader(transfer : Transfer?) : Nil
+    if transfer
+      Log.warn { "Stepping down, handing over leadership to #{transfer.address}" }
+    else
+      Log.warn { "Lost leadership, continuing as a follower" }
+    end
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    return if @stopping
-    Log.fatal { "Lost leadership" }
-    exit 3
+    if transfer
+      demote(->hand_over_leadership)
+      Log.warn { "Leadership wasn't handed over to #{transfer.address}, serving again" } if leader?
+    else
+      demote(nil)
+    end
+    # A transfer requested as leadership was lost is void, it mustn't be done
+    # in a later term or block the next one
+    select
+    when @step_down_requested.receive?
+    else
+    end
+    @transfer_lock.synchronize { @transfer_target = nil }
+    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status, @config.control_unix_path)
+  end
+
+  # Replicated writes fail once leadership is lost, which ends a startup that
+  # waits for them, but exit if a startup that lost leadership hangs on
+  # something else
+  private def watch_startup(started : Channel(Nil)) : Nil
+    select
+    when started.receive?
+      return
+    when @node.serving.when_false.receive
+    end
+    select
+    when started.receive?
+    when timeout(@demotion_timeout)
+      Log.fatal { "Lost leadership while starting to serve, and the startup didn't stop, exiting" }
+      exit 3
+    end
+  end
+
+  # Stops serving, see #on_demote. Exits if that fails or hangs, a node that
+  # isn't the leader anymore must never keep serving.
+  private def demote(hand_over : Proc(Nil)?) : Nil
+    done = Channel(Nil).new
+    spawn(watch_demotion(done), name: "Demotion watchdog")
+    begin
+      if demote = @demote
+        demote.call(hand_over)
+      else
+        hand_over.try &.call
+      end
+    rescue ex
+      Log.fatal(exception: ex) { "Failed to stop serving, exiting" }
+      exit 3
+    ensure
+      done.close
+    end
+  end
+
+  private def watch_demotion(done : Channel(Nil)) : Nil
+    select
+    when done.receive?
+    when timeout(@demotion_timeout)
+      Log.fatal { "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting" }
+      exit 3
+    end
   end
 
   # Lets an in-sync follower take over right away instead of after an
@@ -176,7 +284,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       ->@node.deliver(Raft::TransportEvent), execution_context: @raft_context)
     @raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
-    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status)
+    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status, @config.control_unix_path)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
   end

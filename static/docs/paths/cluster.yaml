@@ -165,8 +165,8 @@
     tags:
     - cluster
     description: |
-      Hand over leadership. The leader stops serving clients, lets the target take over and then exits with status 0
-      so that a supervisor with `Restart=always` restarts it as a follower. The response is sent before that. The transfer is complete when
+      Hand over leadership. The leader stops serving clients, lets the target take over and continues as a follower,
+      without restarting. The response is sent before that. The transfer is complete when
       `GET /api/cluster` answers with the target as `leader`, which is only the case once it is up and serving.
       Requires administrator permission.
     summary: Transfer leadership

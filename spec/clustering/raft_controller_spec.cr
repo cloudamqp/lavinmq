@@ -33,16 +33,39 @@ end
 
 private alias ControllerExit = Tuple(LavinMQ::Clustering::RaftController, Int32)
 
-# Records the exit on leadership loss, which happens in its own fiber.
+# Records the exits of the watchdogs, which run in fibers of their own.
 private class ExitRecordingController < LavinMQ::Clustering::RaftController
   def initialize(config : LavinMQ::Config, @exits : Channel(ControllerExit))
     super(config)
   end
 
-  private def exit_on_leadership_loss : Nil
+  private def watch_startup(started : Channel(Nil)) : Nil
     super
   rescue ex : SpecExit
     @exits.send({self, ex.code})
+  end
+
+  private def watch_demotion(done : Channel(Nil)) : Nil
+    super
+  rescue ex : SpecExit
+    @exits.send({self, ex.code})
+  end
+end
+
+private alias ControllerDemotion = Tuple(LavinMQ::Clustering::RaftController, Bool)
+
+private def receive_within(channel : Channel(T), span : Time::Span) : T? forall T
+  select
+  when value = channel.receive
+    value
+  when timeout(span)
+    nil
+  end
+end
+
+private def should_not_have_exited(cluster) : Nil
+  if exit = receive_within(cluster.exits, 0.seconds)
+    fail "exited with #{exit[1]}"
   end
 end
 
@@ -52,6 +75,8 @@ private class ControllerCluster
   getter controllers = Array(LavinMQ::Clustering::RaftController).new
   getter serving = Channel(LavinMQ::Clustering::RaftController).new(8)
   getter exits = Channel(ControllerExit).new(8)
+  # Each time a leader stops serving, and whether it lost leadership
+  getter demotions = Channel(ControllerDemotion).new(8)
   getter dirs = Array(String).new
   getter configs = Array(LavinMQ::Config).new
   # With *replication*, a leader also serves its data to followers, as the
@@ -99,7 +124,19 @@ private class ControllerCluster
     # Followers proxy client ports to the leader, let each pick its own
     config.amqp_port = config.http_port = config.mqtt_port = 0
     config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-    ExitRecordingController.new(config, @exits).tap { |c| @controllers << c }
+    ExitRecordingController.new(config, @exits).tap do |c|
+      register(c)
+      @controllers << c
+    end
+  end
+
+  # Stops serving replication when a leader steps down, as the Launcher does
+  private def register(controller : LavinMQ::Clustering::RaftController) : Nil
+    controller.on_demote do |hand_over|
+      hand_over.try &.call
+      @servers.delete(controller).try &.close
+      @demotions.send({controller, hand_over.nil?})
+    end
   end
 
   def address(controller : LavinMQ::Clustering::RaftController) : String
@@ -111,6 +148,7 @@ private class ControllerCluster
   def restart(controller : LavinMQ::Clustering::RaftController) : LavinMQ::Clustering::RaftController
     index = @controllers.index!(controller)
     @controllers[index] = fresh = ExitRecordingController.new(@configs[index], @exits)
+    register(fresh)
     start(fresh)
     fresh
   end
@@ -408,51 +446,66 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  it "doesn't exit with an error when losing leadership while shutting down", tags: "slow" do
+  it "doesn't step down when losing leadership while shutting down", tags: "slow" do
     with_controllers do |cluster|
       cluster.start_all
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       first.stopping
       cluster.controllers.reject(first).each(&.stop)
-      select
-      when exit = cluster.exits.receive
-        fail "exited with #{exit[1]} during a graceful shutdown"
-      when timeout(2.seconds)
+      if demotion = receive_within(cluster.demotions, 2.seconds)
+        fail "stepped down to follow during a graceful shutdown (lost: #{demotion[1]})"
       end
+      should_not_have_exited(cluster)
     end
   end
 
-  it "exits when it loses leadership during startup", tags: "slow" do
+  it "stops serving when it loses leadership during a startup that writes the ISR", tags: "slow" do
     with_controllers do |cluster|
-      cluster.start_all(-> { sleep }) # e.g. stuck in a replicated write
+      # A replicated write during startup fails once leadership is lost
+      cluster.start_all(-> {
+        wait_for(5.seconds) { cluster.controllers.none?(&.node.serving.value) }
+        raise LavinMQ::Clustering::RaftCoordinator::StaleLeadership.new
+      })
+      first = cluster.next_leader
+      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      cluster.controllers.reject(first).each(&.stop)
+      receive_within(cluster.demotions, 5.seconds).should eq({first, true})
+      should_not_have_exited(cluster)
+    end
+  end
+
+  it "exits when it loses leadership during a startup that hangs", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.controllers.each &.demotion_timeout = 500.milliseconds
+      cluster.start_all(-> { sleep })
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       cluster.controllers.reject(first).each(&.stop)
       select
       when exit = cluster.exits.receive
-        exit[0].should eq first
-        exit[1].should eq 3
+        exit.should eq({first, 3})
       when timeout(5.seconds)
         fail "leader cut off from the majority during startup kept running"
       end
     end
   end
 
-  it "exits when it loses leadership", tags: "slow" do
+  it "stops serving and follows when it loses leadership", tags: "slow" do
     with_controllers do |cluster|
       cluster.start_all
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       # Cut the leader off from its peers: it has to step down on its own
-      cluster.controllers.reject(first).each(&.stop)
-      select
-      when exit = cluster.exits.receive
-        exit[0].should eq first
-        exit[1].should eq 3
-      when timeout(5.seconds)
-        fail "leader cut off from the majority kept serving"
-      end
+      others = cluster.controllers.reject(first)
+      others.each(&.stop)
+      receive_within(cluster.demotions, 5.seconds).should eq({first, true})
+      should_not_have_exited(cluster)
+      first.node.leader?.should be_false
+      # When its peers are back it can be elected again, in the same process
+      others.each { |c| cluster.restart(c) }
+      wait_for(10.seconds) { cluster.controllers.any?(&.node.serving.value) }
+      should_not_have_exited(cluster)
     end
   end
 
@@ -488,7 +541,6 @@ describe LavinMQ::Clustering::RaftController do
       a.node.membership.not_nil!.voters.should contain(d.id)
 
       a.request_transfer("127.0.0.1:1").should be_a String # not a member
-      a.on_step_down { |_| spawn(name: "step down spec") { a.stop } }
       plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
       plan.target.should eq d.id
       plan.address.should eq d_addr
@@ -497,10 +549,10 @@ describe LavinMQ::Clustering::RaftController do
       a.request_transfer(d_addr).as(String).should contain "already in progress"
       a.step_down(plan)
       cluster.next_leader(10.seconds).should eq d
+      cluster.demotions.receive.should eq({a, false})
 
-      # The old leader restarts as a follower, and replicates from the new one
-      cluster.servers.delete(a).try &.close
-      a2 = cluster.restart(a)
+      # The old leader continues as a follower, in the same process, and
+      # replicates from the new one
       wait_for(10.seconds) { d.node.committed_isr.try(&.includes?(a.id)) }
       cluster.servers[d].all_followers.map(&.id).should contain(a.id)
 
@@ -510,7 +562,7 @@ describe LavinMQ::Clustering::RaftController do
       d.node.membership.not_nil!.members.should_not contain(a.id)
 
       # It's told, disconnected and refused when it comes back
-      wait_for(10.seconds) { !a2.node.self_member? }
+      wait_for(10.seconds) { !a.node.self_member? }
       wait_for(10.seconds) { cluster.servers[d].all_followers.none? { |f| f.id == a.id } }
       sleep 2.5.seconds # a few reconnect attempts
       cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true

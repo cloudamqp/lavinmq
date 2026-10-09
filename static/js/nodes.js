@@ -309,7 +309,7 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
     buttons.append(DOM.button.edit({
       text: 'Make leader',
       click: () => {
-        if (!window.confirm(`Hand over leadership to ${item.address}? The current leader stops serving and restarts as a follower.`)) return
+        if (!window.confirm(`Hand over leadership to ${item.address}? The current leader stops serving and continues as a follower.`)) return
         clusterRequest('POST', 'api/cluster/transfer-leadership', { target: item.node_id })
           .then(() => DOM.toast(`Handing over leadership to ${item.address}`)).catch(() => {})
       }

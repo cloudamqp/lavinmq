@@ -47,6 +47,11 @@ module LavinMQ
         @source.leader = PrometheusController.new(server, require_authentication: false, raft: @raft)
       end
 
+      # Back to reporting as a follower, once this node stopped serving
+      def stop_reporting_broker : Nil
+        @source.leader = nil
+      end
+
       # The replication client to report on while following, nil when not
       def clustering_client=(client : LavinMQ::Clustering::Client?) : Nil
         @source.follower.clustering_client = client

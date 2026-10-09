@@ -22,6 +22,55 @@ private def clustering_config(data_dir : String) : LavinMQ::Config
   config
 end
 
+# A raft cluster of real launchers in this process, one per data dir, each
+# voter needed for a quorum when there are two
+private def raft_launcher_configs(dirs : Enumerable(String)) : Array(LavinMQ::Config)
+  configs = dirs.map do |dir|
+    config = clustering_config(dir)
+    config.clustering_backend = LavinMQ::ClusteringBackend::Raft
+    config.clustering_election_timeout = 300
+    config.clustering_heartbeat_interval = 50
+    config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+    config.amqp_port = config.http_port = config.mqtt_port = 0
+    config.amqps_port = config.https_port = config.mqtts_port = -1
+    config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+    config.control_unix_path = File.join(dir, "control.sock")
+    config.metrics_http_bind = "127.0.0.1"
+    config.metrics_http_port = free_port
+    config
+  end.to_a
+  seeds = configs.join(',', &.clustering_raft_advertised_address)
+  configs.each &.clustering_seeds = seeds
+  configs[0].clustering_bootstrap = true
+  configs
+end
+
+private def run_launcher(launcher : LavinMQ::Launcher, exited : Channel(Nil)) : Nil
+  spawn(name: "raft launcher spec") do
+    launcher.run
+  rescue ex : SpecExit
+    STDERR.puts "launcher exited with #{ex.code}"
+  ensure
+    exited.send nil
+  end
+end
+
+private def stop_launchers(launchers, exited) : Nil
+  launchers.reverse_each &.stop
+  launchers.size.times do
+    select
+    when exited.receive
+    when timeout(10.seconds) then break
+    end
+  end
+end
+
+private def metrics_of(config : LavinMQ::Config) : String
+  HTTP::Client.get("http://127.0.0.1:#{config.metrics_http_port}/metrics").body
+rescue
+  ""
+end
+
 describe LavinMQ::Clustering::Controller do
   it "uses the etcd backend by default" do
     with_datadir do |data_dir|
@@ -111,6 +160,80 @@ describe LavinMQ::Clustering::Controller do
         end
       ensure
         launchers.try &.reverse_each &.stop
+      end
+    end
+  end
+
+  # Two voters, so each needs the other for a quorum: a leader that exited to
+  # hand over would leave the new leader without one until it restarted.
+  it "hands leadership back and forth without restarting the process", tags: "slow" do
+    with_datadir do |dir_a|
+      with_datadir do |dir_b|
+        configs = raft_launcher_configs({dir_a, dir_b})
+        launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
+        exited = Channel(Nil).new(2)
+        launchers.each { |l| run_launcher(l, exited) }
+        controllers = launchers.map { |l| l.@raft_controller.not_nil! }
+        serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
+        following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
+        in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
+
+        wait_for(10.seconds) { serving.call(0) && following.call(1) && in_sync.call(1) }
+        {0, 1}.each do |from|
+          to = 1 - from
+          plan = controllers[from].request_transfer.as(LavinMQ::Clustering::RaftController::Transfer)
+          plan.target.should eq controllers[to].id
+          controllers[from].step_down(plan)
+          # The old leader follows the new one, in the same process
+          wait_for(10.seconds) { serving.call(to) && following.call(from) && in_sync.call(from) }
+          serving.call(from).should be_false
+          # and still counts for its quorum, so the new leader keeps leading
+          sleep 1.second # over three election timeouts
+          controllers[to].node.leader?.should be_true
+          serving.call(to).should be_true
+        end
+        select
+        when exited.receive
+          fail "a launcher returned while it should keep running"
+        else
+        end
+      ensure
+        stop_launchers(launchers, exited) if launchers && exited
+      end
+    end
+  end
+
+  it "stops serving on losing its quorum and leads again, without restarting the process", tags: "slow" do
+    with_datadir do |dir_a|
+      with_datadir do |dir_b|
+        configs = raft_launcher_configs({dir_a, dir_b})
+        launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
+        exited = Channel(Nil).new(3)
+        launchers.each { |l| run_launcher(l, exited) }
+        leader = launchers[0].@raft_controller.not_nil!
+        wait_for(10.seconds) do
+          metrics_of(configs[0]).includes?("lavinmq_uptime") &&
+            leader.node.committed_isr.try(&.includes?(launchers[1].@raft_controller.not_nil!.id))
+        end
+
+        # The other voter goes away, the leader can't keep its quorum
+        launchers[1].stop
+        exited.receive
+        wait_for(5.seconds) { !leader.node.leader? }
+        wait_for(5.seconds) { !metrics_of(configs[0]).includes?("lavinmq_uptime") }
+        metrics_of(configs[0]).should contain "lavinmq_raft_has_leader 0"
+
+        # It comes back, and a leader serves again
+        launchers[1] = LavinMQ::Launcher.new(configs[1])
+        run_launcher(launchers[1], exited)
+        wait_for(10.seconds) { configs.any? { |c| metrics_of(c).includes?("lavinmq_uptime") } }
+        select
+        when exited.receive
+          fail "a launcher returned while it should keep running"
+        else
+        end
+      ensure
+        stop_launchers(launchers, exited) if launchers && exited
       end
     end
   end

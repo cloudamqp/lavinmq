@@ -429,6 +429,8 @@ module LavinMQ
             if behind
               begin
                 update_isr # @dirty_isr stays set, so the lazy path retries on failure
+              rescue Coordinator::StaleLeadership
+                Log.debug { "Not the leader anymore, ISR not updated after follower id=#{follower.id.to_s(36)} disconnected" }
               rescue ex
                 Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
               end
@@ -458,7 +460,9 @@ module LavinMQ
         @lock.synchronize { @dirty_isr }
       end
 
-      # Commit the current ISR to the coordinator, retrying until it succeeds.
+      # Commit the current ISR to the coordinator, retrying until it succeeds
+      # or this node is no longer the leader (Coordinator::StaleLeadership is
+      # raised then, the operation can't be acknowledged anymore).
       # Called before any durable operation is acknowledged when a synced
       # follower has disconnected — by each_follower after dispatching a
       # replicated change, and by the Persister before sending publish
@@ -472,6 +476,8 @@ module LavinMQ
         loop do
           @lock.synchronize { update_isr }
           return
+        rescue ex : Coordinator::StaleLeadership
+          raise ex
         rescue ex
           Log.warn(exception: ex) { "Failed to update ISR, retrying" }
           sleep 0.5.seconds
@@ -524,8 +530,9 @@ module LavinMQ
       # loop, so a coordinator failure can't abort a dispatch halfway and
       # leave a hole in every follower's file, and flush_isr retries instead
       # of raising into the publish path — the operation stalls, and if the
-      # coordinator stays unreachable the leader's lease expires and the
-      # process exits.
+      # coordinator stays unreachable the leader's lease expires. Once this
+      # node isn't the leader anymore it raises Coordinator::StaleLeadership,
+      # so the operation fails instead of being acknowledged.
       private def each_follower(& : Follower -> Nil) : Nil
         dirty = false
         @lock.synchronize do

@@ -3,7 +3,7 @@ require "./raft/node"
 
 module LavinMQ::Clustering
   class RaftCoordinator < Coordinator
-    class StaleLeadership < Exception
+    class StaleLeadership < Coordinator::StaleLeadership
       def initialize
         super("Not the leader, ISR not updated")
       end
