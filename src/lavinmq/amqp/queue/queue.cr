@@ -546,8 +546,7 @@ module LavinMQ::AMQP
     # Publish the staged settings, then act on them
     private def commit_policy_arguments
       settings = @staged_settings
-      @dead_letter.dlx = settings.dlx
-      @dead_letter.dlrk = settings.dlrk
+      @dead_letter.set_target(settings.dlx, settings.dlrk)
       @settings = settings
       @queue_expiration_ttl_change.try_send? nil
       ensure_queue_expire_fiber

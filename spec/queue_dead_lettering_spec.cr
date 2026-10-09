@@ -1148,5 +1148,51 @@ module DeadLetteringSpec
         end
       end
     end
+
+    it "never pairs a new dead letter exchange with an old routing key", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        {"dlx-a", "dlx-b"}.each { |ex| vhost.declare_exchange(ex, "direct", false, false) }
+        {"dl-a", "dl-b", "dl-torn"}.each do |q|
+          vhost.declare_queue(q, false, false, LavinMQ::AMQP::Table.new({"x-max-length" => 1}))
+        end
+        vhost.bind_queue("dl-a", "dlx-a", "rk-a")
+        vhost.bind_queue("dl-torn", "dlx-a", "rk-b")
+        vhost.bind_queue("dl-b", "dlx-b", "rk-b")
+        vhost.bind_queue("dl-torn", "dlx-b", "rk-a")
+        # Every publish overflows and is dead lettered
+        vhost.declare_queue("dl-src", false, false, LavinMQ::AMQP::Table.new({"x-max-length" => 0}))
+        src = vhost.queue("dl-src").as(LavinMQ::AMQP::Queue)
+        dead_letter = src.@dead_letter
+        stop = Atomic(Bool).new(false)
+        deadline = Time.instant + 2.seconds
+        ctx = Fiber::ExecutionContext::Parallel.new("dlx-dlrk-race", 4)
+        wg = WaitGroup.new
+        wg.add(1)
+        ctx.spawn do
+          until Time.instant >= deadline
+            dead_letter.set_target("dlx-a", "rk-a")
+            dead_letter.set_target("dlx-b", "rk-b")
+          end
+        ensure
+          stop.set(true)
+          wg.done
+        end
+        3.times do
+          wg.add(1)
+          ctx.spawn do
+            until stop.get
+              src.publish(LavinMQ::Message.new("", src.name, "body"))
+            end
+          ensure
+            wg.done
+          end
+        end
+        wg.wait
+        vhost.queue("dl-torn").message_count.should eq 0
+        vhost.queue("dl-a").message_count.should eq 1
+        vhost.queue("dl-b").message_count.should eq 1
+      end
+    end
   end
 end

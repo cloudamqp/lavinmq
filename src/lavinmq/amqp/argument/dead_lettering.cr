@@ -28,8 +28,30 @@ module LavinMQ::AMQP
       end
 
       class DeadLetterer
-        property dlx : String? = nil
-        property dlrk : String? = nil
+        # The DLX and DLRK are swapped in as one reference, so a route on
+        # another thread never pairs a new DLX with an old DLRK
+        class Target
+          getter dlx : String?
+          getter dlrk : String?
+
+          def initialize(@dlx : String?, @dlrk : String?)
+          end
+        end
+
+        @target = Target.new(nil, nil)
+
+        def dlx : String?
+          @target.dlx
+        end
+
+        def dlrk : String?
+          @target.dlrk
+        end
+
+        def set_target(dlx : String?, dlrk : String?) : Nil
+          @target = Target.new(dlx, dlrk)
+        end
+
         @tasks = Tasks.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
@@ -61,10 +83,11 @@ module LavinMQ::AMQP
 
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          return routed.call unless dlx = (msg.dlx || dlx())
+          target = @target
+          return routed.call unless dlx = (msg.dlx || target.dlx)
           ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
 
-          dlrk = msg.dlrk || dlrk()
+          dlrk = msg.dlrk || target.dlrk
 
           props = create_message_properties(msg, reason)
           routing_headers = props.headers
