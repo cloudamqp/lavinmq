@@ -60,7 +60,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow |
 | `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue |
 
-The `global_messages_dead_lettered_*` metrics have a `dead_letter_strategy` label, as in RabbitMQ: `at_most_once` when the message had a dead letter exchange, `disabled` when it had none and was discarded.
+The `global_messages_dead_lettered_*` metrics have a `dead_letter_strategy` label: `at_most_once` when the message had a dead letter exchange, `disabled` when it had none and was discarded.
 
 #### Runtime and clustering
 
