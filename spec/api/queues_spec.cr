@@ -186,15 +186,32 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
           ch.queue("q-retry-policy", args: args)
-          definitions = {"delivery-limit" => JSON::Any.new(5_i64)}
+          definitions = {"delivery-limit" => JSON::Any.new(50_i64)}
           s.vhosts["/"].add_policy("retry-limit", "^q-retry-policy$", "queues", definitions, 0_i8)
           retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
-          retry["delivery_limit"].as_i.should eq 5
+          retry["delivery_limit"].as_i.should eq 50
           retry["delivery_limit_default"].as_bool.should be_false
           s.vhosts["/"].delete_policy("retry-limit")
           retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
           retry["delivery_limit"].as_i.should eq 20
           retry["delivery_limit_default"].as_bool.should be_true
+        end
+      end
+    end
+
+    it "should mark the implicit delivery limit as default when retries come from a policy" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q-retry-via-policy")
+          definitions = {"delayed-retry-min" => JSON::Any.new(1000_i64)}
+          s.vhosts["/"].add_policy("retry-via-policy", "^q-retry-via-policy$", "queues", definitions, 0_i8)
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-via-policy").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+          retry["delivery_limit"].as_i.should eq 20
+          retry["delivery_limit_default"].as_bool.should be_true
+          s.vhosts["/"].delete_policy("retry-via-policy")
+          body = JSON.parse(http.get("/api/queues/%2f/q-retry-via-policy").body)
+          body["delayed_retry"]?.should be_nil
         end
       end
     end
