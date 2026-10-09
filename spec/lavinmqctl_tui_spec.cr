@@ -481,9 +481,57 @@ describe LavinMQCtl::TUI do
     end
     20.times do
       responses = TUI_RESPONSES.transform_values { random_json.call(4).to_json }
-      screen, _ = run_tui('2', '3', '4', '5', '6', '7', '8', '9', '0', 's', 'f', 'u', '1', responses: responses)
+      screen, _ = run_tui('2', TUI::Key::Enter, '3', TUI::Key::Enter, '4', TUI::Key::Enter, '5', TUI::Key::Enter,
+        '6', TUI::Key::Enter, '7', TUI::Key::Enter, '8', TUI::Key::Enter, '9', TUI::Key::Enter, '0', TUI::Key::Enter,
+        's', TUI::Key::Enter, 'f', TUI::Key::Enter, 'u', TUI::Key::Enter, '1', responses: responses)
       screen.closed?.should be_true
     end
+  end
+
+  it "shows every field of the selected row" do
+    queue = {
+      vhost: "seed", name: "seed.stream", state: "running", messages: 5,
+      arguments: {"x-queue-type": "stream"},
+      message_stats: {publish: 10, publish_details: {rate: 2.5}},
+      error: "x" * 300,
+    }
+    queues = {items: [queue], filtered_count: 1}
+    screen, _ = run_tui('2', TUI::Key::Enter, responses: with_response("/api/queues", queues))
+
+    screen.text.should contain("Queues › seed.stream")
+    screen.text.should match(/arguments\.x-queue-type +stream/)
+    screen.text.should match(/message_stats\.publish +10 \(2\.5\/s\)/)
+    screen.text.should_not contain("publish_details")
+    screen.text.should contain("x" * 100) # long values wrap
+  end
+
+  it "hides password hashes and URI credentials in the details" do
+    users = [{name: "guest", password_hash: "c2VjcmV0aGFzaA=="}]
+    screen, _ = run_tui('u', TUI::Key::Enter, responses: with_response("/api/users", users))
+    screen.text.should match(/password_hash +\(hidden\)/)
+    screen.text.should_not contain("c2VjcmV0aGFzaA")
+
+    screen, _ = run_tui('f', TUI::Key::Enter)
+    screen.text.should match(%r{uri +amqp://guest:\*\*\*@localhost})
+    screen.text.should_not contain("s3cret")
+
+    parameters = JSON.parse(TUI_RESPONSES["/api/parameters"]).as_h.merge({"filtered_count" => JSON::Any.new(2)})
+    screen, _ = run_tui('9', TUI::Key::Down, TUI::Key::Enter, responses: with_response("/api/parameters", parameters))
+    screen.text.should match(%r{value\.target +amqp://guest:\*\*\*@localhost})
+    screen.text.should_not contain("s3cret")
+  end
+
+  it "scrolls the details and goes back to the table" do
+    queue = JSON.parse((1..60).to_h { |i| {"field#{i}", i} }.to_json)
+    queues = {items: [queue], filtered_count: 1}
+    responses = with_response("/api/queues", queues)
+    screen, _ = run_tui('2', TUI::Key::Enter, TUI::Key::End, responses: responses)
+    screen.text.should contain("lines 33-60 of 60")
+    screen.text.should contain("field60")
+    screen.text.should_not contain("field1 ")
+
+    screen, _ = run_tui('2', TUI::Key::Enter, 'j', TUI::Key::Escape, responses: responses)
+    screen.text.should contain("Queues  1-1 of 1")
   end
 
   it "fetches the next page of rows from the API" do

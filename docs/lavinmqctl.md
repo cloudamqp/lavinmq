@@ -111,7 +111,9 @@ The Overview page shows message rate and queue depth graphs, node resources,
 network rates, cluster followers and the queues with the most messages. The graphs
 start from the history kept by the management API and roll forward with each refresh.
 The other pages are tables that fetch as many rows as fit in the terminal, one page
-at a time. Passwords in shovel and federation URIs are masked, and control characters
+at a time. `Enter` shows every field of the selected row, which follows the row
+through refreshes and is scrolled with the same keys. Passwords in shovel and
+federation URIs are masked, password hashes are not shown, and control characters
 in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 
 | Key | Action |
@@ -121,6 +123,7 @@ in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 | `↑`, `↓`, `j`, `k` | Move the selection |
 | `PgUp`, `PgDn` | Previous or next page of rows |
 | `Home`, `End`, `g`, `G` | First or last row |
+| `Enter`, `Esc` | Show all fields of the selected row, back to the table |
 | `o`, `r` | Sort by the next column, reverse the sort order |
 | `/`, `Esc` | Filter by name, clear the filter |
 | `p`, `Space` | Pause or resume refreshing |

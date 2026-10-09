@@ -45,6 +45,11 @@ class LavinMQCtl
       property sort : String?
       property? descending : Bool
       property filter = ""
+      # The row shown with all its fields, found by its id after a refresh
+      property detail : JSON::Any?
+      property detail_id = ""
+      property detail_scroll = 0
+      property? detail_stale = false
 
       def initialize(@sort : String?, @descending : Bool)
       end
@@ -71,6 +76,7 @@ class LavinMQCtl
       {"Up Down j k", "Move the selection"},
       {"PgUp PgDn", "Previous or next page of rows"},
       {"Home End g G", "First or last row"},
+      {"Enter", "All fields of the selected row, Esc closes"},
       {"o", "Sort by the next column"},
       {"r", "Reverse the sort order"},
       {"/", "Filter by name, Esc clears the filter"},
@@ -182,6 +188,9 @@ class LavinMQCtl
         @help = false
         return unless event.key.char? && event.char == 'q'
       end
+      if (state = table_state) && state.detail
+        return if detail_key(state, event)
+      end
 
       if event.key.char?
         handle_char(event.char)
@@ -201,7 +210,43 @@ class LavinMQCtl
       when .tab?, .right?     then switch_page(1)
       when .back_tab?, .left? then switch_page(-1)
       when .escape?           then set_filter("")
+      when .enter?            then open_detail
       end
+    end
+
+    private def open_detail
+      return unless state = table_state
+      if item = @items[state.cursor % table_rows]?
+        state.detail = item
+        state.detail_id = item_id(item)
+        state.detail_scroll = 0
+        state.detail_stale = false
+      end
+    end
+
+    # Scrolls or closes the details, other keys work as on the table
+    private def detail_key(state : TableState, event : KeyEvent) : Bool
+      key = event.key.char? ? VI_KEYS[event.char]? : event.key
+      case key
+      when Key::Up       then state.detail_scroll -= 1
+      when Key::Down     then state.detail_scroll += 1
+      when Key::PageUp   then state.detail_scroll -= table_rows
+      when Key::PageDown then state.detail_scroll += table_rows
+      when Key::Home     then state.detail_scroll = 0
+      when Key::End      then state.detail_scroll = Int32::MAX
+      when Key::Escape, Key::Enter, Key::Backspace
+        state.detail = nil
+      else
+        return false
+      end
+      true
+    end
+
+    # What tells rows apart across refreshes, when the sort order moves them
+    ID_KEYS = {"vhost", "name", "component", "upstream", "resource", "consumer_tag", "queue", "channel_details"}
+
+    private def item_id(item : JSON::Any) : String
+      ID_KEYS.join('\0') { |key| Fields.text(item, key, default: "") }
     end
 
     VI_KEYS = {'j' => Key::Down, 'k' => Key::Up, 'g' => Key::Home, 'G' => Key::End}
@@ -314,6 +359,7 @@ class LavinMQCtl
         @nodes = fetch_list("/api/nodes", "nodes")
       else
         fetch_table
+        update_detail
       end
       @fetched = wanted_fetch
       @fetch_time = Time.instant - started
@@ -401,6 +447,16 @@ class LavinMQCtl
     # Keeps the first error of a refresh, later ones are often caused by it
     private def record_error(message : String)
       @last_error ||= message
+    end
+
+    private def update_detail
+      return unless (state = table_state) && state.detail
+      if item = @items.find { |i| item_id(i) == state.detail_id }
+        state.detail = item
+        state.detail_stale = false
+      else
+        state.detail_stale = true
+      end
     end
 
     # The node, and a row for each of its followers
@@ -510,6 +566,9 @@ class LavinMQCtl
 
     private def draw_table
       return unless state = table_state
+      if detail = state.detail
+        return draw_detail(state, detail)
+      end
       table = @tables[@page]
       rect = Rect.new(1, 2, @width - 2, @height - 4)
       first = (state.cursor // table_rows) * table_rows
@@ -532,6 +591,81 @@ class LavinMQCtl
         values = table.columns.map(&.value.call(item))
         draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width)
       end
+    end
+
+    private def draw_detail(state : TableState, item : JSON::Any)
+      rect = Rect.new(1, 2, @width - 2, @height - 4)
+      fields = detail_fields(item)
+      key_width = {fields.max_of? { |(key, _)| Text.width(key) } || 0, rect.inner_width // 3}.min
+      value_width = rect.inner_width - key_width - 6
+      lines = fields.flat_map do |(key, value)|
+        wrap(value, value_width).map_with_index { |line, i| {i.zero? ? key : "", line} }
+      end
+      rows = {rect.inner_height - 2, 0}.max
+      state.detail_scroll = state.detail_scroll.clamp(0, {lines.size - rows, 0}.max)
+
+      name = Fields.text(item, "name", default: Fields.text(item, "consumer_tag"))
+      title = String.build do |s|
+        s << @tables[@page].title << " › " << name
+        if lines.size > rows
+          s << "  lines " << state.detail_scroll + 1 << "-" << {state.detail_scroll + rows, lines.size}.min << " of " << lines.size
+        end
+        s << "  not on this page anymore" if state.detail_stale?
+      end
+      draw_panel(rect, title, CYAN)
+      lines.skip(state.detail_scroll).first(rows).each_with_index do |(key, value), i|
+        y = rect.inner_y + 1 + i
+        print_fit(rect.inner_x + 2, y, key, key_width, MUTED_FG, PANEL_BG)
+        print_fit(rect.inner_x + 4 + key_width, y, value, value_width, TEXT_FG, PANEL_BG)
+      end
+    end
+
+    # Every field, nested ones with dotted keys and rates next to their counts
+    private def detail_fields(value : JSON::Any, prefix = "", fields = [] of {String, String}) : Array({String, String})
+      if hash = value.as_h?
+        hash.each do |key, field|
+          next if key.ends_with?("_details") && hash.has_key?(key.rchop("_details"))
+          if field.as_h?.try(&.empty?) == false || field.as_a?.try(&.any? { |v| v.as_h? || v.as_a? })
+            detail_fields(field, "#{prefix}#{key}.", fields)
+            next
+          end
+          text = key == "password_hash" ? "(hidden)" : detail_text(field)
+          details = hash["#{key}_details"]?
+          text += " (#{Fields.rate(details, "rate")}/s)" if Fields.dig(details, "rate")
+          fields << {"#{prefix}#{key}", text}
+        end
+      elsif array = value.as_a?
+        array.each_with_index { |field, i| detail_fields(JSON::Any.new({i.to_s => field}), prefix, fields) }
+      end
+      fields
+    end
+
+    private def detail_text(value : JSON::Any) : String
+      if array = value.as_a?
+        array.join(", ") { |v| Fields.redact_uris(Fields.text(v)) }
+      else
+        Fields.redact_uris(Fields.text(value))
+      end
+    end
+
+    # Lines at most *width* cells wide, up to a screenful
+    private def wrap(text : String, width : Int32) : Array(String)
+      return [text] if width < 1 || Text.width(text) <= width
+      lines = [] of String
+      line = String::Builder.new
+      used = 0
+      text.each_char do |char|
+        char_width = Text.width(Text.sanitize(char))
+        if used + char_width > width
+          lines << line.to_s
+          return lines if lines.size >= table_rows
+          line = String::Builder.new
+          used = 0
+        end
+        line << char
+        used += char_width
+      end
+      lines << line.to_s
     end
 
     private def table_title(table : Table, state : TableState, first : Int32) : String
