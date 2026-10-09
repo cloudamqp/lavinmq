@@ -392,30 +392,50 @@ describe LavinMQCtl::TUI do
     end
   end
 
-  it "doesn't read a timed out response as the answer to the next request" do
-    stalled = false
-    server = HTTP::Server.new do |context|
-      context.response.content_type = "application/json"
-      if context.request.path == "/api/overview" && !stalled
-        stalled = true
-        sleep 300.milliseconds
-        context.response.print({lavinmq_version: "stale"}.to_json)
-      else
-        context.response.print TUI_RESPONSES[context.request.path]? || "{}"
+  {"TCP", "the control socket"}.each do |transport|
+    it "recovers from a timed out request over #{transport}" do
+      stalled = false
+      server = HTTP::Server.new do |context|
+        context.response.content_type = "application/json"
+        if context.request.path == "/api/overview" && !stalled
+          stalled = true
+          sleep 300.milliseconds
+          begin
+            context.response.print({lavinmq_version: "stale"}.to_json)
+            context.response.close
+          rescue HTTP::Server::ClientError | IO::Error
+            # The TUI has closed the connection by now
+          end
+        else
+          context.response.print TUI_RESPONSES[context.request.path]? || "{}"
+        end
       end
+      if transport == "TCP"
+        addr = server.bind_tcp("127.0.0.1", 0)
+        client = HTTP::Client.new("127.0.0.1", addr.port)
+        client.read_timeout = 200.milliseconds
+      else
+        path = File.tempname("lavinmqctl-tui", ".sock")
+        server.bind_unix(path)
+        connect = -> {
+          socket = UNIXSocket.new(path)
+          socket.read_timeout = 200.milliseconds
+          HTTP::Client.new(socket)
+        }
+        client = connect.call
+      end
+      spawn(name: "tui spec api") { server.listen }
+
+      screen = FakeTUIScreen.new(events: [tui_key('1'), tui_key('q')] of Termisu::Event::Any)
+      LavinMQCtl::TUI.new(client, 60.0, screen, reconnect: connect).start
+
+      # The late response to the timed out request isn't read as the answer to a
+      # later one, and the next refresh gets through
+      screen.text.should contain("vspec")
+    ensure
+      client.try &.close
+      server.try &.close
     end
-    addr = server.bind_tcp("127.0.0.1", 0)
-    spawn(name: "tui spec api") { server.listen }
-    client = HTTP::Client.new("127.0.0.1", addr.port)
-    client.read_timeout = 200.milliseconds
-
-    screen = FakeTUIScreen.new(events: [tui_key('1'), tui_key('q')] of Termisu::Event::Any)
-    LavinMQCtl::TUI.new(client, 60.0, screen).start
-
-    screen.text.should contain("vspec")
-  ensure
-    client.try &.close
-    server.try &.close
   end
 
   it "keeps refreshing while keys are pressed" do

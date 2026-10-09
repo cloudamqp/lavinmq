@@ -128,8 +128,11 @@ class LavinMQCtl
     # Matches the password in scheme://user:password@host
     URI_PASSWORD = %r{(//[^/:@]*):[^/@]*@}
 
-    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TermisuScreen.new)
+    # *reconnect* opens a new connection after a timeout, for clients that
+    # can't reconnect by themselves, like one on the control socket
+    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TermisuScreen.new, @reconnect : Proc(HTTP::Client)? = nil)
       @running = true
+      @closed = false
       @width = 0
       @height = 0
       @page = :overview
@@ -260,6 +263,10 @@ class LavinMQCtl
     end
 
     private def fetch_json(path : String, label : String) : JSON::Any?
+      if @closed && (reconnect = @reconnect)
+        @client = reconnect.call
+        @closed = false
+      end
       response = @client.get(path)
       unless response.status_code == 200
         record_error("#{label}: HTTP #{response.status_code} #{response.status}")
@@ -271,8 +278,9 @@ class LavinMQCtl
       nil
     rescue ex : IO::TimeoutError
       # The connection is kept open, so the late response would be read as the
-      # answer to the next request. A TCP client reconnects on the next request.
+      # answer to the next request
       @client.close
+      @closed = true
       record_error("#{label}: #{ex.message}")
       nil
     rescue ex
@@ -1050,6 +1058,6 @@ class LavinMQCtl
   end
 end
 
-LavinMQCtl.tui_launcher = ->(client : HTTP::Client, interval : Float64) {
-  LavinMQCtl::TUI.new(client, interval).start
+LavinMQCtl.tui_launcher = ->(client : HTTP::Client, reconnect : Proc(HTTP::Client)?, interval : Float64) {
+  LavinMQCtl::TUI.new(client, interval, reconnect: reconnect).start
 }

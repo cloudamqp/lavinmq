@@ -9,7 +9,8 @@ require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
 
 class LavinMQCtl
-  @@tui_launcher : Proc(HTTP::Client, Float64, Nil)?
+  alias TUILauncher = Proc(HTTP::Client, Proc(HTTP::Client)?, Float64, Nil)
+  @@tui_launcher : TUILauncher?
 
   @options = {} of String => String
   @args = {} of String => JSON::Any
@@ -40,7 +41,7 @@ class LavinMQCtl
     parse_cmd
   end
 
-  def self.tui_launcher=(launcher : Proc(HTTP::Client, Float64, Nil)?)
+  def self.tui_launcher=(launcher : TUILauncher?)
     @@tui_launcher = launcher
   end
 
@@ -122,33 +123,43 @@ class LavinMQCtl
   end
 
   private def connect
-    if host = @options["host"]?
+    if path = control_unix_path
+      unless File.exists? path
+        abort "#{path} not found. Is LavinMQ running?"
+      end
+      unless File::Info.writable? path
+        abort "Please run lavinmqctl as root or as the same user as LavinMQ."
+      end
+      begin
+        unix_client(path)
+      rescue ex : Socket::ConnectError
+        abort "Can't connect to LavinMQ: #{ex.message}"
+      end
+    elsif host = @options["host"]?
       validate_connection_args("host")
       client_from_uri(host)
     elsif uri = @options["uri"]?
       validate_connection_args("uri")
       client_from_uri(uri)
-    elsif hostname = @options["hostname"]?
+    else
+      hostname = @options["hostname"]
       scheme = @options["scheme"]? || "http"
       port = @options["port"]?.try &.to_i? || 15672
       uri = URI.new(scheme, hostname, port)
       client_from_uri(uri)
-    else
-      path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
-      begin
-        unless File.exists? path
-          abort "#{path} not found. Is LavinMQ running?"
-        end
-        unless File::Info.writable? path
-          abort "Please run lavinmqctl as root or as the same user as LavinMQ."
-        end
-        socket = UNIXSocket.new(path)
-        socket.read_timeout = @request_timeout
-        HTTP::Client.new(socket)
-      rescue ex : Socket::ConnectError
-        abort "Can't connect to LavinMQ: #{ex.message}"
-      end
     end
+  end
+
+  # The control socket is used unless a host, URI or hostname is given
+  private def control_unix_path : String?
+    return if @options.has_key?("host") || @options.has_key?("uri") || @options.has_key?("hostname")
+    @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
+  end
+
+  private def unix_client(path : String) : HTTP::Client
+    socket = UNIXSocket.new(path)
+    socket.read_timeout = @request_timeout
+    HTTP::Client.new(socket)
   end
 
   private def client_from_uri(uri : String)
@@ -877,7 +888,9 @@ class LavinMQCtl
       abort "TUI support is not available"
     end
     @request_timeout = TUI_TIMEOUT
-    launcher.call(http, interval)
+    # Unlike a TCP client, one on the control socket can't reconnect by itself
+    reconnect = control_unix_path.try { |path| -> { unix_client(path) } }
+    launcher.call(http, reconnect, interval)
   end
 
   private def tui_interval

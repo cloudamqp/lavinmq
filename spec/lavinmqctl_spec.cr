@@ -318,7 +318,7 @@ describe "LavinMQCtl" do
     it "should start TUI with parsed interval" do
       called = false
       interval = nil.as(Float64?)
-      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, parsed_interval : Float64) {
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, parsed_interval : Float64) {
         called = true
         interval = parsed_interval
       }
@@ -334,7 +334,7 @@ describe "LavinMQCtl" do
     # Error cases
     it "should fail when TUI interval is invalid" do
       called = false
-      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _interval : Float64) {
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, _interval : Float64) {
         called = true
       }
 
@@ -346,26 +346,46 @@ describe "LavinMQCtl" do
       LavinMQCtl.tui_launcher = nil
     end
 
-    it "should time out stalled requests from the TUI" do
-      # Respond slower than the TUI timeout, but not forever, so this fails instead of hanging without one
-      server = HTTP::Server.new { |_context| sleep LavinMQCtl::TUI_TIMEOUT + 2.seconds }
-      addr = server.bind_tcp("127.0.0.1", 0)
-      spawn(name: "stalled api") { server.listen }
-      error = nil.as(Exception?)
-      LavinMQCtl.tui_launcher = ->(client : HTTP::Client, _interval : Float64) {
-        begin
-          client.get("/api/overview")
-        rescue ex
-          error = ex
+    {"TCP", "the control socket"}.each do |transport|
+      it "should time out stalled TUI requests over #{transport}" do
+        # Respond slower than the TUI timeout, but not forever, so this fails instead of hanging without one
+        server = HTTP::Server.new do |context|
+          sleep LavinMQCtl::TUI_TIMEOUT + 2.seconds
+          context.response.close
+        rescue HTTP::Server::ClientError | IO::Error
+          # The client has given up by now
         end
-        nil
-      }
+        if transport == "TCP"
+          connection = ["--uri", "http://#{server.bind_tcp("127.0.0.1", 0)}"]
+        else
+          path = File.tempname("lavinmqctl", ".sock")
+          server.bind_unix(path)
+          connection = ["--control-unix-path", path]
+        end
+        spawn(name: "stalled api") { server.listen }
+        error = nil.as(Exception?)
+        reconnect = nil.as(Proc(HTTP::Client)?)
+        LavinMQCtl.tui_launcher = ->(client : HTTP::Client, tui_reconnect : Proc(HTTP::Client)?, _interval : Float64) {
+          reconnect = tui_reconnect
+          begin
+            client.get("/api/overview")
+          rescue ex
+            error = ex
+          end
+          nil
+        }
 
-      run_lavinmqctl(addr.to_s, ["tui"])
-      error.should be_a(IO::TimeoutError)
-    ensure
-      LavinMQCtl.tui_launcher = nil
-      server.try &.close
+        original_argv = ARGV.dup
+        ARGV.replace(connection + ["tui"])
+        LavinMQCtl.new(IO::Memory.new, IO::Memory.new).run_cmd
+        error.should be_a(IO::TimeoutError)
+        # A TCP client reconnects by itself, one on the control socket can't
+        reconnect.nil?.should eq(transport == "TCP")
+      ensure
+        ARGV.replace(original_argv) if original_argv
+        LavinMQCtl.tui_launcher = nil
+        server.try &.close
+      end
     end
 
     it "should fail when creating user with missing password" do
