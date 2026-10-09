@@ -118,3 +118,34 @@ test.describe("queues", _ => {
     })
   })
 })
+
+test.describe('queues with automatic retries', _ => {
+  const retryQueues = [
+    qHelpers.queue('orders', {
+      arguments: { 'x-delayed-retry-min': 500 },
+      delayed_retry: { min: 500, multiplier: null, max: null, delivery_limit: 20, delivery_limit_default: true, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+    }),
+    qHelpers.queue('amq.retry-orders', { durable: false, internal: true, primary_queue: 'orders' }),
+    qHelpers.queue('plain')
+  ]
+
+  test.beforeEach(async ({ apimap, page }) => {
+    const queuesLoaded = apimap.get('/api/queues', qHelpers.response(retryQueues))
+    await page.goto('/queues')
+    await queuesLoaded
+  })
+
+  test('marks retry-enabled queues with a badge', async ({ page }) => {
+    const row = page.locator('#table tbody tr').filter({ has: page.getByRole('link', { name: 'orders', exact: true }) })
+    await expect(row.locator('.features .delayed-retry')).toHaveAttribute('title', 'Automatic retries')
+    const plain = page.locator('#table tbody tr').filter({ has: page.getByRole('link', { name: 'plain', exact: true }) })
+    await expect(plain.locator('.features .delayed-retry')).toHaveCount(0)
+  })
+
+  test('links the retry queue to its primary queue', async ({ page }) => {
+    const row = page.locator('#table tbody tr').filter({ has: page.getByRole('link', { name: 'amq.retry-orders', exact: true }) })
+    const badge = row.locator('.features .retry-queue-of')
+    await expect(badge).toHaveAttribute('title', 'Retry queue of orders')
+    await expect(badge.getByRole('link')).toHaveAttribute('href', /queue#vhost=%2F&name=orders$/)
+  })
+})

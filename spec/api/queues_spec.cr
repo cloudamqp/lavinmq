@@ -131,6 +131,92 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not include retry details for a queue without retries" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q-no-retry", false, false)
+        body = JSON.parse(http.get("/api/queues/%2f/q-no-retry").body)
+        body["delayed_retry"]?.should be_nil
+        body["primary_queue"]?.should be_nil
+      end
+    end
+
+    it "should return the retry configuration and delayed message count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 60_000,
+            "x-delayed-retry-multiplier" => 2,
+            "x-delayed-retry-max"        => 300_000,
+          })
+          q = ch.queue("q-retry-details", args: args)
+          q.publish_confirm "m1"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-q-retry-details").message_count == 1 }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-details").body)["delayed_retry"]
+          retry["min"].as_i.should eq 60_000
+          retry["multiplier"].as_i.should eq 2
+          retry["max"].as_i.should eq 300_000
+          retry["delivery_limit"].as_i.should eq 5
+          retry["delivery_limit_default"].as_bool.should be_false
+          retry["messages_delayed"].as_i.should eq 1
+          retry["retry_queue"].as_s.should eq "amq.retry-q-retry-details"
+        end
+      end
+    end
+
+    it "should mark the implicit retry delivery limit as default" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-default", args: args)
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-default").body)["delayed_retry"]
+          retry["multiplier"].raw.should be_nil
+          retry["max"].raw.should be_nil
+          retry["delivery_limit"].as_i.should eq 20
+          retry["delivery_limit_default"].as_bool.should be_true
+          retry["messages_delayed"].as_i.should eq 0
+        end
+      end
+    end
+
+    it "should not mark a delivery limit set by a policy as default" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-policy", args: args)
+          definitions = {"delivery-limit" => JSON::Any.new(5_i64)}
+          s.vhosts["/"].add_policy("retry-limit", "^q-retry-policy$", "queues", definitions, 0_i8)
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
+          retry["delivery_limit"].as_i.should eq 5
+          retry["delivery_limit_default"].as_bool.should be_false
+          s.vhosts["/"].delete_policy("retry-limit")
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
+          retry["delivery_limit"].as_i.should eq 20
+          retry["delivery_limit_default"].as_bool.should be_true
+        end
+      end
+    end
+
+    it "should link the retry queue to its primary queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-primary", args: args)
+          body = JSON.parse(http.get("/api/queues/%2f/amq.retry-q-retry-primary").body)
+          body["primary_queue"].as_s.should eq "q-retry-primary"
+          body["delayed_retry"]?.should be_nil
+          items = JSON.parse(http.get("/api/queues/%2f").body).as_a
+          primary = items.find! { |i| i["name"] == "q-retry-primary" }
+          primary["delayed_retry"]["retry_queue"].as_s.should eq "amq.retry-q-retry-primary"
+          primary["primary_queue"].raw.should be_nil
+          retry_queue = items.find! { |i| i["name"] == "amq.retry-q-retry-primary" }
+          retry_queue["primary_queue"].as_s.should eq "q-retry-primary"
+        end
+      end
+    end
+
     it "should return the tag of an exclusive consumer" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
