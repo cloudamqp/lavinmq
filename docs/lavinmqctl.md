@@ -105,28 +105,27 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
 The TUI refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive).
-The Overview page shows message rate and queue depth graphs, node resource bars,
-and the queues with the most messages. The graphs start from the history kept by
-the management API and roll forward with each refresh. The other pages list as
-many items as fit in the terminal, with the total in the title when there are
-more. Passwords in shovel and federation URIs are masked.
-Switch pages with these keys, and quit with `q` or `Ctrl-C`:
+It waits longer when the broker is slow to answer, so that at most a tenth of the
+broker's time goes to the TUI's requests, and the header then shows the interval used.
+The Overview page shows message rate and queue depth graphs, node resources,
+network rates, cluster followers and the queues with the most messages. The graphs
+start from the history kept by the management API and roll forward with each refresh.
+The other pages are tables that fetch as many rows as fit in the terminal, one page
+at a time. Passwords in shovel and federation URIs are masked, and control characters
+in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 
-| Key | Page |
-|-----|------|
-| `1` | Overview |
-| `2` | Queues |
-| `3` | Connections |
-| `4` | Channels |
-| `5` | Exchanges |
-| `6` | Consumers |
-| `7` | Vhosts |
-| `8` | Nodes |
-| `9` | Parameters |
-| `0` | Policies |
-| `s` | Shovels |
-| `f` | Federation |
-| `u` | Users |
+| Key | Action |
+|-----|--------|
+| `1`-`9`, `0`, `s`, `f`, `u` | Overview, Queues, Connections, Channels, Exchanges, Consumers, Vhosts, Nodes, Parameters, Policies, Shovels, Federation, Users |
+| `Tab`, `Shift-Tab`, `←`, `→` | Next or previous page |
+| `↑`, `↓`, `j`, `k` | Move the selection |
+| `PgUp`, `PgDn` | Previous or next page of rows |
+| `Home`, `End`, `g`, `G` | First or last row |
+| `o`, `r` | Sort by the next column, reverse the sort order |
+| `/`, `Esc` | Filter by name, clear the filter |
+| `p`, `Space` | Pause or resume refreshing |
+| `?` | Show the keys |
+| `q`, `Ctrl-C` | Quit |
 
 For local TUI inspection without a broker, run `extras/tui_inspect.sh`. It starts a mock management API, runs the TUI in `tmux`, captures each page to text files, and exits.
 
