@@ -392,17 +392,39 @@ module MqttSpecs
       end
     end
 
-    # Pins the decision to not guard Exchange.Bind on internal exchanges:
-    # a guard breaks federation, which binds internal exchanges as destinations.
-    it "allows exchange.bind with the exchange as source and as destination" do
+    it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
         vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
         with_channel(server) do |ch|
-          ch.exchange_bind("xmqtt", "amq.topic", "a/#") # exchange as source
-          ch.exchange_bind("amq.topic", "xmqtt", "a.b") # exchange as destination
+          ch.exchange_bind("xmqtt", "amq.topic", "a/#")
         end
         vhost.exchange("xmqtt").binding_count.should eq 1
+      end
+    end
+
+    # Messages routed in through an exchange binding would hit the no-op
+    # each_destination and vanish. Only the internal flag is not enough: it
+    # guards basic.publish, not routing from other exchanges.
+    it "refuses exchange.bind with the exchange as destination" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*cannot be a binding destination/) do
+            ch.exchange_bind("amq.topic", "xmqtt", "a.b")
+          end
+        end
+        vhost.exchange("amq.topic").bindings_details.should be_empty
+      end
+    end
+
+    it "refuses an exchange binding into the exchange over the HTTP API" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        response = http.post("/api/bindings/%2f/e/amq.topic/e/xmqtt", body: %({"routing_key": "a.b"}))
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange("amq.topic").bindings_details.should be_empty
       end
     end
 

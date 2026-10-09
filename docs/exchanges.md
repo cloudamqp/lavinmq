@@ -74,6 +74,7 @@ Routes MQTT publishes to AMQP queues and exchanges. Queues and exchanges are bou
 - Type: `x-mqtt-topic`
 - The binding key is an MQTT topic filter: `/` separates levels, `+` matches one level, `#` matches the rest. A malformed filter (such as `a/#/b` or `a/+b`) is refused at bind time
 - Always internal: `basic.publish` into it is refused. MQTT publishes are the only way in, see [MQTT](mqtt.md#consuming-mqtt-messages-over-amqp)
+- It cannot be the destination of an exchange-to-exchange binding; such a bind is refused with `PRECONDITION_FAILED`. It can be the source of one
 - Delivered messages have `delivery_mode` 2. Persistence follows the destination queue's durability
 - A bound exchange receives the message as a normal AMQP publish and routes it on with its own bindings. The routing key keeps its `/` separators, so a bound topic exchange only matches it literally
 - Overlapping filters deliver one copy per matching binding
