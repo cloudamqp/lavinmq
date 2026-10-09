@@ -1,6 +1,7 @@
 require "json"
 require "http/client"
 require "termisu"
+require "./cli"
 
 class LavinMQCtl
   class TUI
