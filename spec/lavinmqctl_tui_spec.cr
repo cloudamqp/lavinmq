@@ -512,6 +512,7 @@ describe LavinMQCtl::TUI do
     screen.text.should_not contain("c2VjcmV0aGFzaA")
 
     screen, _ = run_tui('f', TUI::Key::Enter)
+    screen.text.should contain("Federation links › seed-upstream")
     screen.text.should match(%r{uri +amqp://guest:\*\*\*@localhost})
     screen.text.should_not contain("s3cret")
 

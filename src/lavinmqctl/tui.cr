@@ -604,9 +604,9 @@ class LavinMQCtl
       rows = {rect.inner_height - 2, 0}.max
       state.detail_scroll = state.detail_scroll.clamp(0, {lines.size - rows, 0}.max)
 
-      name = Fields.text(item, "name", default: Fields.text(item, "consumer_tag"))
+      name = Fields.text(item, "name", default: Fields.text(item, "consumer_tag", default: Fields.text(item, "upstream")))
       title = String.build do |s|
-        s << @tables[@page].title << " › " << name
+        s << @tables[@page].title << " › " << (name.presence || "(default)")
         if lines.size > rows
           s << "  lines " << state.detail_scroll + 1 << "-" << {state.detail_scroll + rows, lines.size}.min << " of " << lines.size
         end
