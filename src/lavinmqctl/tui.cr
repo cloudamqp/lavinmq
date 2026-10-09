@@ -104,23 +104,26 @@ class LavinMQCtl
       {key: 'u', name: :users, label: "Users", nav: "Users"},
     ]
 
-    BG          = Termisu::Color.rgb(6, 10, 18)
-    PANEL_BG    = Termisu::Color.rgb(10, 17, 29)
-    ROW_BG      = Termisu::Color.rgb(13, 22, 36)
-    BAR_BG      = Termisu::Color.rgb(20, 31, 49)
-    GRID_FG     = Termisu::Color.rgb(35, 48, 72)
-    TEXT_FG     = Termisu::Color.rgb(214, 224, 235)
-    MUTED_FG    = Termisu::Color.rgb(128, 145, 166)
-    DIM_FG      = Termisu::Color.rgb(84, 101, 124)
-    CYAN        = Termisu::Color.rgb(64, 224, 208)
-    BLUE        = Termisu::Color.rgb(89, 149, 255)
-    GREEN       = Termisu::Color.rgb(82, 230, 139)
-    YELLOW      = Termisu::Color.rgb(245, 208, 90)
-    ORANGE      = Termisu::Color.rgb(255, 151, 82)
-    MAGENTA     = Termisu::Color.rgb(213, 104, 255)
-    RED         = Termisu::Color.rgb(255, 95, 112)
-    WHITE       = Termisu::Color.rgb(238, 244, 252)
-    BRAILLE_BAR = {'⠁', '⠃', '⠇', '⡇'}
+    BG       = Termisu::Color.rgb(6, 10, 18)
+    PANEL_BG = Termisu::Color.rgb(10, 17, 29)
+    ROW_BG   = Termisu::Color.rgb(13, 22, 36)
+    BAR_BG   = Termisu::Color.rgb(20, 31, 49)
+    GRID_FG  = Termisu::Color.rgb(35, 48, 72)
+    TEXT_FG  = Termisu::Color.rgb(214, 224, 235)
+    MUTED_FG = Termisu::Color.rgb(128, 145, 166)
+    DIM_FG   = Termisu::Color.rgb(84, 101, 124)
+    CYAN     = Termisu::Color.rgb(64, 224, 208)
+    BLUE     = Termisu::Color.rgb(89, 149, 255)
+    GREEN    = Termisu::Color.rgb(82, 230, 139)
+    YELLOW   = Termisu::Color.rgb(245, 208, 90)
+    ORANGE   = Termisu::Color.rgb(255, 151, 82)
+    MAGENTA  = Termisu::Color.rgb(213, 104, 255)
+    RED      = Termisu::Color.rgb(255, 95, 112)
+    WHITE    = Termisu::Color.rgb(238, 244, 252)
+    # Braille cells filled from the bottom, a quarter at a time
+    GRAPH_FILL = {'⣀', '⣤', '⣶', '⣿'}
+    # Matches the password in scheme://user:password@host
+    URI_PASSWORD = %r{(//[^/:@]*):[^/@]*@}
 
     def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TermisuScreen.new)
       @running = true
@@ -128,6 +131,7 @@ class LavinMQCtl
       @height = 0
       @page = :overview
       @last_error = nil.as(String?)
+      @total_count = nil.as(Int32?)
       @publish_history = [] of Float64
       @deliver_history = [] of Float64
       @ready_history = [] of Float64
@@ -137,11 +141,12 @@ class LavinMQCtl
     def start
       @width, @height = @screen.size
       render
+      interval = @interval.seconds
+      next_refresh = Time.instant + interval
 
-      poll_ms = (@interval * 1000).to_i
-
-      loop do
-        if event = @screen.poll_event(poll_ms)
+      while @running
+        timeout = {(next_refresh - Time.instant).total_milliseconds.ceil.to_i, 0}.max
+        if event = @screen.poll_event(timeout)
           case event
           when Termisu::Event::Key
             handle_key(event)
@@ -151,11 +156,13 @@ class LavinMQCtl
             @screen.sync
             render
           end
-        else
-          render
         end
+        next unless @running
 
-        break unless @running
+        if Time.instant >= next_refresh
+          render
+          next_refresh = Time.instant + interval
+        end
       end
     ensure
       @screen.close
@@ -206,7 +213,7 @@ class LavinMQCtl
 
     private def render_broker_page
       case @page
-      when :queues      then render_queues_page(fetch_items("/api/queues", "queues", "page=1&page_size=20&sort=messages&sort_reverse=true"))
+      when :queues      then render_queues_page(fetch_items("/api/queues", "queues", sort: "messages"))
       when :connections then render_connections_page(fetch_items("/api/connections", "connections"))
       when :channels    then render_channels_page(fetch_items("/api/channels", "channels"))
       when :exchanges   then render_exchanges_page(fetch_items("/api/exchanges", "exchanges"))
@@ -230,12 +237,16 @@ class LavinMQCtl
       fetch_json("/api/overview", "overview")
     end
 
-    private def fetch_items(path : String, label : String, query = "page=1&page_size=20") : Array(JSON::Any)
-      separator = path.includes?('?') ? '&' : '?'
-      data = fetch_json("#{path}#{separator}#{query}", label)
+    # Fetches as many items as the table has rows for, sorted descending by *sort*
+    private def fetch_items(path : String, label : String, page_size = table_rows, sort : String? = nil) : Array(JSON::Any)
+      @total_count = nil
+      query = "page=1&page_size=#{page_size}"
+      query += "&sort=#{sort}&sort_reverse=true" if sort
+      data = fetch_json("#{path}?#{query}", label)
       return [] of JSON::Any unless data
 
       if items = child(data, "items").try(&.as_a?)
+        @total_count = child(data, "filtered_count").try(&.as_i?)
         items
       elsif items = data.as_a?
         items
@@ -249,7 +260,7 @@ class LavinMQCtl
       response = @client.get(path)
       unless response.status_code == 200
         record_error("#{label}: HTTP #{response.status_code} #{response.status}")
-        return nil
+        return
       end
       JSON.parse(response.body)
     rescue ex : JSON::ParseException
@@ -312,7 +323,7 @@ class LavinMQCtl
 
       update_histories(overview)
 
-      if @width < 100 || @height < 28
+      if @width < 100 || @height < 32
         render_compact_overview(overview)
         return
       end
@@ -328,7 +339,7 @@ class LavinMQCtl
       queue_graph_rect = Rect.new(left_width + 2, 13, right_width, 10)
       hot_rect = Rect.new(left_width + 2, 24, right_width, @height - 26)
 
-      queues = fetch_items("/api/queues", "queues", "page=1&page_size=8&sort=messages&sort_reverse=true")
+      queues = fetch_items("/api/queues", "queues", page_size: 8, sort: "messages")
       nodes = fetch_items("/api/nodes", "nodes")
 
       render_totals_panel(totals_rect, overview)
@@ -339,11 +350,26 @@ class LavinMQCtl
       render_hot_queues(hot_rect, queues)
     end
 
+    # Totals and messages side by side when there's room, graphs below if they fit
     private def render_compact_overview(overview : JSON::Any)
-      render_totals_panel(Rect.new(1, 2, @width - 2, 8), overview)
-      render_messages_panel(Rect.new(1, 10, @width - 2, 9), overview)
-      graph_height = {@height - 21, 5}.max
-      render_rate_graph(Rect.new(1, 19, @width - 2, graph_height), overview)
+      width = @width - 2
+      if width >= 68
+        half = width // 2
+        render_totals_panel(Rect.new(1, 2, half, 10), overview)
+        render_messages_panel(Rect.new(half + 2, 2, width - half - 1, 10), overview)
+        y = 12
+      else
+        render_totals_panel(Rect.new(1, 2, width, 9), overview)
+        render_messages_panel(Rect.new(1, 11, width, 10), overview)
+        y = 21
+      end
+      remaining = @height - 1 - y
+      if remaining >= 16
+        render_rate_graph(Rect.new(1, y, width, remaining // 2), overview)
+        render_queue_graph(Rect.new(1, y + remaining // 2, width, remaining - remaining // 2), overview)
+      elsif remaining >= 6
+        render_rate_graph(Rect.new(1, y, width, remaining), overview)
+      end
     end
 
     private def render_totals_panel(rect : Rect, overview : JSON::Any)
@@ -377,7 +403,7 @@ class LavinMQCtl
       ready = json_float(child(totals, "messages_ready"))
       unacked = json_float(child(totals, "messages_unacknowledged"))
       publish = metric_rate(overview, "publish_details")
-      deliver = metric_rate(overview, "deliver_details")
+      deliver = metric_rate(overview, "deliver_get_details")
 
       y = rect.inner_y + 1
       print_at(rect.inner_x + 2, y, "Total", MUTED_FG, PANEL_BG)
@@ -412,9 +438,9 @@ class LavinMQCtl
       print_at(rect.inner_x + 2, y + 1, "Uptime #{uptime}", MUTED_FG, PANEL_BG)
       print_at(rect.inner_x + 20, y + 1, "Sockets #{sockets}", MUTED_FG, PANEL_BG)
 
-      draw_bar(rect.inner_x + 2, y + 3, rect.inner_width - 4, "Memory", mem_used, positive_or_self(mem_limit, mem_used), CYAN)
+      draw_bar(rect.inner_x + 2, y + 3, rect.inner_width - 4, "Memory", mem_used, positive_or_self(mem_limit, mem_used), CYAN, bytes: true)
       if disk_total > 0.0
-        draw_bar(rect.inner_x + 2, y + 5, rect.inner_width - 4, "Disk", disk_total - disk_free, disk_total, YELLOW)
+        draw_bar(rect.inner_x + 2, y + 5, rect.inner_width - 4, "Disk", disk_total - disk_free, disk_total, YELLOW, bytes: true)
       else
         print_at(rect.inner_x + 2, y + 5, "Disk free #{human_bytes(disk_free.to_i64)}", MUTED_FG, PANEL_BG)
       end
@@ -423,13 +449,13 @@ class LavinMQCtl
 
     private def render_rate_graph(rect : Rect, overview : JSON::Any)
       publish = metric_rate(overview, "publish_details")
-      deliver = metric_rate(overview, "deliver_details")
+      deliver = metric_rate(overview, "deliver_get_details")
       draw_panel(rect, "Rate graph  pub %.1f/s  deliver %.1f/s" % {publish, deliver}, CYAN)
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      draw_dot_graph(graph, @deliver_history, MAGENTA)
-      draw_dot_graph(graph, @publish_history, CYAN)
-      print_at(rect.inner_x + 2, rect.bottom - 1, "⡇ publish", CYAN, PANEL_BG)
-      print_at(rect.inner_x + 15, rect.bottom - 1, "⡇ deliver", MAGENTA, PANEL_BG)
+      max = draw_graph(graph, @publish_history, CYAN, @deliver_history, MAGENTA)
+      print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ publish", CYAN, PANEL_BG)
+      print_at(rect.inner_x + 15, rect.bottom - 1, "⣿ deliver", MAGENTA, PANEL_BG)
+      draw_graph_scale(rect, "%.1f/s" % max)
     end
 
     private def render_queue_graph(rect : Rect, overview : JSON::Any)
@@ -438,10 +464,10 @@ class LavinMQCtl
       unacked = json_float(child(totals, "messages_unacknowledged"))
       draw_panel(rect, "Queue depth  ready #{ready.to_i64}  unacked #{unacked.to_i64}", GREEN)
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      draw_dot_graph(graph, @ready_history, GREEN)
-      draw_dot_graph(graph, @unacked_history, ORANGE)
-      print_at(rect.inner_x + 2, rect.bottom - 1, "⡇ ready", GREEN, PANEL_BG)
-      print_at(rect.inner_x + 14, rect.bottom - 1, "⡇ unacked", ORANGE, PANEL_BG)
+      max = draw_graph(graph, @ready_history, GREEN, @unacked_history, ORANGE)
+      print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ ready", GREEN, PANEL_BG)
+      print_at(rect.inner_x + 14, rect.bottom - 1, "⣿ unacked", ORANGE, PANEL_BG)
+      draw_graph_scale(rect, max.to_i64.to_s)
     end
 
     private def render_hot_queues(rect : Rect, queues : Array(JSON::Any))
@@ -500,8 +526,8 @@ class LavinMQCtl
             json_text(child(conn, "user")),
             json_text(child(conn, "state")),
             json_text(child(conn, "channels")),
-            json_text(child(conn, "recv_oct")),
-            json_text(child(conn, "send_oct")),
+            human_bytes(json_float(child(conn, "recv_oct")).to_i64),
+            human_bytes(json_float(child(conn, "send_oct")).to_i64),
             json_text(child(conn, "name")),
           ]
         end
@@ -578,8 +604,8 @@ class LavinMQCtl
             json_text(child(vhost, "messages")),
             json_text(child(vhost, "messages_ready")),
             json_text(child(vhost, "messages_unacknowledged")),
-            json_text(child(vhost, "recv_oct")),
-            json_text(child(vhost, "send_oct")),
+            human_bytes(json_float(child(vhost, "recv_oct")).to_i64),
+            human_bytes(json_float(child(vhost, "send_oct")).to_i64),
             bool_text(child(vhost, "tracing")),
           ]
         end
@@ -668,7 +694,7 @@ class LavinMQCtl
             json_text(child(link, "name")),
             json_text(child(link, "type")),
             json_text(child(link, "resource")),
-            json_text(child(link, "uri")),
+            uri_text(child(link, "uri")),
             json_text(child(link, "timestamp")),
           ]
         end
@@ -694,6 +720,9 @@ class LavinMQCtl
 
     private def render_table(title : String, headers : Array(String), widths : Array(Int32), rows : Array(Array(String)))
       rect = Rect.new(1, 2, @width - 2, @height - 4)
+      if (total = @total_count) && total > rows.size
+        title = "#{title} (#{rows.size} of #{total})"
+      end
       draw_panel(rect, title, CYAN)
       y = rect.inner_y + 1
       render_row(y, headers, widths, CYAN, Termisu::Attribute::Bold, PANEL_BG, rect.inner_x + 2, rect.inner_width - 4)
@@ -711,6 +740,11 @@ class LavinMQCtl
         render_row(y, row, widths, TEXT_FG, Termisu::Attribute::None, bg, rect.inner_x + 2, rect.inner_width - 4)
         y += 1
       end
+    end
+
+    # Rows that fit below the table header, see render_table
+    private def table_rows : Int32
+      {@height - 8, 1}.max
     end
 
     private def render_row(
@@ -731,20 +765,6 @@ class LavinMQCtl
         print_at(x, y, fit(value, width), fg, bg, attr)
         x += width + 1
         break if x >= @width
-      end
-    end
-
-    private def render_section(title : String, y : Int32) : Int32
-      print_at(2, y, title, YELLOW, BG, Termisu::Attribute::Bold)
-      y + 2
-    end
-
-    private def render_kv_rows(y : Int32, rows : Array(Tuple(String, String)))
-      x = 4
-      rows.each_with_index do |(label, value), i|
-        col = i % 3
-        row = i // 3
-        print_at(x + (col * 28), y + row, "#{fit(label + ":", 14)} #{fit(value, 10)}")
       end
     end
 
@@ -784,11 +804,11 @@ class LavinMQCtl
       end
     end
 
-    private def draw_bar(x : Int32, y : Int32, width : Int32, label : String, value : Float64, max : Float64, color)
+    private def draw_bar(x : Int32, y : Int32, width : Int32, label : String, value : Float64, max : Float64, color, bytes = false)
       return if width <= 0
 
       label_width = {label.size + 1, 10}.max
-      value_text = value >= 1024.0 ? human_bytes(value.to_i64) : value.to_i64.to_s
+      value_text = bytes ? human_bytes(value.to_i64) : value.to_i64.to_s
       value_width = {value_text.size + 1, 8}.max
       bar_width = width - label_width - value_width
       return if bar_width <= 0
@@ -806,28 +826,39 @@ class LavinMQCtl
       print_at(x + label_width + bar_width + 1, y, fit(value_text, value_width - 1), color, PANEL_BG, Termisu::Attribute::Bold)
     end
 
-    private def draw_dot_graph(rect : Rect, values : Array(Float64), color)
-      return if rect.width <= 0 || rect.height <= 0
+    # Draws two series as bar graphs on a shared scale, newest to the right,
+    # with the smaller value of each column in front so both stay visible.
+    # Returns the top of the scale.
+    private def draw_graph(rect : Rect, a : Array(Float64), a_color, b : Array(Float64), b_color) : Float64
+      return 0.0 if rect.width <= 0 || rect.height <= 0
 
       draw_graph_grid(rect)
-      series = values.last(rect.width)
-      return if series.empty?
+      a = a.last(rect.width)
+      b = b.last(rect.width)
+      max = {a.max? || 0.0, b.max? || 0.0}.max
+      return max unless max > 0.0
 
-      min = series.min
-      max = series.max
-      min = 0.0 if min > 0.0
-      span = max - min
-      span = 1.0 if span <= 0.0
-      levels = rect.height * BRAILLE_BAR.size - 1
-      x_offset = rect.width - series.size
-
-      series.each_with_index do |value, i|
-        level = (((value - min) / span) * levels).round.to_i
-        level = bounded(level, 0, levels)
-        row = level // BRAILLE_BAR.size
-        dot = level % BRAILLE_BAR.size
-        set_cell(rect.x + x_offset + i, rect.bottom - row, BRAILLE_BAR[dot], color, PANEL_BG, Termisu::Attribute::Bold)
+      levels = rect.height * GRAPH_FILL.size
+      rect.width.times do |i|
+        va = a[-1 - i]? || 0.0
+        vb = b[-1 - i]? || 0.0
+        bars = va >= vb ? { {va, a_color}, {vb, b_color} } : { {vb, b_color}, {va, a_color} }
+        bars.each do |value, color|
+          draw_graph_column(rect, rect.right - i, (value / max * levels).ceil.to_i, color)
+        end
       end
+      max
+    end
+
+    private def draw_graph_column(rect : Rect, x : Int32, level : Int32, color)
+      full, partial = level.divmod(GRAPH_FILL.size)
+      full.times { |row| set_cell(x, rect.bottom - row, GRAPH_FILL[-1], color, PANEL_BG) }
+      set_cell(x, rect.bottom - full, GRAPH_FILL[partial - 1], color, PANEL_BG) if partial > 0
+    end
+
+    private def draw_graph_scale(panel : Rect, max : String)
+      text = "max #{max}"
+      print_at(panel.right - 2 - text.size, panel.bottom - 1, text, MUTED_FG, PANEL_BG)
     end
 
     private def draw_graph_grid(rect : Rect)
@@ -892,7 +923,7 @@ class LavinMQCtl
       stats = child(overview, "message_stats")
       totals = child(overview, "queue_totals")
       update_history(@publish_history, metric_rate(overview, "publish_details"), json_float_array(child(child(stats, "publish_details"), "log")))
-      update_history(@deliver_history, metric_rate(overview, "deliver_details"), json_float_array(child(child(stats, "deliver_details"), "log")))
+      update_history(@deliver_history, metric_rate(overview, "deliver_get_details"), json_float_array(child(child(stats, "deliver_get_details"), "log")))
       update_history(@ready_history, json_float(child(totals, "messages_ready")), json_float_array(child(totals, "messages_ready_log")))
       update_history(@unacked_history, json_float(child(totals, "messages_unacknowledged")), json_float_array(child(totals, "messages_unacknowledged_log")))
     end
@@ -943,25 +974,13 @@ class LavinMQCtl
       raw.nil? ? default : raw.to_s
     end
 
+    # as_f? also converts integers, including those above Int32::MAX
     private def json_float(value : JSON::Any?) : Float64
-      return 0.0 unless value
-
-      value.as_f? || value.as_i?.try(&.to_f) || 0.0
+      value.try(&.as_f?) || 0.0
     end
 
     private def json_float_array(value : JSON::Any?) : Array(Float64)
-      floats = [] of Float64
-      return floats unless value
-      return floats unless array = value.as_a?
-
-      array.each do |item|
-        if float = item.as_f?
-          floats << float
-        elsif int = item.as_i?
-          floats << int.to_f
-        end
-      end
-      floats
+      value.try(&.as_a?).try(&.compact_map(&.as_f?)) || [] of Float64
     end
 
     private def bool_text(value : JSON::Any?) : String
@@ -979,10 +998,23 @@ class LavinMQCtl
       if src_queue = child(value, "src-queue")
         "src=#{json_text(src_queue)} dest=#{json_text(child(value, "dest-queue"))}"
       elsif uri = child(value, "uri")
-        "uri=#{json_text(uri)}"
+        "uri=#{uri_text(uri)}"
       else
-        compact_json(value)
+        redact_uris(compact_json(value))
       end
+    end
+
+    private def uri_text(value : JSON::Any?) : String
+      if uris = value.try(&.as_a?)
+        uris.join(", ") { |uri| uri_text(uri) }
+      else
+        redact_uris(json_text(value))
+      end
+    end
+
+    # Shovel and federation URIs may embed credentials, don't put them on screen
+    private def redact_uris(text : String) : String
+      text.gsub(URI_PASSWORD, "\\1:***@")
     end
 
     private def human_bytes(bytes : Int64) : String

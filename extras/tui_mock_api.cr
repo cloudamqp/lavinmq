@@ -74,7 +74,7 @@ module TUIMockAPI
                 json.field "log", [7.0, 11.2, 9.8, 15.4, 18.1, 14.0, 21.3, 19.9, 24.7, 22.0, 23.4]
               end
             end
-            json.field "deliver_details" do
+            json.field "deliver_get_details" do
               json.object do
                 json.field "rate", 17.8
                 json.field "log", [4.0, 8.2, 6.8, 12.4, 11.1, 13.0, 15.3, 16.9, 14.7, 18.0, 17.8]

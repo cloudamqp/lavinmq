@@ -1,17 +1,22 @@
 require "spec"
 
+# termisu and systemd.cr (required by the launcher specs) bind poll(2) with
+# different signatures and can't be compiled into the same binary, so these
+# specs only run with -Dtui_specs, which `make test` passes in a separate run
 {% if flag?(:tui_specs) %}
   require "../src/lavinmqctl/cli"
   require "../src/lavinmqctl/tui"
 
   class FakeTUIScreen < LavinMQCtl::TUI::Screen
     @cells : Array(Array(Char))
+    @colors : Array(Array(Termisu::Color))
 
     getter? closed = false
 
     def initialize(@width : Int32 = 140, @height : Int32 = 36, events = [] of Termisu::Event::Any)
       @events = Deque(Termisu::Event::Any).new(events)
       @cells = Array.new(@height) { Array.new(@width, ' ') }
+      @colors = Array.new(@height) { Array.new(@width, Termisu::Color.default) }
     end
 
     def size : {Int32, Int32}
@@ -24,6 +29,7 @@ require "spec"
 
     def clear : Nil
       @cells = Array.new(@height) { Array.new(@width, ' ') }
+      @colors = Array.new(@height) { Array.new(@width, Termisu::Color.default) }
     end
 
     def set_cell(
@@ -37,6 +43,7 @@ require "spec"
       return if x < 0 || x >= @width || y < 0 || y >= @height
 
       @cells[y][x] = char
+      @colors[y][x] = fg
     end
 
     def render : Nil
@@ -52,10 +59,33 @@ require "spec"
     def text : String
       @cells.map(&.join).join("\n")
     end
+
+    # Row of the highest cell drawn with *char* in *color*
+    def top_row(char : Char, color : Termisu::Color) : Int32?
+      @cells.each_with_index do |row, y|
+        row.each_with_index do |c, x|
+          return y if c == char && @colors[y][x] == color
+        end
+      end
+    end
   end
 
   private def tui_key(char : Char) : Termisu::Event::Key
     Termisu::Event::Key.new(Termisu::Input::Key.from_char(char))
+  end
+
+  # Returns a key that maps to no page on every poll, then quits
+  class KeyRepeatTUIScreen < FakeTUIScreen
+    def initialize(@presses : Int32)
+      super()
+    end
+
+    def poll_event(timeout_ms : Int32) : Termisu::Event::Any?
+      sleep 10.milliseconds
+      @presses -= 1
+      key = @presses > 0 ? 'x' : 'q'
+      Termisu::Event::Key.new(Termisu::Input::Key.from_char(key))
+    end
   end
 
   private TUI_RESPONSES = {
@@ -71,18 +101,18 @@ require "spec"
         bindings:    7,
       },
       queue_totals: {
-        messages:                    42,
-        messages_ready:              39,
-        messages_unacknowledged:     3,
-        messages_ready_log:          [28, 31, 30, 35, 36, 39],
-        messages_unacknowledged_log: [1, 2, 1, 3, 2, 3],
+        messages:                    4200,
+        messages_ready:              3900,
+        messages_unacknowledged:     300,
+        messages_ready_log:          [2800, 3100, 3000, 3500, 3600, 3900],
+        messages_unacknowledged_log: [100, 200, 100, 300, 200, 300],
       },
       message_stats: {
         publish_details: {
           rate: 12.5,
           log:  [3.0, 5.1, 8.0, 7.2, 10.3, 12.5],
         },
-        deliver_details: {
+        deliver_get_details: {
           rate: 9.7,
           log:  [2.0, 4.1, 6.0, 5.2, 8.3, 9.7],
         },
@@ -105,6 +135,7 @@ require "spec"
           },
         },
       ],
+      filtered_count: 25,
     }.to_json,
     "/api/connections" => {
       items: [
@@ -202,6 +233,17 @@ require "spec"
             "ack-mode":   "on-confirm",
           },
         },
+        {
+          component: "shovel",
+          vhost:     "seed",
+          name:      "seed-exchange-shovel",
+          value:     {
+            "src-uri":      "amqp://guest:s3cret@localhost:5672/seed",
+            "src-exchange": "seed.topic",
+            "dest-uri":     "amqp://guest:s3cret@localhost:5672/seed",
+            "dest-queue":   "seed.shovel.dest",
+          },
+        },
       ],
     }.to_json,
     "/api/policies" => {
@@ -234,7 +276,7 @@ require "spec"
         name:      "seed-upstream",
         type:      "exchange",
         resource:  "seed.topic",
-        uri:       "amqp://localhost:5672/seed",
+        uri:       "amqp://guest:s3cret@localhost:5672/seed",
         timestamp: "2026-06-29T00:00:00Z",
       },
     ].to_json,
@@ -249,7 +291,9 @@ require "spec"
   }
 
   private def with_tui_api(status = 200, &)
+    requests = [] of String
     server = HTTP::Server.new do |context|
+      requests << context.request.path
       if body = TUI_RESPONSES[context.request.path]?
         context.response.status_code = status
         context.response.content_type = "application/json"
@@ -263,7 +307,7 @@ require "spec"
     Fiber.yield
 
     client = HTTP::Client.new("127.0.0.1", addr.port)
-    yield client
+    yield client, requests
   ensure
     client.try &.close
     server.try &.close
@@ -271,29 +315,71 @@ require "spec"
 
   describe LavinMQCtl::TUI do
     {
-      {'1', "Overview", "Object totals"},
-      {'2', "Queues", "seed.ready"},
-      {'3', "Connections", "127.0.0.1:50000"},
-      {'4', "Channels", "Unacked"},
-      {'5', "Exchanges", "seed.direct"},
-      {'6', "Consumers", "seed-consumer-0"},
-      {'7', "Vhosts", "seed"},
-      {'8', "Nodes", "lavinmq@spec"},
-      {'9', "Parameters", "seed-shovel"},
-      {'0', "Policies", "seed-ttl-dlx"},
-      {'s', "Shovels", "seed-shovel"},
-      {'f', "Federation", "seed-upstream"},
-      {'u', "Users", "administrator"},
-    }.each do |key, page, expected_text|
+      {'1', "Overview", ["Object totals"]},
+      {'2', "Queues", ["seed.ready", "(1 of 25)"]},
+      {'3', "Connections", ["127.0.0.1:50000", "8.0KiB"]},
+      {'4', "Channels", ["Unacked"]},
+      {'5', "Exchanges", ["seed.direct"]},
+      {'6', "Consumers", ["seed-consumer-0"]},
+      {'7', "Vhosts", ["seed"]},
+      {'8', "Nodes", ["7.9GiB"]}, # disk_free is above Int32::MAX
+      {'9', "Parameters", ["seed-shovel"]},
+      {'0', "Policies", ["seed-ttl-dlx"]},
+      {'s', "Shovels", ["seed-shovel"]},
+      {'f', "Federation", ["seed-upstream", "amqp://guest:***@localhost:5672/seed"]},
+      {'u', "Users", ["administrator"]},
+    }.each do |key, page, expected_texts|
       it "renders the #{page} page" do
         with_tui_api do |client|
           screen = FakeTUIScreen.new(events: [tui_key(key), tui_key('q')] of Termisu::Event::Any)
           LavinMQCtl::TUI.new(client, 60.0, screen).start
 
           screen.text.should contain(page)
-          screen.text.should contain(expected_text)
+          expected_texts.each { |text| screen.text.should contain(text) }
+          screen.text.should_not contain("s3cret")
           screen.closed?.should be_true
         end
+      end
+    end
+
+    it "shows message counts as numbers, not bytes" do
+      with_tui_api do |client|
+        screen = FakeTUIScreen.new(events: [tui_key('q')] of Termisu::Event::Any)
+        LavinMQCtl::TUI.new(client, 60.0, screen).start
+
+        screen.text.should_not contain("3.8KiB")
+      end
+    end
+
+    it "draws both series of a graph on the same scale" do
+      with_tui_api do |client|
+        screen = FakeTUIScreen.new(events: [tui_key('q')] of Termisu::Event::Any)
+        LavinMQCtl::TUI.new(client, 60.0, screen).start
+
+        # Publish peaks at 12.5/s and deliver at 9.7/s, so publish reaches higher
+        publish_top = screen.top_row('⣿', LavinMQCtl::TUI::CYAN).should_not be_nil
+        deliver_top = screen.top_row('⣿', LavinMQCtl::TUI::MAGENTA).should_not be_nil
+        publish_top.should be < deliver_top
+      end
+    end
+
+    it "fits the overview panels in a small terminal" do
+      with_tui_api do |client|
+        screen = FakeTUIScreen.new(width: 90, height: 24, events: [tui_key('q')] of Termisu::Event::Any)
+        LavinMQCtl::TUI.new(client, 60.0, screen).start
+
+        lines = screen.text.lines
+        lines.select(&.includes?('╰')).each { |line| line.should_not match(/\w/) }
+        screen.text.should contain("max 12.5/s")
+      end
+    end
+
+    it "keeps refreshing while keys are pressed" do
+      with_tui_api do |client, requests|
+        screen = KeyRepeatTUIScreen.new(presses: 30)
+        LavinMQCtl::TUI.new(client, 0.05, screen).start
+
+        requests.count("/api/overview").should be >= 3
       end
     end
 

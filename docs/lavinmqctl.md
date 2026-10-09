@@ -99,17 +99,18 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 |---------|-------------|
 | `status` | Display server status |
 | `cluster_status` | Display cluster status |
-| `tui [-i interval]` | Start the interactive dashboard |
+| `tui [-i seconds]` | Start the interactive dashboard |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
-The TUI poll interval is specified in seconds and must be positive. It defaults to `1.0`.
-The Overview page uses a compact panel layout with message-rate dot graphs,
-queue-depth graphs, node resource bars, and the busiest queues. The graph
-history comes from the management API logs when available and then rolls forward
-with each refresh.
-The dashboard pages are selected with number keys:
+The TUI refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive).
+The Overview page shows message rate and queue depth graphs, node resource bars,
+and the queues with the most messages. The graphs start from the history kept by
+the management API and roll forward with each refresh. The other pages list as
+many items as fit in the terminal, with the total in the title when there are
+more. Passwords in shovel and federation URIs are masked.
+Switch pages with these keys, and quit with `q` or `Ctrl-C`:
 
 | Key | Page |
 |-----|------|
