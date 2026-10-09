@@ -6,7 +6,7 @@ SESSION="lavinmq-tui-inspect-$$"
 TMPDIR_PATH=$(mktemp -d "${TMPDIR:-/tmp}/lavinmq-tui.XXXXXX")
 OUT_DIR=""
 URI=""
-MOCK_PORT="15692"
+MOCK_PORT="15699"
 INTERVAL="60"
 KEEP_SESSION="0"
 
@@ -19,7 +19,7 @@ Run lavinmqctl tui in tmux, capture each page, and quit.
 Options:
   --uri=URI             Management API URI. Starts the mock API when omitted.
   --output=DIR          Output directory for captured pages.
-  --mock-port=PORT      Port for the mock API (default 15692).
+  --mock-port=PORT      Port for the mock API (default 15699).
   --interval=SECONDS    TUI poll interval (default 60).
   --keep-session        Leave the tmux session running.
   -h, --help            Show this help.
@@ -56,7 +56,9 @@ trap cleanup EXIT INT TERM
 
 if [ -z "$URI" ]; then
   URI="http://127.0.0.1:$MOCK_PORT"
-  crystal run "$ROOT/extras/tui_mock_api.cr" -- --port "$MOCK_PORT" >"$TMPDIR_PATH/mock.log" 2>&1 &
+  # Built first, as killing crystal run leaves the program it started running
+  crystal build -o "$TMPDIR_PATH/tui_mock_api" "$ROOT/extras/tui_mock_api.cr"
+  "$TMPDIR_PATH/tui_mock_api" --port "$MOCK_PORT" >"$TMPDIR_PATH/mock.log" 2>&1 &
   MOCK_PID=$!
   i=0
   while ! curl -fsS "$URI/api/overview" >/dev/null 2>&1; do

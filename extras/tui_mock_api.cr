@@ -5,7 +5,7 @@ require "option_parser"
 module TUIMockAPI
   class Config
     property host = "127.0.0.1"
-    property port = 15692
+    property port = 15699
   end
 
   CFG = Config.new
@@ -14,7 +14,7 @@ module TUIMockAPI
     OptionParser.parse do |p|
       p.banner = "Usage: tui_mock_api [options]"
       p.on("--host=HOST", "Bind host (default 127.0.0.1)") { |v| CFG.host = v }
-      p.on("--port=PORT", "Bind port (default 15692)") { |v| CFG.port = v.to_i }
+      p.on("--port=PORT", "Bind port (default 15699)") { |v| CFG.port = v.to_i }
       p.on("-h", "--help", "Show help") { puts p; exit 0 }
     end
   end
