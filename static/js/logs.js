@@ -6,8 +6,46 @@ const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
 const btnToTop = document.getElementById('to-top')
 const btnToBottom = document.getElementById('to-bottom')
+const MAX_LINES = 10000
+const pending = []
+let paintScheduled = false
 
 evtSource.onmessage = (event) => {
+  pending.push(event)
+  if (pending.length > MAX_LINES * 1.1) pending.splice(0, pending.length - MAX_LINES)
+  schedulePaint()
+}
+
+function schedulePaint () {
+  if (paintScheduled) return
+  paintScheduled = true
+  window.requestAnimationFrame(paint)
+}
+
+function paint () {
+  paintScheduled = false
+  const rows = document.createDocumentFragment()
+  for (const event of pending.splice(0).slice(-MAX_LINES)) {
+    rows.appendChild(buildRow(event))
+  }
+  tbody.appendChild(rows)
+  trimRows()
+  if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
+  lastScrollTop = livelog.scrollTop
+}
+
+function trimRows () {
+  const excess = tbody.rows.length - MAX_LINES
+  if (excess <= 0) return
+  const heightBefore = livelog.scrollHeight
+  const range = document.createRange()
+  range.setStartBefore(tbody.rows[0])
+  range.setEndAfter(tbody.rows[excess - 1])
+  range.deleteContents()
+  if (!shouldAutoScroll) livelog.scrollTop -= heightBefore - livelog.scrollHeight
+}
+
+function buildRow (event) {
   const timestamp = new Date(parseInt(event.lastEventId))
   const [severity, source, message] = JSON.parse(event.data)
 
@@ -25,9 +63,7 @@ evtSource.onmessage = (event) => {
 
   const tr = document.createElement('tr')
   tr.append(tdTs, tdSev, tdSrc, tdMsg)
-  const row = tbody.appendChild(tr)
-
-  if (shouldAutoScroll) row.scrollIntoView()
+  return tr
 }
 
 evtSource.onerror = () => {
@@ -81,4 +117,4 @@ livelog.addEventListener('scroll', event => {
   lastScrollTop = st <= 0 ? 0 : st
 })
 
-livelog.addEventListener('beforeunload', () => livelog.close())
+window.addEventListener('beforeunload', () => evtSource.close())
