@@ -165,7 +165,8 @@ module MqttSpecs
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
         with_client_io(server) do |io|
           connect(io)
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 2})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
 
           binding = exchange.bindings_details.first
           binding.binding_key.qos.should eq 1u8
@@ -173,12 +174,30 @@ module MqttSpecs
 
           # A follow up subscribe with the qos we granted is the same
           # subscription, so it must not add a second binding
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 1})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
           exchange.bindings_details.size.should eq 1
           exchange.binding_count.should eq 1
 
           disconnect(io)
         end
+      end
+    end
+
+    it "grants Failure for a subscription whose session was deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_queue("mqtt.gone", true, false, LavinMQ::MQTT::Session::ARGUMENTS)
+        session = vhost.session("mqtt.gone")
+        session.delete
+        vhost.session?("mqtt.gone").should be_nil
+
+        broker = server.mqtt_server.broker("/")
+        [0u8, 1u8, 2u8].each do |qos|
+          broker.grant(session, subtopic("a/b", qos))
+            .should eq MQTT::Protocol::SubAck::ReturnCode::Failure
+        end
+        vhost.mqtt_exchange.binding_count.should eq 0
       end
     end
 
