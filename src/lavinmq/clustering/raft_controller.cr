@@ -179,18 +179,29 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     ensure
       started.close
     end
-    select
-    when @node.serving.when_false.receive
-      nil
-    when transfer = @step_down_requested.receive
-      transfer
-    when @stop_signal.receive?
-      nil
+    loop do
+      select
+      when @node.serving.when_false.receive
+        return
+      when transfer = @step_down_requested.receive
+        return transfer unless stale?(transfer)
+      when @stop_signal.receive?
+        return
+      end
     end
   rescue RaftCoordinator::StaleLeadership
     # Lost while starting to serve, replicated writes during startup fail
     # with it
     nil
+  end
+
+  # A transfer whose request raced with losing leadership can reach a later
+  # term, where nobody asked for it
+  private def stale?(transfer : Transfer) : Bool
+    term = @node.status.try(&.term)
+    return false if term.nil? || term == transfer.term
+    Log.warn { "Ignoring a leadership transfer to #{transfer.address} requested in term #{transfer.term}, now #{term}" }
+    true
   end
 
   private def step_down_as_leader(transfer : Transfer?) : Nil

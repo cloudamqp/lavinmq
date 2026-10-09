@@ -183,12 +183,18 @@ private class ControllerCluster
     @controllers.each { |c| start(c, startup) }
   end
 
+  # The next controller that serves and still leads. A leader can serve
+  # again in the same process after losing leadership, so a node that has
+  # stopped leading since, e.g. one a spec stopped, is skipped.
   def next_leader(timeout = 5.seconds) : LavinMQ::Clustering::RaftController
-    select
-    when c = @serving.receive
-      c
-    when timeout(timeout)
-      fail "no leader elected within #{timeout}"
+    deadline = Time.instant + timeout
+    loop do
+      select
+      when c = @serving.receive
+        return c if c.node.leader?
+      when timeout(deadline - Time.instant)
+        fail "no leader elected within #{timeout}"
+      end
     end
   end
 
@@ -567,6 +573,19 @@ describe LavinMQ::Clustering::RaftController do
       sleep 2.5.seconds # a few reconnect attempts
       cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true
       d.node.committed_isr.not_nil!.should_not contain(a.id)
+    end
+  end
+
+  it "ignores a transfer requested in an earlier term", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      other = cluster.controllers.find! { |c| c != leader }
+      term = leader.node.status.not_nil!.term
+      # As when a request raced with losing leadership and this node leads again
+      leader.step_down(LavinMQ::Clustering::RaftController::Transfer.new(other.id, cluster.address(other), term - 1))
+      receive_within(cluster.demotions, 1.second).should be_nil
+      leader.node.leader?.should be_true
     end
   end
 
