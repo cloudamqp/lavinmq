@@ -2530,22 +2530,22 @@ pre.arguments .inactive-argument:before {
   background-color: var(--color-bg-hover);
 }
 
-#refresh-control[data-state="reconnecting"] #refresh-toggle,
-#refresh-control[data-state="stale"] #refresh-toggle {
+html[data-reachability="reconnecting"] #refresh-toggle,
+html[data-reachability="stale"] #refresh-toggle {
   --ring-color: var(--refresh-attention);
 }
 
-#refresh-control[data-state="stale"] #refresh-toggle {
+html[data-reachability="stale"] #refresh-toggle {
   border-color: var(--refresh-attention);
   color: light-dark(#8a6d03, #e3b40f);
   background: light-dark(rgb(210 161 6 / 12%), rgb(210 161 6 / 18%));
 }
 
-#refresh-control[data-state="reconnecting"] .refresh-ring {
+html[data-reachability="reconnecting"] .refresh-ring {
   animation: refresh-pulse 1s ease-in-out infinite alternate;
 }
 
-#refresh-control[data-state="stale"] .refresh-ring {
+html[data-reachability="stale"] .refresh-ring {
   --sweep: 100%;
   animation: refresh-pulse 2s ease-in-out infinite alternate;
 }
