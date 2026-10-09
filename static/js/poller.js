@@ -1,9 +1,11 @@
 const RATES = [5000, 10000, 30000, 60000]
 const RATE_KEY = 'lmq.refreshInterval'
 const PAUSED_KEY = 'lmq.refreshPaused'
+const REQUEST_TIMEOUT = 30000
 
 const fns = new Set()
 const inFlight = new Map()
+const timedOut = new Set()
 const events = new EventTarget()
 let timer = null
 let lastTickAt = 0
@@ -16,11 +18,19 @@ function emit () {
 
 function run (fn) {
   if (inFlight.has(fn)) return
+  const controller = new window.AbortController()
+  const timeout = Math.max(REQUEST_TIMEOUT, 3 * rate)
+  const timer = window.setTimeout(() => {
+    controller.abort(new Error(`No response after ${timeout / 1000}s`))
+  }, timeout)
   inFlight.set(fn, Date.now())
-  Promise.resolve()
+  Promise.resolve(controller.signal)
     .then(fn)
     .catch(console.error)
     .finally(() => {
+      window.clearTimeout(timer)
+      if (controller.signal.aborted) timedOut.add(fn)
+      else timedOut.delete(fn)
       inFlight.delete(fn)
       events.dispatchEvent(new Event('settled'))
     })
@@ -40,7 +50,7 @@ function pendingFor () {
 }
 
 function isStalled () {
-  return pendingFor() >= rate
+  return timedOut.size > 0 || pendingFor() >= rate
 }
 
 function reportStalled () {

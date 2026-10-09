@@ -203,14 +203,29 @@ test.describe('refresh control', _ => {
     })
   }
 
-  test('a request that never answers stops showing live', async ({ page }) => {
+  test('a refresh slower than the interval shows as slow, not as connection trouble', async ({ page }) => {
     await page.clock.install()
     await loadOverview(page)
     await page.route('**/api/overview', () => {})
     await advance(page, 10000)
     const control = page.locator('#refresh-control')
-    await expect(control).not.toHaveAttribute('data-state', 'live')
-    await expect(control).toHaveAttribute('title', /No response for/)
+    await expect(control).toHaveAttribute('data-state', 'slow')
+    await expect(control).toHaveAttribute('title', /^Waiting for a slow response/)
+  })
+
+  test('a request that never answers is given up on after 30 seconds and retried', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.route('**/api/overview', () => {})
+    const overview = countRequests(page, '/api/overview')
+    const failed = page.waitForEvent('requestfailed', request => new URL(request.url()).pathname === '/api/overview')
+    await advance(page, 35000)
+    await failed
+    const control = page.locator('#refresh-control')
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(control).toHaveAttribute('title', /Last error: No response after 30s/)
+    await advance(page, 5000)
+    expect(overview.count).toBe(2)
   })
 
   test('shows going offline at once and refreshes when back online', async ({ page, context }) => {
@@ -239,7 +254,7 @@ test.describe('refresh control', _ => {
     await page.route(`**${exchangePath}`, () => {})
     const control = page.locator('#refresh-control')
     const states = []
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       const bindings = responseFor(bindingsPath)
       await page.clock.runFor(5000)
       await bindings
@@ -268,7 +283,7 @@ test.describe('refresh control', _ => {
       await page.clock.runFor(5000)
       await bindings
     }
-    await expect(control).not.toHaveAttribute('data-state', 'live')
+    await expect(control).toHaveAttribute('data-state', 'slow')
 
     const answered = responseFor(exchangePath)
     release()
