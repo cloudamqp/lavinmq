@@ -269,13 +269,20 @@ class LavinMQCtl
     rescue ex : JSON::ParseException
       record_error("#{label}: invalid JSON (#{ex.message})")
       nil
+    rescue ex : IO::TimeoutError
+      # The connection is kept open, so the late response would be read as the
+      # answer to the next request. A TCP client reconnects on the next request.
+      @client.close
+      record_error("#{label}: #{ex.message}")
+      nil
     rescue ex
       record_error("#{label}: #{ex.message || ex.class.name}")
       nil
     end
 
+    # Keeps the first error of a render, later ones are often caused by it
     private def record_error(message : String)
-      @last_error = message
+      @last_error ||= message
     end
 
     private def render_header(overview : JSON::Any?)

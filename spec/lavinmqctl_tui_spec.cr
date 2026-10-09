@@ -392,6 +392,32 @@ describe LavinMQCtl::TUI do
     end
   end
 
+  it "doesn't read a timed out response as the answer to the next request" do
+    stalled = false
+    server = HTTP::Server.new do |context|
+      context.response.content_type = "application/json"
+      if context.request.path == "/api/overview" && !stalled
+        stalled = true
+        sleep 300.milliseconds
+        context.response.print({lavinmq_version: "stale"}.to_json)
+      else
+        context.response.print TUI_RESPONSES[context.request.path]? || "{}"
+      end
+    end
+    addr = server.bind_tcp("127.0.0.1", 0)
+    spawn(name: "tui spec api") { server.listen }
+    client = HTTP::Client.new("127.0.0.1", addr.port)
+    client.read_timeout = 200.milliseconds
+
+    screen = FakeTUIScreen.new(events: [tui_key('1'), tui_key('q')] of Termisu::Event::Any)
+    LavinMQCtl::TUI.new(client, 60.0, screen).start
+
+    screen.text.should contain("vspec")
+  ensure
+    client.try &.close
+    server.try &.close
+  end
+
   it "keeps refreshing while keys are pressed" do
     with_tui_api do |client, requests|
       screen = KeyRepeatTUIScreen.new(presses: 30)

@@ -17,6 +17,7 @@ class LavinMQCtl
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
+  @request_timeout : Time::Span?
   @io : IO
   @err_io : IO
 
@@ -142,6 +143,7 @@ class LavinMQCtl
           abort "Please run lavinmqctl as root or as the same user as LavinMQ."
         end
         socket = UNIXSocket.new(path)
+        socket.read_timeout = @request_timeout
         HTTP::Client.new(socket)
       rescue ex : Socket::ConnectError
         abort "Can't connect to LavinMQ: #{ex.message}"
@@ -157,6 +159,10 @@ class LavinMQCtl
 
   private def client_from_uri(uri : URI)
     c = HTTP::Client.new(uri)
+    if timeout = @request_timeout
+      c.connect_timeout = timeout
+      c.read_timeout = timeout
+    end
     uri.user = @options["user"] if @options["user"]?
     uri.password = @options["password"] if @options["password"]?
     c.basic_auth(uri.user, uri.password) if uri.user
@@ -858,6 +864,10 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  # The TUI can't be interrupted with Ctrl-C while it waits for a response,
+  # as the terminal is in raw mode, so it gives up on slow requests
+  TUI_TIMEOUT = 5.seconds
+
   @[Cmd("Start the interactive dashboard", "", section: "Server")]
   @[Opt("-i SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
   @[Opt("--interval=SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
@@ -866,6 +876,7 @@ class LavinMQCtl
     unless launcher = @@tui_launcher
       abort "TUI support is not available"
     end
+    @request_timeout = TUI_TIMEOUT
     launcher.call(http, interval)
   end
 

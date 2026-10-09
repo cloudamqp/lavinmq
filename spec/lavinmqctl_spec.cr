@@ -346,6 +346,28 @@ describe "LavinMQCtl" do
       LavinMQCtl.tui_launcher = nil
     end
 
+    it "should time out stalled requests from the TUI" do
+      # Respond slower than the TUI timeout, but not forever, so this fails instead of hanging without one
+      server = HTTP::Server.new { |_context| sleep LavinMQCtl::TUI_TIMEOUT + 2.seconds }
+      addr = server.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stalled api") { server.listen }
+      error = nil.as(Exception?)
+      LavinMQCtl.tui_launcher = ->(client : HTTP::Client, _interval : Float64) {
+        begin
+          client.get("/api/overview")
+        rescue ex
+          error = ex
+        end
+        nil
+      }
+
+      run_lavinmqctl(addr.to_s, ["tui"])
+      error.should be_a(IO::TimeoutError)
+    ensure
+      LavinMQCtl.tui_launcher = nil
+      server.try &.close
+    end
+
     it "should fail when creating user with missing password" do
       with_http_server do |(http, s)|
         result = run_lavinmqctl(http.addr.to_s, ["add_user", "testuser"])
