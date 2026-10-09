@@ -41,8 +41,7 @@ module UpstreamSpecHelpers
         end
         gate.receive?
         server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
-        spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
-        spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+        pipe(client, server)
       end
     end
     url = target.dup
@@ -52,6 +51,15 @@ module UpstreamSpecHelpers
   ensure
     gate.try &.close
     proxy.try &.close
+  end
+
+  # A method, so that each connection's fibers capture its own sockets. Fibers
+  # spawned in the accept loop would share its variables, which the next
+  # accept reassigns, to nil once the proxy is closed (and closing nil
+  # segfaults).
+  def self.pipe(client, server)
+    spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
+    spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
   end
 
   def self.start_link(upstream, pattern = "downstream_ex", applies_to = "exchanges")
