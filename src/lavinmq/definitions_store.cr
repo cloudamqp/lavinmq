@@ -193,6 +193,10 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          if dst.is_a?(AMQP::MqttTopicExchange)
+            return false if loading
+            raise Error::PreconditionFailed.new("Exchange '#{dst.name}' of type x-mqtt-topic only receives MQTT publishes and cannot be a binding destination")
+          end
           return false unless src.bind(dst, f.routing_key, f.arguments)
           store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
