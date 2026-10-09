@@ -50,6 +50,7 @@
             </svg>
           </button>
           <select id="refresh-rate" class="dropdown" aria-label="Refresh interval"></select>
+          <span id="refresh-live" class="refresh-live">Live</span>
         </div>
       </li>
       <li class="flex flex-row items-center">
