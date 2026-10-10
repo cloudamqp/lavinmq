@@ -378,6 +378,8 @@ module LavinMQ
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
+      rescue Coordinator::StaleLeadership
+        Log.info { "Not the leader anymore, disconnecting the follower" }
       ensure
         follower.try &.close
       end
