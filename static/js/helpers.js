@@ -198,6 +198,15 @@ const stateClasses = new class {
     }
   }
 
+  sync (pattern) {
+    const value = window.localStorage.getItem('lmq.stateclasses') || ''
+    const stored = new Set(value.split(' ').filter(k => pattern.test(k)))
+    const stale = this.#values.values().filter(k => pattern.test(k) && !stored.has(k)).toArray()
+    this.#values.remove(...stale)
+    stored.forEach(k => this.#state_classes.add(k))
+    this.#values.add(...stored)
+  }
+
   #persist (track = null) {
     if (track) {
       this.#state_classes.add(track)
