@@ -159,6 +159,8 @@ components:
       "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-members"
     mqtt-permission-group-rules:
       "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-rules"
+    mqtt-permission-group-rule:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-rule"
     mqtt-PutRuleRequestBody:
       "$ref": "./schemas/mqtt-permissions.yaml#/PutRuleRequestBody"
     mqtt-permission-groups:
