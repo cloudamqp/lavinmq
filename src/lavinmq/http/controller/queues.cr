@@ -222,15 +222,17 @@ module LavinMQ
                 while sp = sps.shift?
                   if ack
                     q.ack(sp)
+                  elsif requeue
+                    q.requeue(sp)
                   else
-                    q.reject(sp, requeue)
+                    q.reject(sp, requeue: false)
                   end
                 end
               rescue e : Exception
                 # Requeue the messages that aren't finalized yet
                 if unacked_sps = sps
                   unacked_sps.each do |unacked_sp|
-                    q.reject(unacked_sp, true)
+                    q.requeue(unacked_sp)
                   end
                 end
                 raise e

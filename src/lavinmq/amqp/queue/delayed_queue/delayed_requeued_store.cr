@@ -4,7 +4,7 @@ require "../../../min_heap"
 require "../queue"
 
 module LavinMQ::AMQP
-  class DelayedExchangeQueue < Queue
+  abstract class DelayedQueue < Queue
     class DelayedMessageStore < MessageStore
       class DelayedRequeuedStore < MessageStore::RequeuedStore
         record DelayedSegmentPosition,
