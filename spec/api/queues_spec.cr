@@ -131,6 +131,19 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should return the history of the queue's message counts" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("depth_log")
+          2.times { q.publish_confirm "m" }
+        end
+        s.update_stats_rates
+        body = JSON.parse(http.get("/api/queues/%2f/depth_log").body)
+        body["messages_ready_log"].as_a.last.should eq 2
+        body["messages_unacknowledged_log"].as_a.last.should eq 0
+      end
+    end
+
     it "should return the tag of an exclusive consumer" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

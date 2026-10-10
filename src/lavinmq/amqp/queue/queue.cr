@@ -1167,6 +1167,8 @@ module LavinMQ::AMQP
             end
           end
         end
+        json.field("messages_ready_log", message_count_log)
+        json.field("messages_unacknowledged_log", unacked_count_log)
         json.field("consumer_details") do
           json.array do
             @consumers_lock.synchronize do
