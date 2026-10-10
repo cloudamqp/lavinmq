@@ -173,8 +173,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # finish syncing.
     @coordinator.update_isr(Set{@id})
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    # Replicated writes fail once leadership is lost, which ends a startup
+    # that waits for them, but exit if it hangs on something else
     started = Channel(Nil).new
-    spawn(watch_startup(started), name: "Startup watchdog")
+    spawn(watchdog(started, "Lost leadership while starting to serve, and the startup didn't stop, exiting",
+      armed: @node.serving.when_false), name: "Startup watchdog")
     begin
       yield
     ensure
@@ -228,28 +231,30 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status, @config.control_unix_path)
   end
 
-  # Replicated writes fail once leadership is lost, which ends a startup that
-  # waits for them, but exit if a startup that lost leadership hangs on
-  # something else
-  private def watch_startup(started : Channel(Nil)) : Nil
-    select
-    when started.receive?
-      return
-    when @node.serving.when_false.receive
+  # Exits unless *done* is closed within the demotion timeout, counted from
+  # when *armed* fires, or right away without it: a node that isn't the
+  # leader anymore must never keep serving.
+  private def watchdog(done : Channel(Nil), message : String, armed : Channel(Nil)? = nil) : Nil
+    if armed
+      select
+      when done.receive?
+        return
+      when armed.receive?
+      end
     end
     select
-    when started.receive?
+    when done.receive?
     when timeout(@demotion_timeout)
-      Log.fatal { "Lost leadership while starting to serve, and the startup didn't stop, exiting" }
+      Log.fatal { message }
       exit 3
     end
   end
 
-  # Stops serving, see #on_demote. Exits if that fails or hangs, a node that
-  # isn't the leader anymore must never keep serving.
+  # Stops serving, see #on_demote. Exits if that fails or hangs.
   private def demote(hand_over : Proc(Nil)?) : Nil
     done = Channel(Nil).new
-    spawn(watch_demotion(done), name: "Demotion watchdog")
+    spawn(watchdog(done, "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting"),
+      name: "Demotion watchdog")
     begin
       if demote = @demote
         demote.call(hand_over)
@@ -261,15 +266,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       exit 3
     ensure
       done.close
-    end
-  end
-
-  private def watch_demotion(done : Channel(Nil)) : Nil
-    select
-    when done.receive?
-    when timeout(@demotion_timeout)
-      Log.fatal { "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting" }
-      exit 3
     end
   end
 

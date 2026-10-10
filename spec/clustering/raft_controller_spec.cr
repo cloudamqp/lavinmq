@@ -32,13 +32,7 @@ private class ExitRecordingController < LavinMQ::Clustering::RaftController
     super(config)
   end
 
-  private def watch_startup(started : Channel(Nil)) : Nil
-    super
-  rescue ex : SpecExit
-    @exits.send({self, ex.code})
-  end
-
-  private def watch_demotion(done : Channel(Nil)) : Nil
+  private def watchdog(done : Channel(Nil), message : String, armed : Channel(Nil)? = nil) : Nil
     super
   rescue ex : SpecExit
     @exits.send({self, ex.code})
