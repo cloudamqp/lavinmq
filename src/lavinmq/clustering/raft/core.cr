@@ -93,21 +93,17 @@ module LavinMQ::Clustering::Raft
   #   up elsewhere the leader makes it a learner at the new address, a
   #   single-server removal, and promotes it back once it's in the ISR and
   #   caught up. So a copied data dir running next to the original is never
-  #   counted as the same voter twice.
+  #   counted as the same voter twice. When most voters move at once no
+  #   leader can do that, so after MOVED_TRUST_AFTER election timeouts
+  #   without a leader the voters count each other wherever they are, and
+  #   the leader elected records the new addresses. That trusts that a node
+  #   at a new address is a move and not a copy running next to the original.
   # - Pre-vote, so a node rejoining after a partition doesn't inflate the
   #   term and depose a healthy leader.
   # - Leader stickiness: votes are refused while a leader was heard from
   #   within the minimum election timeout, and a leader steps down when it
   #   hasn't heard from a majority for that long (check-quorum). Together
   #   they bound how long a deposed leader can believe it still leads.
-  # - Members are identified by clustering id, but a voter only counts while
-  #   connected from the address the membership lists for it, so a copied
-  #   data dir can't vote twice. A leader moves a voter that connects from
-  #   elsewhere. When most voters move at once no leader can do that, so
-  #   after MOVED_TRUST_AFTER election timeouts without a leader the voters
-  #   count each other wherever they are, and the leader elected records the
-  #   new addresses. That trusts that a node at a new address is a move and
-  #   not a copy running next to the original.
   class Core
     private record Departing, index : Int64, deadline : Time::Instant, address : String
 
@@ -123,8 +119,7 @@ module LavinMQ::Clustering::Raft
     getter role = Role::Follower
     getter leader : Int32? = nil
     getter leader_uri : String? = nil
-    getter commit_index = 0i64
-    getter outbox = Array(Tuple(Int32, Message)).new
+    @outbox = Array(Tuple(Int32, Message)).new
     getter? dirty = false
 
     @snapshot_index = 0i64
@@ -183,7 +178,6 @@ module LavinMQ::Clustering::Raft
         @snapshot_isr = state.snapshot_isr
         @snapshot_membership = state.snapshot_membership
         @entries = state.entries.dup
-        @commit_index = @snapshot_index
       end
       @election_deadline = now + randomized_election_timeout
       @heartbeat_due = now
@@ -219,10 +213,13 @@ module LavinMQ::Clustering::Raft
       @snapshot_isr
     end
 
+    # Committed entries are folded into the snapshot right away, see
+    # #commit_to, so the snapshot is everything that's committed
+    def commit_index : Int64
+      @snapshot_index
+    end
+
     def committed_isr : Set(Int32)?
-      (@commit_index - @snapshot_index).to_i.downto(1) do |i|
-        @entries[i - 1].isr.try { |isr| return isr }
-      end
       @snapshot_isr
     end
 
@@ -353,7 +350,7 @@ module LavinMQ::Clustering::Raft
     # Leader whose no-op of this term is committed, i.e. it has applied every
     # entry committed by earlier leaders and may act on the ISR.
     def serving_leader? : Bool
-      @role.leader? && @commit_index >= @term_start_index
+      @role.leader? && @snapshot_index >= @term_start_index
     end
 
     # Before there's a membership every seed is a voter, also the
@@ -574,7 +571,7 @@ module LavinMQ::Clustering::Raft
       end
       merge_entries(msg.prev_index, msg.entries)
       match = msg.prev_index + msg.entries.size
-      if msg.commit > @commit_index
+      if msg.commit > @snapshot_index
         commit_to Math.min(msg.commit, match)
       end
       send msg.from, AppendResponse.new(@id, @term, true, match)
@@ -604,13 +601,12 @@ module LavinMQ::Clustering::Raft
     end
 
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
-      return if index <= @commit_index
+      return if index <= @snapshot_index
       @entries.clear
       @snapshot_index = index
       @snapshot_term = term
       @snapshot_isr = isr
       @snapshot_membership = membership
-      @commit_index = index
       @dirty = true
       refresh_membership
     end
@@ -766,11 +762,8 @@ module LavinMQ::Clustering::Raft
     end
 
     private def lost_quorum?(now : Time::Instant) : Bool
-      acked = self_vote
-      counted_peers.each do |p|
-        if last = @last_ack[p]?
-          acked += 1 if now - last < @election_timeout
-        end
+      acked = self_vote + @peers.count do |p|
+        counted?(p) && (last = @last_ack[p]?) && now - last < @election_timeout
       end
       acked < quorum
     end
@@ -904,9 +897,9 @@ module LavinMQ::Clustering::Raft
       @peers.select { |p| @voters.includes?(p) }
     end
 
-    # The voters whose acks count
-    private def counted_peers : Array(Int32)
-      @peers.select { |p| @voters.includes?(p) && at_home?(p) }
+    # Whether a peer is a voter whose acks count
+    private def counted?(peer : Int32) : Bool
+      @voters.includes?(peer) && at_home?(peer)
     end
 
     # Our own vote, if we're a voter
@@ -952,14 +945,14 @@ module LavinMQ::Clustering::Raft
       end
       prev = next_index - 1
       entries = @entries[(next_index - @snapshot_index - 1).to_i..]? || Array(Entry).new
-      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @commit_index)
+      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @snapshot_index)
     end
 
     private def advance_commit : Nil
       n = last_index
-      while n > @commit_index
+      while n > @snapshot_index
         break if term_at(n) != @term # only entries of the current term are committed by counting
-        replicated = self_vote + counted_peers.count { |p| (@match_index[p]? || 0i64) >= n }
+        replicated = self_vote + @peers.count { |p| counted?(p) && (@match_index[p]? || 0i64) >= n }
         if replicated >= quorum
           commit_to n
           return
@@ -971,7 +964,7 @@ module LavinMQ::Clustering::Raft
     # Committed entries are folded into the snapshot right away: the state is
     # a single ISR, so there's nothing to gain from keeping them.
     private def commit_to(index : Int64) : Nil
-      return if index <= @commit_index
+      return if index <= @snapshot_index
       isr = @snapshot_isr
       membership = @snapshot_membership
       count = (index - @snapshot_index).to_i
@@ -984,7 +977,6 @@ module LavinMQ::Clustering::Raft
       @snapshot_membership = membership
       @entries.shift(count)
       @snapshot_index = index
-      @commit_index = index
       @dirty = true
     end
 

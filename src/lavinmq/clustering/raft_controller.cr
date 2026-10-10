@@ -165,11 +165,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # or the node stops. Returns the requested transfer, if that's why.
   private def lead(&) : Transfer?
     ensure_in_isr!
-    if repli_client = @repli_client
-      repli_client.close
-      @repli_client = nil
-      report_metrics_of nil
-    end
+    stop_following
     # The leader's HTTP server binds the control socket when it starts
     close_control_server
     # No follower is replicating from this node yet, so none of them can be
@@ -203,8 +199,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # A transfer whose request raced with losing leadership can reach a later
   # term, where nobody asked for it
   private def stale?(transfer : Transfer) : Bool
-    term = @node.status.try(&.term)
-    return false if term.nil? || term == transfer.term
+    term = @node.term
+    return false if term == transfer.term
     Log.warn { "Ignoring a leadership transfer to #{transfer.address} requested in term #{transfer.term}, now #{term}" }
     true
   end
@@ -345,9 +341,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   private def follow(uri : String?) : Symbol?
     if repli_client = @repli_client # is currently following a leader
       return if repli_client.follows? uri
-      repli_client.close
-      @repli_client = nil
-      report_metrics_of nil
+      stop_following
     end
     if uri.nil?
       Log.warn { "No leader available" }
@@ -365,6 +359,12 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil
+  end
+
+  private def stop_following : Nil
+    @repli_client.try &.close
+    @repli_client = nil
+    report_metrics_of nil
   end
 
   private def current_leader_uri : String?

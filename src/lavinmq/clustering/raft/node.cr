@@ -9,8 +9,7 @@ module LavinMQ::Clustering::Raft
   # A snapshot of the cluster as this node sees it, see Node#status. Only
   # the leader knows `match_index`, `caught_up` and `responsive`.
   record Status, id : Int32, address : String, role : Role, term : Int64,
-    leader : Int32?, leader_uri : String?,
-    membership : Membership?, committed_membership : Membership?,
+    leader : Int32?, membership : Membership?,
     match_index : Hash(Int32, Int64), last_index : Int64, caught_up : Set(Int32),
     responsive : Set(Int32), committed_isr : Set(Int32)?, leader_heard_ago : Time::Span? = nil do
     # The member a clustering id (base 36, as shown) or a raft address refers to
@@ -85,8 +84,8 @@ module LavinMQ::Clustering::Raft
     private record Transfer, target : Int32?, reply : Channel(TransferResult)
     private record GetStatus, reply : Channel(Status)
     private record GetMetrics, reply : Channel(Metrics)
-    private record Pending, index : Int64, term : Int64, reply : Channel(Bool)
-    private record PendingChange, index : Int64, term : Int64, reply : Channel(MembershipError?)
+    # A proposal that's answered once its entry is committed, or lost
+    private record Pending, index : Int64, term : Int64, done : Bool ->
     private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | GetStatus | GetMetrics
 
     # True while this node is the leader and has committed an entry in its
@@ -101,8 +100,8 @@ module LavinMQ::Clustering::Raft
 
     @events = Channel(Event).new(EVENT_QUEUE_SIZE)
     @pending = Array(Pending).new
-    @pending_changes = Array(PendingChange).new
     @leader_uri : String? = nil
+    @term = 0i64
     @leader = false
     @committed_isr : Set(Int32)? = nil
     @membership : Membership? = nil
@@ -133,6 +132,7 @@ module LavinMQ::Clustering::Raft
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, @storage.load, bootstrap: bootstrap)
       @seeds = seeds.to_set << @address
+      @term = @core.term
       @committed_isr = @core.committed_isr
       @membership = @core.latest_membership
       @committed_membership = @core.committed_membership
@@ -155,6 +155,10 @@ module LavinMQ::Clustering::Raft
 
     def leader? : Bool
       @state_lock.synchronize { @leader }
+    end
+
+    def term : Int64
+      @state_lock.synchronize { @term }
     end
 
     def committed_isr : Set(Int32)?
@@ -302,10 +306,8 @@ module LavinMQ::Clustering::Raft
         flush
       end
     ensure
-      @pending.each &.reply.send(false)
+      @pending.each &.done.call(false)
       @pending.clear
-      @pending_changes.each &.reply.send(MembershipError::Lost)
-      @pending_changes.clear
       @serving.set(false)
       @stopped.close
     end
@@ -340,14 +342,14 @@ module LavinMQ::Clustering::Raft
         @core.identified(event.address, event.id)
       in Propose
         if index = @core.propose(event.isr, Time.instant)
-          @pending << Pending.new(index, @core.term, event.reply)
+          @pending << pending(index, event.reply)
         else
           event.reply.send false
         end
       in ChangeMembership
         case result = @core.propose_membership(event.change, event.id, Time.instant, event.address)
         in Int64
-          @pending_changes << PendingChange.new(result, @core.term, event.reply)
+          @pending << pending(result, event.reply)
         in MembershipError
           event.reply.send result
         end
@@ -371,8 +373,8 @@ module LavinMQ::Clustering::Raft
           responsive << p if @core.responsive?(p)
         end
       end
-      Status.new(@id, @address, @core.role, @core.term, @core.leader, @core.leader_uri,
-        @core.latest_membership, @core.committed_membership, match_index,
+      Status.new(@id, @address, @core.role, @core.term, @core.leader,
+        @core.latest_membership, match_index,
         @core.last_index, caught_up, responsive, @core.committed_isr, @core.leader_heard_ago(Time.instant))
     end
 
@@ -416,34 +418,26 @@ module LavinMQ::Clustering::Raft
         end
       end
       resolve_pending
-      resolve_pending_changes
       publish_state
       sync_transport
+    end
+
+    private def pending(index : Int64, reply : Channel(Bool)) : Pending
+      Pending.new(index, @core.term, ->(committed : Bool) { reply.send committed })
+    end
+
+    private def pending(index : Int64, reply : Channel(MembershipError?)) : Pending
+      Pending.new(index, @core.term, ->(committed : Bool) { reply.send(committed ? nil : MembershipError::Lost) })
     end
 
     private def resolve_pending : Nil
       return if @pending.empty?
       @pending.reject! do |p|
         if p.term == @core.term && @core.commit_index >= p.index
-          p.reply.send true
+          p.done.call(true)
           true
         elsif p.term != @core.term || !@core.role.leader?
-          p.reply.send false
-          true
-        else
-          false
-        end
-      end
-    end
-
-    private def resolve_pending_changes : Nil
-      return if @pending_changes.empty?
-      @pending_changes.reject! do |p|
-        if p.term == @core.term && @core.commit_index >= p.index
-          p.reply.send nil
-          true
-        elsif p.term != @core.term || !@core.role.leader?
-          p.reply.send MembershipError::Lost
+          p.done.call(false)
           true
         else
           false
@@ -465,6 +459,7 @@ module LavinMQ::Clustering::Raft
         @leader_changes += 1
       end
       uri = @core.leader_uri
+      term = @core.term
       isr = @core.committed_isr
       leader = @core.role.leader?
       membership = @core.latest_membership
@@ -475,6 +470,7 @@ module LavinMQ::Clustering::Raft
       @state_lock.synchronize do
         changed = uri != @leader_uri || leader != @leader
         @leader_uri = uri
+        @term = term
         @leader = leader
         @committed_isr = isr
         @membership = membership
@@ -504,7 +500,7 @@ module LavinMQ::Clustering::Raft
           cbs.each { |cb| Fiber::ExecutionContext.default.spawn(name: "raft member removed") { cb.call(id) } }
         end
       end
-      @serving.set(@core.serving_leader?)
+      @serving.swap(@core.serving_leader?)
     end
 
     # Voters at other addresses than the membership lists are only counted
