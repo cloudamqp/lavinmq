@@ -114,8 +114,15 @@ roll forward with each refresh, and their titles say how far back they go. The o
 as fit in the terminal, one page at a time. Numbers are right-aligned with thousands
 separators, and a number too wide for its column is shortened, like `1.96M`. A resized terminal is redrawn right away,
 and the rows for its new size are fetched once it stops changing size. The TUI needs
-a terminal of at least 40x10. `Enter` shows every field of the selected row, which follows the row
-through refreshes and is scrolled with the same keys. Passwords in shovel and
+a terminal of at least 40x10.
+
+`Enter` opens the selected row. A queue shows a summary, its message rate and depth
+graphs, and its consumers, bindings, unacknowledged messages (longest unacknowledged
+first) and fields. A connection shows its channels, and a channel its consumers.
+`Enter` on one of those rows opens what it refers to, like a consumer's channel or
+queue, and `Esc` goes back. A warning points out a queue with messages but no
+consumers, a paused or closed queue, a channel at its prefetch limit and a blocked
+connection. Other rows show all their fields. Passwords in shovel and
 federation URIs are masked, password hashes are not shown, and control characters
 in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 
@@ -126,7 +133,8 @@ in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 | `↑`, `↓`, `j`, `k` | Move the selection |
 | `PgUp`, `PgDn` | Previous or next page of rows |
 | `Home`, `End`, `g`, `G` | First or last row |
-| `Enter`, `Esc` | Show all fields of the selected row, back to the table |
+| `Enter`, `Esc` | Open the selected row, go back |
+| `Tab`, `Shift-Tab`, `←`, `→` on an opened row | Next or previous section, like a queue's consumers and bindings |
 | `o`, `r` | Sort by the next column, reverse the sort order |
 | `/`, `Esc` | Filter by name, clear the filter |
 | `p`, `Space` | Pause or resume refreshing |

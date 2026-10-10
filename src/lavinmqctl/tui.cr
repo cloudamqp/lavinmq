@@ -4,6 +4,7 @@ require "uri"
 require "./cli"
 require "./tui/screen"
 require "./tui/terminal"
+require "./tui/views"
 
 class LavinMQCtl
   class TUI
@@ -49,11 +50,8 @@ class LavinMQCtl
       property sort : String?
       property? descending : Bool
       property filter = ""
-      # The row shown with all its fields, found by its id after a refresh
-      property detail : JSON::Any?
-      property detail_id = ""
-      property detail_scroll = 0
-      property? detail_stale = false
+      # What's opened with Enter, the last one is shown
+      getter views = [] of View
 
       def initialize(@sort : String?, @descending : Bool)
       end
@@ -80,7 +78,8 @@ class LavinMQCtl
       {"Up Down j k", "Move the selection"},
       {"PgUp PgDn", "Previous or next page of rows"},
       {"Home End g G", "First or last row"},
-      {"Enter", "All fields of the selected row, Esc closes"},
+      {"Enter", "Open the selected row, like a queue, Esc goes back"},
+      {"Tab Left Right", "Switch section, like a queue's consumers"},
       {"o", "Sort by the next column"},
       {"r", "Reverse the sort order"},
       {"/", "Filter by name, Esc clears the filter"},
@@ -148,6 +147,7 @@ class LavinMQCtl
       @ready_history = [] of Float64
       @unacked_history = [] of Float64
       @tables = tables
+      @sections = view_sections
     end
 
     # How long the terminal size has to stay the same before fetching for it
@@ -225,8 +225,8 @@ class LavinMQCtl
         @help = false
         return unless event.key.char? && event.char == 'q'
       end
-      if (state = table_state) && state.detail
-        return if detail_key(state, event)
+      if (state = table_state) && (view = state.views.last?)
+        return if view_key(state, view, event)
       end
 
       if event.key.char?
@@ -247,37 +247,8 @@ class LavinMQCtl
       when .tab?, .right?     then switch_page(1)
       when .back_tab?, .left? then switch_page(-1)
       when .escape?           then set_filter("")
-      when .enter?            then open_detail
+      when .enter?            then open_view
       end
-    end
-
-    private def open_detail
-      return unless state = table_state
-      index = state.cursor - @items_first
-      if index >= 0 && (item = @items[index]?)
-        state.detail = item
-        state.detail_id = item_id(item)
-        state.detail_scroll = 0
-        state.detail_stale = false
-      end
-    end
-
-    # Scrolls or closes the details, other keys work as on the table
-    private def detail_key(state : TableState, event : KeyEvent) : Bool
-      key = event.key.char? ? VI_KEYS[event.char]? : event.key
-      case key
-      when Key::Up       then state.detail_scroll -= 1
-      when Key::Down     then state.detail_scroll += 1
-      when Key::PageUp   then state.detail_scroll -= table_rows
-      when Key::PageDown then state.detail_scroll += table_rows
-      when Key::Home     then state.detail_scroll = 0
-      when Key::End      then state.detail_scroll = Int32::MAX
-      when Key::Escape, Key::Enter, Key::Backspace
-        state.detail = nil
-      else
-        return false
-      end
-      true
     end
 
     # What tells rows apart across refreshes, when the sort order moves them
@@ -386,7 +357,9 @@ class LavinMQCtl
 
     private def wanted_fetch : String
       if state = table_state
-        "#{@page} #{state.cursor // table_rows} #{table_rows} #{state.sort} #{state.descending?} #{state.filter}"
+        table = "#{@page} #{state.cursor // table_rows} #{table_rows} #{state.sort} #{state.descending?} #{state.filter}"
+        view = state.views.last?
+        view ? "#{table} #{state.views.size} #{view_fetch(view)}" : table
       else
         "overview #{hot_queue_rows}"
       end
@@ -406,9 +379,10 @@ class LavinMQCtl
         @items = rows > 0 ? fetch_page("/api/queues", "queues", 1, rows, "messages", true, "")[0] : [] of JSON::Any
         @items_first = 0
         @nodes = fetch_list("/api/nodes", "nodes")
+      elsif (state = table_state) && (view = state.views.last?)
+        refresh_view(view)
       else
         fetch_table
-        update_detail
       end
       @fetched = wanted_fetch
       @fetch_time = Time.instant - started
@@ -465,12 +439,15 @@ class LavinMQCtl
       data.try(&.as_a?) || Fields.dig(data, "items").try(&.as_a?) || [] of JSON::Any
     end
 
-    private def fetch_json(path : String, label : String, retry = true) : JSON::Any?
+    # With *missing*, a 404 is returned as JSON null, for an object that may
+    # have been deleted
+    private def fetch_json(path : String, label : String, retry = true, missing = false) : JSON::Any?
       if @closed && (reconnect = @reconnect)
         @client = reconnect.call
         @closed = false
       end
       response = @client.get(path)
+      return JSON::Any.new(nil) if missing && response.status_code == 404
       unless response.status_code == 200
         record_error("#{label}: HTTP #{response.status_code} #{response.status}")
         return
@@ -488,7 +465,7 @@ class LavinMQCtl
       # A TCP client retries once on a new connection when the server has
       # closed the one it had, a client on the control socket raises instead
       if retry && @reconnect && !ex.is_a?(IO::Error)
-        return fetch_json(path, label, retry: false)
+        return fetch_json(path, label, retry: false, missing: missing)
       end
       record_error("#{label}: #{ex.message || ex.class.name}")
       nil
@@ -497,16 +474,6 @@ class LavinMQCtl
     # Keeps the first error of a refresh, later ones are often caused by it
     private def record_error(message : String)
       @last_error ||= message
-    end
-
-    private def update_detail
-      return unless (state = table_state) && state.detail
-      if item = @items.find { |i| item_id(i) == state.detail_id }
-        state.detail = item
-        state.detail_stale = false
-      else
-        state.detail_stale = true
-      end
     end
 
     # The node, and a row for each of its followers
@@ -652,8 +619,8 @@ class LavinMQCtl
 
     private def draw_table
       return unless state = table_state
-      if detail = state.detail
-        return draw_detail(state, detail)
+      if view = state.views.last?
+        return draw_view(state, view)
       end
       table = @tables[@page]
       rect = Rect.new(1, 2, @width - 2, @height - 4)
@@ -677,32 +644,6 @@ class LavinMQCtl
         set_cell(rect.inner_x + 1, y, '▌', GREEN, bg) if selected
         values = table.columns.map(&.value.call(item))
         draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true)
-      end
-    end
-
-    private def draw_detail(state : TableState, item : JSON::Any)
-      rect = Rect.new(1, 2, @width - 2, @height - 4)
-      fields = detail_fields(item)
-      key_width = {fields.max_of? { |(key, _)| Text.width(key) } || 0, rect.inner_width // 3}.min
-      value_width = rect.inner_width - key_width - 6
-      lines = fields.flat_map do |(key, value)|
-        wrap(value, value_width).map_with_index { |line, i| {i.zero? ? key : "", line} }
-      end
-      rows = {rect.inner_height - 2, 0}.max
-      state.detail_scroll = state.detail_scroll.clamp(0, {lines.size - rows, 0}.max)
-
-      name = Fields.text(item, "name", default: Fields.text(item, "consumer_tag", default: Fields.text(item, "upstream")))
-      note = String.build do |s|
-        if lines.size > rows
-          s << "lines " << state.detail_scroll + 1 << "-" << {state.detail_scroll + rows, lines.size}.min << " of " << lines.size
-        end
-        s << "  not on this page anymore" if state.detail_stale?
-      end
-      draw_panel(rect, "#{@tables[@page].title} › #{name.presence || "(default)"}", note.lstrip)
-      lines.skip(state.detail_scroll).first(rows).each_with_index do |(key, value), i|
-        y = rect.inner_y + 1 + i
-        print_fit(rect.inner_x + 2, y, key, key_width, MUTED_FG, PANEL_BG)
-        print_fit(rect.inner_x + 4 + key_width, y, value, value_width, WHITE, PANEL_BG)
       end
     end
 
@@ -853,8 +794,8 @@ class LavinMQCtl
       draw_totals_panel(Rect.new(1, 2, left_width, 9), overview)
       draw_messages_panel(Rect.new(1, 11, left_width, 10), overview)
       draw_node_panel(Rect.new(1, 21, left_width, @height - 23), overview, @nodes.first?)
-      draw_rate_graph(Rect.new(left_width + 2, 2, right_width, 10), overview)
-      draw_queue_graph(Rect.new(left_width + 2, 13, right_width, 10), overview)
+      draw_rate_graph(Rect.new(left_width + 2, 2, right_width, 10))
+      draw_queue_graph(Rect.new(left_width + 2, 13, right_width, 10))
       draw_hot_queues(Rect.new(left_width + 2, 24, right_width, @height - 26))
     end
 
@@ -873,10 +814,10 @@ class LavinMQCtl
       end
       remaining = @height - 1 - y
       if remaining >= 16
-        draw_rate_graph(Rect.new(1, y, width, remaining // 2), overview)
-        draw_queue_graph(Rect.new(1, y + remaining // 2, width, remaining - remaining // 2), overview)
+        draw_rate_graph(Rect.new(1, y, width, remaining // 2))
+        draw_queue_graph(Rect.new(1, y + remaining // 2, width, remaining - remaining // 2))
       elsif remaining >= 6
-        draw_rate_graph(Rect.new(1, y, width, remaining), overview)
+        draw_rate_graph(Rect.new(1, y, width, remaining))
       end
     end
 
@@ -965,37 +906,44 @@ class LavinMQCtl
       print_at(x + 8, y + 8, cluster, TEXT_FG, PANEL_BG, max_width: width - 8)
     end
 
-    private def draw_rate_graph(rect : Rect, overview : JSON::Any)
-      publish = Fields.rate(overview, "message_stats", "publish_details", "rate")
-      deliver = Fields.rate(overview, "message_stats", "deliver_get_details", "rate")
-      graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      draw_panel(rect, "Message rates", graph_span(@publish_history, graph.width))
-      max = draw_graph(graph, @publish_history, GREEN, @deliver_history, BLUE)
-      draw_legend(rect, {"Publish #{publish}/s", "Deliver #{deliver}/s"}, "max #{Fields.number(max)}/s")
+    private def draw_rate_graph(rect : Rect)
+      draw_graph_panel(rect, "Message rates", @publish_history, @deliver_history, {"Publish", "Deliver"}, stats_interval, RATE_FORMAT)
     end
 
-    private def draw_queue_graph(rect : Rect, overview : JSON::Any)
-      ready = Fields.int(overview, "queue_totals", "messages_ready")
-      unacked = Fields.int(overview, "queue_totals", "messages_unacknowledged")
-      graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      draw_panel(rect, "Queued messages", graph_span(@ready_history, graph.width))
-      max = draw_graph(graph, @ready_history, GREEN, @unacked_history, BLUE)
-      draw_legend(rect, {"Ready #{ready.format}", "Unacked #{unacked.format}"}, "max #{Fields.to_i64(max).format}")
+    private def draw_queue_graph(rect : Rect)
+      draw_graph_panel(rect, "Queued messages", @ready_history, @unacked_history, {"Ready", "Unacked"}, stats_interval, COUNT_FORMAT)
     end
 
-    # How far back a graph *width* cells wide goes, from the broker's samples,
-    # which are stats_interval apart, see update_history
-    private def graph_span(history : Array(Float64), width : Int32) : String
+    RATE_FORMAT       = ->(value : Float64) { "#{Fields.number(value)}/s" }
+    COUNT_FORMAT      = ->(value : Float64) { Fields.to_i64(value).format }
+    BYTES_RATE_FORMAT = ->(value : Float64) { "#{Fields.human_bytes(Fields.to_i64(value))}/s" }
+
+    # *area* as a filled graph in green and *line* in blue, values *step*
+    # apart, with how far back it goes in the title and the newest values in
+    # the legend
+    private def draw_graph_panel(rect : Rect, title : String, area : Array(Float64), line : Array(Float64), names : {String, String}, step : Time::Span, format : Proc(Float64, String))
+      graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
+      draw_panel(rect, title, graph_span(area, graph.width, step))
+      max = draw_graph(graph, area, GREEN, line, BLUE)
+      newest = {"#{names[0]} #{format.call(area.last? || 0.0)}", "#{names[1]} #{format.call(line.last? || 0.0)}"}
+      draw_legend(rect, newest, "max #{format.call(max)}")
+    end
+
+    # How far back a graph *width* cells wide goes, with values *step* apart
+    private def graph_span(history : Array(Float64), width : Int32, step : Time::Span) : String
       samples = {history.size, width}.min
       return "" if samples < 2
-      seconds = (stats_interval * (samples - 1)).total_seconds.round.to_i
-      seconds < 120 ? "last #{seconds} s" : "last #{(seconds / 60).round.to_i} min"
+      seconds = (step * (samples - 1)).total_seconds.round.to_i64
+      return "last #{seconds} s" if seconds < 120
+      minutes = (seconds / 60).round.to_i64
+      minutes < 120 ? "last #{minutes} min" : "last #{minutes // 60} h"
     end
 
-    # Brokers before it was in the overview sample every 5s by default
+    # How often the broker samples the logs the graphs start from. Brokers
+    # before it was in the overview sample every 5s by default.
     private def stats_interval : Time::Span
       ms = Fields.int(@overview, "stats_interval")
-      (ms > 0 ? ms : 5000).milliseconds
+      (ms > 0 ? ms.clamp(1, 86_400_000) : 5000).milliseconds
     end
 
     # The green and blue series' names with chips in their colors, like the
@@ -1276,6 +1224,37 @@ class LavinMQCtl
 
       def bool(item : JSON::Any?, *keys) : String
         dig(item, *keys).try(&.as_bool?) ? "yes" : "-"
+      end
+
+      # A rate's logged values, oldest first, and its current one
+      def history(item : JSON::Any?, *keys) : Array(Float64)
+        details = dig(item, *keys)
+        with_current(floats(details, "log"), float(details, "rate"))
+      end
+
+      # A count's logged values, oldest first, and its current one
+      def count_history(item : JSON::Any?, key : String, log_key : String) : Array(Float64)
+        with_current(floats(item, log_key), float(item, key))
+      end
+
+      private def with_current(log : Array(Float64), current : Float64) : Array(Float64)
+        log << current unless log.last? == current
+        log
+      end
+
+      def seconds(item : JSON::Any?, *keys) : String
+        dig(item, *keys) ? seconds_text(int(item, *keys)) : "-"
+      end
+
+      # Like 45s, 3m20s, 2h5m or 1d2h
+      def seconds_text(seconds : Int64) : String
+        return "#{seconds}s" if seconds < 60
+        minutes, seconds = seconds.divmod(60)
+        return "#{minutes}m#{seconds}s" if minutes < 60
+        hours, minutes = minutes.divmod(60)
+        return "#{hours}h#{minutes}m" if hours < 24
+        days, hours = hours.divmod(24)
+        "#{days}d#{hours}h"
       end
 
       def duration(item : JSON::Any?, *keys) : String

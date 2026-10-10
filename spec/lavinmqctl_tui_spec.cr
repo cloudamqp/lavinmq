@@ -379,6 +379,44 @@ private def with_response(path : String, body) : Hash(String, String)
   TUI_RESPONSES.merge({path => body.to_json})
 end
 
+private CHANNEL_NAME    = "127.0.0.1:50000 (1)"
+private CONNECTION_NAME = "127.0.0.1:50000 -> 127.0.0.1:5672"
+
+# The objects the rows of TUI_RESPONSES refer to
+private VIEW_RESPONSES = TUI_RESPONSES.merge({
+  "/api/queues/seed/seed.ready" => {
+    vhost: "seed", name: "seed.ready", state: "running", consumers: 1,
+    messages: 120, messages_ready: 118, messages_unacknowledged: 2,
+    message_stats: {
+      publish_details:     {rate: 8.2, log: [1.0, 2.0, 8.2]},
+      deliver_get_details: {rate: 4.0, log: [1.0, 2.0, 4.0]},
+    },
+    messages_ready_log: [100, 110, 118], messages_unacknowledged_log: [1, 2, 2],
+    consumer_details: [{
+      consumer_tag: "seed-consumer-0", ack_required: true, prefetch_count: 25,
+      queue: {vhost: "seed", name: "seed.ready"}, channel_details: {name: CHANNEL_NAME},
+    }],
+  }.to_json,
+  "/api/queues/seed/seed.ready/bindings" => {
+    items: [{source: "seed.direct", routing_key: "seed.key", arguments: {} of String => String}], filtered_count: 1,
+  }.to_json,
+  "/api/queues/seed/seed.ready/unacked" => {
+    items: [{delivery_tag: 4242, consumer_tag: "seed-consumer-0", unacked_for_seconds: 75, channel_name: CHANNEL_NAME}], filtered_count: 1,
+  }.to_json,
+  "/api/channels/#{URI.encode_path_segment(CHANNEL_NAME)}" => {
+    name: CHANNEL_NAME, vhost: "seed", user: "guest", state: "running",
+    prefetch_count: 25, consumer_count: 1, messages_unacknowledged: 25,
+    consumer_details: [{consumer_tag: "seed-consumer-0", ack_required: true, prefetch_count: 25, queue: {vhost: "seed", name: "seed.ready"}}],
+  }.to_json,
+  "/api/connections/#{URI.encode_path_segment(CONNECTION_NAME)}" => {
+    name: CONNECTION_NAME, vhost: "seed", user: "guest", state: "running", channels: 2,
+    client_properties: {connection_name: "seed-app"},
+  }.to_json,
+  "/api/connections/#{URI.encode_path_segment(CONNECTION_NAME)}/channels" => {
+    items: [{name: CHANNEL_NAME, state: "running", messages_unacknowledged: 25, prefetch_count: 25, consumer_count: 1}], filtered_count: 2,
+  }.to_json,
+})
+
 describe LavinMQCtl::TUI do
   {
     {'1', "Overview", ["Totals", "Disk used", "1.4GiB", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
@@ -580,8 +618,12 @@ describe LavinMQCtl::TUI do
       recv_oct: 4096, recv_oct_details: {rate: 2048},
       error: "x" * 300,
     }
-    queues = {items: [queue], filtered_count: 1}
-    screen, _ = run_tui('2', TUI::Key::Enter, responses: with_response("/api/queues", queues))
+    responses = TUI_RESPONSES.merge({
+      "/api/queues"                  => {items: [queue], filtered_count: 1}.to_json,
+      "/api/queues/seed/seed.stream" => queue.to_json,
+    })
+    # The last section
+    screen, _ = run_tui('2', TUI::Key::Enter, TUI::Key::Left, responses: responses, height: 50)
 
     screen.text.should contain("Queues › seed.stream")
     screen.text.should match(/arguments\.x-queue-type +stream/)
@@ -612,16 +654,70 @@ describe LavinMQCtl::TUI do
   end
 
   it "scrolls the details and goes back to the table" do
-    queue = JSON.parse((1..60).to_h { |i| {"field#{i}", i} }.to_json)
-    queues = {items: [queue], filtered_count: 1}
-    responses = with_response("/api/queues", queues)
-    screen, _ = run_tui('2', TUI::Key::Enter, TUI::Key::End, responses: responses)
+    exchange = JSON.parse((1..60).to_h { |i| {"field#{i}", i} }.to_json)
+    responses = with_response("/api/exchanges", {items: [exchange], filtered_count: 1})
+    # End and a key after it before the screen is drawn again
+    screen, _ = run_tui('5', TUI::Key::Enter, TUI::Key::End, TUI::Key::Down, responses: responses)
     screen.text.should contain("lines 33-60 of 60")
     screen.text.should contain("field60")
     screen.text.should_not contain("field1 ")
 
-    screen, _ = run_tui('2', TUI::Key::Enter, 'j', TUI::Key::Escape, responses: responses)
-    screen.text.should contain("Queues  1  1-1 of 1")
+    screen, _ = run_tui('5', TUI::Key::Enter, 'j', TUI::Key::Escape, responses: responses)
+    screen.text.should contain("Exchanges  1  1-1 of 1")
+  end
+
+  it "opens a queue with its consumers, bindings and unacked messages" do
+    screen, requests = run_tui('2', TUI::Key::Enter, responses: VIEW_RESPONSES)
+    screen.text.should contain("Queues › seed.ready")
+    screen.text.should contain("Consumers 1")
+    screen.text.should contain("seed-consumer-0")
+    screen.text.should contain("Message rates  last 10 s")
+    screen.text.should contain("Queued messages  last 10 s")
+    requests.any?(&.starts_with?("/api/queues/seed/seed.ready?consumer_list_length=")).should be_true
+
+    screen, requests = run_tui('2', TUI::Key::Enter, TUI::Key::Tab, responses: VIEW_RESPONSES)
+    screen.text.should match(/seed\.direct +seed\.key/)
+    requests.any?(&.starts_with?("/api/queues/seed/seed.ready/bindings?page=1&")).should be_true
+
+    screen, requests = run_tui('2', TUI::Key::Enter, TUI::Key::Tab, TUI::Key::Tab, responses: VIEW_RESPONSES)
+    screen.text.should match(/4,242 +1m15s +seed-consumer-0/)
+    requests.any?(&.matches?(%r{^/api/queues/seed/seed\.ready/unacked\?page=1&.*sort=unacked_for_seconds&sort_reverse=true})).should be_true
+  end
+
+  it "opens what a row refers to and goes back" do
+    screen, requests = run_tui('2', TUI::Key::Enter, TUI::Key::Enter, responses: VIEW_RESPONSES)
+    screen.text.should contain("Queues › seed.ready › #{CHANNEL_NAME}")
+    requests.should contain("/api/channels/#{URI.encode_path_segment(CHANNEL_NAME)}")
+    screen.text.should contain("At its prefetch limit")
+
+    screen, _ = run_tui('2', TUI::Key::Enter, TUI::Key::Enter, TUI::Key::Escape, responses: VIEW_RESPONSES)
+    screen.text.lines.find!(&.includes?("Queues ›")).should_not contain(CHANNEL_NAME)
+    screen.text.should contain("seed-consumer-0")
+
+    screen, _ = run_tui('2', TUI::Key::Enter, TUI::Key::Enter, TUI::Key::Escape, TUI::Key::Escape, responses: VIEW_RESPONSES)
+    screen.text.should contain("Queues  25  1-1 of 25")
+  end
+
+  it "opens a connection with its channels" do
+    screen, _ = run_tui('3', TUI::Key::Enter, responses: VIEW_RESPONSES)
+    screen.text.should contain("Connections › #{CONNECTION_NAME}")
+    screen.text.should contain("Channels 2")
+    screen.text.should match(/#{Regex.escape(CHANNEL_NAME)} +● running +25 +25 +1/)
+  end
+
+  it "opens the channel of a consumer" do
+    screen, _ = run_tui('6', TUI::Key::Enter, responses: VIEW_RESPONSES)
+    screen.text.should contain("Consumers › #{CHANNEL_NAME}")
+  end
+
+  it "warns about a queue without consumers, and an object that's gone" do
+    queue = {vhost: "seed", name: "seed.ready", messages_ready: 5, consumers: 0}
+    screen, _ = run_tui('2', TUI::Key::Enter, responses: with_response("/api/queues/seed/seed.ready", queue))
+    screen.text.should contain("No consumers: 5 messages are waiting")
+
+    screen, _ = run_tui('2', TUI::Key::Enter)
+    screen.text.should contain("Not found anymore")
+    screen.text.should contain("seed.ready")
   end
 
   it "fetches the next page of rows from the API" do
