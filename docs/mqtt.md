@@ -178,6 +178,10 @@ A session is checked with the username of the client that last attached to it. T
 - When another user takes over the session (see [Session Takeover](#session-takeover)), new messages are checked against the new user
 - Messages already queued under the previous user are still delivered
 
+### Management UI
+
+The management UI manages groups under **MQTT permissions** in the Administration menu. The group list links to a group page with its members and rules, where you can add or remove members, add, edit or remove rules, and delete the group. The Edit button on a rule fills the rule form. Topic permissions are separate from the AMQP configure, write and read permissions on the user page. The pages use the HTTP API below, so they require the administrator tag.
+
 ### HTTP API
 
 | Method | Path | Description |
@@ -191,14 +195,15 @@ A session is checked with the username of the client that last attached to it. T
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Add a member |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Remove a member |
 | GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules` | List the rules of a group |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Get one rule |
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
 - All routes require the administrator tag
 - A group summary has `name`, `vhost`, `member_count` and `rule_count`
 - The members route returns one object per member: `{"username": "..."}`
-- The group list routes and the members route accept `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse` and `columns`, like the other list endpoints
-- The rules route returns the full rule list with `identifier`, `pattern`, `read` and `write` per rule
+- The group list routes, the members route and the rules route accept `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse` and `columns`, like the other list endpoints
+- A rule has `identifier`, `pattern`, `read` and `write`
 
 Example: allow every user to use only its own device subtrees under `chat/`.
 

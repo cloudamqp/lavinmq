@@ -40,6 +40,26 @@ module LavinMQ
       end
     end
 
+    struct PermissionGroupRuleView
+      include SortableJSON
+
+      def initialize(@rule : MQTT::PermissionGroup::Rule)
+      end
+
+      def details_tuple
+        {
+          identifier: @rule.identifier,
+          pattern:    @rule.pattern,
+          read:       @rule.read?,
+          write:      @rule.write?,
+        }
+      end
+
+      protected def search_value
+        @rule.identifier
+      end
+    end
+
     class PermissionGroupsController < Controller
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
@@ -146,7 +166,19 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            group.rules.to_json(context.response)
+            views = group.rules.map { |r| PermissionGroupRuleView.new(r) }
+            page(context, views)
+          end
+        end
+
+        get "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          with_vhost(context, params) do |vhost|
+            group = vhost.mqtt_permission_service[params["name"]]?
+            not_found(context) unless group
+            rule = group.rules.find { |r| r.identifier == params["identifier"] }
+            not_found(context) unless rule
+            PermissionGroupRuleView.new(rule).to_json(context.response)
           end
         end
 

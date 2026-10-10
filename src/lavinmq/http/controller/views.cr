@@ -28,6 +28,8 @@ module LavinMQ
         static_view "/logs"
         static_view "/users"
         static_view "/user"
+        static_view "/mqtt-permissions"
+        static_view "/mqtt-permission-group"
         static_view "/policies"
         static_view "/operator-policies"
       end

@@ -357,6 +357,37 @@
     schema:
       type: string
       description: Identifier of the rule.
+  get:
+    tags:
+    - mqtt
+    description: Get one rule of a permission group. Requires the administrator tag.
+    summary: Get group rule
+    operationId: GetMqttPermissionGroupRule
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-rule"
+      '404':
+        description: Vhost, group or rule not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   put:
     tags:
     - mqtt
