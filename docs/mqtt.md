@@ -178,6 +178,10 @@ A session is checked with the username of the client that last attached to it. T
 - When another user takes over the session (see [Session Takeover](#session-takeover)), new messages are checked against the new user
 - Messages already queued under the previous user are still delivered
 
+### Management UI
+
+The management UI manages groups under **MQTT permissions** in the Administration menu. A group page lists its members and rules and can add, edit and remove them, or delete the group. Topic permissions are separate from the AMQP configure, write and read permissions on the user page. The pages use the HTTP API below, so they require the administrator tag.
+
 ### HTTP API
 
 | Method | Path | Description |

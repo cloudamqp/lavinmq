@@ -1,0 +1,118 @@
+<!--#set var="TITLE" value="MQTT permission group" -->
+<!DOCTYPE html>
+<html lang="en" class="mqtt-permissions">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/mqtt-permission-group.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2 class="has-badge">
+            Members
+            <small class="tiny-badge" id="members-count"></small>
+          </h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <p class="card-desc">
+          Every connection that authenticates as a member gets the rules of this group.
+          The member <code>*</code> applies the group to every authenticated user.
+        </p>
+        <div id="members-error"></div>
+        <div class="table-wrapper">
+          <table id="members" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="username" class="left">Username<span></span></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="addMember" class="form card cols-6">
+        <h3>Add member</h3>
+        <label>
+          <span>Username</span>
+          <input type="text" name="username" list="userList" required autocomplete="off">
+          <datalist id="userList"></datalist>
+        </label>
+        <button type="submit" class="btn btn-green">Add member</button>
+      </form>
+      <section class="card">
+        <div class="table-header">
+          <h2 class="has-badge">
+            Rules
+            <small class="tiny-badge" id="rules-count"></small>
+          </h2>
+        </div>
+        <p class="card-desc">
+          A client can only publish to or subscribe to topics granted by a matching rule.
+          A user in several groups gets the rules of all of them.
+        </p>
+        <div id="rules-error"></div>
+        <div class="table-wrapper">
+          <table id="rules" class="table">
+            <thead>
+              <tr>
+                <th class="left">Identifier</th>
+                <th class="left">Topic pattern</th>
+                <th>Read</th>
+                <th>Write</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="setRule" class="form card cols-6">
+        <h3>
+          <span class="when-create">Add rule</span>
+          <span class="when-edit">Edit rule</span>
+        </h3>
+        <label>
+          <span>Identifier</span>
+          <input type="text" name="identifier" required data-primary-key="" pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens">
+        </label>
+        <label>
+          <span>Topic pattern</span>
+          <input type="text" name="pattern" required placeholder="chat/{client_id}/#">
+        </label>
+        <label>
+          <span>Read</span>
+          <input type="checkbox" name="read" checked>
+        </label>
+        <label>
+          <span>Write</span>
+          <input type="checkbox" name="write" checked>
+        </label>
+        <p class="card-desc">
+          The pattern is an MQTT topic filter. <code>+</code> matches one level and <code>#</code>
+          matches the rest. <code>{client_id}</code> as a whole level is replaced with the client ID
+          of the connection, so <code>chat/{client_id}/#</code> gives each device its own subtree.
+        </p>
+        <button type="submit" class="btn btn-green when-create">Add rule</button>
+        <div class="when-edit flex gap-2 flex-row">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+      <section class="card cols-4">
+        <h3>Danger zone</h3>
+        <form method="delete" id="deleteGroup" class="form">
+          <button type="submit" class="btn btn-red">Delete group</button>
+        </form>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

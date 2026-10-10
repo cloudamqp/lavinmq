@@ -144,6 +144,11 @@
         <span class="menu-item-label menu-tooltip-label">Users</span>
       </a>
     </li>
+    <li class="mqtt-permissions">
+      <a href="mqtt-permissions" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">MQTT permissions</span>
+      </a>
+    </li>
 
     <li class="http-api"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span></a></li>
   </ul>
