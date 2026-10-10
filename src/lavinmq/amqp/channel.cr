@@ -310,7 +310,7 @@ module LavinMQ
       # Yields to the block which must return an `Exchange::PublishResult`, then
       # sends a publisher confirm based on the outcome:
       # * if the block raises, send NACK and re-raise
-      # * if any matched queue rejected on overflow, send NACK
+      # * if any matched queue rejected on overflow, or was closed, send NACK
       # * otherwise send ACK
       # When publisher confirms are disabled the block is just yielded.
       private def confirm(&)
@@ -318,7 +318,7 @@ module LavinMQ
           msgid = @confirm_total &+= 1
           begin
             result = yield
-            if result.overflowed?
+            if result.overflowed? || result.closed?
               confirm_nack(msgid)
             else
               confirm_ack(msgid)

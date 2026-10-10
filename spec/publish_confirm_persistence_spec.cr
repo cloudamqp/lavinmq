@@ -54,6 +54,24 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  # A queue is closed while its connections are still publishing when the
+  # broker shuts down, e.g. when a cluster leader hands over leadership
+  {"classic", "stream"}.each do |type|
+    it "nacks a publish that a closed #{type} queue didn't store" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          args = AMQP::Client::Arguments.new
+          args["x-queue-type"] = type
+          q = ch.queue("closed_#{type}", args: args)
+          q.publish_confirm("stored").should be_true
+          s.vhosts["/"].queue(q.name).close
+          q.publish_confirm("not stored").should be_false
+        end
+      end
+    end
+  end
+
   it "batches concurrent in-flight publishes into multi-acks" do
     # When many publishes are in flight at once, they should accumulate in
     # @pending_acks while the loop is busy syncing the previous batch, so the

@@ -222,11 +222,14 @@ module LavinMQ
       # due to a reject-publish overflow policy. The two flags are independent:
       # a publish can be both routed (one queue accepted) and overflowed
       # (another queue rejected), in which case the publisher should still be
-      # nack'ed on confirm channels.
+      # nack'ed on confirm channels. `Closed` is set, likewise nack'ed, if a
+      # matched queue was closed and didn't store the message, e.g. on
+      # shutdown, where acking it would confirm a message that's lost.
       @[Flags]
       enum PublishResult
         Routed
         Overflowed
+        Closed
       end
 
       def publish(msg : Message, immediate : Bool,
@@ -267,6 +270,7 @@ module LavinMQ
 
         count = 0u32
         overflow = false
+        closed = false
         queues.each do |queue|
           case queue.publish(msg)
           in .ok?
@@ -275,15 +279,18 @@ module LavinMQ
           in .overflow?
             overflow = true
           in .dropped?
-            # queue was closed or message was a duplicate; nothing to do
+            # message was a duplicate; nothing to do
+          in .closed?
+            closed = true
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow && !closed
 
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?
         result |= PublishResult::Overflowed if overflow
+        result |= PublishResult::Closed if closed
         result
       end
 
