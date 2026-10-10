@@ -180,7 +180,7 @@ A session is checked with the username of the client that last attached to it. T
 
 ### Management UI
 
-The management UI manages groups under **MQTT permissions** in the Administration menu. A group page lists its members and rules and can add, edit and remove them, or delete the group. Topic permissions are separate from the AMQP configure, write and read permissions on the user page. The pages use the HTTP API below, so they require the administrator tag.
+The management UI manages groups under **MQTT permissions** in the Administration menu. The group list links to a group page with its members and rules, where you can add or remove members, add rules and delete the group. A rule links to its own page, where you can edit or delete it. Topic permissions are separate from the AMQP configure, write and read permissions on the user page. The pages use the HTTP API below, so they require the administrator tag.
 
 ### HTTP API
 

@@ -63,7 +63,6 @@
                 <th class="left">Topic pattern</th>
                 <th>Read</th>
                 <th>Write</th>
-                <th></th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -71,13 +70,10 @@
         </div>
       </section>
       <form method="put" id="setRule" class="form card cols-6">
-        <h3>
-          <span class="when-create">Add rule</span>
-          <span class="when-edit">Edit rule</span>
-        </h3>
+        <h3>Add rule</h3>
         <label>
           <span>Identifier</span>
-          <input type="text" name="identifier" required data-primary-key="" pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens">
+          <input type="text" name="identifier" required pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens">
         </label>
         <label>
           <span>
@@ -103,11 +99,7 @@
           </span>
           <input type="checkbox" name="write" checked>
         </label>
-        <button type="submit" class="btn btn-green when-create">Add rule</button>
-        <div class="when-edit flex gap-2 flex-row">
-          <button type="submit" class="btn btn-green">Update</button>
-          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
-        </div>
+        <button type="submit" class="btn btn-green">Add rule</button>
       </form>
       <section class="card cols-4">
         <h3>Delete group</h3>

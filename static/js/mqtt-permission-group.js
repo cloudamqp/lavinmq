@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import * as Form from './form.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 import { UrlDataSource } from './datasource.js'
@@ -53,27 +52,10 @@ const rulesTable = Table.renderTable('rules', {
   Table.renderCell(tr, 2, item.read ? '●' : '○', 'center')
   Table.renderCell(tr, 3, item.write ? '●' : '○', 'center')
   if (all) {
-    Table.renderCell(tr, 0, item.identifier)
-    const editBtn = DOM.button.edit({
-      click: function () {
-        Form.editItem('#setRule', item)
-        const form = document.forms.setRule
-        form.elements.read.checked = item.read
-        form.elements.write.checked = item.write
-      }
-    })
-    const deleteBtn = DOM.button.delete({
-      click: function () {
-        const url = HTTP.url`api/mqtt/permission-groups/${vhost}/${group}/rules/${item.identifier}`
-        HTTP.request('DELETE', url)
-          .then(() => rulesTable.reload())
-          .catch(() => {})
-      }
-    })
-    const actions = document.createElement('div')
-    actions.classList.add('buttons')
-    actions.append(editBtn, deleteBtn)
-    Table.renderCell(tr, 4, actions, 'right')
+    const ruleLink = document.createElement('a')
+    ruleLink.href = HTTP.url`mqtt-permission-rule#vhost=${vhost}&group=${group}&rule=${item.identifier}`
+    ruleLink.textContent = item.identifier
+    Table.renderCell(tr, 0, ruleLink)
   }
 })
 
