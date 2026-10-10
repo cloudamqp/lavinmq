@@ -96,7 +96,7 @@ wait_for_text() {
   done
 }
 
-wait_for_text "LavinMQ TUI"
+wait_for_text "LAVINMQ"
 
 capture_page() {
   key=$1
@@ -105,7 +105,7 @@ capture_page() {
   if [ "$key" != "-" ]; then
     tmux send-keys -t "$SESSION" "$key"
   fi
-  wait_for_text "LavinMQ TUI  $title"
+  wait_for_text "LAVINMQ  $title"
   tmux capture-pane -p -t "$SESSION" > "$OUT_DIR/$name.txt"
 }
 

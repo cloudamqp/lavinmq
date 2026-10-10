@@ -107,11 +107,11 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 The TUI refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive).
 It waits longer when the broker is slow to answer, so that at most a tenth of the
 broker's time goes to the TUI's requests, and the header then shows the interval used.
-The Overview page shows message rate and queue depth graphs, node resources,
-network rates, cluster followers and the queues with the most messages. The graphs
-start from the history kept by the management API and roll forward with each refresh.
-The other pages are tables that fetch as many rows as fit in the terminal, one page
-at a time. `Enter` shows every field of the selected row, which follows the row
+It's styled like the management UI. The Overview page shows message rate and queue
+depth graphs, node resources, network rates, cluster followers and the queues with
+the most messages. The graphs start from the history kept by the management API and
+roll forward with each refresh. The other pages are tables that fetch as many rows
+as fit in the terminal, one page at a time. `Enter` shows every field of the selected row, which follows the row
 through refreshes and is scrolled with the same keys. Passwords in shovel and
 federation URIs are masked, password hashes are not shown, and control characters
 in names (for example in consumer tags or MQTT client ids) are shown as `?`.

@@ -81,11 +81,11 @@ class FakeTUIScreen < TUI::Screen
     end
   end
 
-  # Row of the highest braille graph cell drawn in *color*
+  # Row of the highest braille or block graph cell drawn in *color*
   def top_row(color : TUI::Color) : Int32?
     @cells.each_with_index do |row, y|
       row.each_with_index do |c, x|
-        return y if ('⠁'..'⣿').includes?(c) && @colors[y][x] == color
+        return y if (('⠁'..'⣿').includes?(c) || ('▁'..'█').includes?(c)) && @colors[y][x] == color
       end
     end
   end
@@ -371,8 +371,8 @@ end
 
 describe LavinMQCtl::TUI do
   {
-    {'1', "Overview", ["Object totals", "Disk used", "1.4GiB", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
-    {'2', "Queues", ["seed.ready", "1-1 of 25", "Msgs ▼"]},
+    {'1', "Overview", ["Totals", "Disk used", "1.4GiB", "in 2.0KiB/s out 4.0KiB/s", "1 follower, lag 3.0KiB"]},
+    {'2', "Queues", ["seed.ready", "1-1 of 25", "Msgs ↓"]},
     {'3', "Connections", ["127.0.0.1:50000", "8.0KiB/s", "seed-app"]},
     {'4', "Channels", ["Unacked"]},
     {'5', "Exchanges", ["seed.direct"]},
@@ -404,8 +404,8 @@ describe LavinMQCtl::TUI do
     screen, _ = run_tui
 
     # Publish peaks at 12.5/s and deliver at 9.7/s, so publish reaches higher
-    publish_top = screen.top_row(TUI::CYAN).should_not be_nil
-    deliver_top = screen.top_row(TUI::MAGENTA).should_not be_nil
+    publish_top = screen.top_row(TUI::GREEN).should_not be_nil
+    deliver_top = screen.top_row(TUI::BLUE).should_not be_nil
     publish_top.should be < deliver_top
   end
 
@@ -415,9 +415,9 @@ describe LavinMQCtl::TUI do
     overview["message_stats"] = JSON.parse({publish_details: rate, deliver_get_details: rate}.to_json)
     screen, _ = run_tui(responses: with_response("/api/overview", overview))
 
-    legend_row = screen.text.lines.index!(&.includes?("publish"))
-    publish_top = screen.top_row(TUI::CYAN).should_not be_nil
-    deliver_top = screen.top_row(TUI::MAGENTA).should_not be_nil
+    legend_row = screen.text.lines.index!(&.includes?("Publish"))
+    publish_top = screen.top_row(TUI::GREEN).should_not be_nil
+    deliver_top = screen.top_row(TUI::BLUE).should_not be_nil
     publish_top.should be < legend_row
     deliver_top.should be < legend_row
   end
@@ -427,6 +427,14 @@ describe LavinMQCtl::TUI do
 
     screen.text.lines.select(&.includes?('╰')).each(&.should_not(match(/\w/)))
     screen.text.should contain("max 12.5/s")
+  end
+
+  it "keeps the help between the header and the footer" do
+    screen, _ = run_tui('?', width: 80, height: 12)
+    lines = screen.text.lines
+    lines.first.should contain("LAVINMQ")
+    lines.last.should contain("? q")
+    lines.count(&.includes?("Keys")).should eq 1
   end
 
   it "never writes control characters from the API to the terminal" do
@@ -539,7 +547,7 @@ describe LavinMQCtl::TUI do
     screen.text.should_not contain("field1 ")
 
     screen, _ = run_tui('2', TUI::Key::Enter, 'j', TUI::Key::Escape, responses: responses)
-    screen.text.should contain("Queues  1-1 of 1")
+    screen.text.should contain("Queues  1  1-1 of 1")
   end
 
   it "fetches the next page of rows from the API" do
@@ -744,7 +752,7 @@ describe LavinMQCtl::TUI::Renderer do
     io.clear
     renderer.set_cell(5, 1, 'b', TUI::WHITE, TUI::BG, false)
     renderer.render
-    io.to_s.should eq "\e[?2026h\e[2;6H\e[0;38;2;238;244;252;48;2;6;10;18mb\e[?2026l"
+    io.to_s.should eq "\e[?2026h\e[2;6H\e[0;38;2;250;250;250;48;2;24;24;24mb\e[?2026l"
   end
 
   it "positions the cursor after characters terminals may count differently" do

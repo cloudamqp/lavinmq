@@ -34,7 +34,8 @@ class LavinMQCtl
     end
 
     # *sort* is the column's API sort key, *descending* the order it starts in
-    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String)
+    # A *status* column gets a dot colored by its value, like running or stopped
+    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String), status : Bool = false
 
     record Table, title : String, path : String, columns : Array(Column), sort : String? = nil
 
@@ -85,24 +86,26 @@ class LavinMQCtl
       {"q Ctrl-C", "Quit"},
     }
 
-    BG        = Color.rgb(6, 10, 18)
-    HEADER_BG = Color.rgb(9, 18, 32)
-    PANEL_BG  = Color.rgb(10, 17, 29)
-    ROW_BG    = Color.rgb(13, 22, 36)
-    SELECT_BG = Color.rgb(28, 52, 88)
-    GRID_FG   = Color.rgb(35, 48, 72)
-    TEXT_FG   = Color.rgb(214, 224, 235)
-    MUTED_FG  = Color.rgb(128, 145, 166)
-    CYAN      = Color.rgb(64, 224, 208)
-    BLUE      = Color.rgb(89, 149, 255)
-    GREEN     = Color.rgb(82, 230, 139)
-    YELLOW    = Color.rgb(245, 208, 90)
-    ORANGE    = Color.rgb(255, 151, 82)
-    MAGENTA   = Color.rgb(213, 104, 255)
-    RED       = Color.rgb(255, 95, 112)
-    WHITE     = Color.rgb(238, 244, 252)
-    # Braille cells filled from the bottom, a quarter at a time
-    GRAPH_FILL = {'⣀', '⣤', '⣶', '⣿'}
+    # The dark theme of the management UI and lavinmq.com
+    BG        = Color.rgb(0x18, 0x18, 0x18)
+    BAR_BG    = Color.rgb(0x14, 0x14, 0x14)
+    PANEL_BG  = Color.rgb(0x1D, 0x1D, 0x1D)
+    ROW_BG    = Color.rgb(0x24, 0x24, 0x24)
+    SELECT_BG = Color.rgb(0x2D, 0x2C, 0x2C)
+    BORDER_FG = Color.rgb(0x41, 0x40, 0x40)
+    GRID_FG   = Color.rgb(0x3A, 0x39, 0x39)
+    TEXT_FG   = Color.rgb(0xCD, 0xCB, 0xC9)
+    MUTED_FG  = Color.rgb(0x9D, 0x9C, 0x9A)
+    WHITE     = Color.rgb(0xFA, 0xFA, 0xFA)
+    DARK      = Color.rgb(0x14, 0x14, 0x14)
+    # Its accent and first chart series, its second chart series, warning and danger
+    GREEN  = Color.rgb(0x54, 0xBE, 0x7E)
+    BLUE   = Color.rgb(0x45, 0x89, 0xFF)
+    YELLOW = Color.rgb(0xE2, 0xB1, 0x49)
+    RED    = Color.rgb(0xED, 0x43, 0x37)
+    # Blocks filling a cell from the bottom, an eighth at a time, like the
+    # management UI's filled charts
+    GRAPH_FILL = {'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
     # Braille cells with one row of dots, from the bottom
     GRAPH_LINE = {'⣀', '⠤', '⠒', '⠉'}
 
@@ -123,6 +126,8 @@ class LavinMQCtl
       @last_error = nil.as(String?)
       @overview = nil.as(JSON::Any?)
       @items = [] of JSON::Any
+      # The row number of the first of @items
+      @items_first = 0
       @nodes = [] of JSON::Any
       @fetched = ""
       @fetch_time = Time::Span.zero
@@ -216,7 +221,8 @@ class LavinMQCtl
 
     private def open_detail
       return unless state = table_state
-      if item = @items[state.cursor % table_rows]?
+      index = state.cursor - @items_first
+      if index >= 0 && (item = @items[index]?)
         state.detail = item
         state.detail_id = item_id(item)
         state.detail_scroll = 0
@@ -356,6 +362,7 @@ class LavinMQCtl
       if @page == :overview
         rows = hot_queue_rows
         @items = rows > 0 ? fetch_page("/api/queues", "queues", 1, rows, "messages", true, "")[0] : [] of JSON::Any
+        @items_first = 0
         @nodes = fetch_list("/api/nodes", "nodes")
       else
         fetch_table
@@ -373,6 +380,7 @@ class LavinMQCtl
       # Once more if the rows shrank and the cursor ended up past the end
       2.times do
         page = state.cursor // rows + 1
+        @items_first = (page - 1) * rows
         if @page == :nodes
           nodes = node_rows(fetch_list(table.path, "nodes"))
           nodes.select! { |node| Fields.text(node, "name").includes?(state.filter) } unless state.filter.empty?
@@ -495,57 +503,77 @@ class LavinMQCtl
     end
 
     private def draw_header
-      fill_rect(0, 0, @width, 1, bg: HEADER_BG)
-      x = print_at(0, 0, " LavinMQ TUI ", BG, CYAN, true)
-      x += print_at(x, 0, " #{PAGES.find! { |p| p[:name] == @page }[:label]} ", WHITE, HEADER_BG, true)
-      node = Fields.text(@overview, "node", default: "?")
-      version = Fields.text(@overview, "lavinmq_version", default: "?")
-      print_at(x, 0, " Node: #{node} | v#{version} ", MUTED_FG, HEADER_BG, max_width: @width - x - 24)
-
+      fill_rect(0, 0, @width, 1, bg: BAR_BG)
       delay = refresh_delay
-      status, color = if @paused
-                        {" PAUSED ", YELLOW}
-                      elsif delay > @interval.seconds
-                        {" refresh every %.1fs " % delay.total_seconds, ORANGE}
-                      else
-                        {"", MUTED_FG}
-                      end
-      print_at(@width - Text.width(status), 0, status, color, HEADER_BG, true)
+      status = if @paused
+                 " PAUSED "
+               elsif delay > @interval.seconds
+                 " refresh every %.1fs " % delay.total_seconds
+               else
+                 ""
+               end
+      right = @width - Text.width(status)
+      x = print_at(0, 0, " LAVINMQ ", WHITE, BAR_BG, true, right)
+      x += print_at(x, 0, " #{PAGES.find! { |p| p[:name] == @page }[:label]} ", WHITE, SELECT_BG, true, right - x)
+      version = Fields.text(@overview, "lavinmq_version", default: "?")
+      x += 1 + print_at(x + 1, 0, " v#{version} ", GREEN, BAR_BG, max_width: right - x - 1)
+      print_at(x, 0, " #{Fields.text(@overview, "node", default: "?")}", MUTED_FG, BAR_BG, max_width: right - x)
+      print_at(right, 0, status, YELLOW, BAR_BG, true)
     end
 
     private def draw_footer
       y = @height - 1
       return if y < 1
-      fill_rect(0, y, @width, 1, bg: HEADER_BG)
+      fill_rect(0, y, @width, 1, bg: BAR_BG)
       if input = @input
         title = @tables[@page].title.downcase
-        x = print_at(0, y, " Filter #{title} by name: ", YELLOW, HEADER_BG, true)
-        x += print_at(x, y, input, WHITE, HEADER_BG)
-        print_at(x, y, "▏  Enter to apply, Esc to cancel", MUTED_FG, HEADER_BG)
+        x = print_at(0, y, " Filter #{title} by name ", MUTED_FG, BAR_BG)
+        x += print_at(x, y, input, WHITE, BAR_BG, true)
+        x += print_at(x, y, "▏", GREEN, BAR_BG)
+        print_at(x + 1, y, "Enter applies, Esc cancels", MUTED_FG, BAR_BG)
         return
       end
 
-      nav = PAGES.join(" ") { |p| "[#{p[:key]}]#{p[:nav]}" }
-      text = " #{nav}  [?]Help [q]Quit "
+      error_width = 0
       if error = @last_error
         error_text = " #{error} "
         error_width = {Text.width(error_text), @width // 2}.min
-        print_fit(0, y, text, @width - error_width, MUTED_FG, HEADER_BG)
-        print_fit(@width - error_width, y, error_text, error_width, RED, HEADER_BG, true)
-      else
-        print_fit(0, y, text, @width, MUTED_FG, HEADER_BG)
+        print_fit(@width - error_width, y, error_text, error_width, RED, BAR_BG, true)
+      end
+      draw_nav(y, @width - error_width)
+    end
+
+    NAV_EXTRAS = [{key: '?', label: "Help", nav: "Help"}, {key: 'q', label: "Quit", nav: "Quit"}]
+
+    # The keys to the pages, like the management UI's menu, with the longest
+    # labels that fit in *width*
+    private def draw_nav(y : Int32, width : Int32)
+      items = PAGES.map { |p| {p[:key], p[:label], p[:nav], p[:name] == @page} } +
+              NAV_EXTRAS.map { |p| {p[:key], p[:label], p[:nav], false} }
+      long = items.sum { |item| item[1].size + 3 } + 1
+      short = items.sum { |item| item[2].size + 3 } + 1
+      x = 0
+      items.each do |(key, label, nav, current)|
+        text = long <= width ? label : (short <= width ? nav : "")
+        bg = current ? SELECT_BG : BAR_BG
+        x += print_at(x, y, " #{key}", GREEN, bg, true, width - x)
+        x += print_at(x, y, " #{text}", current ? WHITE : MUTED_FG, bg, current, width - x) unless text.empty?
+        x += print_at(x, y, " ", WHITE, bg, max_width: width - x) if current
       end
     end
 
+    # Between the header and the footer, with a margin around it
     private def draw_help
       width = {64, @width - 4}.min
-      height = HELP.size + 4
-      rect = Rect.new((@width - width) // 2, {(@height - height) // 2, 1}.max, width, height)
-      draw_panel(rect, "Keys", YELLOW)
+      height = {HELP.size + 4, @height - 5}.min
+      rect = Rect.new((@width - width) // 2, {(@height - height) // 2, 2}.max, width, height)
+      # A margin to set it apart from the panel under it
+      fill_rect(rect.x - 1, rect.y - 1, rect.width + 2, rect.height + 2, bg: BG)
+      draw_panel(rect, "Keys")
       HELP.each_with_index do |(keys, text), i|
         y = rect.inner_y + 1 + i
         break if y >= rect.bottom
-        print_fit(rect.inner_x + 2, y, keys, 16, CYAN, PANEL_BG, true)
+        print_fit(rect.inner_x + 2, y, keys, 16, GREEN, PANEL_BG, true)
         print_fit(rect.inner_x + 19, y, text, rect.inner_width - 20, TEXT_FG, PANEL_BG)
       end
     end
@@ -571,25 +599,26 @@ class LavinMQCtl
       end
       table = @tables[@page]
       rect = Rect.new(1, 2, @width - 2, @height - 4)
-      first = (state.cursor // table_rows) * table_rows
-      draw_panel(rect, table_title(table, state, first), CYAN)
+      draw_panel(rect, table.title, table_note(state), state.total.to_s)
 
       x = rect.inner_x + 2
       width = rect.inner_width - 4
-      draw_row(rect.inner_y + 1, table_headers(table, state), table.columns, CYAN, PANEL_BG, true, x, width)
+      draw_row(rect.inner_y + 1, table_headers(table, state), table.columns, WHITE, PANEL_BG, true, x, width)
       if @items.empty?
         print_at(x, rect.inner_y + 3, state.filter.empty? ? "No data" : "Nothing matches the filter", MUTED_FG, PANEL_BG)
         return
       end
 
+      # The rows fetched start at @items_first
       @items.each_with_index do |item, i|
         y = rect.inner_y + 2 + i
         break if y >= rect.bottom
-        selected = first + i == state.cursor
+        selected = @items_first + i == state.cursor
         bg = selected ? SELECT_BG : (i.even? ? PANEL_BG : ROW_BG)
         fill_rect(rect.inner_x + 1, y, rect.inner_width - 2, 1, bg: bg)
+        set_cell(rect.inner_x + 1, y, '▌', GREEN, bg) if selected
         values = table.columns.map(&.value.call(item))
-        draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width)
+        draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true)
       end
     end
 
@@ -605,18 +634,17 @@ class LavinMQCtl
       state.detail_scroll = state.detail_scroll.clamp(0, {lines.size - rows, 0}.max)
 
       name = Fields.text(item, "name", default: Fields.text(item, "consumer_tag", default: Fields.text(item, "upstream")))
-      title = String.build do |s|
-        s << @tables[@page].title << " › " << (name.presence || "(default)")
+      note = String.build do |s|
         if lines.size > rows
-          s << "  lines " << state.detail_scroll + 1 << "-" << {state.detail_scroll + rows, lines.size}.min << " of " << lines.size
+          s << "lines " << state.detail_scroll + 1 << "-" << {state.detail_scroll + rows, lines.size}.min << " of " << lines.size
         end
         s << "  not on this page anymore" if state.detail_stale?
       end
-      draw_panel(rect, title, CYAN)
+      draw_panel(rect, "#{@tables[@page].title} › #{name.presence || "(default)"}", note.lstrip)
       lines.skip(state.detail_scroll).first(rows).each_with_index do |(key, value), i|
         y = rect.inner_y + 1 + i
         print_fit(rect.inner_x + 2, y, key, key_width, MUTED_FG, PANEL_BG)
-        print_fit(rect.inner_x + 4 + key_width, y, value, value_width, TEXT_FG, PANEL_BG)
+        print_fit(rect.inner_x + 4 + key_width, y, value, value_width, WHITE, PANEL_BG)
       end
     end
 
@@ -678,10 +706,9 @@ class LavinMQCtl
       lines << line.to_s
     end
 
-    private def table_title(table : Table, state : TableState, first : Int32) : String
+    private def table_note(state : TableState) : String
       String.build do |s|
-        s << table.title
-        s << "  " << first + 1 << "-" << first + @items.size << " of " << state.total unless @items.empty?
+        s << @items_first + 1 << "-" << @items_first + @items.size << " of " << state.total unless @items.empty?
         s << "  filter \"" << state.filter << '"' unless state.filter.empty?
       end
     end
@@ -690,24 +717,39 @@ class LavinMQCtl
     private def table_headers(table : Table, state : TableState) : Array(String)
       table.columns.map do |column|
         next column.title unless column.sort && column.sort == state.sort
-        "#{column.title} #{state.descending? ? '▼' : '▲'}"
+        "#{column.title} #{state.descending? ? '↓' : '↑'}"
       end
     end
 
     # The last column gets the width that's left
-    private def draw_row(y : Int32, values : Array(String), columns : Array(Column), fg : Color, bg : Color, bold : Bool, x : Int32, max_width : Int32)
+    private def draw_row(y : Int32, values : Array(String), columns : Array(Column), fg : Color, bg : Color, bold : Bool, x : Int32, max_width : Int32, dots = false)
       used = 0
       columns.each_with_index do |column, i|
         break if used >= max_width
         width = i == columns.size - 1 ? max_width - used : {column.width, max_width - used}.min
-        print_fit(x + used, y, values[i], width, fg, bg, bold)
+        if dots && column.status && width > 2 && values[i] != "-"
+          print_at(x + used, y, "●", state_color(values[i]), bg)
+          set_cell(x + used + 1, y, ' ', fg, bg)
+          print_fit(x + used + 2, y, values[i], width - 2, fg, bg, bold)
+        else
+          print_fit(x + used, y, values[i], width, fg, bg, bold)
+        end
         used += width + 1
+      end
+    end
+
+    private def state_color(state : String) : Color
+      case state.downcase
+      when "running", "live", "up"                                       then GREEN
+      when "starting", "flow", "paused", "blocking", "blocked", "idle"   then YELLOW
+      when "error", "stopped", "terminated", "closed", "closing", "down" then RED
+      else                                                                    MUTED_FG
       end
     end
 
     private def draw_overview
       unless overview = @overview
-        draw_panel(Rect.new(1, 2, @width - 2, 5), "Error", RED)
+        draw_panel(Rect.new(1, 2, @width - 2, 5), "Error", border: RED)
         print_at(3, 4, "Overview unavailable", RED, PANEL_BG, true)
         return
       end
@@ -750,23 +792,23 @@ class LavinMQCtl
     end
 
     private def draw_totals_panel(rect : Rect, overview : JSON::Any)
-      draw_panel(rect, "Object totals", CYAN)
+      draw_panel(rect, "Totals")
       totals = {
-        {"Connections", "connections", CYAN}, {"Channels", "channels", BLUE},
-        {"Queues", "queues", GREEN}, {"Consumers", "consumers", YELLOW},
-        {"Exchanges", "exchanges", MAGENTA}, {"Bindings", "bindings", ORANGE},
+        {"Connections", "connections"}, {"Channels", "channels"},
+        {"Queues", "queues"}, {"Consumers", "consumers"},
+        {"Exchanges", "exchanges"}, {"Bindings", "bindings"},
       }
       column_width = (rect.inner_width - 4) // 2
-      totals.each_with_index do |(label, key, color), i|
+      totals.each_with_index do |(label, key), i|
         x = rect.inner_x + 2 + (i % 2) * column_width
         y = rect.inner_y + 1 + (i // 2) * 2
         print_at(x, y, label, MUTED_FG, PANEL_BG, max_width: column_width - 2)
-        print_at(x, y + 1, Fields.text(overview, "object_totals", key), color, PANEL_BG, true, column_width - 2)
+        print_at(x, y + 1, Fields.text(overview, "object_totals", key), WHITE, PANEL_BG, true, column_width - 2)
       end
     end
 
     private def draw_messages_panel(rect : Rect, overview : JSON::Any)
-      draw_panel(rect, "Messages", GREEN)
+      draw_panel(rect, "Messages")
       total = Fields.float(overview, "queue_totals", "messages")
       ready = Fields.float(overview, "queue_totals", "messages_ready")
       unacked = Fields.float(overview, "queue_totals", "messages_unacknowledged")
@@ -775,15 +817,15 @@ class LavinMQCtl
       print_at(x, y, "Total", MUTED_FG, PANEL_BG)
       print_at(x + 13, y, Fields.int(overview, "queue_totals", "messages").to_s, WHITE, PANEL_BG, true)
       print_at(x, y + 1, "Publish", MUTED_FG, PANEL_BG)
-      print_at(x + 13, y + 1, Fields.rate(overview, "message_stats", "publish_details", "rate") + "/s", CYAN, PANEL_BG, true)
+      print_at(x + 13, y + 1, Fields.rate(overview, "message_stats", "publish_details", "rate") + "/s", GREEN, PANEL_BG, true)
       print_at(x, y + 2, "Deliver", MUTED_FG, PANEL_BG)
-      print_at(x + 13, y + 2, Fields.rate(overview, "message_stats", "deliver_get_details", "rate") + "/s", MAGENTA, PANEL_BG, true)
+      print_at(x + 13, y + 2, Fields.rate(overview, "message_stats", "deliver_get_details", "rate") + "/s", BLUE, PANEL_BG, true)
       draw_bar(x, y + 4, rect.inner_width - 4, "Ready", ready, total, GREEN)
-      draw_bar(x, y + 6, rect.inner_width - 4, "Unacked", unacked, total, ORANGE)
+      draw_bar(x, y + 6, rect.inner_width - 4, "Unacked", unacked, total, BLUE)
     end
 
     private def draw_node_panel(rect : Rect, overview : JSON::Any, node : JSON::Any?)
-      draw_panel(rect, "Node resources", BLUE)
+      draw_panel(rect, "Node")
       x = rect.inner_x + 2
       y = rect.inner_y + 1
       width = rect.inner_width - 4
@@ -796,18 +838,20 @@ class LavinMQCtl
       print_at(x, y + 1, "Uptime #{Fields.duration(node, "uptime")}", MUTED_FG, PANEL_BG, max_width: 17)
       print_at(x + 18, y + 1, "Sockets #{Fields.text(node, "sockets_used")}", MUTED_FG, PANEL_BG, max_width: width - 18)
       mem_used = Fields.float(node, "mem_used")
-      draw_bar(x, y + 3, width, "Memory", mem_used, positive_or(Fields.float(node, "mem_limit"), mem_used), CYAN, bytes: true)
+      mem_limit = Fields.float(node, "mem_limit")
+      draw_bar(x, y + 3, width, "Memory", mem_used, positive_or(mem_limit, mem_used), usage_color(mem_used, mem_limit), bytes: true)
       return if y + 4 >= rect.bottom
       disk_total = Fields.float(node, "disk_total")
       disk_free = Fields.float(node, "disk_free")
       if disk_total > 0
-        draw_bar(x, y + 4, width, "Disk used", disk_total - disk_free, disk_total, YELLOW, bytes: true)
+        draw_bar(x, y + 4, width, "Disk used", disk_total - disk_free, disk_total, usage_color(disk_total - disk_free, disk_total), bytes: true)
       else
         print_at(x, y + 4, "Disk free #{Fields.bytes(node, "disk_free")}", MUTED_FG, PANEL_BG, max_width: width)
       end
       return if y + 5 >= rect.bottom
       fd_used = Fields.float(node, "fd_used")
-      draw_bar(x, y + 5, width, "FD", fd_used, positive_or(Fields.float(node, "fd_total"), fd_used), MAGENTA)
+      fd_total = Fields.float(node, "fd_total")
+      draw_bar(x, y + 5, width, "FD", fd_used, positive_or(fd_total, fd_used), usage_color(fd_used, fd_total))
       return if y + 7 >= rect.bottom
       recv = Fields.bytes_rate(overview, "recv_oct_details", "rate")
       send = Fields.bytes_rate(overview, "send_oct_details", "rate")
@@ -828,31 +872,40 @@ class LavinMQCtl
     private def draw_rate_graph(rect : Rect, overview : JSON::Any)
       publish = Fields.rate(overview, "message_stats", "publish_details", "rate")
       deliver = Fields.rate(overview, "message_stats", "deliver_get_details", "rate")
-      draw_panel(rect, "Rate graph  pub #{publish}/s  deliver #{deliver}/s", CYAN)
+      draw_panel(rect, "Message rates")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      max = draw_graph(graph, @publish_history, CYAN, @deliver_history, MAGENTA)
-      print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ publish", CYAN, PANEL_BG)
-      print_at(rect.inner_x + 15, rect.bottom - 1, "⠤ deliver", MAGENTA, PANEL_BG)
-      draw_graph_scale(rect, "%.1f/s" % max)
+      max = draw_graph(graph, @publish_history, GREEN, @deliver_history, BLUE)
+      draw_legend(rect, {"Publish #{publish}/s", "Deliver #{deliver}/s"}, "max %.1f/s" % max)
     end
 
     private def draw_queue_graph(rect : Rect, overview : JSON::Any)
       ready = Fields.int(overview, "queue_totals", "messages_ready")
       unacked = Fields.int(overview, "queue_totals", "messages_unacknowledged")
-      draw_panel(rect, "Queue depth  ready #{ready}  unacked #{unacked}", GREEN)
+      draw_panel(rect, "Queued messages")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      max = draw_graph(graph, @ready_history, GREEN, @unacked_history, ORANGE)
-      print_at(rect.inner_x + 2, rect.bottom - 1, "⣿ ready", GREEN, PANEL_BG)
-      print_at(rect.inner_x + 14, rect.bottom - 1, "⠤ unacked", ORANGE, PANEL_BG)
-      draw_graph_scale(rect, Fields.to_i64(max).to_s)
+      max = draw_graph(graph, @ready_history, GREEN, @unacked_history, BLUE)
+      draw_legend(rect, {"Ready #{ready}", "Unacked #{unacked}"}, "max #{Fields.to_i64(max)}")
+    end
+
+    # The green and blue series' names with chips in their colors, like the
+    # management UI's chart legends, and the scale on the right
+    private def draw_legend(panel : Rect, names : {String, String}, scale : String)
+      y = panel.bottom - 1
+      right = panel.right - 2 - scale.size
+      x = panel.inner_x + 2
+      {GREEN, BLUE}.each_with_index do |color, i|
+        x += print_at(x, y, "■ ", color, PANEL_BG, max_width: right - x)
+        x += print_at(x, y, names[i], TEXT_FG, PANEL_BG, max_width: right - x - 1) + 3
+      end
+      print_at(right, y, scale, MUTED_FG, PANEL_BG) if right > panel.inner_x + 2
     end
 
     private def draw_hot_queues(rect : Rect)
-      draw_panel(rect, "Busiest queues", YELLOW)
+      draw_panel(rect, "Busiest queues")
       x = rect.inner_x + 2
       width = rect.inner_width - 4
       columns = @tables[:queues].columns.reject(&.title.in?("Vhost", "State"))
-      draw_row(rect.inner_y + 1, columns.map(&.title), columns, CYAN, PANEL_BG, true, x, width)
+      draw_row(rect.inner_y + 1, columns.map(&.title), columns, WHITE, PANEL_BG, true, x, width)
       @items.each_with_index do |queue, i|
         y = rect.inner_y + 2 + i
         break if y >= rect.bottom
@@ -862,26 +915,36 @@ class LavinMQCtl
       end
     end
 
-    private def draw_panel(rect : Rect, title : String, color : Color)
+    # A box with rounded corners, with *title* and *badge* like the management
+    # UI's headings and count badges, and *note* after them
+    private def draw_panel(rect : Rect, title : String, note = "", badge = "", border = BORDER_FG)
       return if rect.width <= 1 || rect.height <= 1
 
       fill_rect(rect.x, rect.y, rect.width, rect.height, bg: PANEL_BG)
       rect.width.times do |i|
-        set_cell(rect.x + i, rect.y, '─', color, PANEL_BG)
-        set_cell(rect.x + i, rect.bottom, '─', color, PANEL_BG)
+        set_cell(rect.x + i, rect.y, '─', border, PANEL_BG)
+        set_cell(rect.x + i, rect.bottom, '─', border, PANEL_BG)
       end
       rect.height.times do |i|
-        set_cell(rect.x, rect.y + i, '│', color, PANEL_BG)
-        set_cell(rect.right, rect.y + i, '│', color, PANEL_BG)
+        set_cell(rect.x, rect.y + i, '│', border, PANEL_BG)
+        set_cell(rect.right, rect.y + i, '│', border, PANEL_BG)
       end
-      set_cell(rect.x, rect.y, '╭', color, PANEL_BG)
-      set_cell(rect.right, rect.y, '╮', color, PANEL_BG)
-      set_cell(rect.x, rect.bottom, '╰', color, PANEL_BG)
-      set_cell(rect.right, rect.bottom, '╯', color, PANEL_BG)
+      set_cell(rect.x, rect.y, '╭', border, PANEL_BG)
+      set_cell(rect.right, rect.y, '╮', border, PANEL_BG)
+      set_cell(rect.x, rect.bottom, '╰', border, PANEL_BG)
+      set_cell(rect.right, rect.bottom, '╯', border, PANEL_BG)
+      right = rect.right - 1
       x = rect.x + 2
-      x += print_at(x, rect.y, " ", color, PANEL_BG)
-      x += print_at(x, rect.y, title, color, PANEL_BG, true, rect.width - 6)
-      print_at(x, rect.y, " ", color, PANEL_BG)
+      x += print_at(x, rect.y, " #{title} ", WHITE, PANEL_BG, true, right - x)
+      x += print_at(x, rect.y, " #{badge} ", DARK, GREEN, true, right - x) unless badge.empty?
+      print_at(x, rect.y, " #{note} ", MUTED_FG, PANEL_BG, max_width: right - x) unless note.empty?
+    end
+
+    # Green, or yellow and red as *value* gets close to *limit*, if there is one
+    private def usage_color(value : Float64, limit : Float64) : Color
+      return GREEN unless limit > 0
+      fraction = value / limit
+      fraction >= 0.9 ? RED : (fraction >= 0.75 ? YELLOW : GREEN)
     end
 
     private def draw_bar(x : Int32, y : Int32, width : Int32, label : String, value : Float64, max : Float64, color : Color, bytes = false)
@@ -917,19 +980,22 @@ class LavinMQCtl
       max = {area.max? || 0.0, line.max? || 0.0}.max
       return max unless max > 0.0
 
-      levels = rect.height * GRAPH_FILL.size
+      area_levels = rect.height * GRAPH_FILL.size
+      line_levels = rect.height * GRAPH_LINE.size
       rect.width.times do |i|
         x = rect.right - i
+        full = 0
         if value = area[-1 - i]?
-          full, partial = (value / max * levels).ceil.clamp(0, levels).to_i.divmod(GRAPH_FILL.size)
+          full, partial = (value / max * area_levels).ceil.clamp(0, area_levels).to_i.divmod(GRAPH_FILL.size)
           full.times { |row| set_cell(x, rect.bottom - row, GRAPH_FILL[-1], area_color, PANEL_BG) }
           set_cell(x, rect.bottom - full, GRAPH_FILL[partial - 1], area_color, PANEL_BG) if partial > 0
         end
         if value = line[-1 - i]?
-          # Zero is drawn on the bottom row, the line never disappears
-          level = (value / max * levels).ceil.clamp(1, levels).to_i
+          # Zero is drawn on the bottom row, the line never disappears. Where
+          # the area fills the cell the line is drawn on the area's color.
+          level = (value / max * line_levels).ceil.clamp(1, line_levels).to_i
           row, dot = (level - 1).divmod(GRAPH_LINE.size)
-          set_cell(x, rect.bottom - row, GRAPH_LINE[dot], line_color, PANEL_BG)
+          set_cell(x, rect.bottom - row, GRAPH_LINE[dot], line_color, row < full ? area_color : PANEL_BG)
         end
       end
       max
@@ -943,11 +1009,6 @@ class LavinMQCtl
           set_cell(rect.x + col, rect.y + row, '·', GRID_FG, PANEL_BG)
         end
       end
-    end
-
-    private def draw_graph_scale(panel : Rect, max : String)
-      text = "max #{max}"
-      print_at(panel.right - 2 - text.size, panel.bottom - 1, text, MUTED_FG, PANEL_BG)
     end
 
     private def fill_rect(x : Int32, y : Int32, width : Int32, height : Int32, bg : Color = PANEL_BG)
@@ -1113,8 +1174,8 @@ class LavinMQCtl
       end
     end
 
-    private def col(title : String, width : Int32, sort : String? = nil, descending = false, &value : JSON::Any -> String) : Column
-      Column.new(title, width, sort, descending, value)
+    private def col(title : String, width : Int32, sort : String? = nil, descending = false, status = false, &value : JSON::Any -> String) : Column
+      Column.new(title, width, sort, descending, value, status)
     end
 
     private def tables : Hash(Symbol, Table)
@@ -1122,7 +1183,7 @@ class LavinMQCtl
         :queues => Table.new("Queues", "/api/queues", [
           col("Vhost", 12, "vhost") { |q| Fields.text(q, "vhost") },
           col("Name", 30, "name") { |q| Fields.text(q, "name") },
-          col("State", 9, "state") { |q| Fields.text(q, "state") },
+          col("State", 10, "state", status: true) { |q| Fields.text(q, "state") },
           col("Msgs", 9, "messages", true) { |q| Fields.text(q, "messages") },
           col("Ready", 9, "messages_ready", true) { |q| Fields.text(q, "messages_ready") },
           col("Unacked", 9, "messages_unacknowledged", true) { |q| Fields.text(q, "messages_unacknowledged") },
@@ -1133,7 +1194,7 @@ class LavinMQCtl
         :connections => Table.new("Connections", "/api/connections", [
           col("Vhost", 12, "vhost") { |c| Fields.text(c, "vhost") },
           col("User", 12, "user") { |c| Fields.text(c, "user") },
-          col("State", 8, "state") { |c| Fields.text(c, "state") },
+          col("State", 10, "state", status: true) { |c| Fields.text(c, "state") },
           col("Chans", 6, "channels", true) { |c| Fields.text(c, "channels") },
           col("Recv/s", 11, "recv_oct_details.rate", true) { |c| Fields.bytes_rate(c, "recv_oct_details", "rate") },
           col("Send/s", 11, "send_oct_details.rate", true) { |c| Fields.bytes_rate(c, "send_oct_details", "rate") },
@@ -1143,7 +1204,7 @@ class LavinMQCtl
         :channels => Table.new("Channels", "/api/channels", [
           col("Vhost", 12, "vhost") { |c| Fields.text(c, "vhost") },
           col("User", 12, "user") { |c| Fields.text(c, "user") },
-          col("State", 8, "state") { |c| Fields.text(c, "state") },
+          col("State", 10, "state", status: true) { |c| Fields.text(c, "state") },
           col("Unacked", 8, "messages_unacknowledged", true) { |c| Fields.text(c, "messages_unacknowledged") },
           col("Prefetch", 8, "prefetch_count", true) { |c| Fields.text(c, "prefetch_count") },
           col("Cons", 6, "consumer_count", true) { |c| Fields.text(c, "consumer_count") },
@@ -1202,7 +1263,7 @@ class LavinMQCtl
         :shovels => Table.new("Shovels", "/api/shovels", [
           col("Vhost", 12, "vhost") { |s| Fields.text(s, "vhost") },
           col("Name", 24, "name") { |s| Fields.text(s, "name") },
-          col("State", 12, "state") { |s| Fields.text(s, "state") },
+          col("State", 12, "state", status: true) { |s| Fields.text(s, "state") },
           col("Msgs", 9, "message_count", true) { |s| Fields.text(s, "message_count") },
           col("Error", 50) { |s| Fields.redact_uris(Fields.text(s, "error")) },
         ]),
@@ -1211,8 +1272,8 @@ class LavinMQCtl
           col("Upstream", 18, "upstream") { |l| Fields.text(l, "upstream") },
           col("Type", 8, "type") { |l| Fields.text(l, "type") },
           col("Resource", 20, "resource") { |l| Fields.text(l, "resource") },
-          col("Status", 8, "status") { |l| Fields.text(l, "status") },
-          col("Error", 24) { |l| Fields.redact_uris(Fields.text(l, "error")) },
+          col("Status", 10, "status", status: true) { |l| Fields.text(l, "status") },
+          col("Error", 22) { |l| Fields.redact_uris(Fields.text(l, "error")) },
           col("URI", 30) { |l| Fields.uri(l, "uri") },
         ]),
         :users => Table.new("Users", "/api/users", [
