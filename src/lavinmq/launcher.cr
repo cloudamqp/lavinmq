@@ -26,7 +26,6 @@ module LavinMQ
     @closed = false
     @replicator : Clustering::Server?
     @controller : Clustering::Controller?
-    @raft_controller : Clustering::RaftController?
     # Serializes stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new
     @server : LavinMQ::Server?
@@ -49,10 +48,7 @@ module LavinMQ
       if @config.clustering?
         @runner = controller = Clustering::Controller.create(@config)
         @controller = controller
-        if controller.is_a?(Clustering::RaftController)
-          @raft_controller = controller
-          controller.on_demote { |hand_over| demote(hand_over) }
-        end
+        controller.on_demote { |hand_over| demote(hand_over) } if controller.is_a?(Clustering::RaftController)
       else
         @runner = StandaloneRunner.new
       end
@@ -79,7 +75,7 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller,
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, raft_controller,
         @config.control_unix_path)
       start_listeners(amqp_server, mqtt_server, http_server)
       @metrics_server.try &.amqp_server = server
@@ -119,9 +115,7 @@ module LavinMQ
       @role_lock.synchronize do
         return if @closed
         close_replicator unless hand_over
-        @http_server.try &.close rescue nil
-        @amqp_server.try &.close rescue nil
-        @mqtt_server.try &.close rescue nil
+        close_listeners
         if server = @server
           # Not #stop, that also clears the replicator's checksums, which the
           # replication client reuses when it starts following
@@ -138,6 +132,12 @@ module LavinMQ
       end
     end
 
+    private def close_listeners : Nil
+      @http_server.try &.close rescue nil
+      @amqp_server.try &.close rescue nil
+      @mqtt_server.try &.close rescue nil
+    end
+
     private def close_replicator : Nil
       @replicator.try &.close rescue nil
       @replicator = nil
@@ -150,9 +150,7 @@ module LavinMQ
         Log.warn { "Stopping" }
         SystemD.notify_stopping
         @runner.stopping
-        @http_server.try &.close rescue nil
-        @amqp_server.try &.close rescue nil
-        @mqtt_server.try &.close rescue nil
+        close_listeners
         @server.try &.close rescue nil
         @metrics_server.try &.close rescue nil
       end
@@ -249,15 +247,17 @@ module LavinMQ
       exit 1
     end
 
+    private def raft_controller : Clustering::RaftController?
+      @controller.as?(Clustering::RaftController)
+    end
+
     # One metrics server for the rest of the process, bound before a clustered
     # node knows its role, so followers and nodes without a leader are
     # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: @raft_controller.try(&.node))
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: raft_controller.try(&.node))
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-      if (runner = @runner).is_a?(Clustering::Controller)
-        runner.metrics_server = metrics_server
-      end
+      @controller.try &.metrics_server = metrics_server
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end

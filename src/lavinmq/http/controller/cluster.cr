@@ -68,7 +68,7 @@ module LavinMQ
               cluster.step_down(plan)
             end
           in String
-            halt(context, 409, {error: "conflict", reason: plan})
+            conflict(context, plan)
           end
           context
         end
@@ -88,7 +88,7 @@ module LavinMQ
       private def require_status(context, cluster : Clustering::RaftController) : Clustering::Raft::Status
         status = cluster.node.status
         unless status && status.role.leader?
-          halt(context, 409, {error: "conflict", reason: "This node is not the leader"})
+          conflict(context, "This node is not the leader")
         end
         status
       end
@@ -106,12 +106,12 @@ module LavinMQ
           in .unknown_member?
             not_found(context, "#{member} is not a member of the cluster")
           in .lost?
-            halt(context, 409, {error: "conflict", reason: "#{error.message}, check the cluster status"})
+            conflict(context, "#{error.message}, check the cluster status")
           in .unreachable?
-            halt(context, 409, {error: "conflict", reason: "Couldn't reach #{member}, start it first"})
+            conflict(context, "Couldn't reach #{member}, start it first")
           in .not_leader?, .not_serving?, .pending?, .already_member?, .not_learner?,
              .is_leader?, .not_in_isr?, .not_caught_up?, .address_in_use?
-            halt(context, 409, {error: "conflict", reason: error.message})
+            conflict(context, error.message)
           end
         end
         context.response.status_code = success

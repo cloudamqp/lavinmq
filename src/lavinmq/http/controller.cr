@@ -198,6 +198,10 @@ module LavinMQ
         halt(context, 403, {error: "forbidden", reason: message})
       end
 
+      private def conflict(context, message)
+        halt(context, 409, {error: "conflict", reason: message})
+      end
+
       private def precondition_failed(context, message = "Precondition failed")
         halt(context, 412, {error: "precondition_failed", reason: message})
       end
