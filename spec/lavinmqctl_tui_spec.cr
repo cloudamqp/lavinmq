@@ -87,6 +87,16 @@ class FakeTUIScreen < TUI::Screen
     end
   end
 
+  # Color of the first character of *text* on the screen
+  def color_of(text : String) : TUI::Color?
+    @cells.each_with_index do |row, y|
+      line = row.map { |c| c == WIDE_RIGHT ? "" : c.to_s }
+      line.each_index do |x|
+        return @colors[y][x] if line[x..].join.starts_with?(text)
+      end
+    end
+  end
+
   # Row of the highest braille or block graph cell drawn in *color*
   def top_row(color : TUI::Color) : Int32?
     @cells.each_with_index do |row, y|
@@ -708,6 +718,30 @@ describe LavinMQCtl::TUI do
   it "opens the channel of a consumer" do
     screen, _ = run_tui('6', TUI::Key::Enter, responses: VIEW_RESPONSES)
     screen.text.should contain("Consumers › #{CHANNEL_NAME}")
+  end
+
+  it "highlights what needs attention" do
+    queues = {items: [
+      {vhost: "v", name: "busy", messages_ready: 7_777, consumers: 1},
+      {vhost: "v", name: "idle", messages_ready: 5_555, consumers: 0},
+      {vhost: "v", name: "empty", messages_ready: 0, consumers: 0},
+    ], filtered_count: 3}
+    screen, _ = run_tui('2', responses: with_response("/api/queues", queues))
+    screen.color_of("7,777").should eq TUI::WHITE # selected
+    screen.color_of("5,555").should eq TUI::YELLOW
+    screen.color_of("0  ").should_not eq TUI::YELLOW
+
+    channels = {items: [
+      {name: "full", prefetch_count: 10, consumer_count: 2, messages_unacknowledged: 20},
+      {name: "room", prefetch_count: 10, consumer_count: 2, messages_unacknowledged: 19},
+    ], filtered_count: 2}
+    screen, _ = run_tui('4', responses: with_response("/api/channels", channels))
+    screen.color_of("20 ").should eq TUI::YELLOW
+    screen.color_of("19 ").should eq TUI::TEXT_FG
+
+    shovels = [{vhost: "v", name: "broken", state: "terminated", error: "Connection refused"}]
+    screen, _ = run_tui('s', responses: with_response("/api/shovels", shovels))
+    screen.color_of("Connection refused").should eq TUI::RED
   end
 
   it "warns about a queue without consumers, and an object that's gone" do

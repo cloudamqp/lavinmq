@@ -38,8 +38,10 @@ class LavinMQCtl
     # A *status* column gets a dot colored by its value, like running or stopped.
     # A *right* column holds numbers, right-aligned like its title so that
     # their digits line up. A *flex* column, like a name, gets the width the
-    # others don't need, see column_layout.
-    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String), status : Bool = false, right : Bool = false, flex : Bool = false
+    # others don't need, see column_layout. *color* is the color of a value
+    # that needs attention, like messages that no one consumes.
+    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String),
+      status : Bool = false, right : Bool = false, flex : Bool = false, color : Proc(JSON::Any, Color?)? = nil
 
     record Table, title : String, path : String, columns : Array(Column), sort : String? = nil
 
@@ -643,7 +645,7 @@ class LavinMQCtl
         fill_rect(rect.inner_x + 1, y, rect.inner_width - 2, 1, bg: bg)
         set_cell(rect.inner_x + 1, y, '▌', GREEN, bg) if selected
         values = table.columns.map(&.value.call(item))
-        draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true)
+        draw_row(y, values, table.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true, item: item)
       end
     end
 
@@ -720,11 +722,15 @@ class LavinMQCtl
       end
     end
 
-    private def draw_row(y : Int32, values : Array(String), columns : Array(Column), fg : Color, bg : Color, bold : Bool, x : Int32, max_width : Int32, dots = false)
+    # The values of *item*'s row, or the titles without one
+    private def draw_row(y : Int32, values : Array(String), columns : Array(Column), fg : Color, bg : Color, bold : Bool, x : Int32, max_width : Int32, dots = false, item : JSON::Any? = nil)
+      row_fg = fg
       used = 0
       column_layout(columns, max_width).each_with_index do |(width, gap), i|
         break if used >= max_width
         column = columns[i]
+        highlight = item ? column.color.try(&.call(item)) : nil
+        fg = highlight || row_fg
         # A number that's cut off reads as a different number, so a column of
         # numbers that doesn't fit is left out
         break if column.right && width > max_width - used
@@ -970,7 +976,7 @@ class LavinMQCtl
         break if y >= rect.bottom
         bg = i.even? ? PANEL_BG : ROW_BG
         fill_rect(rect.inner_x + 1, y, rect.inner_width - 2, 1, bg: bg)
-        draw_row(y, columns.map(&.value.call(queue)), columns, TEXT_FG, bg, false, x, width)
+        draw_row(y, columns.map(&.value.call(queue)), columns, TEXT_FG, bg, false, x, width, item: queue)
       end
     end
 
@@ -1291,8 +1297,35 @@ class LavinMQCtl
       end
     end
 
-    private def col(title : String, width : Int32, sort : String? = nil, descending = false, status = false, right = false, flex = false, &value : JSON::Any -> String) : Column
-      Column.new(title, width, sort, descending, value, status, right, flex)
+    private def col(title : String, width : Int32, sort : String? = nil, descending = false, status = false, right = false, flex = false,
+                    color : Proc(JSON::Any, Color?)? = nil, &value : JSON::Any -> String) : Column
+      Column.new(title, width, sort, descending, value, status, right, flex, color)
+    end
+
+    # Highlights messages that no one consumes
+    private def waiting_color : Proc(JSON::Any, Color?)
+      ->(queue : JSON::Any) { queue_waiting?(queue) ? YELLOW : nil.as(Color?) }
+    end
+
+    # Highlights unacked messages that keep a channel's consumers from
+    # getting more
+    private def prefetch_color : Proc(JSON::Any, Color?)
+      ->(channel : JSON::Any) { prefetch_full?(channel) ? YELLOW : nil.as(Color?) }
+    end
+
+    # Highlights errors
+    private def error_color : Proc(JSON::Any, Color?)
+      ->(item : JSON::Any) { Fields.text(item, "error") == "-" ? nil.as(Color?) : RED }
+    end
+
+    # Highlights usage of *key* close to the limit in *limit_key*, like the
+    # Overview's bars
+    private def limit_color(key : String, limit_key : String) : Proc(JSON::Any, Color?)
+      ->(item : JSON::Any) do
+        limit = Fields.float(item, limit_key)
+        color = usage_color(Fields.float(item, key), limit)
+        limit > 0 && color != GREEN ? color : nil.as(Color?)
+      end
     end
 
     private def tables : Hash(Symbol, Table)
@@ -1302,7 +1335,7 @@ class LavinMQCtl
           col("Name", 30, "name", flex: true) { |q| Fields.text(q, "name") },
           col("State", 10, "state", status: true) { |q| Fields.text(q, "state") },
           col("Msgs", 11, "messages", true, right: true) { |q| Fields.count(q, "messages") },
-          col("Ready", 11, "messages_ready", true, right: true) { |q| Fields.count(q, "messages_ready") },
+          col("Ready", 11, "messages_ready", true, right: true, color: waiting_color) { |q| Fields.count(q, "messages_ready") },
           col("Unacked", 11, "messages_unacknowledged", true, right: true) { |q| Fields.count(q, "messages_unacknowledged") },
           col("Cons", 6, "consumers", true, right: true) { |q| Fields.count(q, "consumers") },
           col("Pub/s", 11, "message_stats.publish_details.rate", true, right: true) { |q| Fields.rate(q, "message_stats", "publish_details", "rate") },
@@ -1322,7 +1355,7 @@ class LavinMQCtl
           col("Vhost", 12, "vhost") { |c| Fields.text(c, "vhost") },
           col("User", 12, "user") { |c| Fields.text(c, "user") },
           col("State", 10, "state", status: true) { |c| Fields.text(c, "state") },
-          col("Unacked", 10, "messages_unacknowledged", true, right: true) { |c| Fields.count(c, "messages_unacknowledged") },
+          col("Unacked", 10, "messages_unacknowledged", true, right: true, color: prefetch_color) { |c| Fields.count(c, "messages_unacknowledged") },
           col("Prefetch", 8, "prefetch_count", true, right: true) { |c| Fields.count(c, "prefetch_count") },
           col("Cons", 6, "consumer_count", true, right: true) { |c| Fields.count(c, "consumer_count") },
           col("Pub/s", 11, "message_stats.publish_details.rate", true, right: true) { |c| Fields.rate(c, "message_stats", "publish_details", "rate") },
@@ -1357,9 +1390,9 @@ class LavinMQCtl
           col("Name", 24, flex: true) { |n| Fields.text(n, "name") },
           col("Role", 10) { |n| Fields.text(n, "role") },
           col("Uptime", 8, right: true) { |n| Fields.dig(n, "uptime") ? Fields.duration(n, "uptime") : "-" },
-          col("Memory", 10, right: true) { |n| Fields.dig(n, "mem_used") ? Fields.bytes(n, "mem_used") : "-" },
+          col("Memory", 10, right: true, color: limit_color("mem_used", "mem_limit")) { |n| Fields.dig(n, "mem_used") ? Fields.bytes(n, "mem_used") : "-" },
           col("Disk free", 10, right: true) { |n| Fields.dig(n, "disk_free") ? Fields.bytes(n, "disk_free") : "-" },
-          col("FD", 7, right: true) { |n| Fields.count(n, "fd_used") },
+          col("FD", 7, right: true, color: limit_color("fd_used", "fd_total")) { |n| Fields.count(n, "fd_used") },
           col("Sockets", 7, right: true) { |n| Fields.count(n, "sockets_used") },
           col("Lag", 10, right: true) { |n| Fields.dig(n, "lag_in_bytes") ? Fields.bytes(n, "lag_in_bytes") : "-" },
         ]),
@@ -1382,7 +1415,7 @@ class LavinMQCtl
           col("Name", 24, "name") { |s| Fields.text(s, "name") },
           col("State", 12, "state", status: true) { |s| Fields.text(s, "state") },
           col("Msgs", 10, "message_count", true, right: true) { |s| Fields.count(s, "message_count") },
-          col("Error", 50) { |s| Fields.redact_uris(Fields.text(s, "error")) },
+          col("Error", 50, color: error_color) { |s| Fields.redact_uris(Fields.text(s, "error")) },
         ]),
         :federation => Table.new("Federation links", "/api/federation-links", [
           col("Vhost", 12, "vhost") { |l| Fields.text(l, "vhost") },
@@ -1390,7 +1423,7 @@ class LavinMQCtl
           col("Type", 8, "type") { |l| Fields.text(l, "type") },
           col("Resource", 20, "resource") { |l| Fields.text(l, "resource") },
           col("Status", 10, "status", status: true) { |l| Fields.text(l, "status") },
-          col("Error", 22) { |l| Fields.redact_uris(Fields.text(l, "error")) },
+          col("Error", 22, color: error_color) { |l| Fields.redact_uris(Fields.text(l, "error")) },
           col("URI", 30) { |l| Fields.uri(l, "uri") },
         ]),
         :users => Table.new("Users", "/api/users", [

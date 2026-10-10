@@ -95,7 +95,7 @@ class LavinMQCtl
           Section.new("Channels", [
             col("Channel", 30, flex: true) { |c| Fields.text(c, "name") },
             col("State", 10, status: true) { |c| Fields.text(c, "state") },
-            col("Unacked", 10, right: true) { |c| Fields.count(c, "messages_unacknowledged") },
+            col("Unacked", 10, right: true, color: prefetch_color) { |c| Fields.count(c, "messages_unacknowledged") },
             col("Prefetch", 8, right: true) { |c| Fields.count(c, "prefetch_count") },
             col("Cons", 6, right: true) { |c| Fields.count(c, "consumer_count") },
             col("Pub/s", 11, right: true) { |c| Fields.rate(c, "message_stats", "publish_details", "rate") },
@@ -541,7 +541,7 @@ class LavinMQCtl
         fill_rect(rect.inner_x + 1, y, rect.inner_width - 2, 1, bg: bg)
         set_cell(rect.inner_x + 1, y, '▌', GREEN, bg) if selected
         values = section.columns.map(&.value.call(row))
-        draw_row(y, values, section.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true)
+        draw_row(y, values, section.columns, selected ? WHITE : TEXT_FG, bg, selected, x, width, dots: true, item: row)
       end
     end
 

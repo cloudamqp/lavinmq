@@ -112,7 +112,10 @@ depth graphs, node resources, network rates, cluster followers and the queues wi
 the most messages. The graphs start from the history kept by the management API and
 roll forward with each refresh, and their titles say how far back they go. The other pages are tables that fetch as many rows
 as fit in the terminal, one page at a time. Numbers are right-aligned with thousands
-separators, and a number too wide for its column is shortened, like `1.96M`. A resized terminal is redrawn right away,
+separators, and a number too wide for its column is shortened, like `1.96M`. Values that
+need attention are highlighted: ready messages in a queue without consumers, unacknowledged
+messages of a channel at its prefetch limit, a node's memory or file descriptors close to
+their limit, and shovel and federation link errors. A resized terminal is redrawn right away,
 and the rows for its new size are fetched once it stops changing size. The TUI needs
 a terminal of at least 40x10.
 
