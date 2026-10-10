@@ -128,10 +128,7 @@ module LavinMQ
           server.close rescue nil
           server.authenticator.cleanup rescue nil
         end
-        if hand_over
-          wait_for_followers
-          hand_over.call
-        end
+        hand_over.try &.call
         close_replicator
         @metrics_server.try &.stop_reporting_broker
         @http_server = nil
@@ -139,15 +136,6 @@ module LavinMQ
         @mqtt_server = nil
         @server = nil
       end
-    end
-
-    # Closing the broker writes files too. Unless the followers have acked
-    # them, the target counts as behind once it disconnects to campaign, and
-    # is taken out of the ISR before it gets this node's vote.
-    private def wait_for_followers : Nil
-      @replicator.try &.wait_for_followers
-    rescue Clustering::Coordinator::StaleLeadership
-      # Leadership is already gone, there's nothing left to hand over
     end
 
     private def close_replicator : Nil
@@ -166,7 +154,6 @@ module LavinMQ
         @amqp_server.try &.close rescue nil
         @mqtt_server.try &.close rescue nil
         @server.try &.close rescue nil
-        wait_for_followers # before the runner hands over leadership
         @metrics_server.try &.close rescue nil
       end
       @runner.stop
