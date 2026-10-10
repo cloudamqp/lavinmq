@@ -38,10 +38,11 @@ module LavinMQ
       abstract def all_followers : Array(Follower)
       abstract def close
 
-      # Once closed nothing is replicated anymore: writes still complete
-      # locally (the broker may be closing too), but nothing that has to be
-      # on the in-sync followers may be acknowledged, see Persister
-      def closed? : Bool
+      # Set for good once nothing can be acknowledged as replicated anymore:
+      # replication was closed, or the coordinator said this node isn't the
+      # leader. Writes still complete locally (the broker may be closing), but
+      # #wait_for_followers raises Coordinator::StaleLeadership from then on.
+      def fenced? : Bool
         false
       end
 

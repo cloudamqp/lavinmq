@@ -144,6 +144,35 @@ describe LavinMQ::Clustering::Server do
     end
   end
 
+  describe "once closed" do
+    # E.g. the target of a leadership handover, which must stay in the ISR
+    it "doesn't take the followers it disconnects out of the ISR" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr closed spec")
+      follower_id = 7
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { coordinator.last_isr.try &.includes?(follower_id) }
+      # Behind, which would take it out of the ISR as it disconnects
+      server.append_bytes(File.join(data_dir, "lag"), "x".to_slice, 0i64)
+      wait_for { server.followers.find(&.id.== follower_id).try { |f| f.lag_in_bytes > 0 } }
+
+      server.close
+      sleep 200.milliseconds # its disconnect handled
+      server.fenced?.should be_true
+      coordinator.last_isr.not_nil!.should contain follower_id
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { server.wait_for_followers }
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "join failures" do
     # Regression: if the join's ISR commit raised after mark_synced!, the
     # follower used to stay in @followers as Synced with no ack_loop running —

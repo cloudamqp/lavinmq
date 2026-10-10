@@ -35,7 +35,7 @@ module LavinMQ
       getter files = Array(MFile).new
       getter paths = Set(String).new
       # Callers of #sync, released by the drain that synced for them
-      getter waiters = Array(::Channel(Nil)).new
+      getter waiters = Array(::Channel(Bool)).new
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty?
@@ -49,9 +49,6 @@ module LavinMQ
     {% end %}
 
     @data_dir_fd : Int32 = -1
-    # Set when this node lost its leadership while waiting for the followers:
-    # nothing is confirmed from then on, and #sync raises
-    @leadership_lost = Atomic(Bool).new(false)
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
@@ -95,24 +92,26 @@ module LavinMQ
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
+    # Raises Clustering::Coordinator::StaleLeadership if it can't be made
+    # durable on the followers, see Clustering::Replicator#fenced?
     def sync : Nil
-      waiter = ::Channel(Nil).new
+      # Gets true once synced, or is closed when it wasn't
+      waiter = ::Channel(Bool).new(1)
       @pending.lock &.waiters.push(waiter)
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
-        raise_if_leadership_lost
+        raise_if_fenced
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive?
-      raise_if_leadership_lost
+      waiter.receive? || raise_if_fenced(force: true)
     end
 
-    private def raise_if_leadership_lost : Nil
-      if @leadership_lost.get
+    private def raise_if_fenced(force = false) : Nil
+      if force || @replicator.try &.fenced?
         raise Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
       end
     end
@@ -147,7 +146,8 @@ module LavinMQ
         end
       end
       return unless batch
-      if @leadership_lost.get
+      replicator = @replicator
+      if replicator.try &.fenced?
         # Never confirmed, the waiters raise
         batch.waiters.each &.close
         return
@@ -161,7 +161,6 @@ module LavinMQ
       syncfs = !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
-      replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
         # while it runs. Buffered for each follower's flush fiber to write:
@@ -196,17 +195,11 @@ module LavinMQ
       # stays unreachable the leader's lease expires and the process exits.
       begin
         replicator.try &.wait_for_followers
-        if replicator.try &.closed?
-          # Replication stopped before this was on the followers, e.g. this
-          # node is stepping down after losing leadership
-          raise Clustering::Coordinator::StaleLeadership.new("Replication closed")
-        end
       rescue Clustering::Coordinator::StaleLeadership
         # A new leader decides what's in sync now, so nothing waiting here
         # can be confirmed. Clients see their connections closed when this
         # node steps down, and resend what wasn't confirmed.
         Log.warn { "Not the leader anymore, not confirming pending publishes" }
-        @leadership_lost.set(true)
         batch.waiters.each &.close
         return
       end
@@ -214,7 +207,7 @@ module LavinMQ
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)
       end
-      batch.waiters.each &.close
+      batch.waiters.each &.send(true)
     end
 
     private def fsync_paths(files, paths, dirs) : Nil

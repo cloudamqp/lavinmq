@@ -29,7 +29,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.server"
 
       @lock = Mutex.new(:unchecked)
-      @closed = Atomic(Bool).new(false)
+      @fenced = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
@@ -451,9 +451,21 @@ module LavinMQ
           ids.add(f.id) if f.synced? && !f.dead? && @coordinator.member?(f.id)
         end
         ids.add(@id)
+        # Closed, its followers were disconnected: they mustn't leave the ISR
+        # for that, e.g. the target of a leadership handover
+        raise_if_fenced
         Log.info { "In-sync replicas: #{ids.to_a}" }
-        @coordinator.update_isr(ids)
+        begin
+          @coordinator.update_isr(ids)
+        rescue ex : Coordinator::StaleLeadership
+          @fenced.set(true)
+          raise ex
+        end
         @dirty_isr = false
+      end
+
+      private def raise_if_fenced : Nil
+        raise Coordinator::StaleLeadership.new("Replication is fenced, nothing can be acknowledged") if fenced?
       end
 
       # True when the ISR last written to the coordinator may be stale (a
@@ -506,19 +518,21 @@ module LavinMQ
         followers.each &.request_syncfs
       end
 
-      def closed? : Bool
-        @closed.get
+      def fenced? : Bool
+        @fenced.get
       end
 
       def wait_for_followers : Nil
-        return if closed?
+        raise_if_fenced
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for_confirm }
         flush_isr if !all_acked || isr_dirty?
+        # Closed while waiting: what the followers didn't ack isn't replicated
+        raise_if_fenced
       end
 
       def close
-        @closed.set(true)
+        @fenced.set(true)
         @listeners.each &.close
         @lock.synchronize do
           @followers.each &.close
@@ -543,9 +557,10 @@ module LavinMQ
       # node isn't the leader anymore it raises Coordinator::StaleLeadership,
       # so the operation fails instead of being acknowledged.
       private def each_follower(& : Follower -> Nil) : Nil
-        # Nobody to replicate to, and the ISR may not be ours to change
-        # anymore, e.g. the broker closing after leadership was lost
-        return if closed?
+        # Nothing it replicates can be acknowledged, and the ISR may not be
+        # ours to change anymore, e.g. the broker closing after leadership
+        # was lost
+        return if fenced?
         dirty = false
         @lock.synchronize do
           broken = nil
