@@ -18,12 +18,6 @@
         <div class="table-subheader">
           <span class="table-page-info"></span>
         </div>
-        <p class="card-desc">
-          Topic permissions restrict which topics MQTT clients can publish to and subscribe to.
-          They are separate from the configure, write and read permissions on the
-          <a href="users">user</a> pages, which apply to AMQP.
-          A vhost with no groups denies every topic.
-        </p>
         <div id="groups-error"></div>
         <div class="table-wrapper">
           <table id="groups" class="table">

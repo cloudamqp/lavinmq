@@ -21,10 +21,6 @@
         <div class="table-subheader">
           <span class="table-page-info"></span>
         </div>
-        <p class="card-desc">
-          Every connection that authenticates as a member gets the rules of this group.
-          The member <code>*</code> applies the group to every authenticated user.
-        </p>
         <div id="members-error"></div>
         <div class="table-wrapper">
           <table id="members" class="table">
@@ -41,7 +37,11 @@
       <form method="put" id="addMember" class="form card cols-6">
         <h3>Add member</h3>
         <label>
-          <span>Username</span>
+          <span>
+            <a class="prop-tooltip">Username<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">Use * to apply the group to every authenticated user.</span>
+            </a>
+          </span>
           <input type="text" name="username" list="userList" required autocomplete="off">
           <datalist id="userList"></datalist>
         </label>
@@ -54,10 +54,6 @@
             <small class="tiny-badge" id="rules-count"></small>
           </h2>
         </div>
-        <p class="card-desc">
-          A client can only publish to or subscribe to topics granted by a matching rule.
-          A user in several groups gets the rules of all of them.
-        </p>
         <div id="rules-error"></div>
         <div class="table-wrapper">
           <table id="rules" class="table">
@@ -84,22 +80,29 @@
           <input type="text" name="identifier" required data-primary-key="" pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens">
         </label>
         <label>
-          <span>Topic pattern</span>
+          <span>
+            <a class="prop-tooltip">Topic pattern<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">An MQTT topic filter. + matches one level and # matches the rest. {client_id} as a whole level is replaced with the client ID of the connection, so chat/{client_id}/# gives each device its own subtree.</span>
+            </a>
+          </span>
           <input type="text" name="pattern" required placeholder="chat/{client_id}/#">
         </label>
         <label>
-          <span>Read</span>
+          <span>
+            <a class="prop-tooltip">Read<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">Allow clients to receive messages on topics matching the pattern.</span>
+            </a>
+          </span>
           <input type="checkbox" name="read" checked>
         </label>
         <label>
-          <span>Write</span>
+          <span>
+            <a class="prop-tooltip">Write<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">Allow clients to publish to topics matching the pattern.</span>
+            </a>
+          </span>
           <input type="checkbox" name="write" checked>
         </label>
-        <p class="card-desc">
-          The pattern is an MQTT topic filter. <code>+</code> matches one level and <code>#</code>
-          matches the rest. <code>{client_id}</code> as a whole level is replaced with the client ID
-          of the connection, so <code>chat/{client_id}/#</code> gives each device its own subtree.
-        </p>
         <button type="submit" class="btn btn-green when-create">Add rule</button>
         <div class="when-edit flex gap-2 flex-row">
           <button type="submit" class="btn btn-green">Update</button>
@@ -107,9 +110,9 @@
         </div>
       </form>
       <section class="card cols-4">
-        <h3>Danger zone</h3>
+        <h3>Delete group</h3>
         <form method="delete" id="deleteGroup" class="form">
-          <button type="submit" class="btn btn-red">Delete group</button>
+          <button type="submit" class="btn btn-red btn-inline">Delete group</button>
         </form>
       </section>
     </main>

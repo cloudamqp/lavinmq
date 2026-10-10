@@ -25,7 +25,7 @@ const membersTable = Table.renderTable('members', {
 }, (tr, item, all) => {
   if (!all) return
   if (item.username === '*') {
-    Table.renderCell(tr, 0, '* (every user)')
+    Table.renderCell(tr, 0, '*')
   } else {
     const userLink = document.createElement('a')
     userLink.href = HTTP.url`user#name=${item.username}`
