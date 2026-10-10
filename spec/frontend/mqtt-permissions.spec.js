@@ -6,18 +6,36 @@ const groupsResponse = {
     { name: 'default', vhost: 'foo', member_count: 1, rule_count: 1 },
     { name: 'devices', vhost: 'bar', member_count: 2, rule_count: 3 }
   ],
-  filtered_count: 2, item_count: 2, page: 1, page_count: 1, page_size: 100, total_count: 2
+  filtered_count: 2,
+  item_count: 2,
+  page: 1,
+  page_count: 1,
+  page_size: 100,
+  total_count: 2
 }
 
 const membersResponse = {
   items: [{ username: '*' }, { username: 'alice' }],
-  filtered_count: 2, item_count: 2, page: 1, page_count: 1, page_size: 100, total_count: 2
+  filtered_count: 2,
+  item_count: 2,
+  page: 1,
+  page_count: 1,
+  page_size: 100,
+  total_count: 2
 }
 
-const rulesResponse = [
-  { identifier: 'own-chat', pattern: 'chat/{client_id}/#', read: true, write: true },
-  { identifier: 'status', pattern: 'status/+', read: true, write: false }
-]
+const rulesResponse = {
+  items: [
+    { identifier: 'own-chat', pattern: 'chat/{client_id}/#', read: true, write: true },
+    { identifier: 'status', pattern: 'status/+', read: true, write: false }
+  ],
+  filtered_count: 2,
+  item_count: 2,
+  page: 1,
+  page_count: 1,
+  page_size: 100,
+  total_count: 2
+}
 
 test.describe('mqtt permissions', _ => {
   test('groups are loaded', async ({ page }) => {
@@ -57,6 +75,8 @@ test.describe('mqtt permission group', _ => {
     await expect(apiMembersRequest).toBeRequested()
     await expect(apiRulesRequest).toBeRequested()
     await expect(page.locator('#members tbody tr')).toHaveCount(2)
+    // Member names are not links: a member does not have to exist as a user
+    await expect(page.locator('#members tr[data-username=\'"alice"\']').getByRole('link')).toHaveCount(0)
     await expect(page.locator('#rules tbody tr')).toHaveCount(2)
     await expect(page.locator('#rules tr[data-identifier=\'"status"\']')).toContainText('status/+')
   })
@@ -80,10 +100,11 @@ test.describe('mqtt permission group', _ => {
     await expect(apiAddRequest).toBeRequested()
   })
 
-  test('member can be removed', async ({ page }) => {
+  test('member can be removed after confirmation', async ({ page }) => {
     const apiMembersRequest = helpers.waitForPathRequest(page, `${group}/members`, { response: membersResponse })
     await page.goto('/mqtt-permission-group#vhost=foo&name=devices')
     await expect(apiMembersRequest).toBeRequested()
+    page.on('dialog', dialog => dialog.accept())
     const apiRemoveRequest = helpers.waitForPathRequest(page, `${group}/members/alice`, { method: 'DELETE' })
     await page.locator('#members tr[data-username=\'"alice"\']').getByRole('button', { name: /remove/i }).click()
     await expect(apiRemoveRequest).toBeRequested()
@@ -102,42 +123,16 @@ test.describe('mqtt permission group', _ => {
     await expect(apiRuleRequest).toBeRequested()
   })
 
-  test('rules link to the rule page', async ({ page }) => {
+  test('rule can be edited inline', async ({ page }) => {
     const apiRulesRequest = helpers.waitForPathRequest(page, `${group}/rules`, { response: rulesResponse })
     await page.goto('/mqtt-permission-group#vhost=foo&name=devices')
     await expect(apiRulesRequest).toBeRequested()
-    await expect(page.locator('#rules tr[data-identifier=\'"status"\']').getByRole('link', { name: 'status' }))
-      .toHaveAttribute('href', 'mqtt-permission-rule#vhost=foo&group=devices&rule=status')
-  })
-
-  test('group can be deleted', async ({ page }) => {
-    await page.goto('/mqtt-permission-group#vhost=foo&name=devices')
-    page.on('dialog', dialog => dialog.accept())
-    const apiDeleteRequest = helpers.waitForPathRequest(page, group, { method: 'DELETE' })
-    await page.getByRole('button', { name: /delete group/i }).click()
-    await expect(apiDeleteRequest).toBeRequested()
-  })
-})
-
-test.describe('mqtt permission rule', _ => {
-  const group = '/api/mqtt/permission-groups/foo/devices'
-  const rulePage = '/mqtt-permission-rule#vhost=foo&group=devices&rule=status'
-
-  test.beforeEach(async ({ page }) => {
-    await page.route(`**${group}/rules`, route => route.fulfill({ json: rulesResponse }))
-  })
-
-  test('form is filled with the rule', async ({ page }) => {
-    await page.goto(rulePage)
+    await page.locator('#rules tr[data-identifier=\'"status"\']').getByRole('button', { name: /edit/i }).click()
+    await expect(page.getByLabel('Identifier')).toHaveValue('status')
+    await expect(page.getByLabel('Identifier')).toBeDisabled()
     await expect(page.getByLabel('Topic pattern')).toHaveValue('status/+')
     await expect(page.getByLabel('Read')).toBeChecked()
     await expect(page.getByLabel('Write')).not.toBeChecked()
-    await expect(page.locator('#group-link')).toHaveAttribute('href', 'mqtt-permission-group#vhost=foo&name=devices')
-  })
-
-  test('rule can be updated', async ({ page }) => {
-    await page.goto(rulePage)
-    await expect(page.getByLabel('Topic pattern')).toHaveValue('status/+')
     const apiRuleRequest = helpers.waitForPathRequest(page, `${group}/rules/status`, {
       method: 'PUT',
       body: { pattern: 'status/#', read: true, write: true }
@@ -146,15 +141,23 @@ test.describe('mqtt permission rule', _ => {
     await page.getByLabel('Write').check()
     await page.getByRole('button', { name: /update/i }).click()
     await expect(apiRuleRequest).toBeRequested()
-    await expect(page).toHaveURL(/mqtt-permission-group#vhost=foo&name=devices$/)
   })
 
-  test('rule can be deleted', async ({ page }) => {
-    await page.goto(rulePage)
+  test('rule can be removed after confirmation', async ({ page }) => {
+    const apiRulesRequest = helpers.waitForPathRequest(page, `${group}/rules`, { response: rulesResponse })
+    await page.goto('/mqtt-permission-group#vhost=foo&name=devices')
+    await expect(apiRulesRequest).toBeRequested()
     page.on('dialog', dialog => dialog.accept())
     const apiDeleteRequest = helpers.waitForPathRequest(page, `${group}/rules/status`, { method: 'DELETE' })
-    await page.getByRole('button', { name: /delete rule/i }).click()
+    await page.locator('#rules tr[data-identifier=\'"status"\']').getByRole('button', { name: /remove/i }).click()
     await expect(apiDeleteRequest).toBeRequested()
-    await expect(page).toHaveURL(/mqtt-permission-group#vhost=foo&name=devices$/)
+  })
+
+  test('group can be deleted', async ({ page }) => {
+    await page.goto('/mqtt-permission-group#vhost=foo&name=devices')
+    page.on('dialog', dialog => dialog.accept())
+    const apiDeleteRequest = helpers.waitForPathRequest(page, group, { method: 'DELETE' })
+    await page.getByRole('button', { name: /delete group/i }).click()
+    await expect(apiDeleteRequest).toBeRequested()
   })
 })

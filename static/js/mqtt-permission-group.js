@@ -1,6 +1,7 @@
 import * as HTTP from './http.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
+import * as Form from './form.js'
 import { UrlDataSource } from './datasource.js'
 
 const params = new URLSearchParams(window.location.hash.substring(1))
@@ -19,21 +20,15 @@ const membersTable = Table.renderTable('members', {
   dataSource: dataSource(groupUrl + '/members'),
   keyColumns: ['username'],
   countId: 'members-count',
-  pagination: true,
-  search: true
+  pagination: true
 }, (tr, item, all) => {
   if (!all) return
-  if (item.username === '*') {
-    Table.renderCell(tr, 0, '*')
-  } else {
-    const userLink = document.createElement('a')
-    userLink.href = HTTP.url`user#name=${item.username}`
-    userLink.textContent = item.username
-    Table.renderCell(tr, 0, userLink)
-  }
+  // Plain text, no user page link: a member does not have to exist in the local user store
+  Table.renderCell(tr, 0, item.username)
   const btn = DOM.button.delete({
     text: 'Remove',
     click: function () {
+      if (!window.confirm(`Are you sure? '${item.username}' loses the access that this group grants.`)) return
       const url = HTTP.url`api/mqtt/permission-groups/${vhost}/${group}/members/${item.username}`
       HTTP.request('DELETE', url)
         .then(() => membersTable.reload())
@@ -46,17 +41,33 @@ const membersTable = Table.renderTable('members', {
 const rulesTable = Table.renderTable('rules', {
   dataSource: dataSource(groupUrl + '/rules'),
   keyColumns: ['identifier'],
-  countId: 'rules-count'
+  countId: 'rules-count',
+  pagination: true
 }, (tr, item, all) => {
   Table.renderCell(tr, 1, item.pattern)
   Table.renderCell(tr, 2, item.read ? '●' : '○', 'center')
   Table.renderCell(tr, 3, item.write ? '●' : '○', 'center')
-  if (all) {
-    const ruleLink = document.createElement('a')
-    ruleLink.href = HTTP.url`mqtt-permission-rule#vhost=${vhost}&group=${group}&rule=${item.identifier}`
-    ruleLink.textContent = item.identifier
-    Table.renderCell(tr, 0, ruleLink)
-  }
+  if (!all) return
+  Table.renderCell(tr, 0, item.identifier)
+  const buttons = document.createElement('div')
+  buttons.classList.add('buttons')
+  const editBtn = DOM.button.edit({
+    click: function () {
+      Form.editItem('#setRule', item)
+    }
+  })
+  const deleteBtn = DOM.button.delete({
+    text: 'Remove',
+    click: function () {
+      if (!window.confirm(`Are you sure? Clients lose the access that the rule '${item.identifier}' grants.`)) return
+      const url = HTTP.url`api/mqtt/permission-groups/${vhost}/${group}/rules/${item.identifier}`
+      HTTP.request('DELETE', url)
+        .then(() => rulesTable.reload())
+        .catch(() => {})
+    }
+  })
+  buttons.append(editBtn, deleteBtn)
+  Table.renderCell(tr, 4, buttons, 'right')
 })
 
 document.querySelector('#addMember').addEventListener('submit', function (evt) {

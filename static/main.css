@@ -238,6 +238,16 @@ main.main-grid {
   grid-column: auto / span 12;
 }
 
+/* A card that hugs its content instead of stretching to the row height */
+.self-start {
+  align-self: start;
+}
+
+/* Balance the 2rem gap that the heading leaves above the field */
+#addMember {
+  padding-bottom: 2.5rem;
+}
+
 [data-tab-content] {
   grid-column: 1 / -1;
   display: grid;

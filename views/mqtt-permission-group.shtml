@@ -11,7 +11,7 @@
       <div id="breadcrumbs" class="cols-12">
           <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
-      <section class="card">
+      <section class="card cols-5">
         <div class="table-header">
           <h2 class="has-badge">
             Members
@@ -34,7 +34,33 @@
           </table>
         </div>
       </section>
-      <form method="put" id="addMember" class="form card cols-6">
+      <section class="card cols-7">
+        <div class="table-header">
+          <h2 class="has-badge">
+            Rules
+            <small class="tiny-badge" id="rules-count"></small>
+          </h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div id="rules-error"></div>
+        <div class="table-wrapper">
+          <table id="rules" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="identifier" class="left">Identifier<span></span></th>
+                <th class="left">Topic pattern</th>
+                <th>Read</th>
+                <th>Write</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="addMember" class="form card cols-5 self-start">
         <h3>Add member</h3>
         <label>
           <span>
@@ -47,33 +73,14 @@
         </label>
         <button type="submit" class="btn btn-green">Add member</button>
       </form>
-      <section class="card">
-        <div class="table-header">
-          <h2 class="has-badge">
-            Rules
-            <small class="tiny-badge" id="rules-count"></small>
-          </h2>
-        </div>
-        <div id="rules-error"></div>
-        <div class="table-wrapper">
-          <table id="rules" class="table">
-            <thead>
-              <tr>
-                <th class="left">Identifier</th>
-                <th class="left">Topic pattern</th>
-                <th>Read</th>
-                <th>Write</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-      <form method="put" id="setRule" class="form card cols-6">
-        <h3>Add rule</h3>
+      <form method="put" id="setRule" class="form card cols-7">
+        <h3>
+          <span class="when-create">Add rule</span>
+          <span class="when-edit">Edit rule</span>
+        </h3>
         <label>
           <span>Identifier</span>
-          <input type="text" name="identifier" required pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens">
+          <input type="text" name="identifier" required pattern="[A-Za-z0-9\-]+" title="Alphanumerics and hyphens" data-primary-key="">
         </label>
         <label>
           <span>
@@ -84,22 +91,18 @@
           <input type="text" name="pattern" required placeholder="chat/{client_id}/#">
         </label>
         <label>
-          <span>
-            <a class="prop-tooltip">Read<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">Allow clients to receive messages on topics matching the pattern.</span>
-            </a>
-          </span>
+          <span>Read</span>
           <input type="checkbox" name="read" checked>
         </label>
         <label>
-          <span>
-            <a class="prop-tooltip">Write<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">Allow clients to publish to topics matching the pattern.</span>
-            </a>
-          </span>
+          <span>Write</span>
           <input type="checkbox" name="write" checked>
         </label>
-        <button type="submit" class="btn btn-green">Add rule</button>
+        <button type="submit" class="btn btn-green when-create">Add rule</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
       </form>
       <section class="card cols-4">
         <h3>Delete group</h3>
