@@ -41,6 +41,19 @@ module LavinMQ
     end
   end
 
+  describe Server do
+    it "keeps collecting stats after running out of file descriptors" do
+      with_stats_interval(50) do
+        with_amqp_server do |s|
+          wait_for { s.rss_log.size > 1 }
+          without_free_file_descriptors { sleep 200.milliseconds }
+          size = s.rss_log.size
+          wait_for { s.rss_log.size > size }
+        end
+      end
+    end
+  end
+
   describe Stats do
     describe "#update_rates" do
       [1, 50, 250, 500, 999, 1000, 5000, 30_000].each do |ms|
