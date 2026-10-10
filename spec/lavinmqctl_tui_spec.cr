@@ -614,7 +614,7 @@ describe LavinMQCtl::TUI do
       responses = TUI_RESPONSES.transform_values { random_json.call(4).to_json }
       screen, _ = run_tui('2', TUI::Key::Enter, '3', TUI::Key::Enter, '4', TUI::Key::Enter, '5', TUI::Key::Enter,
         '6', TUI::Key::Enter, '7', TUI::Key::Enter, '8', TUI::Key::Enter, '9', TUI::Key::Enter, '0', TUI::Key::Enter,
-        's', TUI::Key::Enter, 'f', TUI::Key::Enter, 'u', TUI::Key::Enter, '1', responses: responses)
+        's', TUI::Key::Enter, 'f', TUI::Key::Enter, 'u', TUI::Key::Enter, 'l', TUI::Key::Home, '1', responses: responses)
       screen.closed?.should be_true
     end
   end
@@ -742,6 +742,47 @@ describe LavinMQCtl::TUI do
     shovels = [{vhost: "v", name: "broken", state: "terminated", error: "Connection refused"}]
     screen, _ = run_tui('s', responses: with_response("/api/shovels", shovels))
     screen.color_of("Connection refused").should eq TUI::RED
+  end
+
+  it "shows the broker's log, newest last" do
+    log = [
+      "2026-10-10 23:43:01 UTC [INFO] lmq.launcher - Starting LavinMQ",
+      "2026-10-10 23:43:08 UTC [WARN] lmq.launcher - sysctl -w vm.max_map_count=1000000",
+      "2026-10-10 23:43:26 UTC [ERROR] lmq.amqp.client - Read timed out",
+      "with a second line",
+    ].join('\n')
+    screen, requests = run_tui('l', responses: TUI_RESPONSES.merge({"/api/logs" => log}))
+    requests.should contain("/api/logs")
+    screen.text.should contain("Logs  4")
+    screen.text.should match(/10-10 23:43:08 WARN +lmq\.launcher sysctl -w/)
+    screen.color_of("WARN").should eq TUI::YELLOW
+    screen.color_of("ERROR").should eq TUI::RED
+    lines = screen.text.lines
+    lines.index!(&.includes?("Read timed out")).should be < lines.index!(&.includes?("with a second line"))
+
+    screen, _ = run_tui('l', '/', 'w', 'a', 'r', 'n', TUI::Key::Enter, responses: TUI_RESPONSES.merge({"/api/logs" => log}))
+    screen.text.should contain("Logs  1")
+    screen.text.should_not contain("Starting LavinMQ")
+  end
+
+  it "scrolls the log and follows new entries at the end" do
+    log = (1..100).join('\n') { |i| "2026-10-10 23:43:08 UTC [INFO] lmq.spec - entry #{i}." }
+    responses = TUI_RESPONSES.merge({"/api/logs" => log})
+    screen, _ = run_tui('l', responses: responses)
+    screen.text.should contain("entry 100.")
+    screen.text.should_not contain("entry 1.")
+
+    screen, _ = run_tui('l', TUI::Key::Home, responses: responses)
+    screen.text.should contain("entry 1.")
+    screen.text.should_not contain("entry 100.")
+
+    screen, _ = run_tui('l', TUI::Key::Home, TUI::Key::End, responses: responses)
+    screen.text.should contain("entry 100.")
+  end
+
+  it "says why the log is empty" do
+    screen, _ = run_tui('l')
+    screen.text.should contain("only shown to users with the administrator tag")
   end
 
   it "warns about a queue without consumers, and an object that's gone" do

@@ -125,13 +125,18 @@ first) and fields. A connection shows its channels, and a channel its consumers.
 `Enter` on one of those rows opens what it refers to, like a consumer's channel or
 queue, and `Esc` goes back. A warning points out a queue with messages but no
 consumers, a paused or closed queue, a channel at its prefetch limit and a blocked
-connection. Other rows show all their fields. Passwords in shovel and
+connection. Other rows show all their fields.
+
+The Logs page shows the broker's log entries that it keeps in memory, newest last,
+with warnings in yellow and errors in red. `/` filters them, and `End` goes back to
+following new entries after scrolling up. The log is only shown to users with the
+`administrator` tag, like in the management UI. Passwords in shovel and
 federation URIs are masked, password hashes are not shown, and control characters
 in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 
 | Key | Action |
 |-----|--------|
-| `1`-`9`, `0`, `s`, `f`, `u` | Overview, Queues, Connections, Channels, Exchanges, Consumers, Vhosts, Nodes, Parameters, Policies, Shovels, Federation, Users |
+| `1`-`9`, `0`, `s`, `f`, `u`, `l` | Overview, Queues, Connections, Channels, Exchanges, Consumers, Vhosts, Nodes, Parameters, Policies, Shovels, Federation, Users, Logs |
 | `Tab`, `Shift-Tab`, `←`, `→` | Next or previous page |
 | `↑`, `↓`, `j`, `k` | Move the selection |
 | `PgUp`, `PgDn` | Previous or next page of rows |

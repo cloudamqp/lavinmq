@@ -5,6 +5,7 @@ require "./cli"
 require "./tui/screen"
 require "./tui/terminal"
 require "./tui/views"
+require "./tui/logs"
 
 class LavinMQCtl
   class TUI
@@ -73,10 +74,11 @@ class LavinMQCtl
       {key: 's', name: :shovels, label: "Shovels", nav: "Shov"},
       {key: 'f', name: :federation, label: "Federation", nav: "Fed"},
       {key: 'u', name: :users, label: "Users", nav: "Users"},
+      {key: 'l', name: :logs, label: "Logs", nav: "Logs"},
     ]
 
     HELP = {
-      {"1-9 0 s f u", "Switch page, also Tab, Shift-Tab, Left, Right"},
+      {"1-9 0 s f u l", "Switch page, also Tab, Shift-Tab, Left, Right"},
       {"Up Down j k", "Move the selection"},
       {"PgUp PgDn", "Previous or next page of rows"},
       {"Home End g G", "First or last row"},
@@ -240,16 +242,23 @@ class LavinMQCtl
 
     private def navigate(key : Key)
       case key
-      when .up?               then move(-1)
-      when .down?             then move(1)
-      when .page_up?          then move(-table_rows)
-      when .page_down?        then move(table_rows)
-      when .home?             then move_to(0)
-      when .end?              then move_to(Int32::MAX)
       when .tab?, .right?     then switch_page(1)
       when .back_tab?, .left? then switch_page(-1)
       when .escape?           then set_filter("")
       when .enter?            then open_view
+      else
+        @page == :logs ? log_key(key) : move_key(key)
+      end
+    end
+
+    private def move_key(key : Key)
+      case key
+      when .up?        then move(-1)
+      when .down?      then move(1)
+      when .page_up?   then move(-table_rows)
+      when .page_down? then move(table_rows)
+      when .home?      then move_to(0)
+      when .end?       then move_to(Int32::MAX)
       end
     end
 
@@ -272,7 +281,7 @@ class LavinMQCtl
       when 'r'      then reverse_sort
       when 'p', ' ' then @paused = !@paused
       when '?'      then @help = true
-      when '/'      then @input = table_state.try(&.filter)
+      when '/'      then @input = @page == :logs ? @log_filter : table_state.try(&.filter)
       else
         if page = PAGES.find { |p| p[:key] == char }
           @page = page[:name]
@@ -293,7 +302,10 @@ class LavinMQCtl
     end
 
     private def set_filter(filter : String)
-      if state = table_state
+      if @page == :logs
+        @log_filter = filter
+        @log_scroll = 0
+      elsif state = table_state
         state.filter = filter
         state.cursor = 0
       end
@@ -335,7 +347,7 @@ class LavinMQCtl
     end
 
     private def table_state : TableState?
-      return if @page == :overview
+      return unless @tables.has_key?(@page)
       @states[@page] ||= begin
         sort = @tables[@page].sort
         TableState.new(sort, @tables[@page].columns.find { |c| c.sort == sort }.try(&.descending) || false)
@@ -362,6 +374,8 @@ class LavinMQCtl
         table = "#{@page} #{state.cursor // table_rows} #{table_rows} #{state.sort} #{state.descending?} #{state.filter}"
         view = state.views.last?
         view ? "#{table} #{state.views.size} #{view_fetch(view)}" : table
+      elsif @page == :logs
+        "logs"
       else
         "overview #{hot_queue_rows}"
       end
@@ -383,6 +397,8 @@ class LavinMQCtl
         @nodes = fetch_list("/api/nodes", "nodes")
       elsif (state = table_state) && (view = state.views.last?)
         refresh_view(view)
+      elsif @page == :logs
+        fetch_logs
       else
         fetch_table
       end
@@ -443,21 +459,27 @@ class LavinMQCtl
 
     # With *missing*, a 404 is returned as JSON null, for an object that may
     # have been deleted
-    private def fetch_json(path : String, label : String, retry = true, missing = false) : JSON::Any?
+    private def fetch_json(path : String, label : String, missing = false) : JSON::Any?
+      return unless body = fetch_body(path, label, missing: missing)
+      JSON.parse(body)
+    rescue ex : JSON::ParseException
+      record_error("#{label}: invalid JSON (#{ex.message})")
+      nil
+    end
+
+    # With *missing*, a 404 is returned as "null"
+    private def fetch_body(path : String, label : String, retry = true, missing = false) : String?
       if @closed && (reconnect = @reconnect)
         @client = reconnect.call
         @closed = false
       end
       response = @client.get(path)
-      return JSON::Any.new(nil) if missing && response.status_code == 404
+      return "null" if missing && response.status_code == 404
       unless response.status_code == 200
         record_error("#{label}: HTTP #{response.status_code} #{response.status}")
         return
       end
-      JSON.parse(response.body)
-    rescue ex : JSON::ParseException
-      record_error("#{label}: invalid JSON (#{ex.message})")
-      nil
+      response.body
     rescue ex
       # The connection is broken, or still open after a timeout and the late
       # response would be read as the answer to the next request. A TCP client
@@ -467,7 +489,7 @@ class LavinMQCtl
       # A TCP client retries once on a new connection when the server has
       # closed the one it had, a client on the control socket raises instead
       if retry && @reconnect && !ex.is_a?(IO::Error)
-        return fetch_json(path, label, retry: false, missing: missing)
+        return fetch_body(path, label, retry: false, missing: missing)
       end
       record_error("#{label}: #{ex.message || ex.class.name}")
       nil
@@ -510,10 +532,10 @@ class LavinMQCtl
         draw_too_small
       else
         draw_header
-        if @page == :overview
-          draw_overview
-        else
-          draw_table
+        case @page
+        when :overview then draw_overview
+        when :logs     then draw_logs
+        else                draw_table
         end
         draw_footer
         draw_help if @help
@@ -553,8 +575,11 @@ class LavinMQCtl
       return if y < 1
       fill_rect(0, y, @width, 1, bg: BAR_BG)
       if input = @input
-        title = @tables[@page].title.downcase
-        x = print_at(0, y, " Filter #{title} by name ", MUTED_FG, BAR_BG)
+        x = if @page == :logs
+              print_at(0, y, " Filter logs ", MUTED_FG, BAR_BG)
+            else
+              print_at(0, y, " Filter #{@tables[@page].title.downcase} by name ", MUTED_FG, BAR_BG)
+            end
         x += print_at(x, y, input, WHITE, BAR_BG, true)
         x += print_at(x, y, "▏", GREEN, BAR_BG)
         print_at(x + 1, y, "Enter applies, Esc cancels", MUTED_FG, BAR_BG)
