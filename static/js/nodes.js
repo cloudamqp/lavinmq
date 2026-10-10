@@ -333,6 +333,8 @@ function updateCluster () {
     const section = document.getElementById('cluster-section')
     if (!response.ok) {
       section.hidden = true
+      // No raft cluster, or not an administrator, which won't change
+      if ([400, 403, 404].includes(response.status)) clearInterval(clusterPoll)
       return
     }
     return response.json().then((cluster) => {
@@ -359,7 +361,7 @@ document.getElementById('addClusterMember').addEventListener('submit', function 
 })
 
 updateCluster()
-setInterval(updateCluster, 5000)
+const clusterPoll = setInterval(updateCluster, 5000)
 
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {
