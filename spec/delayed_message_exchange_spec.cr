@@ -350,7 +350,7 @@ describe "Delayed Message Exchange" do
         delayed_q = ex.@delayed_queue.should_not be_nil
         delayed_q.close
 
-        returns = Channel(Tuple(UInt16, String)).new
+        returns = Channel(Tuple(UInt16, String)).new(1)
         ch.on_return { |msg| returns.send({msg.reply_code, msg.reply_text}) }
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 10_000})
         ch.basic_publish_confirm("test", x_name, "rk", mandatory: true,
