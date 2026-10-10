@@ -190,6 +190,9 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections.add client
+      # Added after #close closed the connections, it'd be served by a
+      # closed vhost
+      client.close("Broker shutdown") if closed?
     end
 
     def rm_connection(client : Client)
@@ -521,8 +524,9 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
-      # then force close the remaining (close tcp socket)
-      each_connection &.force_close
+      # then force close the remaining (close tcp socket), a copy as they
+      # delete themselves when closed
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
