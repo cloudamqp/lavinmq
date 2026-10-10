@@ -388,12 +388,29 @@ module TUIMockAPI
     ROUTES[path]?.try &.call
   end
 
+  # Filters by name and pages the items like the HTTP API does
+  def self.paginate(body : String, params : URI::Params) : String
+    data = JSON.parse(body).as_h?
+    return body unless data && (items = data["items"]?.try(&.as_a?))
+    if name = params["name"]?
+      items = items.select { |item| item["name"]?.try(&.as_s?).try(&.includes?(name)) }
+    end
+    page = (params["page"]?.try(&.to_i?) || 1).clamp(1, 10_000)
+    page_size = (params["page_size"]?.try(&.to_i?) || 100).clamp(1, 10_000)
+    data["items"] = JSON::Any.new(items[(page - 1) * page_size, page_size]? || [] of JSON::Any)
+    data["page"] = JSON::Any.new(page.to_i64)
+    data["page_size"] = JSON::Any.new(page_size.to_i64)
+    data["page_count"] = JSON::Any.new(((items.size + page_size - 1) // page_size).to_i64)
+    data["filtered_count"] = JSON::Any.new(items.size.to_i64)
+    data.to_json
+  end
+
   def self.run
     parse_args
     server = HTTP::Server.new do |context|
       if body = response_for(context.request.path)
         context.response.content_type = "application/json"
-        context.response.print body
+        context.response.print paginate(body, context.request.query_params)
       else
         context.response.status_code = 404
         context.response.content_type = "application/json"
