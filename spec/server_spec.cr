@@ -1437,15 +1437,19 @@ describe "Running out of file descriptors" do
   it "keeps accepting AMQP connections" do
     with_amqp_server do |s|
       address = s.amqp_server.@listeners.select(TCPServer).first.local_address
-      client = Socket.tcp(address.family)
+      rejected = Socket.tcp(address.family)
       without_free_file_descriptors do
-        client.connect(address)
+        rejected.connect(address)
         sleep 100.milliseconds # the listener fails to accept it
       end
+      # Linux accepts this one later, macOS drops it when accept fails
+      rejected.close
+      client = TCPSocket.new(address.address, address.port)
       client.read_timeout = 5.seconds
       client.write "AMQP\u0000\u0000\u0009\u0001".to_slice
       client.read_byte.should eq 1 # the method frame with the server's Connection.Start
     ensure
+      rejected.try &.close
       client.try &.close
     end
   end
