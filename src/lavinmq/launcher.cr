@@ -373,9 +373,11 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         stop
-        # Exiting closes the log, which #run still logs to while it finishes
+        # The process exits once #run has returned. Exiting from here
+        # instead closes the log while #run, or this, could still log.
         select
         when @run_done.receive?
+          return
         when timeout(10.seconds)
         end
         Log.info { "Fibers: " }
