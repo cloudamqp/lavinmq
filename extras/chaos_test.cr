@@ -46,8 +46,12 @@ SEED           = ENV.fetch("SEED", Random.new.rand(1_000_000).to_s).to_i
 
 RNG = Random.new(SEED)
 
+def ts(time = Time.utc)
+  time.to_s("%H:%M:%S.%L")
+end
+
 def log(msg)
-  STDOUT.puts "#{Time.utc.to_s("%H:%M:%S.%L")} #{msg}"
+  STDOUT.puts "#{ts} #{msg}"
   STDOUT.flush
 end
 
@@ -57,7 +61,7 @@ end
 
 class Node
   getter i : Int32
-  getter process : Process?
+  @process : Process?
   @expected_exit = false
   getter crashes = [] of String
   @log : File
@@ -67,12 +71,16 @@ class Node
     @log = File.open(log_path, "a")
   end
 
+  def name
+    "node#{@i + 1}"
+  end
+
   def data_dir
-    File.join(DIR, "node#{@i + 1}")
+    File.join(DIR, name)
   end
 
   def log_path
-    File.join(DIR, "node#{@i + 1}.log")
+    File.join(DIR, "#{name}.log")
   end
 
   def running?
@@ -84,7 +92,7 @@ class Node
     seeds = (0...NODES).map { |n| ip(n) }.join(',')
     args = [
       "--data-dir=#{data_dir}", "--bind=#{ip(@i)}", "--metrics-http-bind=#{ip(@i)}",
-      "--control-unix-path=#{File.join(DIR, "ctl#{@i + 1}.sock")}",
+      "--control-unix-path=#{File.join(DIR, "#{name}.sock")}",
       "--clustering", "--clustering-bind=#{ip(@i)}", "--clustering-password=chaos",
       "--clustering-seeds=#{seeds}", "--clustering-election-timeout=#{ELECTION}",
       "--clustering-heartbeat-interval=#{HEARTBEAT}",
@@ -96,13 +104,13 @@ class Node
     @expected_exit = false
     p = Process.new(BIN, args, output: @log, error: @log)
     @process = p
-    spawn(name: "watch node #{@i + 1}") do
+    spawn(name: "watch #{name}") do
       status = p.wait
       next if @process != p
       unless @expected_exit
-        msg = "node#{@i + 1} exited unexpectedly: #{status.inspect}"
+        msg = "#{name} exited unexpectedly: #{status.inspect}"
         log "!!! #{msg}"
-        @crashes << "#{Time.utc.to_s("%H:%M:%S.%L")} #{msg}"
+        @crashes << "#{ts} #{msg}"
         # Like systemd's Restart=on-failure
         sleep 1.second
         start if @process == p
@@ -110,14 +118,12 @@ class Node
     end
   end
 
-  def signal(sig : Signal, expected = true)
-    if p = @process
-      @expected_exit = true if expected && sig.kill?
-      p.signal(sig) rescue nil
-    end
+  def signal(sig : Signal)
+    @process.try &.signal(sig) rescue nil
   end
 
   def kill
+    @expected_exit = true
     signal(Signal::KILL)
     @process.try &.wait rescue nil
   end
@@ -131,7 +137,7 @@ class Node
         sleep 100.milliseconds
       end
       unless p.terminated?
-        log "node#{@i + 1} didn't stop in 30s, killing"
+        log "#{name} didn't stop in 30s, killing"
         p.signal(Signal::KILL) rescue nil
       end
     end
@@ -170,13 +176,19 @@ def leader : Int32?
   nil
 end
 
+# When a message was published and confirmed, and through which node
+record Info, node : Int32, published : Time, confirmed : Time do
+  def to_s(io : IO) : Nil
+    io << "via node" << node + 1 << ", published " << ts(published) << ", confirmed " << ts(confirmed)
+  end
+end
+
 class Stats
   getter attempted = Set(String).new
   getter confirmed = Set(String).new
   getter nacked = Set(String).new
   getter received = Hash(String, Int32).new(0)
-  # When each message was published and confirmed, and through which node
-  getter info = Hash(String, String).new
+  getter info = Hash(String, Info).new
   getter publish_errors = 0
   getter consume_errors = 0
   @lock = Mutex.new
@@ -185,10 +197,10 @@ class Stats
     @lock.synchronize { @attempted << id }
   end
 
-  def confirm(id, ok, detail)
+  def confirm(id, ok, info)
     @lock.synchronize do
       ok ? @confirmed << id : @nacked << id
-      @info[id] = detail
+      @info[id] = info
     end
   end
 
@@ -204,8 +216,13 @@ class Stats
     @lock.synchronize { @consume_errors += 1 }
   end
 
-  def last_received_count
+  def received_count
     @lock.synchronize { @received.size }
+  end
+
+  # Confirmed but not received, without copying the ids
+  def missing_count
+    @lock.synchronize { @confirmed.count { |id| !@received.has_key?(id) } }
   end
 end
 
@@ -213,17 +230,10 @@ STATS           = QUEUES.to_h { |q, _| {q, Stats.new} }
 STOP_PUBLISHING = Atomic(Bool).new(false)
 STOP_ALL        = Atomic(Bool).new(false)
 
+# A connection to a random node, and its index
 def connect
-  connect_with_node[0]
-end
-
-def connect_with_node
   i = RNG.rand(NODES)
   {AMQP::Client.new(host: ip(i), port: 5672, user: "guest", password: "guest", heartbeat: 3_u16).connect, i}
-end
-
-def ts
-  Time.utc.to_s("%H:%M:%S.%L")
 end
 
 def declare(ch, queue, type)
@@ -236,11 +246,11 @@ end
 # a block in the publish loop would see the loop variable's latest value
 def publish(ch, queue, id, stats, window, node)
   stats.attempt(id)
-  published = ts
+  published = Time.utc
   props = AMQP::Client::Properties.new(delivery_mode: 2_u8)
   ch.basic_publish(id, "", queue, props: props) do |ok|
     # false also when the connection closed before the confirm
-    stats.confirm(id, ok, "via node#{node + 1}, published #{published}, confirmed #{ts}")
+    stats.confirm(id, ok, Info.new(node, published, Time.utc))
     window.receive?
   end
 end
@@ -250,7 +260,7 @@ def publisher(pid, queue, type)
   seq = 0
   until STOP_PUBLISHING.get
     begin
-      conn, node = connect_with_node
+      conn, node = connect
       ch = conn.channel
       ch.confirm_select
       declare(ch, queue, type)
@@ -270,13 +280,13 @@ def publisher(pid, queue, type)
   end
 end
 
-def consumer(cid, queue, type)
+def consumer(queue, type)
   stats = STATS[queue]
   # A stream is read from the start by every consumer connection, the
   # deliveries are tracked as a set so re-reads don't matter
   until STOP_ALL.get
     begin
-      conn = connect
+      conn, _ = connect
       ch = conn.channel
       ch.prefetch(500)
       declare(ch, queue, type)
@@ -295,6 +305,12 @@ def consumer(cid, queue, type)
       conn.try &.close rescue nil
       sleep 200.milliseconds
     end
+  end
+end
+
+def start_consumers
+  QUEUES.each do |q, type|
+    2.times { |c| spawn(name: "consumer #{q} #{c}") { consumer(q, type) } }
   end
 end
 
@@ -340,11 +356,11 @@ class Nemesis
     when "transfer"
       return false unless l
       resp = http(l, "POST", "/api/cluster/transfer-leadership", "{}")
-      log "nemesis transfer from node#{l + 1}: #{resp.status_code} #{resp.body}"
+      log "nemesis transfer from #{NODE_LIST[l].name}: #{resp.status_code} #{resp.body}"
       resp.status_code == 202
     when "kill_leader"
       return false unless l
-      log "nemesis kill -9 leader node#{l + 1}"
+      log "nemesis kill -9 leader #{NODE_LIST[l].name}"
       NODE_LIST[l].kill
       sleep RNG.rand(1.0..4.0).seconds
       NODE_LIST[l].start
@@ -352,7 +368,7 @@ class Nemesis
     when "pause_leader"
       return false unless l
       d = RNG.rand(1.0..5.0)
-      log "nemesis SIGSTOP leader node#{l + 1} for #{d.round(1)}s"
+      log "nemesis SIGSTOP leader #{NODE_LIST[l].name} for #{d.round(1)}s"
       NODE_LIST[l].signal(Signal::STOP)
       sleep d.seconds
       NODE_LIST[l].signal(Signal::CONT)
@@ -360,7 +376,7 @@ class Nemesis
     when "kill_follower"
       followers = NODE_LIST.reject { |n| n.i == l }
       n = followers.sample(RNG)
-      log "nemesis kill -9 follower node#{n.i + 1}"
+      log "nemesis kill -9 follower #{n.name}"
       n.kill
       sleep RNG.rand(1.0..4.0).seconds
       n.start
@@ -397,18 +413,18 @@ unless l = wait_for_leader(60.seconds)
   NODE_LIST.each &.stop
   exit 2
 end
-log "node#{l + 1} leads"
+log "#{NODE_LIST[l].name} leads"
 
 QUEUES.each do |q, type|
   PUBS.times { |p| spawn(name: "publisher #{q} #{p}") { publisher(p, q, type) } }
-  2.times { |c| spawn(name: "consumer #{q} #{c}") { consumer(c, q, type) } } if CONSUME_DURING
 end
+start_consumers if CONSUME_DURING
 
 spawn(name: "progress") do
   until STOP_ALL.get
     sleep 10.seconds
     STATS.each do |q, s|
-      log "#{q}: attempted #{s.attempted.size} confirmed #{s.confirmed.size} received #{s.received.size} pub_err #{s.publish_errors} con_err #{s.consume_errors}"
+      log "#{q}: attempted #{s.attempted.size} confirmed #{s.confirmed.size} received #{s.received_count} pub_err #{s.publish_errors} con_err #{s.consume_errors}"
     end
   end
 end
@@ -418,15 +434,11 @@ nemesis.run(Time.instant + DURATION)
 log "nemesis done: #{nemesis.ops} failed #{nemesis.failed}"
 
 # Heal: every node up, a serving leader
-NODE_LIST.each(&.signal(Signal::CONT, expected: false))
+NODE_LIST.each &.signal(Signal::CONT)
 NODE_LIST.each &.start
 healed = wait_for_leader(60.seconds)
-log healed ? "healed, node#{healed + 1} leads" : "!!! no serving leader 60s after healing"
-unless CONSUME_DURING
-  QUEUES.each do |q, type|
-    2.times { |c| spawn(name: "consumer #{q} #{c}") { consumer(c, q, type) } }
-  end
-end
+log healed ? "healed, #{NODE_LIST[healed].name} leads" : "!!! no serving leader 60s after healing"
+start_consumers unless CONSUME_DURING
 sleep 5.seconds
 STOP_PUBLISHING.set(true)
 sleep 3.seconds
@@ -436,9 +448,9 @@ drain_deadline = Time.instant + 120.seconds
 last = -1
 stable_since = Time.instant
 while Time.instant < drain_deadline
-  missing = STATS.sum { |_, s| (s.confirmed - s.received.keys.to_set).size }
+  missing = STATS.sum { |_, s| s.missing_count }
   break if missing == 0
-  total = STATS.sum { |_, s| s.last_received_count }
+  total = STATS.sum { |_, s| s.received_count }
   if total != last
     last = total
     stable_since = Time.instant
@@ -453,13 +465,11 @@ STOP_ALL.set(true)
 # Everything a stream holds now, read from the start by a new consumer
 def read_stream(queue) : Set(String)
   ids = Set(String).new
-  conn = connect
+  conn, _ = connect
   ch = conn.channel
   ch.prefetch(1000)
   last = Time.instant
-  args = AMQP::Client::Arguments.new
-  args["x-stream-offset"] = "first"
-  ch.basic_consume(queue, no_ack: false, args: args) do |msg|
+  ch.basic_consume(queue, no_ack: false, args: {"x-stream-offset": "first"}) do |msg|
     ids << msg.body_io.to_s
     last = Time.instant
     msg.ack
@@ -473,27 +483,26 @@ end
 
 failures = [] of String
 QUEUES.each do |q, type|
-  next unless type == "stream"
   s = STATS[q]
-  final = begin
-    read_stream(q)
-  rescue ex
-    log "reading #{q} failed: #{ex.inspect}"
-    nil
-  end
-  unless final
-    failures << "#{q}: couldn't read the stream at the end"
-    next
-  end
-  missing = s.confirmed - final
-  vanished = s.received.keys.to_set - final
-  log "#{q}: holds #{final.size} at the end, #{missing.size} confirmed missing, #{vanished.size} delivered earlier but gone"
-  failures << "#{q}: #{missing.size} confirmed messages not in the stream, e.g. #{missing.first(10).to_a}" unless missing.empty?
-  missing.to_a.sort.first(200).each { |id| log "  missing #{id}: #{s.info[id]?}" }
-  vanished.to_a.sort.first(200).each { |id| log "  vanished #{id}: #{s.info[id]? || "not confirmed"}" }
-end
-STATS.each do |q, s|
   received = s.received.keys.to_set
+  if type == "stream"
+    final = begin
+      read_stream(q)
+    rescue ex
+      log "reading #{q} failed: #{ex.inspect}"
+      nil
+    end
+    if final
+      missing = s.confirmed - final
+      vanished = received - final
+      log "#{q}: holds #{final.size} at the end, #{missing.size} confirmed missing, #{vanished.size} delivered earlier but gone"
+      failures << "#{q}: #{missing.size} confirmed messages not in the stream, e.g. #{missing.first(10).to_a}" unless missing.empty?
+      missing.to_a.sort.first(200).each { |id| log "  missing #{id}: #{s.info[id]?}" }
+      vanished.to_a.sort.first(200).each { |id| log "  vanished #{id}: #{s.info[id]? || "not confirmed"}" }
+    else
+      failures << "#{q}: couldn't read the stream at the end"
+    end
+  end
   lost = s.confirmed - received
   unexpected = received - s.attempted
   dups = s.received.count { |_, c| c > 1 }
@@ -503,7 +512,7 @@ STATS.each do |q, s|
       "indeterminate #{indeterminate.size} (#{(indeterminate & received).size} delivered), " \
       "received #{received.size}, duplicates #{dups}, lost #{lost.size}, unexpected #{unexpected.size}, depth #{depth.inspect}"
   failures << "#{q}: #{lost.size} confirmed messages lost, e.g. #{lost.first(10).to_a}" unless lost.empty?
-  lost.to_a.sort.each { |id| log "  lost #{id}: #{s.info[id]?}" }
+  lost.to_a.sort.first(200).each { |id| log "  lost #{id}: #{s.info[id]?}" }
   failures << "#{q}: #{unexpected.size} messages never published, e.g. #{unexpected.first(10).to_a}" unless unexpected.empty?
 end
 failures << "no serving leader after healing" unless healed
@@ -513,7 +522,7 @@ NODE_LIST.each &.stop
 NODE_LIST.each do |n|
   File.each_line(n.log_path) do |line|
     if line =~ /Unhandled exception|Invalid memory access|FATAL|segmentation fault/i
-      failures << "node#{n.i + 1} log: #{line[0, 300]}"
+      failures << "#{n.name} log: #{line[0, 300]}"
     end
   end
 end
