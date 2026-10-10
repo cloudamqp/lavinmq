@@ -4,9 +4,8 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "connect [MQTT-3.1.4-1]" do
-    # As when the vhost closes while the client connects, e.g. as a raft
-    # leader stops serving: the client is added once it's closed, before
-    # its read loop has started
+    # As when the vhost closes while the client connects, e.g. on shutdown:
+    # the client is added once it's closed, before its read loop has started
     it "disconnects a client added to a closed vhost" do
       with_server do |server|
         vhost = server.vhosts["/"]

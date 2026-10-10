@@ -55,7 +55,7 @@ describe "Publish Confirm Persistence" do
   end
 
   # A queue is closed while its connections are still publishing when the
-  # broker shuts down, e.g. when a cluster leader hands over leadership
+  # broker shuts down
   {"classic", "stream"}.each do |type|
     it "nacks a publish that a closed #{type} queue didn't store" do
       with_amqp_server do |s|
