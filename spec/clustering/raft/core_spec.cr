@@ -1051,4 +1051,39 @@ describe Raft::Core, "leadership transfer" do
     old.transfer_leadership(4).should eq Raft::TransferResult::NotEligible
     sim[others.first].transfer_leadership(others.last).should eq Raft::TransferResult::NotLeader
   end
+
+  it "says why a transfer can't be done, without doing anything" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    old = sim.leader.not_nil!
+    in_isr, not_in_isr = sim.cores.keys.reject(old.id)
+    sim.propose(old, Set{old.id, in_isr})
+    sim.advance(100.milliseconds)
+    old.take_outbox
+    old.transfer_check(in_isr).should eq in_isr
+    old.transfer_check.should eq in_isr
+    old.transfer_check(not_in_isr).should eq Raft::TransferRefusal::NotInIsr
+    old.transfer_check(old.id).should eq Raft::TransferRefusal::IsLeader
+    old.transfer_check(9).should eq Raft::TransferRefusal::NotMember
+    sim[in_isr].transfer_check.should eq Raft::TransferRefusal::NotLeader
+    old.take_outbox.should be_empty
+    sim.isolated << in_isr
+    sim.advance(SimCluster::ELECTION * 2)
+    old.transfer_check(in_isr).should eq Raft::TransferRefusal::Unresponsive
+    old.transfer_check.should eq Raft::TransferRefusal::NoEligibleVoter
+  end
+
+  it "hands over without a target to an in-sync voter that's behind, once it has caught up" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    behind, gone = sim.cores.keys.reject(old.id)
+    sim.crash(gone)
+    sim.isolated << behind
+    sim.propose(old, Set{1, 2, 3})
+    sim.advance(20.milliseconds)
+    sim.isolated.delete(behind)
+    old.transfer_leadership.should eq Raft::TransferResult::Pending
+    sim.advance(100.milliseconds)
+    sim.leader.not_nil!.id.should eq behind
+  end
 end

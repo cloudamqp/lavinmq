@@ -18,8 +18,25 @@ module LavinMQ::Clustering::Raft
     # The target is behind, TimeoutNow is sent when it has caught up
     Pending
     NotLeader
-    # Not a voter in the ISR, or not reachable where the membership says
+    # See TransferRefusal for why
     NotEligible
+  end
+
+  # Why a leadership transfer can't be done, see Core#transfer_check
+  enum TransferRefusal
+    NotLeader
+    # The leader hasn't committed an entry in its term, so it doesn't know
+    # the latest ISR
+    NotServing
+    IsLeader
+    NotMember
+    NotVoter
+    NotInIsr
+    # Hasn't answered the leader within the election timeout, or isn't
+    # connected from where the membership lists it
+    Unresponsive
+    # Without a target: no voter is eligible
+    NoEligibleVoter
   end
 
   enum MembershipError
@@ -488,29 +505,43 @@ module LavinMQ::Clustering::Raft
     # fully caught up such peer. A target that's behind gets TimeoutNow as soon
     # as it has caught up, but no later than an election timeout from now.
     def transfer_leadership(target : Int32? = nil) : TransferResult
-      return TransferResult::NotLeader unless @role.leader?
-      if target
-        return TransferResult::NotEligible unless transfer_eligible?(target)
-        if @match_index[target]? == last_index
+      case peer = transfer_check(target)
+      in TransferRefusal
+        peer.not_leader? ? TransferResult::NotLeader : TransferResult::NotEligible
+      in Int32
+        if @match_index[peer]? == last_index
           @transfer_target = nil
-          send target, TimeoutNow.new(@id, @term)
-          return TransferResult::Sent
+          send peer, TimeoutNow.new(@id, @term)
+          TransferResult::Sent
+        else
+          @transfer_target = {peer, @now + @election_timeout}
+          send_append(peer)
+          TransferResult::Pending
         end
-        @transfer_target = {target, @now + @election_timeout}
-        send_append(target)
-        TransferResult::Pending
-      else
-        peer = @peers.find { |p| transfer_eligible?(p) && @match_index[p]? == last_index }
-        return TransferResult::NotEligible unless peer
-        send peer, TimeoutNow.new(@id, @term)
-        TransferResult::Sent
       end
     end
 
-    private def transfer_eligible?(peer : Int32) : Bool
-      return false unless @voters.includes?(peer) && @peers.includes?(peer) && at_home?(peer) && responsive?(peer)
-      isr = latest_isr
-      !isr.nil? && isr.includes?(peer)
+    # Who #transfer_leadership would hand leadership to, or why it can't,
+    # without doing it. The target must be a voter in the ISR that answers
+    # this leader. Without one, a fully caught up such voter is preferred.
+    def transfer_check(target : Int32? = nil) : Int32 | TransferRefusal
+      return TransferRefusal::NotLeader unless @role.leader?
+      return TransferRefusal::NotServing unless serving_leader?
+      if target
+        return TransferRefusal::IsLeader if target == @id
+        transfer_refusal(target) || target
+      else
+        @peers.find { |p| transfer_refusal(p).nil? && @match_index[p]? == last_index } ||
+          @peers.find { |p| transfer_refusal(p).nil? } ||
+          TransferRefusal::NoEligibleVoter
+      end
+    end
+
+    private def transfer_refusal(peer : Int32) : TransferRefusal?
+      return TransferRefusal::NotMember unless @peers.includes?(peer)
+      return TransferRefusal::NotVoter unless @voters.includes?(peer)
+      return TransferRefusal::NotInIsr unless latest_isr.try(&.includes?(peer))
+      TransferRefusal::Unresponsive unless at_home?(peer) && responsive?(peer)
     end
 
     def step(msg : Message, now : Time::Instant) : Nil

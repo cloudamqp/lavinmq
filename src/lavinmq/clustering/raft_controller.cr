@@ -58,12 +58,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   # Checks that `target` (a clustering id or raft address, or without one any
-  # caught up in-sync voter) can take over right now: it must be a voter in
-  # the committed ISR that has answered the leader within the election
-  # timeout, or the leader would stop serving for a handover that can't
-  # happen. Returns the accepted transfer, or why not. An accepted
-  # transfer is claimed here, so a concurrent request is refused instead of
-  # overriding it, and #step_down has to follow.
+  # in-sync voter, preferably caught up) can take over right now, see
+  # Raft::Core#transfer_check, or the leader would stop serving for a
+  # handover that can't happen. Returns the accepted transfer, or why not. An
+  # accepted transfer is claimed here, so a concurrent request is refused
+  # instead of overriding it, and #step_down has to follow.
   def request_transfer(target : String? = nil) : Transfer | String
     @transfer_lock.synchronize do
       return "A leadership transfer is already in progress" if @transfer_target
@@ -73,25 +72,32 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
   end
 
-  # ameba:disable Metrics/CyclomaticComplexity
   private def check_transfer(target : String?) : Transfer | String
     status = @node.status
-    return "This node is not the leader" if status.nil? || !status.role.leader? || @stopping
-    return "The leader hasn't committed an entry in its term yet" unless @node.serving.value
-    voters = status.membership.try(&.voters) || return "The cluster has no membership yet"
-    isr = status.committed_isr || return "The cluster has no in-sync replica set yet"
+    return "This node is not the leader" if status.nil? || @stopping
     if target
       id = status.resolve(target) || return "#{target} is not a member"
-      return "#{target} is the leader" if id == status.id
-      return "#{target} is not a voter" unless voters.includes?(id)
-      return "#{target} is not in the in-sync replica set" unless isr.includes?(id)
-      return "#{target} hasn't answered the leader recently" unless status.responsive.includes?(id)
-    else
-      eligible = voters.select { |v| v != status.id && isr.includes?(v) && status.responsive.includes?(v) }
-      id = eligible.find { |v| status.caught_up.includes?(v) } || eligible.first? ||
-           return "No reachable voter is in the in-sync replica set"
     end
-    Transfer.new(id, status.address_of(id) || id.to_s(36), status.term)
+    case check = @node.transfer_check(id)
+    in Tuple(Int32, Int64)
+      to, term = check
+      Transfer.new(to, status.address_of(to) || to.to_s(36), term)
+    in Raft::TransferRefusal
+      refusal_message(check, target)
+    end
+  end
+
+  private def refusal_message(refusal : Raft::TransferRefusal, target : String?) : String
+    case refusal
+    in .not_leader?        then "This node is not the leader"
+    in .not_serving?       then "The leader hasn't committed an entry in its term yet"
+    in .is_leader?         then "#{target} is the leader"
+    in .not_member?        then "#{target} is not a member"
+    in .not_voter?         then "#{target} is not a voter"
+    in .not_in_isr?        then "#{target} is not in the in-sync replica set"
+    in .unresponsive?      then "#{target} hasn't answered the leader recently"
+    in .no_eligible_voter? then "No reachable voter is in the in-sync replica set"
+    end
   end
 
   # Gracefully step down in favour of `target`: stop serving, hand over
