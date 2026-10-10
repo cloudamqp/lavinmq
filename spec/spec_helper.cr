@@ -110,12 +110,26 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
   address = state[:address] || return
   port = state[:port] || return
 
+  socket = rebind_tcp(address, port)
   if tls_context = state[:tls_context]
-    server.bind_tls(address, port, tls_context)
+    server.bind_tls(socket, tls_context)
   else
-    server.bind_tcp(address, port)
+    server.bind_tcp(socket)
   end
   spawn(name: name) { server.listen } if state[:listening]
+end
+
+# The restart only just closed the listener on this port, and binding it again
+# right away sometimes fails with "Address already in use" on macOS, so retry
+# for a while. The port must stay the same, as specs may hold URLs to it.
+private def rebind_tcp(address : String, port : Int32) : TCPServer
+  deadline = Time.instant + 5.seconds
+  loop do
+    return TCPServer.new(address, port)
+  rescue ex : Socket::BindError
+    raise ex if Time.instant >= deadline
+    sleep 10.milliseconds
+  end
 end
 
 def restart_server(server : LavinMQ::Server)
