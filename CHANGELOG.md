@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `x-mqtt-topic` exchange type: queues and exchanges bound to it with MQTT topic filters receive MQTT publishes, with the MQTT topic as routing key. The exchange is always internal, and malformed filters are refused at bind time [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - `tcp_send_timeout` config option in `[main]` (default `15` seconds): a client that doesn't read what the server sends for that long is disconnected. Previously a write to such a client blocked forever, and so did closing the connection. Closing a connection now also aborts a write in progress, e.g. of a large message to a slowly reading client [#2363](https://github.com/cloudamqp/lavinmq/pull/2363)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)

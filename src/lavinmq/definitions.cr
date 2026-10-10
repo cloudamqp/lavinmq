@@ -361,7 +361,10 @@ module LavinMQ
     private def export_exchanges(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges.reject(&.internal?).each do |e|
+          # Internal exchanges with user names (x-mqtt-topic, x-federation-upstream)
+          # are exported: their bindings are exported either way, so skipping the
+          # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
+          v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
             delayed = e.arguments["x-delayed-exchange"]?
             if delayed
               arguments = e.arguments.clone

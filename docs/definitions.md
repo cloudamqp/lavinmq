@@ -4,7 +4,7 @@ Definitions are the complete declarative state of a LavinMQ server: vhosts, user
 
 ## Export
 
-Export all definitions as JSON. Exclusive queues and internal queues (e.g. delayed exchange queues, which are recreated by their exchange) are not included:
+Export all definitions as JSON. Exclusive queues, internal queues (e.g. delayed exchange queues, which are recreated by their exchange) and the `mqtt.default` exchange are not included. Internal exchanges with user-given names, such as `x-mqtt-topic` exchanges and the `x-federation-upstream` exchanges a downstream broker creates on its upstream, are included so that their bindings can be imported:
 
 ```
 # Via API

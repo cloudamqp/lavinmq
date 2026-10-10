@@ -254,7 +254,14 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
+        route_msg(msg, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
+      end
+
+      def route_msg(msg : Message, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
+        route_msg(msg, false, queues, exchanges)
+      ensure
+        queues.clear
+        exchanges.clear
       end
 
       private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult

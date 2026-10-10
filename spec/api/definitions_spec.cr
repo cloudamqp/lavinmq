@@ -967,6 +967,30 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "round-trips an x-mqtt-topic exchange and its bindings through export and import" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        vhost.bind_queue("q1", "xmqtt", "a/b/#")
+
+        body = http.get("/api/definitions").body
+        parsed = JSON.parse(body)
+        exported = parsed["exchanges"].as_a.find { |e| e["name"] == "xmqtt" }
+        exported.should_not be_nil
+        exported.not_nil!["type"].should eq "x-mqtt-topic"
+        parsed["bindings"].as_a.any? { |b| b["source"] == "xmqtt" }.should be_true
+        # reserved-prefix internals stay out of the export
+        parsed["exchanges"].as_a.none? { |e| e["name"] == "mqtt.default" }.should be_true
+
+        vhost.delete_exchange("xmqtt")
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost.exchange?("xmqtt").should_not be_nil
+        vhost.exchange("xmqtt").binding_count.should eq 1
+      end
+    end
+
     it "exports exchanges" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
