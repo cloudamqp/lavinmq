@@ -13,6 +13,7 @@ module LavinMQ
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
                            NamedTuple(vhost: String) |
+                           NamedTuple(dead_letter_strategy: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
                            NamedTuple(channel: String, vhost: String, connection: String)
@@ -367,6 +368,27 @@ module LavinMQ
                              message_stats.sum { |ms| ms[:return_unroutable] },
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
+        dead_lettered_metrics(writer, deleted_stats)
+      end
+
+      DEAD_LETTER_REASONS = {
+        delivery_limit: "Total number of messages dead-lettered due to delivery-limit exceeded",
+        expired:        "Total number of messages dead-lettered due to message TTL exceeded",
+        maxlen:         "Total number of messages dead-lettered due to max-length or max-length-bytes exceeded",
+        rejected:       "Total number of messages dead-lettered due to basic.reject or basic.nack",
+      }
+
+      private def dead_lettered_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        {% for reason, help in DEAD_LETTER_REASONS %}
+          writer.write_header("global_messages_dead_lettered_{{ reason.id }}_total", "counter", {{ help }})
+          {% for strategy in {"disabled", "at_most_once"} %}
+            writer.write_value("global_messages_dead_lettered_{{ reason.id }}_total",
+              deleted_stats.dead_lettered_{{ reason.id }}_{{ strategy.id }} +
+              vhosts.sum { |_, v| v.dead_lettered_{{ reason.id }}_{{ strategy.id }}_count },
+              {dead_letter_strategy: {{ strategy }}})
+          {% end %}
+        {% end %}
       end
 
       private def overview_queue_metrics(vhosts, writer)
