@@ -77,16 +77,27 @@ private class ControllerCluster
   getter servers = Hash(LavinMQ::Clustering::RaftController, LavinMQ::Clustering::Server).new
   # Replication listeners of the nodes that haven't led yet, by config index
   @replication_listeners = Hash(Int32, TCPServer).new
+  # Raft ports picked for nodes that haven't started, held bound until they
+  # do so a listener bound meanwhile, e.g. a replication listener, can't get one
+  @reserved_ports = Hash(Int32, TCPServer).new
 
   def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300)
-    ports = Array.new(size) { free_port }
-    # A port picked by free_port can be taken by another process before it's
-    # bound, so don't let a node join someone else's cluster
+    ports = Array.new(size) { reserve_port }
+    # Another process can take a reserved port between its release and the
+    # node binding it, so don't let a node join someone else's cluster
     @password = Random::Secure.hex(16)
     seeds = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
       add_node(port, seeds, bootstrap == @dirs.size)
     end
+  end
+
+  # A free port, kept bound until a node using it as its raft port starts
+  def reserve_port : Int32
+    listener = TCPServer.new("127.0.0.1", 0)
+    port = listener.local_address.port
+    @reserved_ports[port] = listener
+    port
   end
 
   # A node that isn't started yet. Doesn't bootstrap unless told to.
@@ -148,6 +159,8 @@ private class ControllerCluster
 
   # *startup* runs as the leader's startup, after it's reported as serving.
   def start(controller, startup : Proc(Nil) = -> { })
+    config = @configs[@controllers.index!(controller)]
+    @reserved_ports.delete(config.clustering_raft_port).try &.close
     spawn(name: "controller spec #{controller.id}") do
       controller.run do
         serve_replication(controller) if @replication
@@ -192,6 +205,7 @@ private class ControllerCluster
   end
 
   def close
+    @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
     @servers.each_value &.close
     @controllers.each &.stop
@@ -482,7 +496,7 @@ describe LavinMQ::Clustering::RaftController do
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       cluster.controllers.reject(first).each(&.stop)
       # Only the leader's exit counts, another node could have failed to bind
-      # a port picked by free_port
+      # its reserved port
       deadline = Time.instant + 5.seconds
       loop do
         exit = receive_within(cluster.exits, deadline - Time.instant)
@@ -521,7 +535,7 @@ describe LavinMQ::Clustering::RaftController do
 
       # A new node starts with an existing member as its seed. It doesn't
       # campaign, and doesn't get anything until it's added.
-      port = free_port
+      port = cluster.reserve_port
       d = cluster.add_node(port, a_addr)
       cluster.start(d)
       d_addr = cluster.address(d)
@@ -622,7 +636,7 @@ describe LavinMQ::Clustering::RaftController do
       wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
       b = cluster.controllers.find! { |c| c != a }
       b.stop
-      port = free_port
+      port = cluster.reserve_port
       config = cluster.configs[cluster.controllers.index!(b)]
       config.clustering_raft_port = port
       config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
