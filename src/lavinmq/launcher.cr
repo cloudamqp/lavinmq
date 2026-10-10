@@ -267,7 +267,26 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
+      total_stack = 0_u64
+      Fiber.list do |f|
+        if stack = f.stack_used
+          total_stack += stack
+          puts "  #{f.inspect}: #{stack.humanize_bytes}"
+        else
+          puts "  #{f.inspect}: running"
+        end
+      end
+      puts "  total stack used (excluding running fibers): #{total_stack.humanize_bytes}"
+      IO::BufferPool.each do |pool|
+        stats = pool.stats
+        puts "Buffer pool (#{stats[:buffer_size].humanize_bytes} buffers)"
+        puts "  threads: #{stats[:threads]}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+        puts "  dropped: #{stats[:dropped]}"
+      end
       STDOUT.flush
     end
 
