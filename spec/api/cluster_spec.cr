@@ -2,13 +2,6 @@ require "../spec_helper"
 require "../../src/lavinmq/clustering/controller"
 require "../../src/lavinmq/clustering/raft/transport"
 
-private def free_port : Int32
-  s = TCPServer.new("127.0.0.1", 0)
-  s.local_address.port
-ensure
-  s.try &.close
-end
-
 # A single node raft cluster behind the HTTP API
 private def with_cluster_api(&)
   with_datadir do |dir|

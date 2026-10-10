@@ -2,6 +2,14 @@ require "lz4"
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
 
+# A TCP port that was free a moment ago
+def free_port : Int32
+  s = TCPServer.new("127.0.0.1", 0)
+  s.local_address.port
+ensure
+  s.try &.close
+end
+
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper
   class TestClient < LavinMQ::Clustering::Client

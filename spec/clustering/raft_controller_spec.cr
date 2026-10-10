@@ -24,13 +24,6 @@ private class SpecController < LavinMQ::Clustering::RaftController
   end
 end
 
-private def free_port : Int32
-  s = TCPServer.new("127.0.0.1", 0)
-  s.local_address.port
-ensure
-  s.try &.close
-end
-
 private alias ControllerExit = Tuple(LavinMQ::Clustering::RaftController, Int32)
 
 # Records the exits of the watchdogs, which run in fibers of their own.

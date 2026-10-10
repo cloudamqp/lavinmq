@@ -2,13 +2,6 @@ require "../spec_helper"
 require "../../src/lavinmq/launcher"
 require "../../src/lavinmq/clustering/controller"
 
-private def free_port : Int32
-  s = TCPServer.new("127.0.0.1", 0)
-  s.local_address.port
-ensure
-  s.try &.close
-end
-
 private def clustering_config(data_dir : String) : LavinMQ::Config
   config = LavinMQ::Config.new
   config.data_dir = data_dir
@@ -173,7 +166,7 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(2)
         launchers.each { |l| run_launcher(l, exited) }
-        controllers = launchers.map { |l| l.@raft_controller.not_nil! }
+        controllers = launchers.map { |l| l.@controller.as(LavinMQ::Clustering::RaftController) }
         serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
         following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
         in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
@@ -221,10 +214,10 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(3)
         launchers.each { |l| run_launcher(l, exited) }
-        leader = launchers[0].@raft_controller.not_nil!
+        leader = launchers[0].@controller.as(LavinMQ::Clustering::RaftController)
         wait_for(10.seconds) do
           metrics_of(configs[0]).includes?("lavinmq_uptime") &&
-            leader.node.committed_isr.try(&.includes?(launchers[1].@raft_controller.not_nil!.id))
+            leader.node.committed_isr.try(&.includes?(launchers[1].@controller.as(LavinMQ::Clustering::RaftController).id))
         end
 
         # The other voter goes away, the leader can't keep its quorum
