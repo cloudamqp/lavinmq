@@ -1405,3 +1405,65 @@ describe LavinMQ::Server do
     end
   end
 end
+
+# Fails to accept with EMFILE *failures* times, then returns *client* once
+private class OutOfFilesListener
+  include Socket::Server
+  getter? closed = false
+
+  def initialize(@failures : Int32, @client : IO)
+  end
+
+  def accept? : IO?
+    return if @closed
+    if @failures > 0
+      @failures -= 1
+      raise Socket::Error.from_os_error("accept", Errno::EMFILE)
+    end
+    client, @client = @client, nil
+    client
+  end
+
+  def accept : IO
+    accept? || raise IO::Error.new("Closed")
+  end
+
+  def close
+    @closed = true
+  end
+end
+
+describe "Running out of file descriptors" do
+  it "keeps accepting AMQP connections" do
+    with_amqp_server do |s|
+      address = s.amqp_server.@listeners.select(TCPServer).first.local_address
+      client = Socket.tcp(address.family)
+      without_free_file_descriptors do
+        client.connect(address)
+        sleep 100.milliseconds # the listener fails to accept it
+      end
+      client.read_timeout = 5.seconds
+      client.write "AMQP\u0000\u0000\u0009\u0001".to_slice
+      client.read_byte.should eq 1 # the method frame with the server's Connection.Start
+    ensure
+      client.try &.close
+    end
+  end
+
+  it "pauses the HTTP listener before accepting again" do
+    client, server_side = UNIXSocket.pair
+    listener = OutOfFilesListener.new(failures: 4, client: server_side)
+    http = LavinMQ::HTTP::RetryingServer.new(&.response.print("ok"))
+    http.bind(listener)
+    started = Time.instant
+    spawn { http.listen }
+    client << "GET / HTTP/1.1\r\nHost: spec\r\n\r\n"
+    client.flush
+    HTTP::Client::Response.from_io(client).body.should eq "ok"
+    # 10, 20, 40 and 80ms, instead of trying again right away
+    (Time.instant - started).should be >= 140.milliseconds
+  ensure
+    http.try &.close
+    client.try &.close
+  end
+end

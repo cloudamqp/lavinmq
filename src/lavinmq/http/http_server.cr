@@ -1,4 +1,5 @@
 require "http/server"
+require "./retrying_server"
 require "json"
 require "./constants"
 require "./handler/*"
@@ -64,7 +65,7 @@ module LavinMQ
           NodesController.new(@server),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
-        @http = ::HTTP::Server.new(handlers)
+        @http = RetryingServer.new(handlers)
       end
 
       def bind_tcp(address, port)
@@ -110,7 +111,7 @@ module LavinMQ
       # skipped and nil is returned, it's only a convenience for lavinmqctl users.
       def self.follower_internal_socket_http_server : ::HTTP::Server?
         path = Config.instance.control_unix_path
-        http_server = ::HTTP::Server.new do |context|
+        http_server = RetryingServer.new do |context|
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."
