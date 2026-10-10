@@ -238,6 +238,27 @@ def wait_for(timeout = WAIT_FOR_TIMEOUT, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
+# Lowers the soft limit on open files to 0 until the block returns, so that
+# opening another file or socket fails with EMFILE, while open ones still work.
+# Unlike a limit at the lowest free descriptor, it holds when a descriptor is
+# closed meanwhile, like a closed server's stats loop closing its statm file
+# when it wakes up. Waits in the block need a shorter timeout than the spec, as
+# a spec that times out never returns from the block, which would leave the
+# limit lowered for the specs after it.
+def without_free_file_descriptors(&)
+  rlimit = uninitialized LibC::Rlimit
+  raise RuntimeError.from_errno("getrlimit") unless LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  original = rlimit.rlim_cur
+  rlimit.rlim_cur = typeof(original).new(0)
+  raise RuntimeError.from_errno("setrlimit") unless LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  begin
+    yield
+  ensure
+    rlimit.rlim_cur = original
+    LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit))
+  end
+end
+
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
