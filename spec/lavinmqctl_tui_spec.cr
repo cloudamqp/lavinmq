@@ -432,6 +432,18 @@ describe LavinMQCtl::TUI do
     deliver_top.should be < legend_row
   end
 
+  it "labels the graphs with how far back they go" do
+    # Six samples, 5s apart by default
+    screen, _ = run_tui
+    screen.text.should contain("Message rates  last 25 s")
+    screen.text.should contain("Queued messages  last 25 s")
+
+    overview = JSON.parse(TUI_RESPONSES["/api/overview"]).as_h
+    overview["stats_interval"] = JSON::Any.new(60_000_i64)
+    screen, _ = run_tui(responses: with_response("/api/overview", overview))
+    screen.text.should contain("Message rates  last 5 min")
+  end
+
   it "fits the overview panels in a small terminal" do
     screen, _ = run_tui(width: 90, height: 24)
 

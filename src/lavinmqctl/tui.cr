@@ -968,8 +968,8 @@ class LavinMQCtl
     private def draw_rate_graph(rect : Rect, overview : JSON::Any)
       publish = Fields.rate(overview, "message_stats", "publish_details", "rate")
       deliver = Fields.rate(overview, "message_stats", "deliver_get_details", "rate")
-      draw_panel(rect, "Message rates")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
+      draw_panel(rect, "Message rates", graph_span(@publish_history, graph.width))
       max = draw_graph(graph, @publish_history, GREEN, @deliver_history, BLUE)
       draw_legend(rect, {"Publish #{publish}/s", "Deliver #{deliver}/s"}, "max #{Fields.number(max)}/s")
     end
@@ -977,10 +977,25 @@ class LavinMQCtl
     private def draw_queue_graph(rect : Rect, overview : JSON::Any)
       ready = Fields.int(overview, "queue_totals", "messages_ready")
       unacked = Fields.int(overview, "queue_totals", "messages_unacknowledged")
-      draw_panel(rect, "Queued messages")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
+      draw_panel(rect, "Queued messages", graph_span(@ready_history, graph.width))
       max = draw_graph(graph, @ready_history, GREEN, @unacked_history, BLUE)
       draw_legend(rect, {"Ready #{ready.format}", "Unacked #{unacked.format}"}, "max #{Fields.to_i64(max).format}")
+    end
+
+    # How far back a graph *width* cells wide goes, from the broker's samples,
+    # which are stats_interval apart, see update_history
+    private def graph_span(history : Array(Float64), width : Int32) : String
+      samples = {history.size, width}.min
+      return "" if samples < 2
+      seconds = (stats_interval * (samples - 1)).total_seconds.round.to_i
+      seconds < 120 ? "last #{seconds} s" : "last #{(seconds / 60).round.to_i} min"
+    end
+
+    # Brokers before it was in the overview sample every 5s by default
+    private def stats_interval : Time::Span
+      ms = Fields.int(@overview, "stats_interval")
+      (ms > 0 ? ms : 5000).milliseconds
     end
 
     # The green and blue series' names with chips in their colors, like the

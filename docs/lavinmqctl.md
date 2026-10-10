@@ -110,7 +110,7 @@ broker's time goes to the TUI's requests, and the header then shows the interval
 It's styled like the management UI. The Overview page shows message rate and queue
 depth graphs, node resources, network rates, cluster followers and the queues with
 the most messages. The graphs start from the history kept by the management API and
-roll forward with each refresh. The other pages are tables that fetch as many rows
+roll forward with each refresh, and their titles say how far back they go. The other pages are tables that fetch as many rows
 as fit in the terminal, one page at a time. Numbers are right-aligned with thousands
 separators, and a number too wide for its column is shortened, like `1.96M`. A resized terminal is redrawn right away,
 and the rows for its new size are fetched once it stops changing size. The TUI needs
