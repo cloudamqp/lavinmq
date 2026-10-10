@@ -57,6 +57,21 @@ describe "control socket" do
     end
   end
 
+  it "leaves a control socket it didn't bind when closed" do
+    config = LavinMQ::Config.instance
+    original_path = config.control_unix_path
+    socket_path = File.tempname("lavinmqctl-spec", ".sock")
+    serving = UNIXServer.new(socket_path) # like another node's
+    config.control_unix_path = socket_path
+    begin
+      with_http_server { } # listens on TCP only
+      File.exists?(socket_path).should be_true
+    ensure
+      config.control_unix_path = original_path
+      serving.close
+    end
+  end
+
   describe "prepare_control_socket" do
     it "does nothing if the path does not exist" do
       path = File.tempname("ctl", ".sock")
