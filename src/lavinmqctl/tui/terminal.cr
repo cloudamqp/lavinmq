@@ -182,6 +182,7 @@ class LavinMQCtl
         @buffer = IO::Memory.new
         @cursor = -1
         @pen = nil.as(Cell?)
+        @clear = false
       end
 
       def resize(@width : Int32, @height : Int32) : Nil
@@ -189,9 +190,11 @@ class LavinMQCtl
         sync
       end
 
-      # Draws every cell on the next render
+      # Clears the terminal and draws every cell on the next render, in the
+      # same synchronized update so the clear doesn't flash
       def sync : Nil
         @front = Array(Cell?).new(@width * @height, nil)
+        @clear = true
       end
 
       def clear : Nil
@@ -218,6 +221,10 @@ class LavinMQCtl
       def render : Nil
         @buffer.clear
         @buffer << "\e[?2026h" # synchronized update, if the terminal supports it
+        if @clear
+          @buffer << "\e[0m\e[2J"
+          @clear = false
+        end
         @cursor = -1
         @pen = nil
         force = false
@@ -364,7 +371,6 @@ class LavinMQCtl
       end
 
       def sync : Nil
-        @output.print "\e[2J"
         @renderer.sync
       end
 

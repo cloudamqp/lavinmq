@@ -131,6 +131,9 @@ class LavinMQCtl
       @nodes = [] of JSON::Any
       @fetched = ""
       @fetch_time = Time::Span.zero
+      @resized = false
+      # When to fetch for the terminal's new size
+      @fetch_at = nil.as(Time::Instant?)
       @paused = false
       @help = false
       @input = nil.as(String?)
@@ -143,14 +146,20 @@ class LavinMQCtl
       @tables = tables
     end
 
+    # How long the terminal size has to stay the same before fetching for it
+    RESIZE_SETTLE = 400.milliseconds
+
     def start
       @width, @height = @screen.size
       refresh
       next_refresh = Time.instant + refresh_delay
 
       while @running
-        timeout = @paused ? 1.hour : {next_refresh - Time.instant, Time::Span.zero}.max
-        if event = @screen.poll_event(timeout)
+        wake = @paused ? Time.instant + 1.hour : next_refresh
+        if fetch_at = @fetch_at
+          wake = {wake, fetch_at}.min
+        end
+        if event = @screen.poll_event({wake - Time.instant, Time::Span.zero}.max)
           handle(event)
           # Take what queued up, like a held down key, before updating the screen
           100.times do
@@ -159,8 +168,18 @@ class LavinMQCtl
           end
           update if @running
         end
+        break unless @running
 
-        if @running && !@paused && Time.instant >= next_refresh
+        if fetch_at = @fetch_at
+          # Not while the terminal is being resized, as a fetch holds off redrawing
+          next if Time.instant < fetch_at
+          @fetch_at = nil
+          unless wanted_fetch == @fetched
+            refresh
+            next_refresh = Time.instant + refresh_delay
+          end
+        end
+        if !@paused && Time.instant >= next_refresh
           refresh
           next_refresh = Time.instant + refresh_delay
         end
@@ -178,6 +197,7 @@ class LavinMQCtl
       in ResizeEvent
         @width = event.width
         @height = event.height
+        @resized = true
         @screen.sync
       in KeyEvent
         handle_key(event)
@@ -337,9 +357,19 @@ class LavinMQCtl
       end
     end
 
-    # Fetches only when what's shown needs other data than what's fetched
+    # Fetches only when what's shown needs other data than what's fetched.
+    # After a resize what's fetched is drawn at the new size right away, and
+    # what the new size needs is fetched once the size settles.
     private def update
-      wanted_fetch == @fetched ? draw : refresh
+      if wanted_fetch == @fetched
+        draw
+      elsif @resized
+        draw
+        @fetch_at = Time.instant + RESIZE_SETTLE
+      else
+        refresh
+      end
+      @resized = false
     end
 
     private def wanted_fetch : String
@@ -487,19 +517,35 @@ class LavinMQCtl
       JSON::Any.new(hash)
     end
 
+    # The smallest terminal the pages are drawn in
+    MIN_WIDTH  = 40
+    MIN_HEIGHT = 10
+
     private def draw
       @screen.clear
       @width, @height = @screen.size
       fill_rect(0, 0, @width, @height, bg: BG)
-      draw_header
-      if @page == :overview
-        draw_overview
+      if @width < MIN_WIDTH || @height < MIN_HEIGHT
+        draw_too_small
       else
-        draw_table
+        draw_header
+        if @page == :overview
+          draw_overview
+        else
+          draw_table
+        end
+        draw_footer
+        draw_help if @help
       end
-      draw_footer
-      draw_help if @help
       @screen.render
+    end
+
+    private def draw_too_small
+      lines = {"Terminal too small", "#{@width}x#{@height}, needs #{MIN_WIDTH}x#{MIN_HEIGHT}"}
+      top = (@height - lines.size) // 2
+      lines.each_with_index do |line, i|
+        print_at({(@width - line.size) // 2, 0}.max, top + i, line, i.zero? ? WHITE : MUTED_FG, BG, i.zero?)
+      end
     end
 
     private def draw_header
@@ -609,7 +655,7 @@ class LavinMQCtl
         return
       end
 
-      # The rows fetched start at @items_first
+      # The rows fetched start at @items_first, also before they're fetched again after a resize
       @items.each_with_index do |item, i|
         y = rect.inner_y + 2 + i
         break if y >= rect.bottom

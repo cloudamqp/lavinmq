@@ -111,7 +111,9 @@ It's styled like the management UI. The Overview page shows message rate and que
 depth graphs, node resources, network rates, cluster followers and the queues with
 the most messages. The graphs start from the history kept by the management API and
 roll forward with each refresh. The other pages are tables that fetch as many rows
-as fit in the terminal, one page at a time. `Enter` shows every field of the selected row, which follows the row
+as fit in the terminal, one page at a time. A resized terminal is redrawn right away,
+and the rows for its new size are fetched once it stops changing size. The TUI needs
+a terminal of at least 40x10. `Enter` shows every field of the selected row, which follows the row
 through refreshes and is scrolled with the same keys. Passwords in shovel and
 federation URIs are masked, password hashes are not shown, and control characters
 in names (for example in consumer tags or MQTT client ids) are shown as `?`.

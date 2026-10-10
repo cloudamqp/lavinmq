@@ -30,6 +30,7 @@ class FakeTUIScreen < TUI::Screen
   def poll_event(timeout : Time::Span) : TUI::Event?
     return if timeout.zero?
     if event = @events.shift?
+      resize(event.width, event.height) if event.is_a?(TUI::ResizeEvent)
       return event
     end
     quit_after = @quit_after
@@ -42,6 +43,11 @@ class FakeTUIScreen < TUI::Screen
 
   def clear : Nil
     @cells = Array.new(@height) { Array.new(@width, ' ') }
+  end
+
+  private def resize(@width : Int32, @height : Int32)
+    @cells = Array.new(@height) { Array.new(@width, ' ') }
+    @colors = Array.new(@height) { Array.new(@width, TUI::WHITE) }
   end
 
   def set_cell(x : Int32, y : Int32, char : Char, fg : TUI::Color, bg : TUI::Color, bold : Bool) : Nil
@@ -97,6 +103,10 @@ end
 
 private def tui_key(key : TUI::Key) : TUI::KeyEvent
   TUI::KeyEvent.new(key)
+end
+
+private def tui_key(event : TUI::ResizeEvent) : TUI::ResizeEvent
+  event
 end
 
 # Presses a key that maps to nothing every 10ms, then quits
@@ -429,6 +439,16 @@ describe LavinMQCtl::TUI do
     screen.text.should contain("max 12.5/s")
   end
 
+  it "asks for a bigger terminal below the smallest size" do
+    screen, _ = run_tui('2', width: 39, height: 20)
+    screen.text.should contain("Terminal too small")
+    screen.text.should contain("39x20, needs 40x10")
+
+    screen, _ = run_tui('2', TUI::ResizeEvent.new(40, 10))
+    screen.text.should_not contain("Terminal too small")
+    screen.text.should contain("Queues")
+  end
+
   it "keeps the help between the header and the footer" do
     screen, _ = run_tui('?', width: 80, height: 12)
     lines = screen.text.lines
@@ -676,6 +696,29 @@ describe LavinMQCtl::TUI do
     server.try &.close
   end
 
+  it "redraws right away at a new size and fetches for it once the size settles" do
+    resize = TUI::ResizeEvent.new(100, 20)
+    # Quits before the size settles
+    screen, requests = run_tui('2', resize)
+    screen.text.lines.size.should eq 20
+    screen.text.lines.first.size.should eq 100
+    screen.text.should contain("seed.ready")
+    requests.none?(&.includes?("page_size=12")).should be_true
+
+    screen = FakeTUIScreen.new(events: [tui_key('2'), resize] of TUI::Event, quit_after: 1.second)
+    with_tui_api do |client, reqs|
+      TUI.new(client, 60.0, screen).start
+      reqs.should contain("/api/queues?page=1&page_size=12&sort=messages&sort_reverse=true")
+    end
+  end
+
+  it "keeps the selected row through a resize until the rows are fetched again" do
+    items = (0...30).map { |i| {vhost: "v", name: "q%02d" % i} }
+    queues = {items: items, filtered_count: 60}
+    screen, _ = run_tui('2', TUI::Key::PageDown, TUI::ResizeEvent.new(140, 30), responses: with_response("/api/queues", queues))
+    screen.text.lines.find!(&.includes?("▌")).should contain("q00")
+  end
+
   it "keeps refreshing while keys are pressed" do
     with_tui_api do |client, requests|
       screen = KeyRepeatTUIScreen.new(presses: 30)
@@ -753,6 +796,20 @@ describe LavinMQCtl::TUI::Renderer do
     renderer.set_cell(5, 1, 'b', TUI::WHITE, TUI::BG, false)
     renderer.render
     io.to_s.should eq "\e[?2026h\e[2;6H\e[0;38;2;250;250;250;48;2;24;24;24mb\e[?2026l"
+  end
+
+  it "clears and redraws in the same synchronized update after a resize" do
+    io = IO::Memory.new
+    renderer = TUI::Renderer.new(io, 4, 1)
+    renderer.set_cell(0, 0, 'a', TUI::WHITE, TUI::BG, false)
+    renderer.render
+    io.clear
+    renderer.resize(3, 1)
+    renderer.set_cell(0, 0, 'a', TUI::WHITE, TUI::BG, false)
+    renderer.render
+    io.to_s.should start_with("\e[?2026h\e[0m\e[2J")
+    io.to_s.should contain("a")
+    io.to_s.should end_with("\e[?2026l")
   end
 
   it "positions the cursor after characters terminals may count differently" do
