@@ -169,11 +169,12 @@ module LavinMQ::Clustering::Raft
             connected = true
             @handler.call Identified.new(peer, id)
             closed_by_peer = watch_for_close(socket)
+            frame = IO::Memory.new
             loop do
               select
               when msg = ch.receive?
                 return unless msg
-                write_frame(socket, msg)
+                write_frame(socket, msg, frame)
                 socket.flush
               when closed_by_peer.receive?
                 raise IO::Error.new("Closed by peer")
@@ -242,12 +243,15 @@ module LavinMQ::Clustering::Raft
         enable_keepalive(socket)
         socket.read_timeout = nil
         socket.read_buffering = true
+        # Reused for every frame, grown to the largest one so far
+        buf = Bytes.new(4096)
         loop do
           len = socket.read_bytes UInt32, Codec::Format
           raise IO::Error.new("Frame too large (#{len} bytes)") if len > Codec::MAX_FRAME
-          buf = Bytes.new(len)
-          socket.read_fully(buf)
-          @handler.call Codec.decode(buf)
+          buf = Bytes.new(len) if len > buf.size
+          frame = buf[0, len]
+          socket.read_fully(frame)
+          @handler.call Codec.decode(frame)
         end
       ensure
         release(id, address)
@@ -299,10 +303,12 @@ module LavinMQ::Clustering::Raft
       socket.tcp_keepalive_idle, socket.tcp_keepalive_interval, socket.tcp_keepalive_count = KEEPALIVE
     end
 
-    private def write_frame(io : IO, msg : Message) : Nil
-      bytes = Codec.encode(msg)
-      io.write_bytes bytes.size.to_u32, Codec::Format
-      io.write bytes
+    # *frame* is the connection's encoding buffer, reused for every message
+    private def write_frame(io : IO, msg : Message, frame : IO::Memory) : Nil
+      frame.clear
+      Codec.encode(msg, frame)
+      io.write_bytes frame.size.to_u32, Codec::Format
+      io.write frame.to_slice
     end
 
     # Returns the client's clustering id and address.

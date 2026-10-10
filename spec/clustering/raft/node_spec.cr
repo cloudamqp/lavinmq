@@ -469,6 +469,35 @@ describe Raft::TCPTransport do
     myself.try &.close
   end
 
+  it "delivers frames that shrink and grow over one connection intact" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    peer = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, ->(e : Raft::TransportEvent) { events.send e })
+    spawn peer.listen(server)
+    client = Raft::TCPTransport.new("secret", 2, "client:1", [addr], ->(_e : Raft::TransportEvent) { })
+    events.receive.should eq Raft::Connected.new(2, "client:1")
+    # Larger than the initial read buffer, with addresses that differ per size
+    big = ->(n : Int32) do
+      addresses = (1..n).to_h { |i| {i, "node-#{n}-#{i}.example.com:5680"} }
+      membership = Raft::Membership.new(addresses.keys.to_set, Set(Int32).new, addresses)
+      Raft::InstallSnapshot.new(2, 3, "tcp://client:5679", 9, 2, Set{1, 2}, membership).as(Raft::Message)
+    end
+    sent = [big.call(300), Raft::TimeoutNow.new(2, 3), big.call(200), big.call(400), Raft::AppendResponse.new(2, 3, true, 9)]
+    sent.each { |msg| client.send(addr, msg) }
+    sent.each do |msg|
+      select
+      when event = events.receive
+        event.should eq msg
+      when timeout(3.seconds)
+        fail "didn't receive #{msg.class}"
+      end
+    end
+  ensure
+    client.try &.close
+    peer.try &.close
+  end
+
   it "reconnects to a peer that restarted without anything to send" do
     server = TCPServer.new("127.0.0.1", 0)
     port = server.local_address.port

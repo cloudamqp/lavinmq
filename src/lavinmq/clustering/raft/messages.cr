@@ -61,6 +61,11 @@ module LavinMQ::Clustering::Raft
 
     def encode(msg : Message) : Bytes
       io = IO::Memory.new
+      encode(msg, io)
+      io.to_slice
+    end
+
+    def encode(msg : Message, io : IO) : Nil
       case msg
       in RequestVote
         io.write_byte 1u8
@@ -114,9 +119,9 @@ module LavinMQ::Clustering::Raft
         write_entries io, msg.entries
         write_membership io, msg.snapshot_membership
       end
-      io.to_slice
     end
 
+    # Copies what it needs from `bytes`, which can be reused afterwards.
     def decode(bytes : Bytes) : Message
       io = IO::Memory.new(bytes, writable: false)
       type = io.read_byte || raise IO::EOFError.new
