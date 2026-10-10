@@ -325,6 +325,23 @@ describe "Delayed Message Exchange" do
     end
   end
 
+  it "should count publish_out once, when the delayed message is routed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue("delayed-stats")
+        q.bind(x.name, "rk")
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 50})
+        x.publish_confirm "test", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        ex.publish_out_count.should eq 0
+        wait_for { s.vhosts["/"].queue("delayed-stats").message_count == 1 }
+        ex.publish_in_count.should eq 1
+        ex.publish_out_count.should eq 1
+      end
+    end
+  end
+
   it "should treat publish as unroutable when the internal delayed queue is closed" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
