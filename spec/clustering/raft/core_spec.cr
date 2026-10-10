@@ -73,6 +73,27 @@ private class SimCluster
     end
   end
 
+  # Like #advance, but ticks each node only at its own next deadline, as the
+  # Node does, so a timer it doesn't report never fires.
+  def advance_by_deadlines(span : Time::Span)
+    stop = @now + span
+    stuck = 0
+    loop do
+      running = @cores.values.reject { |c| @crashed.includes?(c.id) }
+      due = running.min_of?(&.next_deadline(@now)) || break
+      break if due > stop
+      if due > @now
+        @now = due
+        stuck = 0
+      elsif (stuck += 1) > 100
+        raise "a deadline that ticking doesn't move, the node would spin"
+      end
+      running.each { |c| c.tick(@now) if c.next_deadline(@now) <= @now }
+      pump
+    end
+    @now = stop
+  end
+
   def run_until(limit = 5.seconds, &)
     deadline = @now + limit
     until yield
@@ -285,6 +306,58 @@ describe Raft::Core do
     sim.isolated << old.id
     sim.advance(SimCluster::ELECTION * 2)
     old.role.leader?.should be_false
+  end
+
+  describe "ticked only at its deadlines" do
+    it "elects, keeps and fails over a leader" do
+      sim = SimCluster.new(3)
+      sim.advance_by_deadlines(1.second)
+      leader = sim.leader.not_nil!
+      leader.serving_leader?.should be_true
+      sim.propose(leader, Set{1, 2, 3})
+      # Heartbeats keep the followers from campaigning
+      sim.advance_by_deadlines(2.seconds)
+      sim.leaders.should eq [leader]
+      sim.cores.each_value(&.term.should(eq(leader.term)))
+      sim.crash(leader.id)
+      sim.advance_by_deadlines(1.second)
+      (l = sim.leader).should_not be_nil
+      l.not_nil!.term.should be > leader.term
+    end
+
+    it "steps down within an election timeout of losing the majority" do
+      sim = SimCluster.new(3)
+      sim.advance_by_deadlines(1.second)
+      old = sim.leader.not_nil!
+      sim.isolated << old.id
+      sim.advance_by_deadlines(SimCluster::ELECTION + SimCluster::HEARTBEAT)
+      old.role.leader?.should be_false
+    end
+
+    it "doesn't count a peer's expired ack as its next deadline" do
+      sim = SimCluster.new(3)
+      sim.advance_by_deadlines(1.second)
+      leader = sim.leader.not_nil!
+      sim.crash(sim.cores.keys.reject(leader.id).first)
+      sim.advance_by_deadlines(1.second)
+      leader.role.leader?.should be_true
+      # The crashed peer's last ack expired long ago
+      leader.next_deadline(sim.now).should be > sim.now
+    end
+
+    it "starts counting voters at other addresses once long without a leader" do
+      now = Time.instant
+      state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+      moved = Raft::Core.new(2, "n2b", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, state)
+      trust_at = now + 100.milliseconds * Raft::Core::MOVED_TRUST_AFTER
+      at = now
+      until moved.trusting_moved?
+        at = moved.next_deadline(at)
+        at.should be <= trust_at
+        moved.tick(at)
+      end
+      at.should eq trust_at
+    end
   end
 
   it "doesn't let a rejoining node depose a healthy leader" do

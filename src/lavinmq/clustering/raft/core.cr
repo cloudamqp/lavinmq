@@ -276,9 +276,13 @@ module LavinMQ::Clustering::Raft
     # one, started, or stepped down, whichever is latest.
     def leaderless_for(now : Time::Instant) : Time::Span
       return Time::Span.zero if @role.leader?
+      now - leaderless_start
+    end
+
+    private def leaderless_start : Time::Instant
       since = @leaderless_since
       @last_heard_leader.try { |heard| since = heard if heard > since }
-      now - since
+      since
     end
 
     # Whether voters at other addresses than the membership lists are being
@@ -455,6 +459,29 @@ module LavinMQ::Clustering::Raft
           start_pre_vote(now)
         end
       end
+    end
+
+    # When #tick has something to do next. Nothing changes on its own before
+    # then, so a caller can sleep until it unless a message or request comes.
+    def next_deadline(now : Time::Instant) : Time::Instant
+      if @role.leader?
+        deadline = @heartbeat_due
+        # Check-quorum: the earliest counted ack to expire, no later than
+        # the quorum can be lost
+        @peers.each do |p|
+          next unless counted?(p)
+          expires = (@last_ack[p]? || next) + @election_timeout
+          deadline = expires if expires > now && expires < deadline
+        end
+      else
+        deadline = @election_deadline
+        unless @trust_moved
+          deadline = {deadline, leaderless_start + @election_timeout * MOVED_TRUST_AFTER}.min
+        end
+      end
+      @transfer_target.try { |t| deadline = {deadline, t[1]}.min }
+      @departing.each_value { |d| deadline = {deadline, d.deadline}.min }
+      deadline
     end
 
     # Hand leadership to `target`, a voter in the ISR, or without one to any

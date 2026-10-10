@@ -28,7 +28,7 @@ private class TCPRaftCluster
             peers = @addrs) : Raft::Node
     server = @servers[addr]? || (@servers[addr] = TCPServer.new("127.0.0.1", addr.split(':').last.to_i))
     node = @nodes[addr] = Raft::Node.new(id, addr, peers, "tcp://#{addr}", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds, bootstrap: true)
     transport = @transports[addr] = Raft::TCPTransport.new(@password, id, addr, peers.reject(addr),
       ->node.deliver(Raft::TransportEvent))
     spawn transport.listen(server)
@@ -221,7 +221,7 @@ describe Raft::Node do
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     transport.ack = false
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds, bootstrap: true)
     transport.node = node
     node.run(transport)
     # Its seeded membership, which no caller proposed, can't commit
@@ -237,7 +237,7 @@ describe Raft::Node do
     Dir.mkdir_p dir
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds, bootstrap: true)
     transport.node = node
     node.run(transport)
     wait_for { node.serving.value }
@@ -354,7 +354,7 @@ describe Raft::Node do
     Dir.mkdir_p dir
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds, bootstrap: true)
     transport.node = node
     node.run(transport)
     wait_for { node.serving.value }
@@ -381,7 +381,7 @@ describe Raft::Node do
     addrs = servers.map { |s| "127.0.0.1:#{s.local_address.port}" }
     nodes = addrs.map_with_index do |addr, i|
       node = Raft::Node.new(i + 1, addr, addrs, "tcp://#{addr}", Raft::Storage.new(File.join(dir, i.to_s).tap { |d| Dir.mkdir_p d }),
-        100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+        100.milliseconds, 20.milliseconds, bootstrap: true)
       transport = Raft::TCPTransport.new("password#{i}", i + 1, addr, addrs.reject(addr), ->node.deliver(Raft::TransportEvent))
       spawn transport.listen(servers[i])
       node.run(transport)

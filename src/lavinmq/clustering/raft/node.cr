@@ -126,7 +126,7 @@ module LavinMQ::Clustering::Raft
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
-                   @tick = 20.milliseconds, bootstrap = false,
+                   bootstrap = false,
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       @election_timeout = election_timeout
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
@@ -293,15 +293,20 @@ module LavinMQ::Clustering::Raft
       @transport.try &.close
     end
 
+    # Sleeps until a message or request arrives, or until the Core's next
+    # deadline, e.g. a heartbeat or an election timeout.
     private def event_loop : Nil
       loop do
-        select
-        when event = @events.receive?
-          break unless event
-          handle(event)
-          break unless handle_queued
-        when timeout(@tick)
+        wait = @core.next_deadline(Time.instant) - Time.instant
+        if wait > Time::Span.zero
+          select
+          when event = @events.receive?
+            break unless event
+            handle(event)
+          when timeout(wait)
+          end
         end
+        break unless handle_queued
         @core.tick(Time.instant)
         flush
       end
