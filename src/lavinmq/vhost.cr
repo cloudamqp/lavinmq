@@ -191,8 +191,9 @@ module LavinMQ
       event_tick(EventType::ConnectionCreated)
       @connections.add client
       # Added after #close closed the connections, it'd be served by a
-      # closed vhost
-      client.close("Broker shutdown") if closed?
+      # closed vhost. Not #close, an MQTT client's waits for its read loop,
+      # which only starts after this.
+      client.force_close if closed?
     end
 
     def rm_connection(client : Client)

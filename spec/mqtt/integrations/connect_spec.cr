@@ -4,6 +4,38 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "connect [MQTT-3.1.4-1]" do
+    # As when the vhost closes while the client connects, e.g. as a raft
+    # leader stops serving: the client is added once it's closed, before
+    # its read loop has started
+    it "disconnects a client added to a closed vhost" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        broker = server.mqtt_server.broker("/")
+        vhost.close
+        client_end, server_end = UNIXSocket.pair
+        begin
+          packet = MQTT::Protocol::Connect.new(client_id: "late", clean_session: true, keepalive: 30u16,
+            username: "guest", password: "guest".to_slice, will: nil)
+          added = Channel(Nil).new
+          spawn do
+            broker.add_client(MQTT::Protocol::IO.new(server_end), LavinMQ::ConnectionInfo.local,
+              server.users["guest"], packet)
+            added.close
+          end
+          select
+          when added.receive?
+          when timeout(5.seconds)
+            fail "adding the client hung"
+          end
+          client_end.read_timeout = 5.seconds
+          client_end.read_byte.should be_nil
+        ensure
+          client_end.close
+          server_end.close
+        end
+      end
+    end
+
     describe "when client already connected" do
       it "should replace the already connected client [MQTT-3.1.4-2]" do
         with_server do |server|
