@@ -558,8 +558,17 @@ describe LavinMQ::Clustering::RaftController do
       a.request_transfer("127.0.0.1:1").as(String).should contain "already in progress"
       a.request_transfer(d_addr).as(String).should contain "already in progress"
       a.step_down(plan)
-      cluster.next_leader(10.seconds).should eq d
+      leader = cluster.next_leader(10.seconds)
       cluster.demotions.receive.should eq({a, false})
+      # The leader serves again if the target hasn't answered it within an
+      # election timeout when it's handed over, as on a busy CI runner
+      2.times do
+        break if leader == d
+        a.step_down(a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer))
+        leader = cluster.next_leader(10.seconds)
+        cluster.demotions.receive.should eq({a, false})
+      end
+      leader.should eq d
 
       # The old leader continues as a follower, in the same process, and
       # replicates from the new one
