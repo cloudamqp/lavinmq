@@ -61,9 +61,7 @@ describe "Publish Confirm Persistence" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.confirm_select
-          args = AMQP::Client::Arguments.new
-          args["x-queue-type"] = type
-          q = ch.queue("closed_#{type}", args: args)
+          q = ch.queue("closed_#{type}", args: {"x-queue-type": type})
           q.publish_confirm("stored").should be_true
           s.vhosts["/"].queue(q.name).close
           q.publish_confirm("not stored").should be_false
