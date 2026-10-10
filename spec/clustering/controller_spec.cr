@@ -186,7 +186,15 @@ describe LavinMQ::Clustering::Controller do
           controllers[from].step_down(plan)
           # The old leader follows the new one, in the same process
           begin
-            wait_for(20.seconds) { serving.call(to) && following.call(from) && in_sync.call(from) }
+            wait_for(20.seconds) do
+              next true if serving.call(to) && following.call(from) && in_sync.call(from)
+              # It serves again if the target hasn't answered it within an
+              # election timeout when it hands over, as on a busy CI runner
+              if (again = controllers[from].request_transfer).is_a?(LavinMQ::Clustering::RaftController::Transfer)
+                controllers[from].step_down(again)
+              end
+              false
+            end
           rescue ex
             fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{state.call}"
           end

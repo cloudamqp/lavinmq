@@ -278,7 +278,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   private def hand_over_leadership : Nil
     return unless leader?
     result = @node.transfer_leadership(@transfer_target)
-    return unless result.sent? || result.pending?
+    unless result.sent? || result.pending?
+      Log.warn { "Leadership transfer refused: #{result}" }
+      return
+    end
     deadline = Time.instant + @config.clustering_election_timeout.milliseconds * 2
     while @node.leader? && Time.instant < deadline
       select
