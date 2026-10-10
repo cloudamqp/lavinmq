@@ -353,6 +353,22 @@ module LavinMQ
             stale_follower.close
           end
           @followers << follower # Starts in Syncing state
+          # A follower that rejoins while still listed in the ISR, as a
+          # caught-up follower that disconnected stays until the next write,
+          # leaves it until it has synced again. It may be back with lost or
+          # stale data under the same clustering id (a disk restored from a
+          # snapshot), and could otherwise be elected during its full sync and
+          # have the other nodes sync from it. Only this follower is removed:
+          # other listed members that haven't reconnected yet, as after a full
+          # cluster restart, stay electable until a write proves them stale.
+          begin
+            remove_from_isr(follower.id)
+          rescue ex
+            @followers.delete(follower)
+            @dirty_isr = true
+            Log.warn(exception: ex) { "Failed to update ISR for rejoining follower id=#{follower.id.to_s(36)}, disconnecting it" }
+            return
+          end
         end
         sync_and_serve(follower)
       rescue AuthenticationError
@@ -421,6 +437,13 @@ module LavinMQ
             end
           end
         end
+      end
+
+      private def remove_from_isr(id : Int32) : Nil
+        isr = @coordinator.isr || return
+        return unless isr.delete(id)
+        Log.info { "In-sync replicas: #{isr.to_a}" }
+        @coordinator.update_isr(isr)
       end
 
       private def update_isr

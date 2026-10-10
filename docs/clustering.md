@@ -62,7 +62,9 @@ Synchronization is enabled by default. Setting `sync=false` in `[main]` (or usin
 
 ### ISR (In-Sync Replicas)
 
-The ISR set tracks which followers are fully synchronized. A follower joins the ISR after completing bulk sync and staying current.
+The ISR set tracks which followers are fully synchronized. A follower joins the ISR after completing bulk sync and staying current. A follower that disconnects while caught up stays in the ISR until the next replicated write, so after a full cluster restart any node can become leader. When a follower connects again while still listed, it leaves the ISR until it has synced again, so it can't be elected leader during its sync.
+
+A node is identified by the clustering id in its data directory (`.clustering_id`). If a node's data directory is lost or restored from a backup or disk snapshot, delete `.clustering_id` too, so the node joins as a new member instead of under an identity whose data it no longer has.
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
