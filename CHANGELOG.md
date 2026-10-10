@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
 - `OverflowError` from the HTTP API or stats loop when a queue became empty while its average message size was read [#2384](https://github.com/cloudamqp/lavinmq/pull/2384)
 - Federation links of `federation-upstream-set` entries that override upstream settings are now stopped when the policy is removed or the set is updated or deleted; they used to keep running [#2371](https://github.com/cloudamqp/lavinmq/pull/2371)
 - The Prometheus metrics server is bound once for the lifetime of the process and serves follower or leader metrics depending on the node's role, instead of being closed and rebound when a follower is promoted to leader [#2387](https://github.com/cloudamqp/lavinmq/pull/2387)
