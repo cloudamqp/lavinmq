@@ -46,6 +46,38 @@ test.describe('theme switcher', _ => {
     await expect(page.locator('html')).toContainClass('theme-dark')
   })
 
+  test('theme changed in another tab is applied', async ({ page, context }) => {
+    await page.goto('/')
+    await expect(page.locator('html')).not.toContainClass('theme-dark')
+    const other = await context.newPage()
+    await other.goto('/')
+    await other.locator('#theme-dark').click()
+    await expect(page.locator('html')).toContainClass('theme-dark')
+    await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+  })
+
+  test('theme set on a later page is applied when navigating back', async ({ playwright, browserName, baseURL, storageState }, testInfo) => {
+    test.skip(browserName !== 'chromium', 'launch flags are chromium specific')
+    // Playwright disables the back/forward cache by default
+    const browser = await playwright.chromium.launch({
+      ...testInfo.project.use.launchOptions,
+      ignoreDefaultArgs: ['--disable-back-forward-cache'],
+      args: ['--enable-features=BackForwardCache']
+    })
+    try {
+      const page = await (await browser.newContext({ baseURL, storageState })).newPage()
+      await page.goto('/')
+      await page.locator('#theme-light').click()
+      await page.goto('/queues')
+      await page.locator('#theme-dark').click()
+      await page.evaluate(() => history.back())
+      await expect(page.locator('html')).toContainClass('theme-dark')
+      await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+    } finally {
+      await browser.close()
+    }
+  })
+
   test('html gets theme-dark when OS changes to dark and system theme is active', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' })
     await page.goto('/')
