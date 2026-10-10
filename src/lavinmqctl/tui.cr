@@ -34,8 +34,11 @@ class LavinMQCtl
     end
 
     # *sort* is the column's API sort key, *descending* the order it starts in
-    # A *status* column gets a dot colored by its value, like running or stopped
-    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String), status : Bool = false
+    # A *status* column gets a dot colored by its value, like running or stopped.
+    # A *right* column holds numbers, right-aligned like its title so that
+    # their digits line up. A *flex* column, like a name, gets the width the
+    # others don't need, see column_layout.
+    record Column, title : String, width : Int32, sort : String?, descending : Bool, value : Proc(JSON::Any, String), status : Bool = false, right : Bool = false, flex : Bool = false
 
     record Table, title : String, path : String, columns : Array(Column), sort : String? = nil
 
@@ -776,21 +779,52 @@ class LavinMQCtl
       end
     end
 
-    # The last column gets the width that's left
     private def draw_row(y : Int32, values : Array(String), columns : Array(Column), fg : Color, bg : Color, bold : Bool, x : Int32, max_width : Int32, dots = false)
       used = 0
-      columns.each_with_index do |column, i|
+      column_layout(columns, max_width).each_with_index do |(width, gap), i|
         break if used >= max_width
-        width = i == columns.size - 1 ? max_width - used : {column.width, max_width - used}.min
+        column = columns[i]
+        # A number that's cut off reads as a different number, so a column of
+        # numbers that doesn't fit is left out
+        break if column.right && width > max_width - used
+        width = {width, max_width - used}.min
         if dots && column.status && width > 2 && values[i] != "-"
           print_at(x + used, y, "●", state_color(values[i]), bg)
           set_cell(x + used + 1, y, ' ', fg, bg)
           print_fit(x + used + 2, y, values[i], width - 2, fg, bg, bold)
+        elsif column.right
+          # A number that doesn't fit is shortened, not cut off
+          value = Text.width(values[i]) > width ? Fields.short_number(values[i]) : values[i]
+          pad = {width - Text.width(value), 0}.max
+          print_fit(x + used + pad, y, value, width - pad, fg, bg, bold)
         else
           print_fit(x + used, y, values[i], width, fg, bg, bold)
         end
-        used += width + 1
+        used += width + gap
       end
+    end
+
+    # Narrowest a flex column gets before the columns after it are cut off
+    FLEX_MIN_WIDTH = 12
+
+    # Width of each column and the space after it in *max_width*. The flex
+    # column gets the width that's left or gives up what's missing, so the
+    # numbers keep their width, or else the last column gets what's left
+    # unless it's right-aligned. Text after a number gets an extra space.
+    private def column_layout(columns : Array(Column), max_width : Int32) : Array({Int32, Int32})
+      gaps = columns.map_with_index do |column, i|
+        next_column = columns[i + 1]?
+        next 0 unless next_column
+        column.right && !next_column.right ? 2 : 1
+      end
+      widths = columns.map(&.width)
+      spare = max_width - widths.sum - gaps.sum
+      if flex = columns.index(&.flex)
+        widths[flex] = {widths[flex] + spare, {widths[flex], FLEX_MIN_WIDTH}.min}.max
+      elsif !columns.last.right
+        widths[-1] = {widths[-1] + spare, 0}.max
+      end
+      widths.zip(gaps)
     end
 
     private def state_color(state : String) : Color
@@ -858,7 +892,7 @@ class LavinMQCtl
         x = rect.inner_x + 2 + (i % 2) * column_width
         y = rect.inner_y + 1 + (i // 2) * 2
         print_at(x, y, label, MUTED_FG, PANEL_BG, max_width: column_width - 2)
-        print_at(x, y + 1, Fields.text(overview, "object_totals", key), WHITE, PANEL_BG, true, column_width - 2)
+        print_at(x, y + 1, Fields.count(overview, "object_totals", key), WHITE, PANEL_BG, true, column_width - 2)
       end
     end
 
@@ -869,12 +903,19 @@ class LavinMQCtl
       unacked = Fields.float(overview, "queue_totals", "messages_unacknowledged")
       x = rect.inner_x + 2
       y = rect.inner_y + 1
-      print_at(x, y, "Total", MUTED_FG, PANEL_BG)
-      print_at(x + 13, y, Fields.int(overview, "queue_totals", "messages").to_s, WHITE, PANEL_BG, true)
-      print_at(x, y + 1, "Publish", MUTED_FG, PANEL_BG)
-      print_at(x + 13, y + 1, Fields.rate(overview, "message_stats", "publish_details", "rate") + "/s", GREEN, PANEL_BG, true)
-      print_at(x, y + 2, "Deliver", MUTED_FG, PANEL_BG)
-      print_at(x + 13, y + 2, Fields.rate(overview, "message_stats", "deliver_get_details", "rate") + "/s", BLUE, PANEL_BG, true)
+      values = {
+        {"Total", Fields.count(overview, "queue_totals", "messages"), "", WHITE},
+        {"Publish", Fields.rate(overview, "message_stats", "publish_details", "rate"), "/s", GREEN},
+        {"Deliver", Fields.rate(overview, "message_stats", "deliver_get_details", "rate"), "/s", BLUE},
+      }
+      # Right-aligned on their decimal points, with the units after them
+      whole_width = values.max_of { |(_, value, _, _)| Text.width(value.split('.').first) }
+      values.each_with_index do |(label, value, unit, color), i|
+        print_at(x, y + i, label, MUTED_FG, PANEL_BG)
+        value_x = x + 13 + whole_width - Text.width(value.split('.').first)
+        value_x += print_at(value_x, y + i, value, color, PANEL_BG, true, rect.right - 1 - value_x)
+        print_at(value_x, y + i, unit, color, PANEL_BG, max_width: rect.right - 1 - value_x)
+      end
       draw_bar(x, y + 4, rect.inner_width - 4, "Ready", ready, total, GREEN)
       draw_bar(x, y + 6, rect.inner_width - 4, "Unacked", unacked, total, BLUE)
     end
@@ -891,7 +932,7 @@ class LavinMQCtl
 
       print_at(x, y, Fields.text(node, "name"), WHITE, PANEL_BG, true, width)
       print_at(x, y + 1, "Uptime #{Fields.duration(node, "uptime")}", MUTED_FG, PANEL_BG, max_width: 17)
-      print_at(x + 18, y + 1, "Sockets #{Fields.text(node, "sockets_used")}", MUTED_FG, PANEL_BG, max_width: width - 18)
+      print_at(x + 18, y + 1, "Sockets #{Fields.count(node, "sockets_used")}", MUTED_FG, PANEL_BG, max_width: width - 18)
       mem_used = Fields.float(node, "mem_used")
       mem_limit = Fields.float(node, "mem_limit")
       draw_bar(x, y + 3, width, "Memory", mem_used, positive_or(mem_limit, mem_used), usage_color(mem_used, mem_limit), bytes: true)
@@ -930,7 +971,7 @@ class LavinMQCtl
       draw_panel(rect, "Message rates")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
       max = draw_graph(graph, @publish_history, GREEN, @deliver_history, BLUE)
-      draw_legend(rect, {"Publish #{publish}/s", "Deliver #{deliver}/s"}, "max %.1f/s" % max)
+      draw_legend(rect, {"Publish #{publish}/s", "Deliver #{deliver}/s"}, "max #{Fields.number(max)}/s")
     end
 
     private def draw_queue_graph(rect : Rect, overview : JSON::Any)
@@ -939,7 +980,7 @@ class LavinMQCtl
       draw_panel(rect, "Queued messages")
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
       max = draw_graph(graph, @ready_history, GREEN, @unacked_history, BLUE)
-      draw_legend(rect, {"Ready #{ready}", "Unacked #{unacked}"}, "max #{Fields.to_i64(max)}")
+      draw_legend(rect, {"Ready #{ready.format}", "Unacked #{unacked.format}"}, "max #{Fields.to_i64(max).format}")
     end
 
     # The green and blue series' names with chips in their colors, like the
@@ -1006,8 +1047,8 @@ class LavinMQCtl
       return if width <= 0
 
       label_width = {label.size + 1, 10}.max
-      value_text = bytes ? Fields.human_bytes(Fields.to_i64(value)) : Fields.to_i64(value).to_s
-      value_width = {value_text.size + 1, 8}.max
+      value_text = bytes ? Fields.human_bytes(Fields.to_i64(value)) : Fields.to_i64(value).format
+      value_width = {Text.width(value_text) + 1, 8}.max
       bar_width = width - label_width - value_width
       return if bar_width <= 0
 
@@ -1020,7 +1061,8 @@ class LavinMQCtl
           set_cell(x + label_width + i, y, '·', GRID_FG, PANEL_BG)
         end
       end
-      print_at(x + label_width + bar_width + 1, y, value_text, color, PANEL_BG, true, value_width - 1)
+      # Right-aligned, so the values of bars below each other line up
+      print_at(x + width - Text.width(value_text), y, value_text, color, PANEL_BG, true)
     end
 
     # Draws *area* as a filled graph and *line* as a line in front of it, on
@@ -1179,8 +1221,34 @@ class LavinMQCtl
         value.finite? ? value.clamp(-9.0e18, 9.0e18).to_i64 : 0_i64
       end
 
+      # With thousands separators, like the management UI
+      def count(item : JSON::Any?, *keys) : String
+        dig(item, *keys).nil? ? "-" : int(item, *keys).format
+      end
+
       def rate(item : JSON::Any?, *keys) : String
-        "%.1f" % float(item, *keys)
+        number(float(item, *keys))
+      end
+
+      # Always one decimal, so that the decimal points of rates line up
+      def number(value : Float64) : String
+        value.finite? ? value.format(decimal_places: 1) : "-"
+      end
+
+      # *text* in three digits and a unit if it's a number of 1,000 or more,
+      # like 1.96M for 1,955,942.2, for a column it doesn't fit in
+      def short_number(text : String) : String
+        return text unless value = text.delete(',').to_f?
+        units = {"", "K", "M", "G", "T", "P", "E"}
+        unit = 0
+        # 999.5 and up rounds to 1000, which is shown as the next unit
+        while value.abs >= 999.5 && unit < units.size - 1
+          value /= 1000
+          unit += 1
+        end
+        return text if unit.zero?
+        decimals = value.abs >= 99.95 ? 0 : (value.abs >= 9.995 ? 1 : 2)
+        "%.#{decimals}f%s" % {value, units[unit]}
       end
 
       def bytes(item : JSON::Any?, *keys) : String
@@ -1229,30 +1297,30 @@ class LavinMQCtl
       end
     end
 
-    private def col(title : String, width : Int32, sort : String? = nil, descending = false, status = false, &value : JSON::Any -> String) : Column
-      Column.new(title, width, sort, descending, value, status)
+    private def col(title : String, width : Int32, sort : String? = nil, descending = false, status = false, right = false, flex = false, &value : JSON::Any -> String) : Column
+      Column.new(title, width, sort, descending, value, status, right, flex)
     end
 
     private def tables : Hash(Symbol, Table)
       {
         :queues => Table.new("Queues", "/api/queues", [
           col("Vhost", 12, "vhost") { |q| Fields.text(q, "vhost") },
-          col("Name", 30, "name") { |q| Fields.text(q, "name") },
+          col("Name", 30, "name", flex: true) { |q| Fields.text(q, "name") },
           col("State", 10, "state", status: true) { |q| Fields.text(q, "state") },
-          col("Msgs", 9, "messages", true) { |q| Fields.text(q, "messages") },
-          col("Ready", 9, "messages_ready", true) { |q| Fields.text(q, "messages_ready") },
-          col("Unacked", 9, "messages_unacknowledged", true) { |q| Fields.text(q, "messages_unacknowledged") },
-          col("Cons", 6, "consumers", true) { |q| Fields.text(q, "consumers") },
-          col("Pub/s", 9, "message_stats.publish_details.rate", true) { |q| Fields.rate(q, "message_stats", "publish_details", "rate") },
-          col("Deliver/s", 10, "message_stats.deliver_get_details.rate", true) { |q| Fields.rate(q, "message_stats", "deliver_get_details", "rate") },
+          col("Msgs", 11, "messages", true, right: true) { |q| Fields.count(q, "messages") },
+          col("Ready", 11, "messages_ready", true, right: true) { |q| Fields.count(q, "messages_ready") },
+          col("Unacked", 11, "messages_unacknowledged", true, right: true) { |q| Fields.count(q, "messages_unacknowledged") },
+          col("Cons", 6, "consumers", true, right: true) { |q| Fields.count(q, "consumers") },
+          col("Pub/s", 11, "message_stats.publish_details.rate", true, right: true) { |q| Fields.rate(q, "message_stats", "publish_details", "rate") },
+          col("Deliver/s", 11, "message_stats.deliver_get_details.rate", true, right: true) { |q| Fields.rate(q, "message_stats", "deliver_get_details", "rate") },
         ], sort: "messages"),
         :connections => Table.new("Connections", "/api/connections", [
           col("Vhost", 12, "vhost") { |c| Fields.text(c, "vhost") },
           col("User", 12, "user") { |c| Fields.text(c, "user") },
           col("State", 10, "state", status: true) { |c| Fields.text(c, "state") },
-          col("Chans", 6, "channels", true) { |c| Fields.text(c, "channels") },
-          col("Recv/s", 11, "recv_oct_details.rate", true) { |c| Fields.bytes_rate(c, "recv_oct_details", "rate") },
-          col("Send/s", 11, "send_oct_details.rate", true) { |c| Fields.bytes_rate(c, "send_oct_details", "rate") },
+          col("Chans", 6, "channels", true, right: true) { |c| Fields.count(c, "channels") },
+          col("Recv/s", 11, "recv_oct_details.rate", true, right: true) { |c| Fields.bytes_rate(c, "recv_oct_details", "rate") },
+          col("Send/s", 11, "send_oct_details.rate", true, right: true) { |c| Fields.bytes_rate(c, "send_oct_details", "rate") },
           col("Client", 20) { |c| Fields.text(c, "client_properties", "connection_name", default: Fields.text(c, "client_properties", "product")) },
           col("Name", 30, "name") { |c| Fields.text(c, "name") },
         ]),
@@ -1260,46 +1328,46 @@ class LavinMQCtl
           col("Vhost", 12, "vhost") { |c| Fields.text(c, "vhost") },
           col("User", 12, "user") { |c| Fields.text(c, "user") },
           col("State", 10, "state", status: true) { |c| Fields.text(c, "state") },
-          col("Unacked", 8, "messages_unacknowledged", true) { |c| Fields.text(c, "messages_unacknowledged") },
-          col("Prefetch", 8, "prefetch_count", true) { |c| Fields.text(c, "prefetch_count") },
-          col("Cons", 6, "consumer_count", true) { |c| Fields.text(c, "consumer_count") },
-          col("Pub/s", 9, "message_stats.publish_details.rate", true) { |c| Fields.rate(c, "message_stats", "publish_details", "rate") },
+          col("Unacked", 10, "messages_unacknowledged", true, right: true) { |c| Fields.count(c, "messages_unacknowledged") },
+          col("Prefetch", 8, "prefetch_count", true, right: true) { |c| Fields.count(c, "prefetch_count") },
+          col("Cons", 6, "consumer_count", true, right: true) { |c| Fields.count(c, "consumer_count") },
+          col("Pub/s", 11, "message_stats.publish_details.rate", true, right: true) { |c| Fields.rate(c, "message_stats", "publish_details", "rate") },
           col("Name", 30, "name") { |c| Fields.text(c, "name") },
         ]),
         :exchanges => Table.new("Exchanges", "/api/exchanges", [
           col("Vhost", 12, "vhost") { |e| Fields.text(e, "vhost") },
-          col("Name", 30, "name") { |e| Fields.text(e, "name").presence || "(default)" },
+          col("Name", 30, "name", flex: true) { |e| Fields.text(e, "name").presence || "(default)" },
           col("Type", 14, "type") { |e| Fields.text(e, "type") },
           col("Durable", 7, "durable") { |e| Fields.bool(e, "durable") },
           col("Internal", 8, "internal") { |e| Fields.bool(e, "internal") },
-          col("In/s", 9, "message_stats.publish_in_details.rate", true) { |e| Fields.rate(e, "message_stats", "publish_in_details", "rate") },
-          col("Out/s", 9, "message_stats.publish_out_details.rate", true) { |e| Fields.rate(e, "message_stats", "publish_out_details", "rate") },
+          col("In/s", 11, "message_stats.publish_in_details.rate", true, right: true) { |e| Fields.rate(e, "message_stats", "publish_in_details", "rate") },
+          col("Out/s", 11, "message_stats.publish_out_details.rate", true, right: true) { |e| Fields.rate(e, "message_stats", "publish_out_details", "rate") },
         ]),
         :consumers => Table.new("Consumers", "/api/consumers", [
           col("Vhost", 12, "queue.vhost") { |c| Fields.text(c, "queue", "vhost") },
           col("Queue", 28, "queue.name") { |c| Fields.text(c, "queue", "name") },
           col("Tag", 28, "consumer_tag") { |c| Fields.text(c, "consumer_tag") },
           col("Ack", 4, "ack_required") { |c| Fields.bool(c, "ack_required") },
-          col("Prefetch", 8, "prefetch_count", true) { |c| Fields.text(c, "prefetch_count") },
+          col("Prefetch", 8, "prefetch_count", true, right: true) { |c| Fields.count(c, "prefetch_count") },
           col("Channel", 30, "channel_details.name") { |c| Fields.text(c, "channel_details", "name") },
         ]),
         :vhosts => Table.new("Vhosts", "/api/vhosts", [
           col("Name", 24, "name") { |v| Fields.text(v, "name") },
-          col("Msgs", 10, "messages", true) { |v| Fields.text(v, "messages") },
-          col("Ready", 10, "messages_ready", true) { |v| Fields.text(v, "messages_ready") },
-          col("Unacked", 10, "messages_unacknowledged", true) { |v| Fields.text(v, "messages_unacknowledged") },
+          col("Msgs", 11, "messages", true, right: true) { |v| Fields.count(v, "messages") },
+          col("Ready", 11, "messages_ready", true, right: true) { |v| Fields.count(v, "messages_ready") },
+          col("Unacked", 11, "messages_unacknowledged", true, right: true) { |v| Fields.count(v, "messages_unacknowledged") },
           col("Tracing", 7, "tracing") { |v| Fields.bool(v, "tracing") },
           col("Description", 30) { |v| Fields.text(v, "description") },
         ]),
         :nodes => Table.new("Nodes", "/api/nodes", [
-          col("Name", 24) { |n| Fields.text(n, "name") },
+          col("Name", 24, flex: true) { |n| Fields.text(n, "name") },
           col("Role", 10) { |n| Fields.text(n, "role") },
-          col("Uptime", 8) { |n| Fields.dig(n, "uptime") ? Fields.duration(n, "uptime") : "-" },
-          col("Memory", 10) { |n| Fields.dig(n, "mem_used") ? Fields.bytes(n, "mem_used") : "-" },
-          col("Disk free", 10) { |n| Fields.dig(n, "disk_free") ? Fields.bytes(n, "disk_free") : "-" },
-          col("FD", 7) { |n| Fields.text(n, "fd_used") },
-          col("Sockets", 7) { |n| Fields.text(n, "sockets_used") },
-          col("Lag", 10) { |n| Fields.dig(n, "lag_in_bytes") ? Fields.bytes(n, "lag_in_bytes") : "-" },
+          col("Uptime", 8, right: true) { |n| Fields.dig(n, "uptime") ? Fields.duration(n, "uptime") : "-" },
+          col("Memory", 10, right: true) { |n| Fields.dig(n, "mem_used") ? Fields.bytes(n, "mem_used") : "-" },
+          col("Disk free", 10, right: true) { |n| Fields.dig(n, "disk_free") ? Fields.bytes(n, "disk_free") : "-" },
+          col("FD", 7, right: true) { |n| Fields.count(n, "fd_used") },
+          col("Sockets", 7, right: true) { |n| Fields.count(n, "sockets_used") },
+          col("Lag", 10, right: true) { |n| Fields.dig(n, "lag_in_bytes") ? Fields.bytes(n, "lag_in_bytes") : "-" },
         ]),
         :parameters => Table.new("Parameters", "/api/parameters", [
           col("Component", 20, "component") { |p| Fields.text(p, "component") },
@@ -1311,7 +1379,7 @@ class LavinMQCtl
           col("Vhost", 12, "vhost") { |p| Fields.text(p, "vhost") },
           col("Name", 22, "name") { |p| Fields.text(p, "name") },
           col("Apply to", 10, "apply-to") { |p| Fields.text(p, "apply-to") },
-          col("Prio", 5, "priority", true) { |p| Fields.text(p, "priority") },
+          col("Prio", 5, "priority", true, right: true) { |p| Fields.count(p, "priority") },
           col("Pattern", 24, "pattern") { |p| Fields.text(p, "pattern") },
           col("Definition", 40) { |p| Fields.text(p, "definition") },
         ]),
@@ -1319,7 +1387,7 @@ class LavinMQCtl
           col("Vhost", 12, "vhost") { |s| Fields.text(s, "vhost") },
           col("Name", 24, "name") { |s| Fields.text(s, "name") },
           col("State", 12, "state", status: true) { |s| Fields.text(s, "state") },
-          col("Msgs", 9, "message_count", true) { |s| Fields.text(s, "message_count") },
+          col("Msgs", 10, "message_count", true, right: true) { |s| Fields.count(s, "message_count") },
           col("Error", 50) { |s| Fields.redact_uris(Fields.text(s, "error")) },
         ]),
         :federation => Table.new("Federation links", "/api/federation-links", [

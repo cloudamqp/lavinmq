@@ -489,6 +489,48 @@ describe LavinMQCtl::TUI do
     screen.text.should contain("after")
   end
 
+  it "right-aligns numbers with thousands separators under their titles" do
+    queues = {items: [
+      {vhost: "v", name: "big", state: "running", messages: 12_345_678, messages_ready: 12_345_000, messages_unacknowledged: 678},
+      {vhost: "v", name: "small", state: "running", messages: 7, messages_ready: 5, messages_unacknowledged: 2},
+    ], filtered_count: 2}
+    screen, _ = run_tui('2', responses: with_response("/api/queues", queues))
+
+    lines = screen.text.lines
+    ready_end = lines.find!(&.includes?("Ready")).index!("Ready") + "Ready".size
+    big = lines.find!(&.includes?(" big "))
+    big.index!("12,345,000").should eq(ready_end - "12,345,000".size)
+    small = lines.find!(&.includes?(" small "))
+    small[ready_end - 2, 3].should eq " 5 "
+  end
+
+  it "shortens numbers that don't fit and leaves out number columns that don't fit" do
+    queue = {
+      vhost: "v", name: "fast", state: "running", messages: 1,
+      message_stats: {publish_details: {rate: 123_456_789.0}, deliver_get_details: {rate: 2.0}},
+    }
+    responses = with_response("/api/queues", {items: [queue], filtered_count: 1})
+    screen, _ = run_tui('2', responses: responses)
+    screen.text.should contain(" 123M ")
+    screen.text.should_not contain("123,4")
+
+    # Cut off, 123M would read as 12 or 1
+    screen, _ = run_tui('2', responses: responses, width: 90)
+    screen.text.should contain("Cons")
+    screen.text.should_not contain("Pub")
+    screen.text.should_not contain("123")
+  end
+
+  it "lines up the overview's message total and rates on their decimal points" do
+    screen, _ = run_tui
+
+    lines = screen.text.lines
+    total = lines.compact_map(&.match(/│  Total +([\d,]+)/)).first
+    publish = lines.compact_map(&.match(/│  Publish +([\d,]+)\.\d\/s/)).first
+    total[1].should eq "4,200"
+    publish.end(1).should eq total.end(1)
+  end
+
   it "survives values that don't fit the expected types" do
     random = Random.new(42)
     values = [
