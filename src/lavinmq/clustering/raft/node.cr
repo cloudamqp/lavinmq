@@ -70,9 +70,10 @@ module LavinMQ::Clustering::Raft
     leader_contact : Time::Span?, proposals_pending : Int64, peers : Hash(Int32, Bool),
     isr_size : Int32?, save_buckets : Array(UInt64), save_count : UInt64, save_sum : Float64
 
-  # Runs a Core in a single fiber: every message, request and tick goes
-  # through @events, so the Core needs no locking. State is persisted before
-  # any message produced alongside it leaves the node. The fiber runs in
+  # Runs a Core in a single fiber: every message and request goes through
+  # @events, and the Core is ticked after each and at its next deadline, so
+  # it needs no locking. State is persisted before any message produced
+  # alongside it leaves the node (see Core#dirty?). The fiber runs in
   # *execution_context*; RaftController gives it a context of its own, so that
   # a busy broker can't delay heartbeats and votes.
   class Node
@@ -420,17 +421,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def flush : Nil
-      if @core.dirty?
-        begin
-          started = Time.instant
-          @storage.save(@core.hard_state)
-          observe_save((Time.instant - started).total_seconds)
-        rescue ex
-          Log.fatal(exception: ex) { "Could not persist raft state to #{@storage.path}" }
-          exit 1
-        end
-        @core.persisted
-      end
+      save if @core.dirty?
       if transport = @transport
         @core.take_outbox.each do |(to, msg)|
           @core.address_of(to).try { |address| transport.send(address, msg) }
@@ -439,6 +430,18 @@ module LavinMQ::Clustering::Raft
       resolve_pending
       publish_state
       sync_transport
+      # After answering and sending, nothing waits for it, see Core#unsaved_commit?
+      save if @core.unsaved_commit?
+    end
+
+    private def save : Nil
+      started = Time.instant
+      @storage.save(@core.hard_state)
+      observe_save((Time.instant - started).total_seconds)
+      @core.persisted
+    rescue ex
+      Log.fatal(exception: ex) { "Could not persist raft state to #{@storage.path}" }
+      exit 1
     end
 
     private def pending(index : Int64, reply : Channel(Bool)) : Pending

@@ -360,6 +360,23 @@ describe Raft::Core do
     end
   end
 
+  it "commits again what the whole cluster crashed before saving as committed" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    isr = Set{old.id, sim.cores.keys.find! { |id| id != old.id }}
+    index = sim.propose(old, isr).not_nil!
+    sim.advance(50.milliseconds)
+    sim.cores.each_value(&.committed_isr.should(eq(isr)))
+    # The sim only saves what has to be saved before sending, like a node
+    # crashing right after its last message
+    sim.cores.each_key { |id| sim.crash(id) }
+    sim.cores.each_key { |id| sim.restart(id) }
+    sim.cores.each_value(&.commit_index.should(be < index))
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.advance(100.milliseconds)
+    sim.cores.each_value(&.committed_isr.should(eq(isr)))
+  end
+
   it "doesn't let a rejoining node depose a healthy leader" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }

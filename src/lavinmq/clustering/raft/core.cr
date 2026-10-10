@@ -156,7 +156,14 @@ module LavinMQ::Clustering::Raft
     getter leader : Int32? = nil
     getter leader_uri : String? = nil
     @outbox = Array(Tuple(Int32, Message)).new
+    # The state changed in a way that must be saved before any message
+    # produced alongside it leaves the node
     getter? dirty = false
+    # Only committed entries were folded into the snapshot since the last
+    # save. They were saved when appended and a majority has them, so a node
+    # that crashes before saving this just finds them uncommitted, and they
+    # can't be lost: nothing has to wait for it.
+    getter? unsaved_commit = false
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
     @entries = Array(Entry).new
@@ -216,7 +223,7 @@ module LavinMQ::Clustering::Raft
     end
 
     def persisted : Nil
-      @dirty = false
+      @dirty = @unsaved_commit = false
     end
 
     def take_outbox : Array(Tuple(Int32, Message))
@@ -1025,7 +1032,7 @@ module LavinMQ::Clustering::Raft
       end
       @snapshot = Snapshot.new(index, term_at(index), isr, membership)
       @entries.shift(count)
-      @dirty = true
+      @unsaved_commit = true
     end
 
     private def term_at(index : Int64) : Int64
