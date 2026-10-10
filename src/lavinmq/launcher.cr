@@ -20,6 +20,8 @@ module LavinMQ
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
+    # Closed once #run has returned
+    @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
@@ -101,6 +103,8 @@ module LavinMQ
       end
       @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
+    ensure
+      @run_done.close
     end
 
     # Stops serving as the leader, without exiting: the raft controller keeps
@@ -369,6 +373,11 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         stop
+        # Exiting closes the log, which #run still logs to while it finishes
+        select
+        when @run_done.receive?
+        when timeout(10.seconds)
+        end
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         Fiber.yield
