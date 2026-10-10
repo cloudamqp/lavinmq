@@ -42,11 +42,14 @@ module LavinMQ
   end
 
   describe Server do
-    it "keeps collecting stats after running out of file descriptors" do
+    it "keeps checking free disk space while out of file descriptors" do
       with_stats_interval(50) do
         with_amqp_server do |s|
-          wait_for { s.rss_log.size > 1 }
-          without_free_file_descriptors { sleep 200.milliseconds }
+          without_free_file_descriptors do
+            # Publishers are stopped when the disk is about to fill up
+            size = s.disk_free_log.size
+            wait_for(timeout: 5.seconds) { s.disk_free_log.size > size }
+          end
           size = s.rss_log.size
           wait_for { s.rss_log.size > size }
         end
