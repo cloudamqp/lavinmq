@@ -131,6 +131,7 @@ class LavinMQCtl
       @nodes = [] of JSON::Any
       @fetched = ""
       @fetch_time = Time::Span.zero
+      @next_refresh = Time.instant
       @resized = false
       # When to fetch for the terminal's new size
       @fetch_at = nil.as(Time::Instant?)
@@ -151,41 +152,49 @@ class LavinMQCtl
 
     def start
       @width, @height = @screen.size
-      refresh
-      next_refresh = Time.instant + refresh_delay
-
+      refresh_now
       while @running
-        wake = @paused ? Time.instant + 1.hour : next_refresh
-        if fetch_at = @fetch_at
-          wake = {wake, fetch_at}.min
+        if event = @screen.poll_event({next_wake - Time.instant, Time::Span.zero}.max)
+          handle_events(event)
         end
-        if event = @screen.poll_event({wake - Time.instant, Time::Span.zero}.max)
-          handle(event)
-          # Take what queued up, like a held down key, before updating the screen
-          100.times do
-            break unless @running && (event = @screen.poll_event(Time::Span.zero))
-            handle(event)
-          end
-          update if @running
-        end
-        break unless @running
-
-        if fetch_at = @fetch_at
-          # Not while the terminal is being resized, as a fetch holds off redrawing
-          next if Time.instant < fetch_at
-          @fetch_at = nil
-          unless wanted_fetch == @fetched
-            refresh
-            next_refresh = Time.instant + refresh_delay
-          end
-        end
-        if !@paused && Time.instant >= next_refresh
-          refresh
-          next_refresh = Time.instant + refresh_delay
-        end
+        refresh_when_due if @running
       end
     ensure
       @screen.close
+    end
+
+    # Handles *event* and what queued up after it, like a held down key,
+    # before updating the screen
+    private def handle_events(event : Event)
+      handle(event)
+      100.times do
+        break unless @running && (event = @screen.poll_event(Time::Span.zero))
+        handle(event)
+      end
+      update if @running
+    end
+
+    private def next_wake : Time::Instant
+      wake = @paused ? Time.instant + 1.hour : @next_refresh
+      if fetch_at = @fetch_at
+        wake = {wake, fetch_at}.min
+      end
+      wake
+    end
+
+    private def refresh_when_due
+      if fetch_at = @fetch_at
+        # Not while the terminal is being resized, as a fetch holds off redrawing
+        return if Time.instant < fetch_at
+        @fetch_at = nil
+        refresh_now unless wanted_fetch == @fetched
+      end
+      refresh_now if !@paused && Time.instant >= @next_refresh
+    end
+
+    private def refresh_now
+      refresh
+      @next_refresh = Time.instant + refresh_delay
     end
 
     private def refresh_delay : Time::Span
