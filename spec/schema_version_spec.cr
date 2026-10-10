@@ -52,3 +52,25 @@ describe LavinMQ::SchemaVersion do
     end
   end
 end
+
+describe LavinMQ::Schema do
+  # The raft node runs, and replaces its state file, while the broker starts
+  # and migrates
+  it "neither backs up nor restores the node's own clustering files" do
+    with_datadir do |data_dir|
+      File.write(File.join(data_dir, ".raft_state"), "current")
+      File.write(File.join(data_dir, ".clustering_id"), "id")
+      File.write(File.join(data_dir, "vhosts.json"), "[]")
+      LavinMQ::Schema.migrate(data_dir, nil)
+      backup = Dir.children(File.join(data_dir, "backups")).first
+      Dir.children(File.join(data_dir, "backups", backup)).should eq ["vhosts.json"]
+    end
+    with_datadir do |data_dir|
+      File.write(File.join(data_dir, ".raft_state"), "current")
+      File.write(File.join(data_dir, "vhosts.json"), "not json")
+      expect_raises(JSON::ParseException) { LavinMQ::Schema.migrate(data_dir, nil) }
+      File.read(File.join(data_dir, ".raft_state")).should eq "current"
+      File.read(File.join(data_dir, "vhosts.json")).should eq "not json"
+    end
+  end
+end
