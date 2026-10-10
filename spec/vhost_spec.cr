@@ -252,7 +252,7 @@ describe LavinMQ::VHost do
         clients = vhost.connections.map(&.as(LavinMQ::AMQP::Client))
         # Runs when closing yields, like the first one's read loop ending
         spawn { vhost.rm_connection(clients.first) }
-        vhost.@connections.close_all("Broker shutdown", LavinMQ::Logger.new(LavinMQ::Log.for("spec"), ::Log::Metadata.empty))
+        vhost.@connections.close_all("Broker shutdown", vhost.@log)
         clients.reject(&.closed?).map(&.name).should be_empty
       ensure
         conns.each { |c| c.close rescue nil }

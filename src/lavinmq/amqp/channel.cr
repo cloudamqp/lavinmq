@@ -318,7 +318,7 @@ module LavinMQ
           msgid = @confirm_total &+= 1
           begin
             result = yield
-            if result.overflowed? || result.closed?
+            if result.rejected?
               confirm_nack(msgid)
             else
               confirm_ack(msgid)

@@ -28,7 +28,7 @@ module MqttSpecs
             fail "adding the client hung"
           end
           client_end.read_timeout = 5.seconds
-          client_end.read_byte.should be_nil
+          MQTT::Protocol::IO.new(client_end).should be_closed
         ensure
           client_end.close
           server_end.close
