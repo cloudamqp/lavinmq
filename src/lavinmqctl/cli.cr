@@ -753,13 +753,15 @@ class LavinMQCtl
 
   # The old leader stops serving before it hands over, and followers proxy to
   # the leader, so the cluster answers with the target as leader once the
-  # target is up and serving.
+  # target is up and serving. Over a follower's control socket the answer is
+  # that node's own view (`local`), which knows of the target as leader
+  # before it serves, so then it also has to have seen it serving.
   private def wait_for_leader(target : String, timeout : Time::Span) : Nil
     deadline = Time.instant + timeout
     loop do
       begin
         resp = http.get "/api/cluster", @headers
-        if resp.status_code == 200 && JSON.parse(resp.body)["leader"]?.try(&.as_s?) == target
+        if resp.status_code == 200 && serving_leader?(JSON.parse(resp.body), target)
           @io.puts "#{target} is the leader" unless quiet?
           return
         end
@@ -771,6 +773,11 @@ class LavinMQCtl
       abort "Timed out waiting for #{target} to become the leader" if Time.instant >= deadline
       sleep 500.milliseconds
     end
+  end
+
+  private def serving_leader?(cluster : JSON::Any, target : String) : Bool
+    return false unless cluster["leader"]?.try(&.as_s?) == target
+    !cluster["local"]?.try(&.as_bool?) || cluster["leader_serving"]?.try(&.as_bool?) == true
   end
 
   @[Cmd("Stop the AMQP broker", "", section: "Server")]

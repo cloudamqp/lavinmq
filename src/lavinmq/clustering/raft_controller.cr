@@ -153,7 +153,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def local_status : String?
     status = @node.status || return
-    JSON.build { |json| status.to_json(json) }
+    # Replicating from it, which it lets this node do once it serves
+    serving = @repli_client.try { |c| c.connected? && c.follows?(current_leader_uri) } || false
+    JSON.build { |json| status.to_json(json, leader_serving: serving) }
   end
 
   def raft : RaftController?

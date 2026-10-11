@@ -64,10 +64,10 @@ rescue
   ""
 end
 
-# The status code of a GET over the node's lavinmqctl socket
-private def control_get(config : LavinMQ::Config, path : String) : Int32
+# A GET over the node's lavinmqctl socket
+private def control_get(config : LavinMQ::Config, path : String) : HTTP::Client::Response
   client = HTTP::Client.new(UNIXSocket.new(config.control_unix_path))
-  client.get(path).status_code
+  client.get(path)
 ensure
   client.try &.close
 end
@@ -213,9 +213,12 @@ describe LavinMQ::Clustering::Controller do
           serving.call(to).should be_true
           # The lavinmqctl socket, kept through the role changes, has the
           # API where it's served and a follower's answer elsewhere
-          control_get(configs[to], "/api/whoami").should eq 200
-          control_get(configs[from], "/api/whoami").should eq 503
-          control_get(configs[from], "/api/cluster").should eq 200
+          control_get(configs[to], "/api/whoami").status_code.should eq 200
+          control_get(configs[from], "/api/whoami").status_code.should eq 503
+          # Following the new leader, so it has seen it serving
+          local = JSON.parse(control_get(configs[from], "/api/cluster").body)
+          local["local"].as_bool.should be_true
+          local["leader_serving"].as_bool.should be_true
         end
         select
         when exited.receive

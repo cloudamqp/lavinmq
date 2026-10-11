@@ -27,13 +27,16 @@ module LavinMQ::Clustering::Raft
 
     # As served by /api/cluster. A node that isn't the leader only shows its
     # own view (`local`): the leader it knows of, if any, and no progress.
-    def to_json(json : JSON::Builder) : Nil
+    # It knows of a new leader before that serves, `leader_serving` says
+    # whether it has seen it serving.
+    def to_json(json : JSON::Builder, leader_serving : Bool? = nil) : Nil
       leading = role.leader?
       json.object do
         json.field "leader", leader.try { |l| address_of(l) || l.to_s(36) }
         json.field "term", term
         unless leading
           json.field "local", true
+          json.field "leader_serving", leader_serving || false
           json.field "node", address
           json.field "role", role.to_s.downcase
           json.field "leader_heard_ago_ms", leader_heard_ago.try(&.total_milliseconds.to_i64)

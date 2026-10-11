@@ -41,6 +41,10 @@ module LavinMQ
       # controller already does
       property? serve_control_socket = true
       getter streamed_bytes = 0_u64
+      # Whether the leader's replication server has let this node in. A
+      # leader binds that listener after its client listeners, so it's
+      # serving then.
+      getter? connected = false
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -140,6 +144,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
+          @connected = false
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -197,6 +202,7 @@ module LavinMQ
         Log.info { "Connected" }
         authenticate(socket)
         Log.info { "Authenticated" }
+        @connected = true
         set_socket_opts(socket)
         full_sync(socket, lz4)
       end
