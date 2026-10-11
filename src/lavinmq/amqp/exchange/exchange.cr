@@ -218,15 +218,15 @@ module LavinMQ
 
       # Result of routing a message through an exchange.
       # `Routed` is set if at least one queue accepted the message.
-      # `Overflowed` is set if at least one matched queue rejected the message
-      # due to a reject-publish overflow policy. The two flags are independent:
-      # a publish can be both routed (one queue accepted) and overflowed
-      # (another queue rejected), in which case the publisher should still be
-      # nack'ed on confirm channels.
+      # `Rejected` is set if at least one matched queue didn't store the
+      # message: due to a reject-publish overflow policy, or because it was
+      # closed, e.g. on shutdown. The two flags are independent: a publish can
+      # be both routed (one queue accepted) and rejected (another didn't), in
+      # which case the publisher should still be nack'ed on confirm channels.
       @[Flags]
       enum PublishResult
         Routed
-        Overflowed
+        Rejected
       end
 
       def publish(msg : Message, immediate : Bool,
@@ -266,24 +266,24 @@ module LavinMQ
         end
 
         count = 0u32
-        overflow = false
+        rejected = false
         queues.each do |queue|
           case queue.publish(msg)
           in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
-          in .overflow?
-            overflow = true
+          in .overflow?, .closed?
+            rejected = true
           in .dropped?
-            # queue was closed or message was a duplicate; nothing to do
+            # message was a duplicate; nothing to do
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+        @unroutable_count.add(1, :relaxed) if count.zero? && !rejected
 
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?
-        result |= PublishResult::Overflowed if overflow
+        result |= PublishResult::Rejected if rejected
         result
       end
 
