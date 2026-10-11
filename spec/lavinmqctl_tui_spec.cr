@@ -352,9 +352,17 @@ private TUI_RESPONSES = {
 }
 
 # Yields a client and the requested resources (path and query)
-private def with_tui_api(status = 200, responses = TUI_RESPONSES, &)
+# Requests other than GET are answered with *action_status* and recorded
+# with their method
+private def with_tui_api(status = 200, responses = TUI_RESPONSES, action_status = 204, &)
   requests = [] of String
   server = HTTP::Server.new do |context|
+    unless context.request.method == "GET"
+      requests << "#{context.request.method} #{context.request.resource}"
+      context.response.status_code = action_status
+      context.response.print({error: "forbidden", reason: "Access refused"}.to_json) if action_status >= 400
+      next
+    end
     requests << context.request.resource
     if body = responses[context.request.path]?
       context.response.status_code = status
@@ -375,11 +383,11 @@ ensure
   server.try &.close
 end
 
-private def run_tui(*keys, responses = TUI_RESPONSES, width = 140, height = 36) : {FakeTUIScreen, Array(String)}
+private def run_tui(*keys, responses = TUI_RESPONSES, width = 140, height = 36, manage = false, action_status = 204) : {FakeTUIScreen, Array(String)}
   screen = FakeTUIScreen.new(width, height, keys.map { |k| tui_key(k).as(TUI::Event) }.to_a + [tui_key('q').as(TUI::Event)])
   requests = [] of String
-  with_tui_api(responses: responses) do |client, reqs|
-    TUI.new(client, 60.0, screen).start
+  with_tui_api(responses: responses, action_status: action_status) do |client, reqs|
+    TUI.new(client, 60.0, screen, manage: manage).start
     requests = reqs
   end
   {screen, requests}
@@ -404,7 +412,8 @@ private VIEW_RESPONSES = TUI_RESPONSES.merge({
     messages_ready_log: [100, 110, 118], messages_unacknowledged_log: [1, 2, 2],
     consumer_details: [{
       consumer_tag: "seed-consumer-0", ack_required: true, prefetch_count: 25,
-      queue: {vhost: "seed", name: "seed.ready"}, channel_details: {name: CHANNEL_NAME},
+      queue: {vhost: "seed", name: "seed.ready"},
+      channel_details: {name: CHANNEL_NAME, connection_name: CONNECTION_NAME, number: 1},
     }],
   }.to_json,
   "/api/queues/seed/seed.ready/bindings" => {
@@ -785,6 +794,54 @@ describe LavinMQCtl::TUI do
     screen.text.should contain("only shown to users with the administrator tag")
   end
 
+  it "changes nothing unless started with --manage" do
+    screen, requests = run_tui('2', 'm', '1', 'y')
+    screen.text.should contain("Read-only: start lavinmqctl tui with --manage")
+    screen.text.should_not contain("MANAGE")
+    requests.none?(&.starts_with?("PUT")).should be_true
+  end
+
+  it "pauses a queue after confirming" do
+    # The menu and the question take any key but Ctrl-C
+    screen, _ = run_tui('2', 'm', TUI::Key::CtrlC, manage: true)
+    screen.text.should contain(" MANAGE ")
+    screen.text.should contain("1  Pause the consumers of queue seed.ready")
+
+    screen, _ = run_tui('2', 'm', '1', TUI::Key::CtrlC, manage: true)
+    screen.text.should contain("Pause the consumers of queue seed.ready in vhost seed?")
+
+    screen, requests = run_tui('2', 'm', '1', 'y', manage: true)
+    requests.should contain("PUT /api/queues/seed/seed.ready/pause")
+    screen.text.should contain("Paused the consumers of queue seed.ready in vhost seed")
+
+    screen, requests = run_tui('2', 'm', '1', 'n', manage: true)
+    requests.none?(&.starts_with?("PUT")).should be_true
+    screen.text.should contain("Cancelled, nothing was changed")
+
+    _, requests = run_tui('2', 'm', TUI::Key::Escape, 'y', manage: true)
+    requests.none?(&.starts_with?("PUT")).should be_true
+  end
+
+  it "says why a change failed" do
+    screen, _ = run_tui('2', 'm', '1', 'y', manage: true, action_status: 403)
+    screen.text.should contain("Failed: HTTP 403 Access refused")
+  end
+
+  it "closes connections and channels and cancels consumers" do
+    _, requests = run_tui('3', 'm', '1', 'y', responses: VIEW_RESPONSES, manage: true)
+    requests.should contain("DELETE /api/connections/#{URI.encode_path_segment(CONNECTION_NAME)}")
+
+    _, requests = run_tui('4', 'm', '1', 'y', responses: VIEW_RESPONSES, manage: true)
+    requests.should contain("DELETE /api/channels/#{URI.encode_path_segment(CHANNEL_NAME)}")
+
+    # The queue of the view, and the consumer selected in it
+    screen, _ = run_tui('2', TUI::Key::Enter, 'm', TUI::Key::CtrlC, responses: VIEW_RESPONSES, manage: true)
+    screen.text.should contain("1  Pause the consumers of queue seed.ready")
+    screen.text.should contain("2  Cancel consumer seed-consumer-0")
+    _, requests = run_tui('2', TUI::Key::Enter, 'm', '2', 'y', responses: VIEW_RESPONSES, manage: true)
+    requests.should contain("DELETE /api/consumers/seed/#{URI.encode_path_segment(CONNECTION_NAME)}/1/seed-consumer-0")
+  end
+
   it "warns about a queue without consumers, and an object that's gone" do
     queue = {vhost: "seed", name: "seed.ready", messages_ready: 5, consumers: 0}
     screen, _ = run_tui('2', TUI::Key::Enter, responses: with_response("/api/queues/seed/seed.ready", queue))
@@ -942,6 +999,22 @@ describe LavinMQCtl::TUI do
     queues = {items: items, filtered_count: 60}
     screen, _ = run_tui('2', TUI::Key::PageDown, TUI::ResizeEvent.new(140, 30), responses: with_response("/api/queues", queues))
     screen.text.lines.find!(&.includes?("▌")).should contain("q00")
+  end
+
+  it "keeps the selection on its row when the order changes" do
+    queue = ->(name : String) { {vhost: "v", name: name, messages: 1} }
+    responses = TUI_RESPONSES.merge({"/api/queues" => {items: %w[a.queue b.queue c.queue].map(&queue), filtered_count: 3}.to_json})
+    with_tui_api(responses: responses) do |client|
+      screen = FakeTUIScreen.new(events: [tui_key('2'), tui_key(TUI::Key::Down)] of TUI::Event, quit_after: 500.milliseconds)
+      spawn do
+        sleep 200.milliseconds
+        responses["/api/queues"] = {items: %w[b.queue c.queue a.queue].map(&queue), filtered_count: 3}.to_json
+      end
+      TUI.new(client, 0.05, screen).start
+
+      screen.text.lines.find!(&.includes?("▌")).should contain("b.queue")
+      screen.text.lines.index!(&.includes?("b.queue")).should be < screen.text.lines.index!(&.includes?("c.queue"))
+    end
   end
 
   it "keeps refreshing while keys are pressed" do

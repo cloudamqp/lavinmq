@@ -99,7 +99,7 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 |---------|-------------|
 | `status` | Display server status |
 | `cluster_status` | Display cluster status |
-| `tui [-i seconds]` | Start the interactive dashboard |
+| `tui [-i seconds] [--manage]` | Start the interactive dashboard |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
@@ -127,6 +127,18 @@ queue, and `Esc` goes back. A warning points out a queue with messages but no
 consumers, a paused or closed queue, a channel at its prefetch limit and a blocked
 connection. Other rows show all their fields.
 
+The TUI only reads, unless it's started with `--manage`. Then `m` lists what can be
+done to the selected row, or to what's opened and its selected row: pause or resume a
+queue's consumers, restart a closed queue, close a connection or channel, cancel a
+consumer, and pause or resume a shovel. Each asks to confirm with `y`, naming what it
+changes, and the header shows `MANAGE`. Purging and deleting are left to the
+`purge_queue` and `delete_queue` commands. On the control socket the TUI can do all
+of this, as with any `lavinmqctl` command. With `--uri` the user's tags apply, so a
+user with only the `monitoring` tag can't change anything.
+
+The selection stays on its row when the rows' order changes, like when sorted by a
+count that changes, except right after changing the sort order or filter.
+
 The Logs page shows the broker's log entries that it keeps in memory, newest last,
 with warnings in yellow and errors in red. `/` filters them, and `End` goes back to
 following new entries after scrolling up. The log is only shown to users with the
@@ -146,6 +158,7 @@ in names (for example in consumer tags or MQTT client ids) are shown as `?`.
 | `o`, `r` | Sort by the next column, reverse the sort order |
 | `/`, `Esc` | Filter by name, clear the filter |
 | `p`, `Space` | Pause or resume refreshing |
+| `m` | With `--manage`, pause a queue, close a connection and more, see above |
 | `?` | Show the keys |
 | `q`, `Ctrl-C` | Quit |
 

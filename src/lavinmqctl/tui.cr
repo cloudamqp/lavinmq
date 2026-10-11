@@ -6,6 +6,7 @@ require "./tui/screen"
 require "./tui/terminal"
 require "./tui/views"
 require "./tui/logs"
+require "./tui/manage"
 
 class LavinMQCtl
   class TUI
@@ -55,6 +56,9 @@ class LavinMQCtl
       property filter = ""
       # What's opened with Enter, the last one is shown
       getter views = [] of View
+      # The selection stays on its row when the rows' order changes, but not
+      # right after the sort order or filter changed
+      property? follow = true
 
       def initialize(@sort : String?, @descending : Bool)
       end
@@ -88,6 +92,7 @@ class LavinMQCtl
       {"r", "Reverse the sort order"},
       {"/", "Filter by name, Esc clears the filter"},
       {"p Space", "Pause or resume refreshing"},
+      {"m", "Pause a queue, close a connection and more, with --manage"},
       {"?", "Show or hide this help"},
       {"q Ctrl-C", "Quit"},
     }
@@ -122,8 +127,10 @@ class LavinMQCtl
     end
 
     # *reconnect* opens a new connection after a timeout, for clients that
-    # can't reconnect by themselves, like one on the control socket
-    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TerminalScreen.new, @reconnect : Proc(HTTP::Client)? = nil)
+    # can't reconnect by themselves, like one on the control socket. Only
+    # with *manage* does it change anything, like pause a queue.
+    def initialize(@client : HTTP::Client, @interval : Float64 = 1.0, @screen : Screen = TerminalScreen.new,
+                   @reconnect : Proc(HTTP::Client)? = nil, @manage = false)
       @running = true
       @closed = false
       @width = 0
@@ -132,8 +139,9 @@ class LavinMQCtl
       @last_error = nil.as(String?)
       @overview = nil.as(JSON::Any?)
       @items = [] of JSON::Any
-      # The row number of the first of @items
+      # The row number of the first of @items, and the page they're for
       @items_first = 0
+      @items_page = :overview
       @nodes = [] of JSON::Any
       @fetched = ""
       @fetch_time = Time::Span.zero
@@ -222,6 +230,7 @@ class LavinMQCtl
 
     private def handle_key(event : KeyEvent)
       return @running = false if event.key.ctrl_c?
+      return if manage_key(event)
       if input = @input
         return edit_filter(input, event)
       end
@@ -280,6 +289,7 @@ class LavinMQCtl
       when 'o'      then next_sort
       when 'r'      then reverse_sort
       when 'p', ' ' then @paused = !@paused
+      when 'm'      then open_menu
       when '?'      then @help = true
       when '/'      then @input = @page == :logs ? @log_filter : table_state.try(&.filter)
       else
@@ -308,6 +318,7 @@ class LavinMQCtl
       elsif state = table_state
         state.filter = filter
         state.cursor = 0
+        state.follow = false
       end
     end
 
@@ -332,12 +343,14 @@ class LavinMQCtl
       state.sort = column.sort
       state.descending = column.descending
       state.cursor = 0
+      state.follow = false
     end
 
     private def reverse_sort
       if (state = table_state) && state.sort
         state.descending = !state.descending?
         state.cursor = 0
+        state.follow = false
       end
     end
 
@@ -394,6 +407,7 @@ class LavinMQCtl
         rows = hot_queue_rows
         @items = rows > 0 ? fetch_page("/api/queues", "queues", 1, rows, "messages", true, "")[0] : [] of JSON::Any
         @items_first = 0
+        @items_page = :overview
         @nodes = fetch_list("/api/nodes", "nodes")
       elsif (state = table_state) && (view = state.views.last?)
         refresh_view(view)
@@ -411,6 +425,10 @@ class LavinMQCtl
       return unless state = table_state
       table = @tables[@page]
       rows = table_rows
+      # The selected row, if it's on the page fetched
+      index = state.cursor - @items_first
+      same_page = @items_page == @page && state.cursor // rows == @items_first // rows
+      selected = @items[index]? if state.follow? && same_page && index >= 0
       # Once more if the rows shrank and the cursor ended up past the end
       2.times do
         page = state.cursor // rows + 1
@@ -427,6 +445,11 @@ class LavinMQCtl
         last = {state.total - 1, 0}.max
         break if state.cursor <= last
         state.cursor = last
+      end
+      @items_page = @page
+      state.follow = true
+      if selected && (moved = @items.index { |item| item_id(item) == item_id(selected) })
+        state.cursor = @items_first + moved
       end
     end
 
@@ -539,6 +562,8 @@ class LavinMQCtl
         end
         draw_footer
         draw_help if @help
+        @menu.try { |menu| draw_menu(menu) }
+        @confirm.try { |action| draw_confirm(action) }
       end
       @screen.render
     end
@@ -562,6 +587,10 @@ class LavinMQCtl
                  ""
                end
       right = @width - Text.width(status)
+      if @manage
+        right -= 8
+        print_at(right, 0, " MANAGE ", DARK, YELLOW, true)
+      end
       x = print_at(0, 0, " LAVINMQ ", WHITE, BAR_BG, true, right)
       x += print_at(x, 0, " #{PAGES.find! { |p| p[:name] == @page }[:label]} ", WHITE, SELECT_BG, true, right - x)
       version = Fields.text(@overview, "lavinmq_version", default: "?")
@@ -583,6 +612,11 @@ class LavinMQCtl
         x += print_at(x, y, input, WHITE, BAR_BG, true)
         x += print_at(x, y, "▏", GREEN, BAR_BG)
         print_at(x + 1, y, "Enter applies, Esc cancels", MUTED_FG, BAR_BG)
+        return
+      end
+
+      if (notice = @notice) && Time.instant - notice.at < NOTICE_TIME
+        print_fit(0, y, " #{notice.text}", @width, notice.color, BAR_BG, true)
         return
       end
 
@@ -1473,6 +1507,6 @@ class LavinMQCtl
   end
 end
 
-LavinMQCtl.tui_launcher = ->(client : HTTP::Client, reconnect : Proc(HTTP::Client)?, interval : Float64) {
-  LavinMQCtl::TUI.new(client, interval, reconnect: reconnect).start
+LavinMQCtl.tui_launcher = ->(client : HTTP::Client, reconnect : Proc(HTTP::Client)?, interval : Float64, manage : Bool) {
+  LavinMQCtl::TUI.new(client, interval, reconnect: reconnect, manage: manage).start
 }

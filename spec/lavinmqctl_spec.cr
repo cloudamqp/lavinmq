@@ -318,7 +318,7 @@ describe "LavinMQCtl" do
     it "should start TUI with parsed interval" do
       called = false
       interval = nil.as(Float64?)
-      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, parsed_interval : Float64) {
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, parsed_interval : Float64, _manage : Bool) {
         called = true
         interval = parsed_interval
       }
@@ -331,10 +331,24 @@ describe "LavinMQCtl" do
       LavinMQCtl.tui_launcher = nil
     end
 
+    it "should start TUI read-only unless --manage is given" do
+      modes = [] of Bool
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, _interval : Float64, manage : Bool) {
+        modes << manage
+        nil
+      }
+
+      run_lavinmqctl("localhost:15672", ["tui"])[:exit].should eq(0)
+      run_lavinmqctl("localhost:15672", ["tui", "--manage"])[:exit].should eq(0)
+      modes.should eq [false, true]
+    ensure
+      LavinMQCtl.tui_launcher = nil
+    end
+
     # Error cases
     it "should fail when TUI interval is invalid" do
       called = false
-      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, _interval : Float64) {
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _reconnect : Proc(HTTP::Client)?, _interval : Float64, _manage : Bool) {
         called = true
       }
 
@@ -365,7 +379,7 @@ describe "LavinMQCtl" do
         spawn(name: "stalled api") { server.listen }
         error = nil.as(Exception?)
         reconnect = nil.as(Proc(HTTP::Client)?)
-        LavinMQCtl.tui_launcher = ->(client : HTTP::Client, tui_reconnect : Proc(HTTP::Client)?, _interval : Float64) {
+        LavinMQCtl.tui_launcher = ->(client : HTTP::Client, tui_reconnect : Proc(HTTP::Client)?, _interval : Float64, _manage : Bool) {
           reconnect = tui_reconnect
           begin
             client.get("/api/overview")

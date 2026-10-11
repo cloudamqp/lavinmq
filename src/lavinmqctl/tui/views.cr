@@ -13,11 +13,12 @@ class LavinMQCtl
     # A list in a view, like a queue's consumers. Its rows are the object's
     # *key* field, or fetched from the object's path followed by *path*,
     # sorted by *sort*, descending. Without columns it's the object's fields.
-    # *count* is the object's field with the number of rows, and Enter on a
-    # row opens the view *open* returns for it.
+    # *count* is the object's field with the number of rows, Enter on a row
+    # opens the view *open* returns for it, and *manage* is what a row is in
+    # manage mode.
     record Section, title : String, columns : Array(Column) = [] of Column,
       key : String? = nil, path : String? = nil, sort : String? = nil, count : String? = nil,
-      open : Proc(JSON::Any, View?)? = nil do
+      open : Proc(JSON::Any, View?)? = nil, manage : Target? = nil do
       def fields? : Bool
         columns.empty?
       end
@@ -75,7 +76,7 @@ class LavinMQCtl
             col("Exclusive", 9) { |c| Fields.bool(c, "exclusive") },
             col("Prefetch", 8, right: true) { |c| Fields.count(c, "prefetch_count") },
             col("Priority", 8, right: true) { |c| Fields.count(c, "priority") },
-          ], key: "consumer_details", count: "consumers",
+          ], key: "consumer_details", count: "consumers", manage: Target::Consumer,
             open: ->(c : JSON::Any) { channel_view(Fields.text(c, "channel_details", "name", default: "")) }),
           Section.new("Bindings", [
             col("Exchange", 30, flex: true) { |b| Fields.text(b, "source").presence || "(default)" },
@@ -100,7 +101,7 @@ class LavinMQCtl
             col("Cons", 6, right: true) { |c| Fields.count(c, "consumer_count") },
             col("Pub/s", 11, right: true) { |c| Fields.rate(c, "message_stats", "publish_details", "rate") },
             col("Confirm", 7) { |c| Fields.bool(c, "confirm") },
-          ], path: "/channels", count: "channels",
+          ], path: "/channels", count: "channels", manage: Target::Channel,
             open: ->(c : JSON::Any) { channel_view(Fields.text(c, "name", default: "")) }),
           fields,
         ],
@@ -111,7 +112,7 @@ class LavinMQCtl
             col("Ack", 4) { |c| Fields.bool(c, "ack_required") },
             col("Exclusive", 9) { |c| Fields.bool(c, "exclusive") },
             col("Prefetch", 8, right: true) { |c| Fields.count(c, "prefetch_count") },
-          ], key: "consumer_details", count: "consumer_count",
+          ], key: "consumer_details", count: "consumer_count", manage: Target::Consumer,
             open: ->(c : JSON::Any) { queue_view(Fields.text(c, "queue", "vhost", default: ""), Fields.text(c, "queue", "name", default: "")) }),
           fields,
         ],

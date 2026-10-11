@@ -9,7 +9,7 @@ require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
 
 class LavinMQCtl
-  alias TUILauncher = Proc(HTTP::Client, Proc(HTTP::Client)?, Float64, Nil)
+  alias TUILauncher = Proc(HTTP::Client, Proc(HTTP::Client)?, Float64, Bool, Nil)
   @@tui_launcher : TUILauncher?
 
   @options = {} of String => String
@@ -882,6 +882,7 @@ class LavinMQCtl
   @[Cmd("Start the interactive dashboard", "", section: "Server")]
   @[Opt("-i SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
   @[Opt("--interval=SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
+  @[Opt("--manage", "Allow pausing queues, closing connections and other changes", options: "manage", value: "true")]
   private def tui
     interval = tui_interval
     unless launcher = @@tui_launcher
@@ -890,7 +891,7 @@ class LavinMQCtl
     @request_timeout = TUI_TIMEOUT
     # Unlike a TCP client, one on the control socket can't reconnect by itself
     reconnect = control_unix_path.try { |path| -> { unix_client(path) } }
-    launcher.call(http, reconnect, interval)
+    launcher.call(http, reconnect, interval, @options["manage"]? == "true")
   end
 
   private def tui_interval
