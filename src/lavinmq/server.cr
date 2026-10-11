@@ -240,7 +240,10 @@ module LavinMQ
         @gc_stats = GC.prof_stats
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        select # until the next round, or until closed
+        when @closed.when_true.receive
+        when timeout(@config.stats_interval.milliseconds)
+        end
       end
     ensure
       statm.try &.close
