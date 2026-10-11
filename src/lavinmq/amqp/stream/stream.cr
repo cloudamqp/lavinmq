@@ -149,7 +149,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Dropped if state.closed?
+      return PublishResult::Closed if state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -159,9 +159,9 @@ module LavinMQ::AMQP
       PublishResult::Ok
     rescue MessageStore::ClosedError
       # Closed/deleted concurrently after the @state.closed? check; treat as
-      # dropped instead of surfacing the race as an error (see Queue#publish_internal).
+      # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
-      PublishResult::Dropped
+      PublishResult::Closed
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

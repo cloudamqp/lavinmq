@@ -710,8 +710,9 @@ module LavinMQ::AMQP
 
     enum PublishResult
       Ok       # message accepted and stored
-      Dropped  # queue closed or message was a duplicate
+      Dropped  # message was a duplicate
       Overflow # rejected by max-length / max-length-bytes (overflow=reject-publish)
+      Closed   # queue closed, the message wasn't stored
     end
 
     class Closed < Exception; end
@@ -721,7 +722,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
-      return PublishResult::Dropped if closed?
+      return PublishResult::Closed if closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -749,9 +750,9 @@ module LavinMQ::AMQP
       PublishResult::Ok
     rescue MessageStore::ClosedError
       # A racing delete closed the store. If push hadn't stored the message it's
-      # dropped (avoids an HTTP 500); if it had, a later ClosedError from the
+      # not stored (avoids an HTTP 500); if it had, a later ClosedError from the
       # post-publish expire-fiber check still means the publish succeeded.
-      pushed ? PublishResult::Ok : PublishResult::Dropped
+      pushed ? PublishResult::Ok : PublishResult::Closed
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
