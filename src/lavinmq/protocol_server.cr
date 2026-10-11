@@ -284,14 +284,27 @@ module LavinMQ
     # Writes aren't buffered (sync), OpenSSL writes whole records.
     private def set_tls_tcp_read_buffer(socket)
       if @config.socket_buffer_size.positive?
-        socket.buffer_pool = IO::BufferPool.for(@config.socket_buffer_size)
+        socket.buffer_pool = buffer_pool
         socket.read_buffering = true
       end
     end
 
+    @buffer_pool : IO::BufferPool?
+
+    # The pool for the configured socket_buffer_size, cached so that accepting
+    # a connection doesn't take IO::BufferPool.for's lock. Looked up again when
+    # a config reload changes the size.
+    private def buffer_pool : IO::BufferPool
+      size = @config.socket_buffer_size
+      if (pool = @buffer_pool) && pool.buffer_size == size
+        return pool
+      end
+      @buffer_pool = IO::BufferPool.for(size)
+    end
+
     private def set_buffer_size(socket)
       if @config.socket_buffer_size.positive?
-        socket.buffer_pool = IO::BufferPool.for(@config.socket_buffer_size)
+        socket.buffer_pool = buffer_pool
         socket.sync = false
         socket.read_buffering = true
       else

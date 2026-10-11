@@ -44,6 +44,9 @@ class Socket
 
   # Waits until the socket is readable. Raises `IO::TimeoutError` after
   # `read_timeout`, and `IO::Error` if the socket is closed meanwhile.
+  #
+  # Doesn't take the fd's read lock, so it doesn't serialize readers like a
+  # blocking read does: of several fibers waiting, an incoming edge wakes one.
   def wait_readable : Nil
     check_open
     # a reference keeps a concurrent close from releasing the fd while waiting

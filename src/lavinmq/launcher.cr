@@ -279,7 +279,7 @@ module LavinMQ
         end
       end
       puts "  total stack used (excluding running fibers): #{total_stack.humanize_bytes}"
-      IO::BufferPool.each do |pool|
+      IO::BufferPool.all.each do |pool|
         stats = pool.stats
         puts "Buffer pool (#{stats[:buffer_size].humanize_bytes} buffers)"
         puts "  threads: #{stats[:threads]}"

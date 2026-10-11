@@ -165,34 +165,41 @@ describe IO::Buffered do
       reader, writer = UNIXSocket.pair
       writer.buffer_pool = pool
       writer.sync = false
-      writes = 0
-      closing = false
+      filled = fill_send_buffer(writer)
       done = Channel(Nil).new
       spawn do
-        until closing
-          writer.write Bytes.new(512)
-          writer.flush # eventually blocks holding the pooled buffer
-          writes += 1
-        end
+        writer.write Bytes.new(512, 1_u8)
+        writer.flush # blocks, the socket's buffers are full
       rescue IO::Error
       ensure
         done.send nil
       end
-      loop do # until the writer is blocked
-        prev = writes
-        sleep 20.milliseconds
-        break if writes == prev
+      # until the flush has detached the write buffer
+      until writer.@out_buffer.null? && writer.@out_count.zero? && pool.stats[:allocated] == 1
+        Fiber.yield
       end
-      closing = true
       spawn { writer.close } # flushes concurrently without the client's write lock
       Fiber.yield
       received = reader.gets_to_end.bytesize
       done.receive
       # at most the blocked write, not its buffer a second time (which may by
       # then be back in the pool and filled by another connection)
-      received.should be <= (writes + 1) * 512
+      received.should be <= filled + 512
       acquired = pool.stats[:allocated] + pool.stats[:reused]
       pool.stats[:released].should eq acquired
+    ensure
+      reader.try &.close
+    end
+
+    it "returns the write buffer to the pool when closed with buffered data" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      writer.buffer_pool = pool
+      writer.sync = false
+      writer.write Bytes.new(10, 1_u8)
+      writer.close
+      reader.gets_to_end.to_slice.should eq Bytes.new(10, 1_u8)
+      pool.stats[:available].should eq 1
     ensure
       reader.try &.close
     end
@@ -296,9 +303,39 @@ describe IO::Buffered do
 
     it "releases the read buffer when an unbuffered read fails" do
       pool = IO::BufferPool.new(1024)
-      io = FailingIO.new
+      io = ScriptedIO.new { raise IO::Error.new("read failed") }
       io.buffer_pool = pool
       expect_raises(IO::Error) { io.read_byte }
+      pool.stats[:available].should eq 1
+    end
+
+    it "releases the read buffer when an unbuffered read fails after a close" do
+      pool = IO::BufferPool.new(1024)
+      gate = Channel(Nil).new
+      io = ScriptedIO.new do
+        gate.receive? # waits for data, like SSL_read on a quiet connection
+        raise IO::Error.new("Closed stream")
+      end
+      io.on_close = -> { gate.close }
+      io.buffer_pool = pool
+      done = Channel(Nil).new
+      spawn do
+        io.read_byte rescue nil
+        done.send nil
+      end
+      until pool.stats[:allocated] == 1 # the reader holds the read buffer
+        Fiber.yield
+      end
+      io.close
+      done.receive
+      pool.stats[:available].should eq 1
+    end
+
+    it "releases the read buffer at end of stream of a non-socket IO" do
+      pool = IO::BufferPool.new(1024)
+      io = ScriptedIO.new { 0 }
+      io.buffer_pool = pool
+      io.read_byte.should be_nil
       pool.stats[:available].should eq 1
     end
 
@@ -333,12 +370,18 @@ describe IO::Buffered do
   end
 end
 
-# An IO whose reads always fail
-class FailingIO < IO
+# An IO::Buffered whose reads run a block, for the read path that sockets
+# don't take (TLS sockets do)
+class ScriptedIO < IO
   include IO::Buffered
 
+  property on_close : Proc(Nil)? = nil
+
+  def initialize(&@on_read : -> Int32)
+  end
+
   def unbuffered_read(slice : Bytes)
-    raise IO::Error.new("read failed")
+    @on_read.call
   end
 
   def unbuffered_write(slice : Bytes) : Nil
@@ -348,10 +391,24 @@ class FailingIO < IO
   end
 
   def unbuffered_close
+    @on_close.try &.call
   end
 
   def unbuffered_rewind
   end
+end
+
+# Fills the socket's send buffer, so that its next write blocks until the
+# peer reads. Returns the number of bytes written.
+def fill_send_buffer(socket : Socket) : Int64
+  total = 0_i64
+  {4096, 512, 1}.each do |size|
+    buf = Bytes.new(size)
+    while (n = LibC.send(socket.fd, buf, buf.size, LibC::MSG_DONTWAIT)) > 0
+      total += n
+    end
+  end
+  total
 end
 
 describe Socket do

@@ -136,10 +136,6 @@ class IO::BufferPool
   def self.all : Array(IO::BufferPool)
     @@pools_lock.synchronize { @@pools.values }
   end
-
-  def self.each(&)
-    all.each { |pool| yield pool }
-  end
 end
 
 # Opt-in buffer pooling for IO::Buffered, enabled with `#buffer_pool=`.
@@ -216,10 +212,17 @@ module IO::Buffered
     end
   end
 
-  # Detach from the pool, buffers still held are left to the GC
+  # Flushes through the pool, so that the write buffer is detached and
+  # returned like on any flush, then detaches the IO from the pool. A reader
+  # that still holds the read buffer returns it when its read fails.
   def close : Nil
-    @buffer_pool = nil
-    previous_def
+    return previous_def unless @buffer_pool
+    begin
+      flush if @out_count > 0
+    ensure
+      @buffer_pool = nil
+      previous_def
+    end
   end
 
   private def out_buffer
@@ -230,8 +233,10 @@ module IO::Buffered
     end
   end
 
-  private def release_in_buffer : Nil
-    if (pool = @buffer_pool) && (in_buf = @in_buffer)
+  # The reader releases with the pool it acquired from, as a concurrent close
+  # detaches the IO from the pool while the reader still holds the buffer
+  private def release_in_buffer(pool = @buffer_pool) : Nil
+    if pool && (in_buf = @in_buffer)
       @in_buffer = Pointer(UInt8).null
       @in_buffer_rem = Bytes.empty
       pool.release(in_buf)
@@ -249,26 +254,32 @@ module IO::Buffered
     begin
       size = unbuffered_read(Slice.new(in_buffer, @buffer_size)).to_i
     rescue ex
-      release_in_buffer
+      release_in_buffer(pool)
       raise ex
     end
     @in_buffer_rem = Slice.new(in_buffer, size)
+    release_in_buffer(pool) if size.zero?
   end
 
   # Non-blocking read into a pooled buffer. If no data is available the buffer
   # is returned to the pool while waiting for the socket to become readable.
+  #
+  # Assumes one reading fiber per socket, like LavinMQ's client read loops.
+  # Unlike a blocking read, the wait doesn't hold the fd's read lock, so with
+  # several readers waiting, the event loop wakes one of them, and data that
+  # one leaves unread doesn't wake the others.
   private def fill_socket_buffer(socket : Socket, pool : IO::BufferPool) : Nil
     loop do
       in_buffer = (@in_buffer ||= pool.acquire)
       begin
         size = socket.read_nonblock(Slice.new(in_buffer, @buffer_size))
       rescue ex
-        release_in_buffer
+        release_in_buffer(pool)
         raise ex
       end
       if size
         @in_buffer_rem = Slice.new(in_buffer, size)
-        release_in_buffer if size.zero?
+        release_in_buffer(pool) if size.zero?
         return
       end
       @in_buffer = Pointer(UInt8).null
