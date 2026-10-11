@@ -474,28 +474,19 @@ module LavinMQ
       end
 
       private def buffer_pool_metrics(writer)
-        pools = [] of IO::BufferPool
-        IO::BufferPool.each { |pool| pools << pool }
-        stats = pools.map(&.stats)
+        stats = IO::BufferPool.all.map(&.stats)
         return if stats.empty?
         {
-          {"available", "gauge", "Socket buffers cached for reuse"},
-          {"allocated_total", "counter", "Socket buffers allocated because none was cached"},
-          {"reused_total", "counter", "Socket buffers taken from the cache"},
-          {"released_total", "counter", "Socket buffers returned to the cache"},
-          {"dropped_total", "counter", "Socket buffers left to the GC because the cache was full"},
-        }.each do |key, type, help|
+          {:available, "available", "gauge", "Socket buffers cached for reuse"},
+          {:allocated, "allocated_total", "counter", "Socket buffers allocated because none was cached"},
+          {:reused, "reused_total", "counter", "Socket buffers taken from the cache"},
+          {:released, "released_total", "counter", "Socket buffers returned to the cache"},
+          {:dropped, "dropped_total", "counter", "Socket buffers left to the GC because the cache was full"},
+        }.each do |field, key, type, help|
           name = "socket_buffer_pool_#{key}"
           writer.write_header(name, type, help)
           stats.each do |s|
-            value = case key
-                    when "available"       then s[:available]
-                    when "allocated_total" then s[:allocated]
-                    when "reused_total"    then s[:reused]
-                    when "released_total"  then s[:released]
-                    else                        s[:dropped]
-                    end
-            writer.write_value(name, value, {buffer_size: s[:buffer_size].to_s})
+            writer.write_value(name, s[field], {buffer_size: s[:buffer_size].to_s})
           end
         end
       end

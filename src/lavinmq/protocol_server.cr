@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "../stdlib/io_buffered"
 
 module LavinMQ
   enum Protocol

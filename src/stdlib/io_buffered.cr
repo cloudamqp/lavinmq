@@ -1,4 +1,5 @@
 require "./socket_read_nonblock"
+require "./io_buffered_discard"
 
 # A pool of reusable byte buffers for IO::Buffered.
 #
@@ -86,15 +87,20 @@ class IO::BufferPool
   end
 
   private def new_thread_cache : Cache
-    cache = Cache.new(@max_cached)
-    @caches_lock.synchronize { @caches << cache }
-    # the fiber may have moved to another thread while waiting for a lock,
-    # so the thread local is read after taking them
+    # the fiber may move to another thread while waiting for a lock, so the
+    # thread local is read after taking it
     caches = @@thread_caches || register_thread_caches
     while caches.size <= @id
       caches << nil
     end
-    caches[@id] ||= cache
+    # nothing from the thread local read to here yields, so this thread's
+    # cache is installed exactly once
+    if cache = caches[@id]
+      return cache
+    end
+    cache = caches[@id] = Cache.new(@max_cached)
+    @caches_lock.synchronize { @caches << cache }
+    cache
   end
 
   private def register_thread_caches : Array(Cache?)
@@ -128,9 +134,12 @@ class IO::BufferPool
     end
   end
 
+  def self.all : Array(IO::BufferPool)
+    @@pools_lock.synchronize { @@pools.values }
+  end
+
   def self.each(&)
-    pools = @@pools_lock.synchronize { @@pools.values }
-    pools.each { |pool| yield pool }
+    all.each { |pool| yield pool }
   end
 end
 
@@ -159,6 +168,16 @@ module IO::Buffered
     @buffer_pool = pool
   end
 
+  # Pooled buffers are released while not in use, so the stdlib's check for
+  # allocated buffers doesn't stop a change to a size the pool's buffers
+  # don't have
+  def buffer_size=(value)
+    if (pool = @buffer_pool) && value != pool.buffer_size
+      raise ArgumentError.new("Cannot change buffer_size of an IO using a buffer pool")
+    end
+    previous_def
+  end
+
   def read(slice : Bytes) : Int32
     return previous_def unless @buffer_pool
     # A buffer emptied by read_byte, peek or skip is returned before a read
@@ -169,13 +188,33 @@ module IO::Buffered
     count
   end
 
+  # The write buffer is detached before writing, so that a concurrent flush or
+  # close sees nothing to write, instead of writing (or releasing) a buffer
+  # that may already be back in the pool and in use by another connection.
+  # On a failed write the buffered data is dropped, the connection is
+  # abandoned then anyway.
   def flush : self
+    return previous_def unless pool = @buffer_pool
+    if out_buf = @out_buffer
+      count = @out_count
+      @out_buffer = Pointer(UInt8).null
+      @out_count = 0
+      begin
+        unbuffered_write(Slice.new(out_buf, count)) if count > 0
+      ensure
+        pool.release(out_buf)
+      end
+    end
+    unbuffered_flush
+    self
+  end
+
+  def discard_write_buffer : Nil
     previous_def
     if (pool = @buffer_pool) && (out_buf = @out_buffer)
       @out_buffer = Pointer(UInt8).null
       pool.release(out_buf)
     end
-    self
   end
 
   # Detach from the pool, buffers still held are left to the GC
@@ -208,7 +247,12 @@ module IO::Buffered
       end
     {% end %}
     in_buffer = (@in_buffer ||= pool.acquire)
-    size = unbuffered_read(Slice.new(in_buffer, @buffer_size)).to_i
+    begin
+      size = unbuffered_read(Slice.new(in_buffer, @buffer_size)).to_i
+    rescue ex
+      release_in_buffer
+      raise ex
+    end
     @in_buffer_rem = Slice.new(in_buffer, size)
   end
 
@@ -217,7 +261,13 @@ module IO::Buffered
   private def fill_socket_buffer(socket : Socket, pool : IO::BufferPool) : Nil
     loop do
       in_buffer = (@in_buffer ||= pool.acquire)
-      if size = socket.read_nonblock(Slice.new(in_buffer, @buffer_size))
+      begin
+        size = socket.read_nonblock(Slice.new(in_buffer, @buffer_size))
+      rescue ex
+        release_in_buffer
+        raise ex
+      end
+      if size
         @in_buffer_rem = Slice.new(in_buffer, size)
         release_in_buffer if size.zero?
         return

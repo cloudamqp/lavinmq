@@ -1,5 +1,6 @@
 require "spec"
 require "../../src/stdlib/io_buffered"
+require "../../src/stdlib/io_buffered_discard"
 
 describe IO::BufferPool do
   it "reuses released buffers" do
@@ -159,7 +160,7 @@ describe IO::Buffered do
       writer.try &.close
     end
 
-    it "doesn't return a buffer to the pool when closed during a blocked flush" do
+    it "doesn't write a blocked flush's buffer again when closed concurrently" do
       pool = IO::BufferPool.new(1024)
       reader, writer = UNIXSocket.pair
       writer.buffer_pool = pool
@@ -183,13 +184,15 @@ describe IO::Buffered do
         break if writes == prev
       end
       closing = true
-      spawn { writer.close } # flushes concurrently without a lock, like Client#close_socket
+      spawn { writer.close } # flushes concurrently without the client's write lock
       Fiber.yield
-      reader.gets_to_end
+      received = reader.gets_to_end.bytesize
       done.receive
+      # at most the blocked write, not its buffer a second time (which may by
+      # then be back in the pool and filled by another connection)
+      received.should be <= (writes + 1) * 512
       acquired = pool.stats[:allocated] + pool.stats[:reused]
-      # the buffer that was in use when the socket was closed is left to the GC
-      pool.stats[:released].should eq acquired - 1
+      pool.stats[:released].should eq acquired
     ensure
       reader.try &.close
     end
@@ -263,6 +266,91 @@ describe IO::Buffered do
       reader.try &.close
       writer.try &.close
     end
+
+    it "doesn't allow changing buffer_size while using a pool" do
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = IO::BufferPool.new(1024)
+      reader.buffer_size = 1024
+      expect_raises(ArgumentError) { reader.buffer_size = 4096 }
+      reader.buffer_size.should eq 1024
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
+    it "releases the read buffer when a socket read fails" do
+      pool = IO::BufferPool.new(1024)
+      server = TCPServer.new("127.0.0.1", 0)
+      client = TCPSocket.new("127.0.0.1", server.local_address.port)
+      peer = server.accept
+      client.buffer_pool = pool
+      client.read_buffering = true
+      peer.linger = 0
+      peer.close # resets the connection
+      expect_raises(IO::Error) { client.read_byte }
+      pool.stats[:available].should eq 1
+    ensure
+      client.try &.close
+      server.try &.close
+    end
+
+    it "releases the read buffer when an unbuffered read fails" do
+      pool = IO::BufferPool.new(1024)
+      io = FailingIO.new
+      io.buffer_pool = pool
+      expect_raises(IO::Error) { io.read_byte }
+      pool.stats[:available].should eq 1
+    end
+
+    it "releases the write buffer when a flush fails" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      writer.buffer_pool = pool
+      writer.sync = false
+      reader.close
+      writer.write Bytes.new(10)
+      expect_raises(IO::Error) { writer.flush }
+      writer.@out_buffer.null?.should be_true
+      pool.stats[:available].should eq 1
+    ensure
+      writer.try &.close
+    end
+
+    it "releases the write buffer when it's discarded" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      writer.buffer_pool = pool
+      writer.sync = false
+      writer.write Bytes.new(10)
+      writer.discard_write_buffer
+      pool.stats[:available].should eq 1
+      writer.close
+      reader.read_timeout = 1.second
+      reader.gets_to_end.should be_empty
+    ensure
+      reader.try &.close
+    end
+  end
+end
+
+# An IO whose reads always fail
+class FailingIO < IO
+  include IO::Buffered
+
+  def unbuffered_read(slice : Bytes)
+    raise IO::Error.new("read failed")
+  end
+
+  def unbuffered_write(slice : Bytes) : Nil
+  end
+
+  def unbuffered_flush
+  end
+
+  def unbuffered_close
+  end
+
+  def unbuffered_rewind
   end
 end
 
@@ -319,7 +407,7 @@ describe Socket do
     it "raises IO::TimeoutError after read_timeout" do
       reader, writer = UNIXSocket.pair
       reader.read_timeout = 10.milliseconds
-      expect_raises(IO::TimeoutError) { reader.wait_readable }
+      expect_raises(IO::TimeoutError, "Read timed out") { reader.wait_readable }
     ensure
       reader.try &.close
       writer.try &.close

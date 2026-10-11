@@ -47,7 +47,12 @@ class Socket
   def wait_readable : Nil
     check_open
     # a reference keeps a concurrent close from releasing the fd while waiting
-    @fd_lock.reference { event_loop.wait_readable(self) }
+    begin
+      @fd_lock.reference { event_loop.wait_readable(self) }
+    rescue IO::TimeoutError
+      # the same message as a timed out #read
+      raise IO::TimeoutError.new("Read timed out")
+    end
     check_open
   end
 end

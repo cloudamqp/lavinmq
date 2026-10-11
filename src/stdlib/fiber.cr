@@ -12,14 +12,16 @@ class Fiber
   # Approximate stack usage, for debugging. The saved stack pointer is only
   # updated on context switches, so for the current fiber the actual stack
   # pointer is used, and nil is returned for fibers running on other threads.
+  # Wrapping subtraction: a fiber switching context on another thread can be
+  # read half-updated, which must print a bogus value, not raise.
   def stack_used : UInt64?
     if same?(Fiber.current)
       sp = uninitialized UInt8
-      @stack.bottom.address - pointerof(sp).address
+      @stack.bottom.address &- pointerof(sp).address
     elsif running?
       nil
     else
-      @stack.bottom.address - @context.stack_top.address
+      @stack.bottom.address &- @context.stack_top.address
     end
   end
 end
