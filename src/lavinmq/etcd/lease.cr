@@ -30,7 +30,11 @@ module LavinMQ
 
       private def keepalive_loop(ttl : Int32)
         loop do
-          sleep (ttl / 3).seconds
+          select
+          when @expired.receive? # closed by #release
+            return
+          when timeout((ttl / 3).seconds)
+          end
           ttl = @etcd.lease_keepalive(@id)
         end
       rescue ex : Etcd::Error # only rescue etcd errors
