@@ -154,10 +154,10 @@ class LavinMQCtl
       @input = nil.as(String?)
       @states = {} of Symbol => TableState
       @tables = {} of Symbol => Table
-      @publish_history = [] of Float64
-      @deliver_history = [] of Float64
-      @ready_history = [] of Float64
-      @unacked_history = [] of Float64
+      @publish_history = History.new
+      @deliver_history = History.new
+      @ready_history = History.new
+      @unacked_history = History.new
       @tables = tables
       @sections = view_sections
     end
@@ -972,33 +972,30 @@ class LavinMQCtl
     end
 
     private def draw_rate_graph(rect : Rect)
-      draw_graph_panel(rect, "Message rates", @publish_history, @deliver_history, {"Publish", "Deliver"}, stats_interval, RATE_FORMAT)
+      draw_graph_panel(rect, "Message rates", @publish_history, @deliver_history, {"Publish", "Deliver"}, RATE_FORMAT)
     end
 
     private def draw_queue_graph(rect : Rect)
-      draw_graph_panel(rect, "Queued messages", @ready_history, @unacked_history, {"Ready", "Unacked"}, stats_interval, COUNT_FORMAT)
+      draw_graph_panel(rect, "Queued messages", @ready_history, @unacked_history, {"Ready", "Unacked"}, COUNT_FORMAT)
     end
 
     RATE_FORMAT       = ->(value : Float64) { "#{Fields.number(value)}/s" }
     COUNT_FORMAT      = ->(value : Float64) { Fields.to_i64(value).format }
     BYTES_RATE_FORMAT = ->(value : Float64) { "#{Fields.human_bytes(Fields.to_i64(value))}/s" }
 
-    # *area* as a filled graph in green and *line* in blue, values *step*
-    # apart, with how far back it goes in the title and the newest values in
-    # the legend
-    private def draw_graph_panel(rect : Rect, title : String, area : Array(Float64), line : Array(Float64), names : {String, String}, step : Time::Span, format : Proc(Float64, String))
+    # *area* as a filled graph in green and *line* in blue, with how far back
+    # it goes in the title and the newest values in the legend
+    private def draw_graph_panel(rect : Rect, title : String, area : History, line : History, names : {String, String}, format : Proc(Float64, String))
       graph = Rect.new(rect.inner_x + 2, rect.inner_y + 1, rect.inner_width - 4, rect.inner_height - 3)
-      draw_panel(rect, title, graph_span(area, graph.width, step))
-      max = draw_graph(graph, area, GREEN, line, BLUE)
-      newest = {"#{names[0]} #{format.call(area.last? || 0.0)}", "#{names[1]} #{format.call(line.last? || 0.0)}"}
+      shown = {area.values.size, graph.width}.min
+      draw_panel(rect, title, shown < 2 ? "" : span_text(area.span(shown, stats_interval)))
+      max = draw_graph(graph, area.values, GREEN, line.values, BLUE)
+      newest = {"#{names[0]} #{format.call(area.values.last? || 0.0)}", "#{names[1]} #{format.call(line.values.last? || 0.0)}"}
       draw_legend(rect, newest, "max #{format.call(max)}")
     end
 
-    # How far back a graph *width* cells wide goes, with values *step* apart
-    private def graph_span(history : Array(Float64), width : Int32, step : Time::Span) : String
-      samples = {history.size, width}.min
-      return "" if samples < 2
-      seconds = (step * (samples - 1)).total_seconds.round.to_i64
+    private def span_text(span : Time::Span) : String
+      seconds = span.total_seconds.round.to_i64
       return "last #{seconds} s" if seconds < 120
       minutes = (seconds / 60).round.to_i64
       minutes < 120 ? "last #{minutes} min" : "last #{minutes // 60} h"
@@ -1184,27 +1181,51 @@ class LavinMQCtl
     end
 
     private def update_histories(overview : JSON::Any)
-      update_history(@publish_history, overview, "message_stats", "publish_details")
-      update_history(@deliver_history, overview, "message_stats", "deliver_get_details")
-      totals = Fields.dig(overview, "queue_totals")
-      update_history(@ready_history, Fields.float(totals, "messages_ready"), Fields.floats(totals, "messages_ready_log"))
-      update_history(@unacked_history, Fields.float(totals, "messages_unacknowledged"), Fields.floats(totals, "messages_unacknowledged_log"))
-    end
-
-    private def update_history(history : Array(Float64), overview : JSON::Any, stats : String, details : String)
-      update_history(history, Fields.float(overview, stats, details, "rate"), Fields.floats(overview, stats, details, "log"))
-    end
-
-    # The broker's log of the value, or what the TUI has seen if it has none
-    private def update_history(history : Array(Float64), current : Float64, log : Array(Float64))
-      if log.empty?
-        history << current
-      else
-        history.clear
-        history.concat(log)
-        history << current if history.last? != current
+      {@publish_history => "publish_details", @deliver_history => "deliver_get_details"}.each do |history, details|
+        history.update(Fields.float(overview, "message_stats", details, "rate"), Fields.floats(overview, "message_stats", details, "log"))
       end
-      history.shift(history.size - 240) if history.size > 240
+      totals = Fields.dig(overview, "queue_totals")
+      @ready_history.update(Fields.float(totals, "messages_ready"), Fields.floats(totals, "messages_ready_log"))
+      @unacked_history.update(Fields.float(totals, "messages_unacknowledged"), Fields.floats(totals, "messages_unacknowledged_log"))
+    end
+
+    # A graph's values: the broker's log of them and the current one, or,
+    # when the broker has no log, what the TUI has seen at each refresh
+    class History
+      MAX = 240
+
+      getter values : Array(Float64)
+      # When the TUI saw each value, empty for the broker's log
+      @times = Deque(Time::Instant).new
+
+      def initialize(@values = [] of Float64)
+      end
+
+      def update(current : Float64, log : Array(Float64))
+        if log.empty?
+          # Not mixed with a log
+          @values.clear if @times.empty?
+          @values << current
+          @times << Time.instant
+        else
+          @values.clear
+          @values.concat(log)
+          @values << current unless log.last? == current
+          @times.clear
+        end
+        excess = @values.size - MAX
+        return unless excess > 0
+        @values.shift(excess)
+        excess.times { @times.shift? }
+      end
+
+      # How long the newest *count* values span. The broker logs a value
+      # every *interval*.
+      def span(count : Int32, interval : Time::Span) : Time::Span
+        count = {count, @values.size}.min
+        return Time::Span.zero if count < 2
+        @times.empty? ? interval * (count - 1) : @times[-1] - @times[-count]
+      end
     end
 
     # Reading and formatting values from the API

@@ -501,6 +501,19 @@ describe LavinMQCtl::TUI do
     screen.text.should contain("Message rates  last 5 min")
   end
 
+  it "labels the graphs with the time the TUI sampled them when the broker has no log" do
+    overview = JSON.parse(TUI_RESPONSES["/api/overview"]).as_h
+    overview["message_stats"] = JSON.parse({publish_details: {rate: 1.0}, deliver_get_details: {rate: 1.0}}.to_json)
+    overview["queue_totals"] = JSON.parse({messages_ready: 1, messages_unacknowledged: 0}.to_json)
+    with_tui_api(responses: with_response("/api/overview", overview)) do |client|
+      # Refreshes several times, not 5s apart like the broker's log
+      screen = FakeTUIScreen.new(quit_after: 500.milliseconds)
+      TUI.new(client, 0.05, screen).start
+      screen.text.should contain("Message rates  last 0 s")
+      screen.text.should contain("Queued messages  last 0 s")
+    end
+  end
+
   it "fits the overview panels in a small terminal" do
     screen, _ = run_tui(width: 90, height: 24)
 

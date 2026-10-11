@@ -45,9 +45,8 @@ class LavinMQCtl
       # Not found when last fetched, so what's shown is its last state
       property? gone = false
       # Message counts seen while it's open, for brokers without their logs
-      getter ready_history = [] of Float64
-      getter unacked_history = [] of Float64
-      getter opened_at = Time.instant
+      getter ready_history = History.new
+      getter unacked_history = History.new
 
       def initialize(@kind : ViewKind, @name : String, @path : String, @item : JSON::Any, @row_id = "")
       end
@@ -285,8 +284,7 @@ class LavinMQCtl
     private def record_counts(view : View)
       return unless view.kind.queue?
       {view.ready_history => "messages_ready", view.unacked_history => "messages_unacknowledged"}.each do |history, key|
-        history << Fields.float(view.item, key)
-        history.shift if history.size > 240
+        history.update(Fields.float(view.item, key), [] of Float64)
       end
     end
 
@@ -477,27 +475,30 @@ class LavinMQCtl
       when .queue?
         half = rect.width >= 80 ? rect.width // 2 : rect.width
         rates = Rect.new(rect.x, rect.y, half, rect.height)
-        draw_graph_panel(rates, "Message rates", Fields.history(item, "message_stats", "publish_details"),
-          Fields.history(item, "message_stats", "deliver_get_details"), {"Publish", "Deliver"}, stats_interval, RATE_FORMAT)
+        draw_graph_panel(rates, "Message rates", logged(item, "message_stats", "publish_details"),
+          logged(item, "message_stats", "deliver_get_details"), {"Publish", "Deliver"}, RATE_FORMAT)
         return unless half < rect.width
         counts = Rect.new(rect.x + half + 1, rect.y, rect.width - half - 1, rect.height)
-        ready = Fields.count_history(item, "messages_ready", "messages_ready_log")
-        if ready.size > 1
-          unacked = Fields.count_history(item, "messages_unacknowledged", "messages_unacknowledged_log")
-          draw_graph_panel(counts, "Queued messages", ready, unacked, {"Ready", "Unacked"}, stats_interval, COUNT_FORMAT)
+        ready = History.new(Fields.count_history(item, "messages_ready", "messages_ready_log"))
+        if ready.values.size > 1
+          unacked = History.new(Fields.count_history(item, "messages_unacknowledged", "messages_unacknowledged_log"))
+          draw_graph_panel(counts, "Queued messages", ready, unacked, {"Ready", "Unacked"}, COUNT_FORMAT)
         else
-          # Seen while the view is open, at the refresh interval
-          seen = view.ready_history.size
-          step = seen > 1 ? (Time.instant - view.opened_at) / (seen - 1) : stats_interval
-          draw_graph_panel(counts, "Queued messages", view.ready_history, view.unacked_history, {"Ready", "Unacked"}, step, COUNT_FORMAT)
+          # Brokers without the logs, what's seen while the view is open
+          draw_graph_panel(counts, "Queued messages", view.ready_history, view.unacked_history, {"Ready", "Unacked"}, COUNT_FORMAT)
         end
       when .connection?
-        draw_graph_panel(rect, "Network", Fields.history(item, "recv_oct_details"), Fields.history(item, "send_oct_details"),
-          {"Recv", "Send"}, stats_interval, BYTES_RATE_FORMAT)
+        draw_graph_panel(rect, "Network", logged(item, "recv_oct_details"), logged(item, "send_oct_details"),
+          {"Recv", "Send"}, BYTES_RATE_FORMAT)
       when .channel?
-        draw_graph_panel(rect, "Message rates", Fields.history(item, "message_stats", "publish_details"),
-          Fields.history(item, "message_stats", "deliver_get_details"), {"Publish", "Deliver"}, stats_interval, RATE_FORMAT)
+        draw_graph_panel(rect, "Message rates", logged(item, "message_stats", "publish_details"),
+          logged(item, "message_stats", "deliver_get_details"), {"Publish", "Deliver"}, RATE_FORMAT)
       end
+    end
+
+    # A rate's log in the object and its current value
+    private def logged(item : JSON::Any, *keys) : History
+      History.new(Fields.history(item, *keys))
     end
 
     # The section tabs on the panel's top border, with the number of rows
