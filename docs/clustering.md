@@ -179,7 +179,7 @@ To move a replica from node A to a new node D:
 2. `lavinmqctl add_cluster_member <D>`. D gets the Raft log and syncs the broker data. `cluster_status` shows `in_isr` for D when it is done.
 3. `lavinmqctl promote_cluster_member <D>`.
 4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A continues as a follower.
-5. `lavinmqctl remove_cluster_member <A>`, then shut A down and wipe its data dir before reusing it. A removed node logs that it isn't a member and keeps retrying until it is stopped.
+5. `lavinmqctl remove_cluster_member <A>`, then shut A down and wipe its data dir before reusing it. A removed node logs that it isn't a member and retries once a minute until it is stopped, or right away if it's added back.
 
 ### Changing a node's address
 

@@ -152,13 +152,29 @@ module LavinMQ
             # Refused by the leader, keep retrying: we may be added back, and
             # exiting would only make a supervisor restart us in a loop.
             Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
+            break if closed_while_not_member?(check)
           else
             Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+            break if closed_while_waiting?(1.second)
           end
-          break if closed_while_waiting?(1.second)
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      # How long a node that isn't a member waits before it's refused again,
+      # and both it and the leader log it again
+      NOT_MEMBER_RETRY_INTERVAL = 1.minute
+
+      # Waits until this node is added back, or NOT_MEMBER_RETRY_INTERVAL in
+      # case it was and doesn't know it yet
+      private def closed_while_not_member?(member_check : Proc(Bool)) : Bool
+        deadline = Time.instant + NOT_MEMBER_RETRY_INTERVAL
+        while Time.instant < deadline
+          return true if closed_while_waiting?(1.second)
+          break if member_check.call
+        end
+        false
       end
 
       private def closed_while_waiting?(span : Time::Span) : Bool
