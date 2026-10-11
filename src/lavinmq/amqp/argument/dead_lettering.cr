@@ -30,7 +30,6 @@ module LavinMQ::AMQP
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
-        @tasks = Tasks.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -89,8 +88,12 @@ module LavinMQ::AMQP
           ex.find_queues(routing_rk, routing_headers, queues)
           return routed.call if queues.empty?
 
+          # The first dead lettering in a chain gets its own tasks, as the
+          # queue can dead letter on several fibers/threads at once, while
+          # nested ones (from overflow in a destination queue) add theirs
+          # to the chain's
           first_in_chain = dlx_tasks.nil?
-          ctx = dlx_tasks || @tasks
+          ctx = dlx_tasks || Tasks.new
 
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
@@ -106,11 +109,11 @@ module LavinMQ::AMQP
           end
           ctx.enqueue(routed)
 
-          drain_context if first_in_chain
+          drain_context(ctx) if first_in_chain
         end
 
-        private def drain_context
-          while task = @tasks.dequeue?
+        private def drain_context(tasks : Tasks)
+          while task = tasks.dequeue?
             case task
             when MessageRoutedCallback
               begin
@@ -123,7 +126,7 @@ module LavinMQ::AMQP
               begin
                 # Result intentionally discarded: if the destination queue is closed
                 # or rejects on overflow we drop the dead-lettered message.
-                dst_q.publish_internal(msg, dlx_tasks: @tasks)
+                dst_q.publish_internal(msg, dlx_tasks: tasks)
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end
