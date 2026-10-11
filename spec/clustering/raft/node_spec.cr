@@ -252,23 +252,28 @@ describe Raft::Node do
     FileUtils.rm_rf dir if dir
   end
 
-  it "gives up on metrics when the event loop doesn't take requests" do
-    dir = File.tempname("raft-node-spec")
-    Dir.mkdir_p dir
-    # Not run, like an event loop stuck in an fsync while events queue up
-    node = Raft::Node.new(1, "127.0.0.1:1", ["127.0.0.1:1"], "tcp://127.0.0.1:1", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds)
-    Raft::Node::EVENT_QUEUE_SIZE.times { node.deliver Raft::Disconnected.new(2, "127.0.0.1:2") }
-    result = Channel(Raft::Metrics?).new(1)
-    spawn { result.send node.metrics }
-    select
-    when m = result.receive
-      m.should be_nil
-    when timeout(3.seconds)
-      fail "metrics hung"
+  {"doesn't answer" => 0, "doesn't take requests" => Raft::Node::EVENT_QUEUE_SIZE}.each do |stuck, queued|
+    it "gives up on status and metrics when the event loop #{stuck}" do
+      dir = File.tempname("raft-node-spec")
+      Dir.mkdir_p dir
+      # Not run, like an event loop stuck in an fsync while events queue up
+      node = Raft::Node.new(1, "127.0.0.1:1", ["127.0.0.1:1"], "tcp://127.0.0.1:1", Raft::Storage.new(dir),
+        100.milliseconds, 20.milliseconds)
+      queued.times { node.deliver Raft::Disconnected.new(2, "127.0.0.1:2") }
+      gave_up = Channel(Bool).new(2)
+      spawn { gave_up.send node.status.nil? }
+      spawn { gave_up.send node.metrics.nil? }
+      2.times do
+        select
+        when nil_answer = gave_up.receive
+          nil_answer.should be_true
+        when timeout(3.seconds)
+          fail "a reader hung"
+        end
+      end
+    ensure
+      FileUtils.rm_rf dir if dir
     end
-  ensure
-    FileUtils.rm_rf dir if dir
   end
 
   it "hands over leadership on transfer" do

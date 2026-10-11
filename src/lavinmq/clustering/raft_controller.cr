@@ -80,8 +80,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   private def check_transfer(target : String?) : Transfer | String
-    status = @node.status
-    return "This node is not the leader" if status.nil? || @stopping
+    return "This node is not the leader" if @stopping
+    status = @node.status || return "The raft node didn't answer in time, try again"
     if target
       id = status.resolve(target) || return "#{target} is not a member"
     end

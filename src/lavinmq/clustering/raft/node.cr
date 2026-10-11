@@ -257,34 +257,33 @@ module LavinMQ::Clustering::Raft
     end
 
     # The cluster as this node sees it right now. Built on demand, in the
-    # event loop, so it's consistent. Nil when the node has stopped.
+    # event loop, so it's consistent. Nil when the node has stopped or
+    # doesn't answer in time, see #query.
     def status : Status?
       reply = Channel(Status).new(1)
-      @events.send GetStatus.new(reply)
-      select
-      when s = reply.receive
-        s
-      when @stopped.receive?
-        nil
-      end
-    rescue Channel::ClosedError
-      nil
+      query GetStatus.new(reply), reply
     end
 
-    # Built in the event loop, like #status. Nil when the node has stopped or
-    # doesn't answer within a second, e.g. stuck in an fsync. The second
-    # includes queueing the request, the queue fills up while it's stuck.
+    # Built in the event loop, like #status
     def metrics : Metrics?
-      deadline = Time.instant + 1.second
       reply = Channel(Metrics).new(1)
+      query GetMetrics.new(reply), reply
+    end
+
+    # For readers that mustn't wait for the event loop when it's stuck, e.g.
+    # in an fsync: nil when the node has stopped or doesn't answer within a
+    # second. The second includes queueing the request, the queue fills up
+    # while it's stuck.
+    private def query(request : Event, reply : Channel(T)) : T? forall T
+      deadline = Time.instant + 1.second
       select
-      when @events.send(GetMetrics.new(reply))
+      when @events.send(request)
       when timeout(deadline - Time.instant)
         return
       end
       select
-      when m = reply.receive
-        m
+      when answer = reply.receive
+        answer
       when @stopped.receive?
         nil
       when timeout(deadline - Time.instant)

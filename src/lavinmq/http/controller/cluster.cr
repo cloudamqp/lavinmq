@@ -86,10 +86,9 @@ module LavinMQ
       end
 
       private def require_status(context, cluster : Clustering::RaftController) : Clustering::Raft::Status
-        status = cluster.node.status
-        unless status && status.role.leader?
-          conflict(context, "This node is not the leader")
-        end
+        status = cluster.node.status ||
+                 halt(context, 503, {error: "service_unavailable", reason: "The raft node didn't answer in time, try again"})
+        conflict(context, "This node is not the leader") unless status.role.leader?
         status
       end
 
