@@ -554,6 +554,15 @@ describe LavinMQ::Config do
       end
     end
 
+    it "rejects an IPv6 seed without brackets" do
+      {"::1", "fe80::1", "fe80::1:5680", "node1:5680,::1"}.each do |seeds|
+        config = LavinMQ::Config.new(IO::Memory.new)
+        expect_raises(LavinMQ::Config::Error, /put it in brackets/) do
+          config.parse(["--clustering", "--clustering-password=secret", "--clustering-seeds=#{seeds}"])
+        end
+      end
+    end
+
     it "requires the seeds to be configured" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new

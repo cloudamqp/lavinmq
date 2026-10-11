@@ -120,11 +120,17 @@ module LavinMQ
         raise Error.new("clustering seeds is required with the raft backend: the raft addresses of the nodes to form " \
                         "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
       end
-      clustering_seed_addresses.each do |seed|
-        host, sep, port = seed.rpartition(':')
-        if sep.empty? || host.empty? || port.to_u16?.nil?
-          raise Error.new("clustering seed '#{seed}' must be host:port")
-        end
+      clustering_seed_addresses.each { |seed| validate_seed!(seed) }
+    end
+
+    private def validate_seed!(seed : String) : Nil
+      host, sep, port = seed.rpartition(':')
+      if sep.empty? || host.empty? || port.to_u16?.nil?
+        raise Error.new("clustering seed '#{seed}' must be host:port")
+      end
+      # "::1" would be taken for host ":" and port 1
+      if host.includes?(':') && !(host.starts_with?('[') && host.ends_with?(']'))
+        raise Error.new("clustering seed '#{seed}' looks like an IPv6 address, put it in brackets, e.g. [::1] or [::1]:5680")
       end
     end
 
