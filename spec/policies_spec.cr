@@ -9,6 +9,22 @@ class PoliciesSpec
   end
 end
 
+# Blocks the first policy apply on it until released, like an apply that is
+# suspended in the middle of a vhost-wide apply_policies run
+class GatedPolicyQueue < LavinMQ::AMQP::Queue
+  property gate : Channel(Nil)? = nil
+  getter entered = Channel(Nil).new(1)
+
+  def apply_policy(policy : LavinMQ::Policy?, operator_policy : LavinMQ::OperatorPolicy?, generation : UInt64? = nil)
+    if gate = @gate
+      @gate = nil
+      @entered.send(nil)
+      gate.receive
+    end
+    super
+  end
+end
+
 describe LavinMQ::VHost do
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
@@ -34,6 +50,29 @@ describe LavinMQ::VHost do
       vhost.delete_policy("test")
       sleep 10.milliseconds
       vhost.queue("test1").policy.should be_nil
+    end
+  end
+
+  # Each policy change spawns its own apply_policies. One that read the
+  # policies before a delete must not apply them after a later run has
+  # already applied the delete.
+  it "doesn't leave a deleted policy on queues when policy applies overlap" do
+    PoliciesSpec.with_vhost do |vhost|
+      gated = GatedPolicyQueue.create(vhost, "q0")
+      vhost.register_queue(gated)
+      5.times do |i|
+        vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "q#{i + 1}").as(LavinMQ::AMQP::Queue))
+      end
+      gate = Channel(Nil).new
+      gated.gate = gate
+      vhost.add_policy("p", "^q", "queues", {"max-length" => JSON::Any.new(1_i64)}, 0_i8)
+      gated.entered.receive # the run that saw the policy is now suspended
+      vhost.delete_policy("p")
+      sleep 50.milliseconds # let the run for the delete go first
+      gate.send(nil)
+      6.times do |i|
+        should_eventually(be_nil) { vhost.queue("q#{i}").policy }
+      end
     end
   end
 
