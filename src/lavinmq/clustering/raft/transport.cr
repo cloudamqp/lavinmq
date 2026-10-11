@@ -243,15 +243,15 @@ module LavinMQ::Clustering::Raft
         enable_keepalive(socket)
         socket.read_timeout = nil
         socket.read_buffering = true
-        # Reused for every frame, grown to the largest one so far
-        buf = Bytes.new(4096)
+        # Decoded straight from the socket's read buffer, a frame at a time
+        frame = IO::Sized.new(socket, 0)
         loop do
           len = socket.read_bytes UInt32, Codec::Format
           raise IO::Error.new("Frame too large (#{len} bytes)") if len > Codec::MAX_FRAME
-          buf = Bytes.new(len) if len > buf.size
-          frame = buf[0, len]
-          socket.read_fully(frame)
-          @handler.call Codec.decode(frame)
+          frame.read_remaining = len.to_u64
+          msg = Codec.decode(frame, len.to_i32)
+          raise IO::Error.new("#{frame.read_remaining} bytes left in a #{len} byte frame") unless frame.read_remaining.zero?
+          @handler.call msg
         end
       ensure
         release(id, address)

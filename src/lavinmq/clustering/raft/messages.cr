@@ -121,9 +121,12 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    # Copies what it needs from `bytes`, which can be reused afterwards.
     def decode(bytes : Bytes) : Message
-      io = IO::Memory.new(bytes, writable: false)
+      decode(IO::Memory.new(bytes, writable: false), bytes.size)
+    end
+
+    # A message of *size* bytes from *io*
+    def decode(io : IO, size : Int32) : Message
       type = io.read_byte || raise IO::EOFError.new
       from = io.read_bytes Int32, Format
       term = io.read_bytes Int64, Format
@@ -138,7 +141,7 @@ module LavinMQ::Clustering::Raft
         prev_index = io.read_bytes Int64, Format
         prev_term = io.read_bytes Int64, Format
         commit = io.read_bytes Int64, Format
-        AppendEntries.new(from, term, leader_uri, prev_index, prev_term, read_entries(io, bytes.size), commit)
+        AppendEntries.new(from, term, leader_uri, prev_index, prev_term, read_entries(io, size), commit)
       when 4
         AppendResponse.new(from, term, read_bool(io), io.read_bytes(Int64, Format))
       when 5
@@ -149,7 +152,7 @@ module LavinMQ::Clustering::Raft
         TimeoutNow.new(from, term)
       when 7
         CatchUp.new(from, term, io.read_bytes(Int64, Format),
-          io.read_bytes(Int64, Format), read_isr(io), read_entries(io, bytes.size), read_membership(io))
+          io.read_bytes(Int64, Format), read_isr(io), read_entries(io, size), read_membership(io))
       else
         raise IO::Error.new("Unknown raft message type #{type}")
       end

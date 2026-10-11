@@ -498,6 +498,44 @@ describe Raft::TCPTransport do
     peer.try &.close
   end
 
+  # Frames are decoded straight from the socket, leftovers would be read as
+  # the start of the next one
+  it "drops a connection with a frame longer than its message" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    peer = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, ->(e : Raft::TransportEvent) { events.send e })
+    spawn peer.listen(server)
+    socket = TCPSocket.new("127.0.0.1", server.local_address.port)
+    nonce = Bytes.new(Raft::TCPTransport::NONCE_SIZE)
+    socket.read_fully(nonce)
+    signed = IO::Memory.new
+    signed.write nonce
+    signed.write_bytes 2, Raft::Codec::Format
+    signed.write "raw:1".to_slice
+    socket.write Raft::TCPTransport::MAGIC
+    socket.write_bytes 2, Raft::Codec::Format
+    Raft::Codec.write_str socket, "raw:1"
+    socket.write OpenSSL::HMAC.digest(:sha256, "secret", signed.to_slice)
+    socket.read_byte.should eq 1 # accepted
+    socket.read_bytes Int32, Raft::Codec::Format
+    events.receive.should eq Raft::Connected.new(2, "raw:1")
+    msg = Raft::Codec.encode(Raft::TimeoutNow.new(2, 3))
+    socket.write_bytes (msg.size + 3).to_u32, Raft::Codec::Format
+    socket.write msg
+    socket.write Bytes.new(3)
+    socket.flush
+    select
+    when event = events.receive
+      event.should eq Raft::Disconnected.new(2, "raw:1")
+    when timeout(3.seconds)
+      fail "kept reading after a frame with bytes left over"
+    end
+  ensure
+    socket.try &.close
+    peer.try &.close
+  end
+
   it "reconnects to a peer that restarted without anything to send" do
     server = TCPServer.new("127.0.0.1", 0)
     port = server.local_address.port
