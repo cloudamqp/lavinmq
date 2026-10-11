@@ -236,10 +236,12 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     # The connection that declared this exclusive queue, told when the queue is deleted
     property exclusive_owner : AMQP::Client?
-    # Swapped/compared atomically: close, delete and pause/resume can be
-    # called from different threads at once
+    # Swapped atomically: close and delete can be called from different
+    # threads at once
     @closed = Atomic(Bool).new(false)
     @deleted = Atomic(Bool).new(false)
+    # Changed under @state_lock, together with its side effects (the paused
+    # channel and file), but atomic so that it's read without the lock
     @state = Atomic(QueueState).new(QueueState::Running)
     @state_lock = Mutex.new
 
@@ -597,11 +599,10 @@ module LavinMQ::AMQP
       states.includes?(state)
     end
 
-    # Serialized so that the paused channel and file follow the state, and a
-    # compare-and-set so that a concurrent close isn't overwritten
     def pause!
       @state_lock.synchronize do
-        return unless @state.compare_and_set(QueueState::Running, QueueState::Paused, :acquire_release, :acquire)[1]
+        return unless state.running?
+        @state.set(QueueState::Paused, :release)
         @log.debug { "Paused" }
         @paused.set(true)
         File.touch(File.join(@data_dir, "paused"))
@@ -610,7 +611,8 @@ module LavinMQ::AMQP
 
     def resume!
       @state_lock.synchronize do
-        return unless @state.compare_and_set(QueueState::Paused, QueueState::Running, :acquire_release, :acquire)[1]
+        return unless state.paused?
+        @state.set(QueueState::Running, :release)
         @log.debug { "Resuming" }
         @paused.set(false)
         File.delete(File.join(@data_dir, "paused"))
