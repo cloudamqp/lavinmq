@@ -2,7 +2,15 @@ require "spec"
 require "wait_group"
 require "../src/lavinmq/persistent_map"
 
+private module Named
+  abstract def name : String
+end
+
+private class Other
+end
+
 private class Value
+  include Named
   getter name : String
 
   def initialize(@name)
@@ -99,6 +107,28 @@ describe LavinMQ::PersistentMap do
     expect_raises(KeyError) { LavinMQ::PersistentMap(String, Value).new["a"] }
   end
 
+  it "returns itself when putting the value a key already has" do
+    a = Value.new("a")
+    k = FixedHashKey.new("x", 42u64)
+    map = LavinMQ::PersistentMap(FixedHashKey, Value).new
+      .put(k, a).put(FixedHashKey.new("y", 42u64), Value.new("b"))
+      .put(FixedHashKey.new("z", 7u64), Value.new("c"))
+    map.put(k, a).should be(map)
+    s = LavinMQ::PersistentMap(String, Value).new
+    100.times { |i| s = s.put("k#{i}", Value.new("v")) }
+    s.put("k5", s["k5"]).should be(s)
+    s.put("k5", Value.new("v")).should_not be(s)
+  end
+
+  it "holds unions and modules of reference types" do
+    map = LavinMQ::PersistentMap(String, Value | Other).new
+      .put("v", Value.new("v")).put("o", Other.new)
+    map["v"].as(Value).name.should eq "v"
+    map["o"].should be_a(Other)
+    named = LavinMQ::PersistentMap(String, Named).new.put("v", Value.new("v"))
+    named["v"].name.should eq "v"
+  end
+
   it "returns itself when deleting a missing key" do
     map = LavinMQ::PersistentMap(String, Value).new.put("a", Value.new("a"))
     map.delete("b").should be(map)
@@ -143,7 +173,10 @@ describe LavinMQ::CowMap do
     map.has_key?("a").should be_true
     map.size.should eq 1
     map.values.should eq [a]
+    map.keys.should eq ["a"]
     map.any? { |(k, _)| k == "a" }.should be_true
+    map.to_a.should eq [{"a", a}]
+    map.count { true }.should eq 1
     seen = [] of String
     map.each { |(k, _)| seen << k }
     map.each_value { |v| seen << v.name }
@@ -221,5 +254,14 @@ describe LavinMQ::CowMap do
     end
     wg.wait
     map.size.should eq 4 * 1_000
+    4.times do |w|
+      2_000.times do |i|
+        if i.odd?
+          map["w#{w}-#{i}"]?.should be_nil
+        else
+          map["w#{w}-#{i}"]?.should_not be_nil
+        end
+      end
+    end
   end
 end
