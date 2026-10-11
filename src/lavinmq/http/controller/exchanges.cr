@@ -148,10 +148,11 @@ module LavinMQ
             result = e.vhost.publish(msg)
             e.vhost.event_tick(EventType::ClientPublish)
             e.vhost.add_recv_bytes(size)
-            # Report overflow as not-routed so HTTP callers see the same signal a
-            # publisher-confirms client would: any reject-publish overflow turns
-            # the publish into "not routed", even if other bound queues accepted.
-            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
+            # Report a rejection as not-routed so HTTP callers see the same
+            # signal a publisher-confirms client would: any queue that didn't
+            # store the message turns the publish into "not routed", even if
+            # other bound queues accepted.
+            {routed: result.routed? && !result.rejected?}.to_json(context.response)
           end
         end
       end
