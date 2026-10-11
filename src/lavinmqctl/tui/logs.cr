@@ -1,3 +1,5 @@
+require "../tui"
+
 class LavinMQCtl
   class TUI
     # The broker's log from /api/logs, the entries it keeps in memory,

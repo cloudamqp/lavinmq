@@ -1,4 +1,5 @@
 require "uri"
+require "../tui"
 
 class LavinMQCtl
   class TUI

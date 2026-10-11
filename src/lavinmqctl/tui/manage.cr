@@ -1,3 +1,5 @@
+require "../tui"
+
 class LavinMQCtl
   class TUI
     # A change to the broker, made in manage mode after confirming *question*
