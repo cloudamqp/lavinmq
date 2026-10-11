@@ -77,30 +77,29 @@ class IO::BufferPool
     end
   end
 
-  # Doesn't yield (which could move the fiber to another thread) unless the
-  # current thread has no cache for this pool yet
+  # The current thread's cache. Creating it takes locks, which may suspend
+  # the fiber and resume it on another thread, so the thread local is looked
+  # up again after, and only a cache found without yielding is returned.
+  # acquire and release don't yield, so they use it on its own thread.
   private def thread_cache : Cache
-    if (caches = @@thread_caches) && (cache = caches[@id]?)
-      return cache
+    loop do
+      if (caches = @@thread_caches) && (cache = caches[@id]?)
+        return cache
+      end
+      install_thread_cache
     end
-    new_thread_cache
   end
 
-  private def new_thread_cache : Cache
-    # the fiber may move to another thread while waiting for a lock, so the
-    # thread local is read after taking it
+  private def install_thread_cache : Nil
     caches = @@thread_caches || register_thread_caches
     while caches.size <= @id
       caches << nil
     end
-    # nothing from the thread local read to here yields, so this thread's
-    # cache is installed exactly once
-    if cache = caches[@id]
-      return cache
-    end
+    # nothing from the thread local read to here yields, so a thread gets
+    # exactly one cache, and only installed caches are registered
+    return if caches[@id]
     cache = caches[@id] = Cache.new(@max_cached)
     @caches_lock.synchronize { @caches << cache }
-    cache
   end
 
   private def register_thread_caches : Array(Cache?)
