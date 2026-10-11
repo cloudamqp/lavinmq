@@ -236,17 +236,15 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     # The connection that declared this exclusive queue, told when the queue is deleted
     property exclusive_owner : AMQP::Client?
-    # Swapped atomically: close and delete can be called from different
-    # threads at once
-    @closed = Atomic(Bool).new(false)
-    @deleted = Atomic(Bool).new(false)
     # Changed under @state_lock, together with its side effects (the paused
-    # channel and file), but atomic so that it's read without the lock
+    # channel and file), as pause/resume/close/delete can be called from
+    # different threads at once, but atomic so that it's read without the lock
     @state = Atomic(QueueState).new(QueueState::Running)
     @state_lock = Mutex.new
 
     def closed? : Bool
-      @closed.get(:acquire)
+      s = state
+      s.closed? || s.deleted?
     end
 
     def state : QueueState
@@ -384,7 +382,6 @@ module LavinMQ::AMQP
     end
 
     private def reset_queue_state
-      @closed.set(false, :release)
       @state.set(QueueState::Running, :release)
       @message_expire_fiber_active.set(false, :release)
 
@@ -620,14 +617,16 @@ module LavinMQ::AMQP
     end
 
     def close : Bool
-      return false if @closed.swap(true, :acquire_release)
-      # Under @state_lock so that a pause!/resume! that already changed the
-      # state finishes its side effects before the queue is torn down, and
-      # never replacing Deleted, set by a concurrent delete whose own close
-      # returned early
+      # Under @state_lock so that a pause!/resume! in progress finishes its
+      # side effects before the queue is torn down
       @state_lock.synchronize do
-        @state.set(QueueState::Closed, :release) unless state.deleted?
+        return false if closed?
+        @state.set(QueueState::Closed, :release)
       end
+      tear_down
+    end
+
+    private def tear_down : Bool
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
@@ -656,9 +655,13 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted.swap(true, :acquire_release)
-      close
-      @state_lock.synchronize { @state.set(QueueState::Deleted, :release) }
+      was_closed = @state_lock.synchronize do
+        s = state
+        return false if s.deleted?
+        @state.set(QueueState::Deleted, :release)
+        s.closed?
+      end
+      tear_down unless was_closed
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
@@ -942,7 +945,7 @@ module LavinMQ::AMQP
         yield env
       end.tap { ensure_expire_fiber }
     rescue ClosedError | MessageStore::ClosedError
-      # The queue was closed/deleted concurrently with the get (its @closed flag
+      # The queue was closed/deleted concurrently with the get (its state
       # or the message store). Report no message available (Basic.GetEmpty)
       # rather than letting the error escape into the connection's read loop.
       false
@@ -1089,7 +1092,7 @@ module LavinMQ::AMQP
     def add_consumer(consumer : Client::Channel::Consumer)
       return if closed?
       @consumers_lock.synchronize do
-        # close sets @closed before clearing the consumers under this lock
+        # close sets the state before clearing the consumers under this lock
         return if closed?
         was_empty = @consumers.empty?
         @consumers << consumer
