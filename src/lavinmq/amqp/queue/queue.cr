@@ -825,9 +825,14 @@ module LavinMQ::AMQP
     end
 
     private def time_to_message_expiration : Time::Span?
-      env = @msg_store_lock.synchronize { @msg_store.first? } || return
-      @log.debug { "Checking if message #{env.message} has to be expired" }
-      if expire_at = expire_at(env.message)
+      # The message is a view into its segment, which a purge or delete on
+      # another thread can unmap as soon as the lock is released
+      expire_at = @msg_store_lock.synchronize do
+        env = @msg_store.first? || return
+        @log.debug { "Checking if message #{env.message} has to be expired" }
+        expire_at(env.message)
+      end
+      if expire_at
         Queue.time_to_expiration_wakeup(expire_at)
       end
     end
@@ -1035,8 +1040,9 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
-        if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
+        # The message is a view into its segment, only valid while the lock is held
+        expired = @msg_store_lock.synchronize { has_expired?(@msg_store[sp], requeue: true) }
+        if expired # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
           if delivery_limit = @delivery_limit
@@ -1116,12 +1122,17 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if @closed
-      if unacked_count == 0 && max_count >= message_count
-        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-        delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
-      else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store_lock.synchronize do
+        # Checked under the lock, so that a message published or shifted for
+        # delivery between the check and the purge isn't purged uncounted
+        if unacked_count == 0 && max_count >= @msg_store.size
+          # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+          count = @msg_store.size
+          @msg_store.purge_all
+          count
+        else
+          @msg_store.purge(max_count)
+        end
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and

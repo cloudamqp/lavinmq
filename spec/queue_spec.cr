@@ -624,6 +624,91 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "message store read concurrently with a purge" do
+    # The expire loop logs the head message, read through a zero-copy view
+    # into its segment. That must happen while @msg_store_lock is held, else a
+    # purge on another thread can unmap the segment in the meantime (segfault).
+    it "doesn't read the head message after releasing the lock", tags: "slow" do
+      log = LavinMQ::AMQP::Queue::Log
+      level, backend = log.level, log.backend
+      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      log.level = :debug
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ttl-purge", false, false,
+          LavinMQ::AMQP::Table.new({"x-message-ttl" => 3_600_000}))
+        q = vhost.queue("ttl-purge")
+        # Messages larger than a segment get a segment of their own, so purging
+        # the head message deletes (and unmaps) its segment. Each purge also
+        # makes the expire loop look at (and log) the next head message.
+        body = "x" * (LavinMQ::Config.instance.segment_size + 1)
+        ctx = Fiber::ExecutionContext::Parallel.new("ttl-purge", 1)
+        done = Atomic(Bool).new(false)
+        wg = WaitGroup.new(1)
+        ctx.spawn do
+          until done.get(:acquire)
+            q.purge(1)
+            # spin for a while, so the next purge lands at varying points of
+            # the expire loop looking at the new head message
+            until_t = Time.instant + rand(1..100).microseconds
+            while Time.instant < until_t
+            end
+          end
+        ensure
+          wg.done
+        end
+        20.times do
+          50.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+          until q.empty?
+            sleep 1.millisecond
+          end
+        end
+        done.set(true, :release)
+        wg.wait
+      end
+    ensure
+      if log
+        log.level = level if level
+        log.backend = backend
+      end
+    end
+
+    it "purges exactly the messages it reports while messages are published", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("purge-publish", true, false)
+        q = vhost.queue("purge-publish")
+        ctx = Fiber::ExecutionContext::Parallel.new("purge-publish", 4)
+        done = Atomic(Bool).new(false)
+        published = Atomic(Int32).new(0)
+        purged = Atomic(Int64).new(0)
+        wg = WaitGroup.new(4)
+        3.times do
+          ctx.spawn do
+            msg = LavinMQ::Message.new("", q.name, "body")
+            until done.get(:acquire)
+              q.publish(msg)
+              published.add(1)
+            end
+          ensure
+            wg.done
+          end
+        end
+        ctx.spawn do
+          until done.get(:acquire)
+            purged.add(q.purge.to_i64)
+          end
+        ensure
+          wg.done
+        end
+        sleep 2.seconds
+        done.set(true, :release)
+        wg.wait
+        (purged.get + q.message_count).should eq published.get
+      end
+    end
+  end
+
   describe "segment deleted while a message from it is being delivered" do
     # Three of these fill the first segment, the fourth opens a new one
     body = "x" * (LavinMQ::Config.instance.segment_size // 4)
