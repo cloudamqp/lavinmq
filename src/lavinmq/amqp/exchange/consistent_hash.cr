@@ -20,17 +20,17 @@ module LavinMQ
         "x-consistent-hash"
       end
 
-      def handle_arguments
+      private def stage_arguments
         super
         if v = @arguments["x-algorithm"]?
           if hasher = v.as?(String)
             if algo = ConsistentHashAlgorithm.parse?(hasher)
               @hasher = select_hasher(algo)
-              @effective_args << "x-algorithm"
+              @staged_effective_args << "x-algorithm"
             end
           end
         end
-        @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+        @staged_effective_args << "x-hash-on" if @arguments["x-hash-on"]?
       end
 
       private def select_hasher(option : ConsistentHashAlgorithm)

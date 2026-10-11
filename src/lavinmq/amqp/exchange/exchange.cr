@@ -24,7 +24,12 @@ module LavinMQ
       @delayed_queue : DelayedExchangeQueue?
       @deleted = false
       @deduper : Deduplication::Deduper?
-      @effective_args = Array(String).new
+      # Replaced, never mutated, and published with release ordering
+      @effective_args = Atomic(Array(String)).new(Array(String).new)
+      # Built by stage_arguments/apply_policy_argument, published by
+      # commit_policy_arguments. A published array is never mutated.
+      @staged_effective_args = Array(String).new
+      @staged_alternate_exchange : String?
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
 
@@ -37,15 +42,15 @@ module LavinMQ
       private def apply_policy_argument(key : String, value : JSON::Any) : Bool
         case key
         when "alternate-exchange"
-          if @alternate_exchange.nil?
-            @alternate_exchange = value.as_s?
-            @effective_args.delete("x-alternate-exchange")
-            @effective_args.delete("alternate-exchange")
+          if @staged_alternate_exchange.nil?
+            @staged_alternate_exchange = value.as_s?
+            @staged_effective_args.delete("x-alternate-exchange")
+            @staged_effective_args.delete("alternate-exchange")
             return true
           end
         when "delayed-message"
           if value.as?(Bool) == true
-            @effective_args.delete("x-delayed-message")
+            @staged_effective_args.delete("x-delayed-message")
             @delayed = true
             init_delayed_queue
             return true
@@ -61,30 +66,42 @@ module LavinMQ
       end
 
       private def clear_policy_arguments
-        handle_arguments
+        stage_arguments
         @vhost.upstreams.try &.stop_link(self)
       end
 
       def handle_arguments
-        @effective_args = Array(String).new
-        if @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
-          @effective_args << "x-alternate-exchange"
-        elsif @alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
-          @effective_args << "alternate-exchange"
+        @policy_lock.synchronize do
+          stage_arguments
+          commit_policy_arguments
+        end
+      end
+
+      private def commit_policy_arguments
+        @alternate_exchange = @staged_alternate_exchange
+        @effective_args.set(@staged_effective_args, :release)
+      end
+
+      private def stage_arguments
+        @staged_effective_args = effective_args = Array(String).new
+        if @staged_alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+          effective_args << "x-alternate-exchange"
+        elsif @staged_alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
+          effective_args << "alternate-exchange"
         end
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
-          @effective_args << "x-delayed-exchange"
+          effective_args << "x-delayed-exchange"
         end
         if @arguments["x-message-deduplication"]?.try(&.as?(Bool))
-          @effective_args << "x-message-deduplication"
+          effective_args << "x-message-deduplication"
           ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
-          @effective_args << "x-cache-ttl" if ttl
+          effective_args << "x-cache-ttl" if ttl
           size = parse_header("x-cache-size", Int).try(&.to_u32)
-          @effective_args << "x-cache-size" if size
+          effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
-          @effective_args << "x-deduplication-header" if header_key
+          effective_args << "x-deduplication-header" if header_key
           @deduper ||= begin
             cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
             Deduplication::Deduper.new(cache, ttl, header_key)
@@ -106,7 +123,7 @@ module LavinMQ
           operator_policy: operator_policy.try &.name,
           effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
           message_stats: current_stats_details,
-          effective_arguments: @effective_args,
+          effective_arguments: @effective_args.get(:acquire),
         }
       end
 

@@ -59,40 +59,29 @@ module LavinMQ::AMQP
         return false
       end
 
+      settings = @staged_settings
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
-          if current_max = stream_msg_store.max_age
+          if current_max = settings.max_age
             return false unless current_max > max_age_policy
           end
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_age = max_age_policy
-            @effective_args.delete("x-max-age")
-            stream_msg_store.drop_overflow
-            ensure_max_age_loop
-          end
+          settings.max_age = max_age_policy
+          settings.effective_args.delete("x-max-age")
           return true
         end
         false
       when "max-length"
-        unless @max_length.try &.< value.as_i64
-          @max_length = value.as_i64
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_length = @max_length
-            @effective_args.delete("x-max-length")
-            stream_msg_store.drop_overflow
-          end
+        unless settings.max_length.try &.< value.as_i64
+          settings.max_length = value.as_i64
+          settings.effective_args.delete("x-max-length")
           return true
         end
         false
       when "max-length-bytes"
-        unless @max_length_bytes.try &.< value.as_i64
-          @max_length_bytes = value.as_i64
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_length_bytes = @max_length_bytes
-            @effective_args.delete("x-max-length-bytes")
-            stream_msg_store.drop_overflow
-          end
+        unless settings.max_length_bytes.try &.< value.as_i64
+          settings.max_length_bytes = value.as_i64
+          settings.effective_args.delete("x-max-length-bytes")
           return true
         end
         false
@@ -238,18 +227,25 @@ module LavinMQ::AMQP
       end
     end
 
-    private def handle_arguments
+    private def settings_from_arguments : Settings
+      settings = super
+      settings.effective_args << "x-queue-type"
+      if max_age = parse_max_age(@arguments["x-max-age"]?)
+        settings.max_age = max_age
+        settings.effective_args << "x-max-age"
+      end
+      settings
+    end
+
+    private def commit_policy_arguments
       super
-      @effective_args << "x-queue-type"
+      settings = self.settings
       # drop_overflow mutates the store, so take @msg_store_lock like other
       # store access; it can run concurrently with publishes/consumes.
       @msg_store_lock.synchronize do
-        max_age = parse_max_age(@arguments["x-max-age"]?)
-        stream_msg_store.max_age = max_age
-        @effective_args << "x-max-age" if max_age
-        # Propagate limits set by super to stream_msg_store
-        stream_msg_store.max_length = @max_length
-        stream_msg_store.max_length_bytes = @max_length_bytes
+        stream_msg_store.max_age = settings.max_age
+        stream_msg_store.max_length = settings.max_length
+        stream_msg_store.max_length_bytes = settings.max_length_bytes
         stream_msg_store.drop_overflow
         ensure_max_age_loop
       end
