@@ -2,19 +2,14 @@ require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
 require "./amqp/stream/stream"
-require "./mqtt/session"
 
 module LavinMQ
   class QueueFactory
-    def self.make(vhost : VHost, frame : AMQP::Frame)
-      if mqtt_session?(frame)
-        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
+    def self.make(vhost : VHost, frame : AMQP::Frame) : AMQP::Queue
+      if frame.durable
+        make_durable(vhost, frame)
       else
-        if frame.durable
-          make_durable(vhost, frame)
-        else
-          make_queue(vhost, frame)
-        end
+        make_queue(vhost, frame)
       end
     end
 
@@ -49,10 +44,6 @@ module LavinMQ
 
     private def self.stream_queue?(frame) : Bool
       frame.arguments["x-queue-type"]? == "stream"
-    end
-
-    private def self.mqtt_session?(frame) : Bool
-      frame.arguments["x-queue-type"]? == "mqtt"
     end
 
     private def self.warn_if_unsupported_queue_type(frame)

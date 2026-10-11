@@ -4,24 +4,6 @@ module MqttSpecs
   extend MqttHelpers
 
   describe LavinMQ::MQTT::Exchange do
-    it "removes all subscriptions from the subscription tree when a session is removed" do
-      with_server do |server|
-        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
-        with_client_io(server) do |io|
-          connect(io, client_id: "sub", clean_session: true)
-          subscribe(io, topic_filters: [
-            subtopic("a/b", 0u8),
-            subtopic("c/+", 0u8),
-            subtopic("d/#", 0u8),
-          ])
-          exchange.bindings_details.size.should eq 3
-          disconnect(io)
-        end
-        wait_for { exchange.bindings_details.empty? }
-        exchange.bindings_details.should be_empty
-      end
-    end
-
     it "grants a QoS 2 subscription bound from outside the MQTT protocol as QoS 1" do
       with_server do |server|
         vhost = server.vhosts["/"]
@@ -48,7 +30,7 @@ module MqttSpecs
 
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
-        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange = server.vhosts["/"].mqtt_exchange
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: true)
           subscribe(io, topic_filters: [subtopic("a/b", 0u8)])

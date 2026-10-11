@@ -460,4 +460,32 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
   end
+
+  describe "the mqtt exchange" do
+    it "is neither listed nor found" do
+      with_http_server do |http, _|
+        x = LavinMQ::MQTT::EXCHANGE
+        {http.get("/api/exchanges"), http.get("/api/exchanges/%2f")}.each do |response|
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.map(&.["name"].as_s).should_not contain x
+        end
+        {
+          "GET"          => http.get("/api/exchanges/%2f/#{x}"),
+          "DELETE"       => http.delete("/api/exchanges/%2f/#{x}"),
+          "POST publish" => http.post("/api/exchanges/%2f/#{x}/publish", body: "{}"),
+        }.each do |route, response|
+          # The route is in the tuple so a failure says which one it was.
+          {route, response.status_code}.should eq({route, 404})
+        end
+      end
+    end
+
+    it "can't be declared" do
+      with_http_server do |http, s|
+        response = http.put("/api/exchanges/%2f/#{LavinMQ::MQTT::EXCHANGE}", body: %({"type": "topic"}))
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?(LavinMQ::MQTT::EXCHANGE).should be_nil
+      end
+    end
+  end
 end

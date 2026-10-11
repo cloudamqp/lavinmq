@@ -388,6 +388,19 @@ describe LavinMQ::HTTP::QueuesController do
         body["items"].as_a.size.should eq 2
       end
     end
+
+    it "should return an MQTT session's subscriptions" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.sub", true, false, mqtt_args)
+        s.vhosts["/"].bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::MQTT.qos_arguments(1u8))
+        response = http.get("/api/queues/%2f/mqtt.sub/bindings?page=1&page_size=100")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body)["items"].as_a
+        items.map { |b| {b["source"].as_s, b["routing_key"].as_s} }.should eq [{LavinMQ::MQTT::EXCHANGE, "a/b"}]
+      end
+    end
   end
   describe "PUT /api/queues/vhost/name" do
     it "should create queue" do
