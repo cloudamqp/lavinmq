@@ -474,18 +474,25 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  it "stops serving when it loses leadership during a startup that writes the ISR", tags: "slow" do
-    with_controllers do |cluster|
-      # A replicated write during startup fails once leadership is lost
-      cluster.start_all(-> {
-        wait_for(5.seconds) { cluster.controllers.none?(&.node.serving.value) }
-        raise LavinMQ::Clustering::RaftCoordinator::StaleLeadership.new
-      })
-      first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      cluster.controllers.reject(first).each(&.stop)
-      receive_within(cluster.demotions, 5.seconds).should eq({first, true})
-      should_not_have_exited(cluster)
+  # The coordinator raises its subclass when an ISR write fails, a fenced
+  # replicator and the Persister the base class
+  {
+    {"a lost ISR write", -> { LavinMQ::Clustering::RaftCoordinator::StaleLeadership.new.as(Exception) }},
+    {"a fenced replicator", -> { LavinMQ::Clustering::Coordinator::StaleLeadership.new("Replication is fenced (spec)").as(Exception) }},
+  }.each do |what, error|
+    it "stops serving when a startup that writes the ISR fails on #{what}", tags: "slow" do
+      with_controllers do |cluster|
+        # A replicated write during startup fails once leadership is lost
+        cluster.start_all(-> {
+          wait_for(5.seconds) { cluster.controllers.none?(&.node.serving.value) }
+          raise error.call
+        })
+        first = cluster.next_leader
+        first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+        cluster.controllers.reject(first).each(&.stop)
+        receive_within(cluster.demotions, 5.seconds).should eq({first, true})
+        should_not_have_exited(cluster)
+      end
     end
   end
 

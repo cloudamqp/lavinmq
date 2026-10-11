@@ -218,9 +218,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
         return
       end
     end
-  rescue RaftCoordinator::StaleLeadership
+  rescue Coordinator::StaleLeadership
     # Lost while starting to serve, replicated writes during startup fail
-    # with it
+    # with it, also when a fenced replicator or the Persister raises it
     nil
   end
 
