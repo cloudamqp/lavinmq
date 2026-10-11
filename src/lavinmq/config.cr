@@ -97,6 +97,97 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      validate_raft_clustering! if @clustering && clustering_backend.raft?
+    end
+
+    private def validate_raft_clustering! : Nil
+      load_clustering_password_file
+      if @clustering_secret.empty?
+        raise Error.new("clustering requires a password shared by all nodes, set password or password_file in [clustering]")
+      end
+      if @clustering_secret.bytesize > 255
+        raise Error.new("clustering password can be at most 255 bytes")
+      end
+      unless @clustering_election_timeout.positive? && @clustering_heartbeat_interval.positive?
+        raise Error.new("clustering election_timeout and heartbeat_interval must be positive")
+      end
+      if @clustering_heartbeat_interval * 2 > @clustering_election_timeout
+        raise Error.new("clustering heartbeat_interval must be at most half the election_timeout")
+      end
+      # Without it a node would silently form a cluster of its own, e.g. when
+      # it's left out of one node's config
+      if @clustering_seeds.strip.empty?
+        raise Error.new("clustering seeds is required with the raft backend: the raft addresses of the nodes to form " \
+                        "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
+      end
+      clustering_seed_addresses.each do |seed|
+        host, sep, port = seed.rpartition(':')
+        if sep.empty? || host.empty? || port.to_u16?.nil?
+          raise Error.new("clustering seed '#{seed}' must be host:port")
+        end
+      end
+    end
+
+    private def load_clustering_password_file : Nil
+      path = @clustering_password_file
+      return if path.empty?
+      info = File.info(path)
+      unless info.permissions.value & 0o077 == 0
+        @io.puts "WARNING: clustering password_file #{path} is accessible by group or others " \
+                 "(mode #{info.permissions.value.to_s(8)}), chmod 600 it"
+      end
+      @clustering_secret = File.read(path).strip
+    rescue ex : File::Error
+      raise Error.new("Cannot read clustering password_file: #{ex.message}")
+    end
+
+    # The configured backend, or raft when `seeds` are set, as they're required
+    # with raft and ignored by etcd, so `backend` rarely needs to be set.
+    def clustering_backend : ClusteringBackend
+      @clustering_backend || (@clustering_seeds.strip.empty? ? ClusteringBackend::Etcd : ClusteringBackend::Raft)
+    end
+
+    # The URI followers replicate from. Defaults to this host's name when
+    # bound to all interfaces, otherwise to the address bound to.
+    def clustering_advertised_uri_or_default : String
+      @clustering_advertised_uri || "tcp://#{bracket_ipv6(default_clustering_host)}:#{@clustering_port}"
+    end
+
+    # This node's raft address as it appears in the peer list. Defaults to the
+    # host of the advertised URI with the raft port.
+    def clustering_raft_address : String
+      @clustering_raft_advertised_address || begin
+        host = URI.parse(clustering_advertised_uri_or_default).hostname.presence || default_clustering_host
+        "#{bracket_ipv6(host)}:#{@clustering_raft_port}"
+      end
+    end
+
+    private def default_clustering_host : String
+      case bind = @clustering_bind
+      when "::", "0.0.0.0", "" then System.hostname
+      else                          bind
+      end
+    end
+
+    private def bracket_ipv6(host : String) : String
+      host.includes?(':') && !host.starts_with?('[') ? "[#{host}]" : host
+    end
+
+    # Raft addresses to form or join a cluster with. A new cluster's first
+    # leader makes them its voters, a joining node finds the cluster through
+    # them. Once there's a membership in the raft log it's used instead.
+    # Required with the raft backend, see validate_raft_clustering!.
+    # Omitted ports default to 5680, independently of this node's raft_port.
+    def clustering_seed_addresses : Array(String)
+      seeds = @clustering_seeds.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
+      seeds.map! do |seed|
+        if !seed.includes?(':') || seed.ends_with?(']')
+          "#{seed}:#{DEFAULT_CLUSTERING_RAFT_PORT}"
+        else
+          seed
+        end
+      end
+      seeds.empty? ? [clustering_raft_address] : seeds.uniq
     end
 
     private def parse_config_from_cli(argv)
@@ -352,6 +443,10 @@ module LavinMQ
       @amqp_bind = value
       @http_bind = value
       @mqtt_bind = value
+    end
+
+    private def parse_clustering_backend(value : String) : ClusteringBackend
+      ClusteringBackend.parse?(value) || raise Error.new("clustering backend must be etcd or raft, got '#{value}'")
     end
 
     # Re-read the config file into a fresh copy and swap it in only if parsing

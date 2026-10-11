@@ -6,6 +6,12 @@ require "../http/constants"
 require "../mqtt/client_id_validation"
 
 module LavinMQ
+  # Where the cluster elects its leader and keeps the in-sync replica set
+  enum ClusteringBackend
+    Etcd
+    Raft
+  end
+
   class Config
     # Marks a config property as settable from a command-line argument.
     #
@@ -113,8 +119,9 @@ module LavinMQ
     # organized in one place, while config.cr contains the parsing and validation logic.
     # Config class includes this module to inherit all annotated properties.
     module Options
-      DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
-      DEFAULT_PASSWORD_HASH = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
+      DEFAULT_LOG_LEVEL            = ::Log::Severity::Info
+      DEFAULT_PASSWORD_HASH        = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
+      DEFAULT_CLUSTERING_RAFT_PORT = 5680
 
       @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
       property config_file = ""
@@ -414,7 +421,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
 
-      @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
+      @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server (default: tcp://hostname:port when bound to all interfaces, else tcp://bind:port)", section: "clustering")]
       @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
@@ -424,12 +431,60 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
-      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
+      @[CliOpt("", "--clustering-backend=BACKEND", "Leader election backend, etcd or raft (default: raft when seeds are set, else etcd)", ->parse_clustering_backend(String), section: "clustering")]
+      @[IniOpt(ini_name: backend, section: "clustering", transform: ->parse_clustering_backend(String))]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND", ->parse_clustering_backend(String))]
+      # Nil when not configured, see Config#clustering_backend
+      property clustering_backend : ClusteringBackend? = nil
+
+      @[CliOpt("", "--clustering-seeds=ADDRESSES", "Comma separated raft addresses (port defaults to 5680) to form or join a cluster with: all nodes of a new cluster, or any member when joining, raft backend only", section: "clustering")]
+      @[IniOpt(ini_name: seeds, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SEEDS")]
+      property clustering_seeds = ""
+
+      @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port, raft backend only (default: 5680)", section: "clustering")]
+      @[IniOpt(ini_name: raft_port, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
+      property clustering_raft_port = DEFAULT_CLUSTERING_RAFT_PORT
+
+      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "The host:port other nodes reach this node's raft port at, raft backend only (default: the advertised URI's host with raft_port)", section: "clustering")]
+      @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")]
+      property clustering_raft_advertised_address : String? = nil
+
+      @[CliOpt("", "--clustering-election-timeout=MS", "Leader election timeout in milliseconds, raft backend only (default: 1500)", section: "clustering")]
+      @[IniOpt(ini_name: election_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_ELECTION_TIMEOUT")]
+      property clustering_election_timeout = 1500
+
+      @[CliOpt("", "--clustering-heartbeat-interval=MS", "Leader heartbeat interval in milliseconds, raft backend only (default: 250)", section: "clustering")]
+      @[IniOpt(ini_name: heartbeat_interval, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
+      property clustering_heartbeat_interval = 250
+
+      @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet, raft backend only", ->(_v : String) { true }, section: "clustering")]
+      @[IniOpt(ini_name: bootstrap, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]
+      property? clustering_bootstrap = false
+
+      # Password shared by all nodes, authenticating election and replication.
+      # A configured password_file overrides this value.
+      @[CliOpt("", "--clustering-password=PASSWORD", "Clustering password shared by all nodes, raft backend only", section: "clustering")]
+      @[IniOpt(ini_name: password, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD")]
+      property clustering_secret = ""
+
+      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600 recommended), overrides password, raft backend only", section: "clustering")]
+      @[IniOpt(ini_name: password_file, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD_FILE")]
+      property clustering_password_file = ""
+
+      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs, etcd backend only (default: 127.0.0.1:2379)", section: "clustering")]
       @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
       property clustering_etcd_endpoints = "localhost:2379"
 
-      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)", section: "clustering")]
+      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd, etcd backend only (default: lavinmq)", section: "clustering")]
       @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"

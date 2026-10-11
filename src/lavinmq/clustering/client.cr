@@ -5,6 +5,7 @@ require "./checksums"
 require "./proxy"
 require "lz4"
 require "http/server"
+require "../http/control_socket"
 require "wait_group"
 
 module LavinMQ
@@ -27,6 +28,7 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
+      @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -34,7 +36,10 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
-      @internal_http_server : ::HTTP::Server?
+      @internal_http_server : HTTP::ControlSocket?
+      # Whether to serve the lavinmqctl socket while following, unless the
+      # controller already does
+      property? serve_control_socket = true
       getter streamed_bytes = 0_u64
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
@@ -83,6 +88,11 @@ module LavinMQ
         end
       end
 
+      # Tells whether this node is part of the cluster, to explain why the
+      # leader keeps refusing the connection. Set by controllers that have
+      # a membership.
+      property member_check : Proc(Bool)? = nil
+
       def follow(uri : String)
         follow(URI.parse(uri))
       end
@@ -93,11 +103,14 @@ module LavinMQ
         follow(host, port)
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
+        if @serve_control_socket && !local_leader_host?(host)
+          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server(path: @config.control_unix_path)
+        end
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -130,11 +143,26 @@ module LavinMQ
           lz4.try &.close
           socket.try &.close
           break if @closed
-          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
+          if (check = @member_check) && !check.call
+            # Refused by the leader, keep retrying: we may be added back, and
+            # exiting would only make a supervisor restart us in a loop.
+            Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
+          else
+            Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          end
+          break if closed_while_waiting?(1.second)
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def closed_while_waiting?(span : Time::Span) : Bool
+        select
+        when @closing.receive?
+          true
+        when timeout(span)
+          false
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -385,10 +413,11 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them. Losing
+            # .raft_state would let this node vote twice in a term.
+            next if child.in?(".lock", ".clustering_id", ".raft_state", ".raft_state.tmp",
+                      "checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -689,33 +718,49 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write(@protocol_version < 2 ? Start : StartV2)
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        socket.write @password.to_slice
-        case byte = socket.read_byte
+        if @protocol_version < 2
+          socket.write Start
+          socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+          socket.write @password.to_slice
+        else
+          socket.write StartV2
+          answer_challenge(socket)
+        end
+        case socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
-        when Start[0]
-          # The leader rejected our header and replied with its own
-          header = Bytes.new(Start.size)
-          header[0] = byte
-          socket.read_fully(header[1..])
-          if header == Start && @protocol_version > 1
-            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
-            @protocol_version = 1
-            raise IO::Error.new("Replication protocol version mismatch")
-          end
-          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
-        else
-          raise Error.new("Unknown response from authentication")
+        else          raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
+      end
+
+      # A version 2 leader echoes the header followed by the challenge, a
+      # version 1 leader rejects it by replying with its own header.
+      private def answer_challenge(socket)
+        header = Bytes.new(StartV2.size)
+        socket.read_fully(header)
+        if header == Start
+          # Raft clusters have no version 1 nodes, so a version 1 "leader"
+          # would be someone trying to get the password in clear text
+          if @config.clustering_backend.raft?
+            Log.error { "Leader only supports replication protocol version 1, refusing to send it the password" }
+            raise IO::Error.new("Replication protocol version mismatch")
+          end
+          Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
+          @protocol_version = 1
+          raise IO::Error.new("Replication protocol version mismatch")
+        end
+        raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}") unless header == StartV2
+        challenge = Bytes.new(CHALLENGE_SIZE)
+        socket.read_fully(challenge)
+        socket.write Clustering.challenge_response(@password, challenge)
       end
 
       def close
         return if @closed
         @closed = true
+        @closing.close
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close

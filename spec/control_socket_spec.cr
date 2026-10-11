@@ -26,6 +26,7 @@ describe "control socket" do
         response = client.get("/api/whoami")
         response.status_code.should eq 200
         response.body.should contain "__direct"
+        client.close
       end
     ensure
       config.control_unix_path = original_path
@@ -50,6 +51,7 @@ describe "control socket" do
         response = client.get("/api/whoami")
         response.status_code.should eq 200
         response.body.should contain "__direct"
+        client.close
       end
     ensure
       config.control_unix_path = original_path
@@ -122,6 +124,25 @@ describe "control socket" do
       File.touch(socket_path) # not a socket: prepare_control_socket raises a plain Exception
       LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
     ensure
+      config.control_unix_path = original_path if config && original_path
+      File.delete?(socket_path) if socket_path
+    end
+
+    it "answers GET /api/cluster with the given cluster status" do
+      config = LavinMQ::Config.instance
+      original_path = config.control_unix_path
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config.control_unix_path = socket_path
+      server = LavinMQ::HTTP::Server.follower_internal_socket_http_server(-> { %({"leader":null}).as(String?) })
+      server.should_not be_nil
+      client = HTTP::Client.new(UNIXSocket.new(socket_path))
+      response = client.get("/api/cluster")
+      response.status_code.should eq 200
+      response.body.should eq %({"leader":null})
+      client.get("/api/queues").status_code.should eq 503
+    ensure
+      client.try &.close
+      server.try &.close
       config.control_unix_path = original_path if config && original_path
       File.delete?(socket_path) if socket_path
     end

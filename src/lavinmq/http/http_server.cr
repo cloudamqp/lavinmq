@@ -1,6 +1,7 @@
 require "http/server"
 require "json"
 require "./constants"
+require "./control_socket"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
@@ -16,17 +17,20 @@ module LavinMQ
   module HTTP
     Log = LavinMQ::Log.for "http"
 
-    class ControlSocketInUseError < Exception; end
-
     class Server
       Log = LavinMQ::Log.for "http.server"
 
       # Resolved once and reused for this server's lifetime so a later config
       # reload (SIGHUP) can't make us delete or authenticate against a path
       # different from the one we actually bound.
-      @internal_unix_socket_path : String = Config.instance.control_unix_path
+      @internal_unix_socket_path : String
+      @internal_bound = false
+      # The whole API, also served over a raft node's ControlSocket
+      getter handler : ::HTTP::Handler
 
-      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
+                     cluster : Clustering::RaftController? = nil,
+                     @internal_unix_socket_path = Config.instance.control_unix_path)
         oauth_authenticator =
           case auth = @server.authenticator
           when Auth::Chain
@@ -44,7 +48,7 @@ module LavinMQ
           AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
-          PrometheusController.new(@server, require_authentication: true),
+          PrometheusController.new(@server, require_authentication: true, raft: cluster.try(&.node)),
           ApiDefaultsHandler.new,
           MainController.new(@server, @amqp_server, @mqtt_server),
           DefinitionsController.new(@server),
@@ -62,9 +66,11 @@ module LavinMQ
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
+          ClusterController.new(@server, cluster),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
-        @http = ::HTTP::Server.new(handlers)
+        @handler = ::HTTP::Server.build_middleware(handlers)
+        @http = ::HTTP::Server.new(@handler)
       end
 
       def bind_tcp(address, port)
@@ -90,6 +96,7 @@ module LavinMQ
       def bind_internal_unix
         Server.prepare_control_socket(@internal_unix_socket_path)
         addr = @http.bind_unix(@internal_unix_socket_path)
+        @internal_bound = true
         File.chmod(@internal_unix_socket_path, 0o660)
         Log.info { "Bound to #{addr}" }
         addr
@@ -99,67 +106,27 @@ module LavinMQ
         @http.listen
       end
 
+      def bound? : Bool
+        !@http.addresses.empty?
+      end
+
       def close
         @http.try &.close
-        File.delete?(@internal_unix_socket_path)
+        File.delete?(@internal_unix_socket_path) if @internal_bound
       end
 
-      # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
-      # The server returns 503 to signal that the node is a follower and can not handle the request.
-      # If another node on the same machine already serves the socket the server is
-      # skipped and nil is returned, it's only a convenience for lavinmqctl users.
-      def self.follower_internal_socket_http_server : ::HTTP::Server?
-        path = Config.instance.control_unix_path
-        http_server = ::HTTP::Server.new do |context|
-          context.response.status_code = 503
-          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
-                                 "Please connect to the leader node by using the --host option."
-        end
-
-        begin
-          prepare_control_socket(path)
-          addr = http_server.bind_unix(path)
-        rescue ex : Socket::BindError
-          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-          http_server.close
-          return
-        rescue ex
-          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-          http_server.close
-          return
-        end
-
-        File.chmod(path, 0o660)
-        Log.info { "Bound to #{addr}" }
-
-        spawn(name: "HTTP listener") do
-          http_server.listen
-        rescue ex
-          raise ex unless http_server.closed? # closed before listen started
-        end
-        http_server
+      # A ControlSocket answering as a follower, see there. If another node on
+      # the same machine already serves the socket it's skipped and nil is
+      # returned, it's only a convenience for lavinmqctl users.
+      def self.follower_internal_socket_http_server(cluster_status : Proc(String?)? = nil,
+                                                    path = Config.instance.control_unix_path) : ControlSocket?
+        socket = ControlSocket.new(path, cluster_status)
+        socket if socket.bind
       end
 
-      # Verifies that the control socket path is safe to bind to.
-      # Deletes the file if it's a socket no one is listening on,
-      # raises if it's in use, not a socket, or can't be verified.
+      # See ControlSocket.prepare
       def self.prepare_control_socket(path)
-        return unless info = File.info?(path, follow_symlinks: false)
-
-        unless info.type.socket?
-          raise "Control socket #{path} exists and is not a socket"
-        end
-
-        begin
-          UNIXSocket.open(path) { }
-          raise ControlSocketInUseError.new("Control socket #{path} is already in use")
-        rescue Socket::ConnectError
-          # ECONNREFUSED: socket inode exists, but nobody is listening.
-          File.delete(path)
-        rescue ex : Socket::Error
-          # EACCES or anything ambiguous: fail closed, don't delete.
-          raise "Cannot verify stale control socket #{path}: #{ex.message}"
-        end
+        ControlSocket.prepare(path)
       end
     end
   end

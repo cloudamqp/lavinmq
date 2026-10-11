@@ -121,6 +121,14 @@ module LavinMQ
       @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
+      # Closing writes files too. Unless the followers have acked them, a
+      # leadership transfer target counts as behind once it disconnects to
+      # campaign, and is taken out of the ISR before it gets this node's vote.
+      begin
+        @replicator.try &.wait_for_followers
+      rescue Clustering::Coordinator::StaleLeadership
+        # Not the leader anymore, nothing to hand over
+      end
     end
 
     private def close_log_exchange
@@ -232,7 +240,10 @@ module LavinMQ
         @gc_stats = GC.prof_stats
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        select # until the next round, or until closed
+        when @closed.when_true.receive
+        when timeout(@config.stats_interval.milliseconds)
+        end
       end
     ensure
       statm.try &.close

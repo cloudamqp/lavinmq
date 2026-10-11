@@ -100,6 +100,41 @@
           </table>
         </div>
       </section>
+      <section class="card" id="cluster-section" hidden>
+        <div class="table-header">
+          <h2 class="has-badge">
+            Cluster members
+            <small class="tiny-badge" id="cluster-members-count"></small>
+          </h2>
+        </div>
+        <p id="cluster-summary"></p>
+        <div class="table-wrapper">
+          <div id="cluster-members-error"></div>
+          <table id="cluster-members" class="table">
+            <thead>
+              <tr>
+                <th class="left">Address</th>
+                <th class="left">ID</th>
+                <th class="left">Role</th>
+                <th class="left">In sync</th>
+                <th class="right">Log index</th>
+                <th class="left">Caught up</th>
+                <th class="right require-administrator"></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <form method="post" id="addClusterMember" class="form require-administrator">
+          <h3>Add cluster member</h3>
+          <p>The node is added as a non-voting learner. Promote it once it is in sync.</p>
+          <label>
+            <span>Raft address</span>
+            <input type="text" name="address" placeholder="host:5680" required>
+          </label>
+          <button type="submit" class="btn btn-green">Add member</button>
+        </form>
+      </section>
       <section class="card cols-6 require-administrator">
         <div class="flex flex-row items-center justify-between gap-2">
           <h3>Garbage collection</h3>

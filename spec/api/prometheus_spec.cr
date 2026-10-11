@@ -506,6 +506,22 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
 end
 
 describe LavinMQ::HTTP::FollowerPrometheusController do
+  it "is replaced by the broker's metrics once the node serves" do
+    with_amqp_server do |s|
+      metrics = LavinMQ::HTTP::MetricsServer.new
+      addr = metrics.bind_tcp("127.0.0.1", 0)
+      spawn metrics.listen
+      begin
+        HTTP::Client.get("http://#{addr}/metrics").body.should_not contain "lavinmq_uptime"
+        # What the Launcher does once this node serves
+        metrics.amqp_server = s
+        HTTP::Client.get("http://#{addr}/metrics").body.should contain "lavinmq_uptime"
+      ensure
+        metrics.close
+      end
+    end
+  end
+
   it "returns gc metrics on /metrics" do
     with_follower_metrics_server do |http|
       response = http.get("/metrics")
@@ -522,28 +538,6 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_false
       response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
-    end
-  end
-end
-
-describe LavinMQ::HTTP::MetricsServer do
-  it "switches from follower to leader metrics on the same socket" do
-    with_amqp_server do |s|
-      h = LavinMQ::HTTP::MetricsServer.new
-      begin
-        addr = h.bind_tcp("127.0.0.1", 0)
-        spawn(name: "metrics listen") { h.listen }
-        Fiber.yield
-        http = HTTPSpecHelper.new(addr)
-        http.get("/metrics").body.should_not contain "lavinmq_identity_info"
-
-        h.leader = s
-        response = http.get("/metrics")
-        response.status_code.should eq 200
-        response.body.should contain "lavinmq_identity_info"
-      ensure
-        h.close
-      end
     end
   end
 end

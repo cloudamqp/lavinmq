@@ -23,7 +23,7 @@ class LavinMQCtl
 
   SECTIONS = {"User Management", "Virtual Hosts", "Queues", "Exchanges",
               "Policies", "Connections", "Definitions", "Shovels",
-              "Federation", "Server"}
+              "Federation", "Cluster", "Server"}
 
   def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
@@ -667,6 +667,9 @@ class LavinMQCtl
 
   @[Cmd("Display cluster status", "", section: "Server")]
   private def cluster_status
+    # The raft backend has members, leader and replication progress to show
+    resp = http.get "/api/cluster", @headers
+    return raft_cluster_status(JSON.parse(resp.body)) if resp.status_code == 200
     resp = http.get "/api/nodes"
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
@@ -680,6 +683,27 @@ class LavinMQCtl
     end
   end
 
+  private def raft_cluster_status(status : JSON::Any) : Nil
+    if @options["format"]? == "json"
+      output status
+      return
+    end
+    unless quiet?
+      heard = status["leader_heard_ago_ms"]?.try(&.as_i64?).try { |ms| ", last heard from #{(ms / 1000).round(1)}s ago" }
+      @io.puts "Leader: #{status["leader"].as_s? || "none"} (term #{status["term"]}#{heard})"
+      if status["local"]?.try(&.as_bool?)
+        # Answered by this node over the control socket, not by the leader
+        @io.puts "This node: #{status["node"]} (#{status["role"]}), its own view; only the leader knows how far members have caught up"
+      end
+      @io.puts "In-sync replicas: #{status["isr"].as_a.join(", ")}"
+    end
+    members = status["members"].as_a.map do |m|
+      {address: m["address"].to_s, node_id: m["node_id"].to_s, role: m["role"].to_s, in_isr: m["in_isr"].to_s,
+       match_index: m["match_index"].to_s, caught_up: m["caught_up"].to_s, leader: m["leader"].to_s}
+    end
+    output members
+  end
+
   @[Cmd("Trigger a garbage collection cycle and print GC stats", "", section: "Server")]
   private def gc_collect
     resp = http.post "/api/nodes/gc_collect", @headers
@@ -687,6 +711,66 @@ class LavinMQCtl
     resp = http.get "/api/nodes/gc_stats"
     handle_response(resp, 200)
     output JSON.parse(resp.body).as_h
+  end
+
+  @[Cmd("Add a node, by its raft address, to the cluster as a non-voting learner", "<address>", section: "Cluster")]
+  private def add_cluster_member
+    address = ARGV.shift?
+    abort @banner unless address
+    resp = http.post "/api/cluster/members", @headers, {address: address}.to_json
+    handle_response(resp, 201)
+  end
+
+  @[Cmd("Make a learner that has caught up a voting member", "<address|node_id>", section: "Cluster")]
+  private def promote_cluster_member
+    member = ARGV.shift?
+    abort @banner unless member
+    resp = http.post "/api/cluster/members/#{URI.encode_www_form(member)}/promote", @headers
+    handle_response(resp, 200)
+  end
+
+  @[Cmd("Remove a node from the cluster", "<address|node_id>", section: "Cluster")]
+  private def remove_cluster_member
+    member = ARGV.shift?
+    abort @banner unless member
+    resp = http.delete "/api/cluster/members/#{URI.encode_www_form(member)}", @headers
+    handle_response(resp, 204)
+  end
+
+  @[Cmd("Hand over leadership to a node, the leader continues as a follower", "[--target=address|node_id] [--wait] [--timeout=seconds]", section: "Cluster")]
+  @[Opt("--target=address|node_id", "Raft address or clustering id of the node to hand over to, default any caught up voter", options: "target")]
+  @[Opt("--wait", "Wait until the target is the leader", options: "wait", value: "true")]
+  @[Opt("--timeout=seconds", "How long to wait with --wait (60)", options: "timeout")]
+  private def transfer_leadership
+    body = @options["target"]?.try { |t| {target: t}.to_json } || "{}"
+    resp = http.post "/api/cluster/transfer-leadership", @headers, body
+    handle_response(resp, 202)
+    target = JSON.parse(resp.body)["target"].as_s
+    @io.puts "Handing over leadership to #{target}" unless quiet?
+    return unless @options.has_key?("wait")
+    wait_for_leader(target, (@options["timeout"]?.try(&.to_f?) || 60.0).seconds)
+  end
+
+  # The old leader stops serving before it hands over, and followers proxy to
+  # the leader, so the cluster answers with the target as leader once the
+  # target is up and serving.
+  private def wait_for_leader(target : String, timeout : Time::Span) : Nil
+    deadline = Time.instant + timeout
+    loop do
+      begin
+        resp = http.get "/api/cluster", @headers
+        if resp.status_code == 200 && JSON.parse(resp.body)["leader"]?.try(&.as_s?) == target
+          @io.puts "#{target} is the leader" unless quiet?
+          return
+        end
+      rescue IO::Error | Socket::Error | JSON::ParseException
+        # the old leader is going away
+      end
+      @http.try &.close
+      @http = nil
+      abort "Timed out waiting for #{target} to become the leader" if Time.instant >= deadline
+      sleep 500.milliseconds
+    end
   end
 
   @[Cmd("Stop the AMQP broker", "", section: "Server")]
