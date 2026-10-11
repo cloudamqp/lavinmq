@@ -37,6 +37,20 @@ module LavinMQ::Clustering::Raft
     Unresponsive
     # Without a target: no voter is eligible
     NoEligibleVoter
+
+    # *target* as the transfer was requested to it
+    def message(target : String?) : String
+      case self
+      in NotLeader       then "This node is not the leader"
+      in NotServing      then "The leader hasn't committed an entry in its term yet"
+      in IsLeader        then "#{target} is the leader"
+      in NotMember       then "#{target} is not a member"
+      in NotVoter        then "#{target} is not a voter"
+      in NotInIsr        then "#{target} is not in the in-sync replica set"
+      in Unresponsive    then "#{target} hasn't answered the leader recently"
+      in NoEligibleVoter then "No reachable voter is in the in-sync replica set"
+      end
+    end
   end
 
   enum MembershipError

@@ -90,20 +90,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       to, term = check
       Transfer.new(to, status.address_of(to) || to.to_s(36), term)
     in Raft::TransferRefusal
-      refusal_message(check, target)
-    end
-  end
-
-  private def refusal_message(refusal : Raft::TransferRefusal, target : String?) : String
-    case refusal
-    in .not_leader?        then "This node is not the leader"
-    in .not_serving?       then "The leader hasn't committed an entry in its term yet"
-    in .is_leader?         then "#{target} is the leader"
-    in .not_member?        then "#{target} is not a member"
-    in .not_voter?         then "#{target} is not a voter"
-    in .not_in_isr?        then "#{target} is not in the in-sync replica set"
-    in .unresponsive?      then "#{target} hasn't answered the leader recently"
-    in .no_eligible_voter? then "No reachable voter is in the in-sync replica set"
+      check.message(target)
     end
   end
 
