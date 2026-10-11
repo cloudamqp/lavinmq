@@ -1638,6 +1638,55 @@ describe LavinMQ::AMQP::Stream do
 
   {% if flag?(:linux) %}
     describe "requeued redeliveries" do
+      # Rejects (the client's read fiber) push to the consumer's requeued
+      # Deque while its deliver loop, possibly on another thread, shifts from it
+      it "redelivers every message requeued while the consumer delivers, once", tags: "slow" do
+        queue_name = Random::Secure.hex
+        msg_count = 3_000
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.prefetch 65_535
+            vhost = s.vhosts["/"]
+            vhost.declare_queue(queue_name, true, false, stream_queue_args)
+            stream = vhost.queue(queue_name).as(LavinMQ::AMQP::Stream)
+            msg_count.times { stream.publish(LavinMQ::Message.new("", queue_name, "m")) }
+            server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
+            frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, queue_name, "requeue-race",
+              false, false, false, false, AMQ::Protocol::Table.new({"x-stream-offset" => "first"}))
+            consumer = LavinMQ::AMQP::StreamConsumer.new(server_ch, stream, frame)
+            server_ch.@consumers << consumer # so that it is closed with the channel
+            ctx = Fiber::ExecutionContext::Parallel.new("stream-requeue-race", 4)
+            wg = WaitGroup.new(1)
+            ctx.spawn do
+              stream.add_consumer(consumer) # its deliver loop runs in ctx
+            ensure
+              wg.done
+            end
+            wg.wait
+            wait_for { consumer.unacked == msg_count }
+            sps = server_ch.unacked.map(&.sp)
+            sps.size.should eq msg_count
+
+            wg = WaitGroup.new(3)
+            3.times do |t|
+              ctx.spawn do
+                sps.each_with_index do |sp, i|
+                  consumer.reject(sp, requeue: true) if i % 3 == t
+                end
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            wait_for { stream.@redeliver_count.get >= msg_count }
+            sleep 100.milliseconds # any duplicate redelivery
+            stream.@redeliver_count.get.should eq msg_count
+            consumer.unacked.should eq msg_count
+            consumer.requeued.should be_empty
+          end
+        end
+      end
+
       it "keeps an older segment mapped until its last requeued message is redelivered" do
         queue_name = Random::Secure.hex
         # Two messages per segment

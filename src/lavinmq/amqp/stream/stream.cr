@@ -198,6 +198,17 @@ module LavinMQ::AMQP
       end
     end
 
+    # The deliver path shifts from the consumer's requeued messages under
+    # @msg_store_lock (see StreamMessageStore#shift?). Returns whether there
+    # were no requeued messages before.
+    def push_requeued(consumer : AMQP::StreamConsumer, sp : SegmentPosition) : Bool
+      @msg_store_lock.synchronize do
+        was_empty = consumer.requeued.empty?
+        consumer.requeued.push(sp)
+        was_empty
+      end
+    end
+
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
       @msg_store_lock.synchronize do
         stream_msg_store.store_consumer_offset(consumer_tag, offset)
