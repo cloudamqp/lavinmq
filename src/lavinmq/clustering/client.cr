@@ -35,7 +35,7 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
-      @internal_http_server : ::HTTP::Server?
+      @internal_http_server : HTTP::ControlSocket?
       # Whether to serve the lavinmqctl socket while following, unless the
       # controller already does
       property? serve_control_socket = true

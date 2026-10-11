@@ -64,6 +64,14 @@ rescue
   ""
 end
 
+# The status code of a GET over the node's lavinmqctl socket
+private def control_get(config : LavinMQ::Config, path : String) : Int32
+  client = HTTP::Client.new(UNIXSocket.new(config.control_unix_path))
+  client.get(path).status_code
+ensure
+  client.try &.close
+end
+
 describe LavinMQ::Clustering::Controller do
   it "uses the etcd backend by default" do
     with_datadir do |data_dir|
@@ -203,6 +211,11 @@ describe LavinMQ::Clustering::Controller do
           sleep 1.second # over three election timeouts
           controllers[to].node.leader?.should be_true
           serving.call(to).should be_true
+          # The lavinmqctl socket, kept through the role changes, has the
+          # API where it's served and a follower's answer elsewhere
+          control_get(configs[to], "/api/whoami").should eq 200
+          control_get(configs[from], "/api/whoami").should eq 503
+          control_get(configs[from], "/api/cluster").should eq 200
         end
         select
         when exited.receive

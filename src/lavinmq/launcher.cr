@@ -76,7 +76,7 @@ module LavinMQ
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, raft_controller,
-        @config.control_unix_path)
+        raft_controller.try(&.control_path) || @config.control_unix_path)
       start_listeners(amqp_server, mqtt_server, http_server)
       @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
@@ -133,6 +133,7 @@ module LavinMQ
     end
 
     private def close_listeners : Nil
+      raft_controller.try &.control_api = nil
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
@@ -267,7 +268,11 @@ module LavinMQ
       bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
       bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
       bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
-      http_server.bind_internal_unix
+      if controller = raft_controller
+        controller.control_api = http_server.handler # its socket is bound for the process
+      else
+        http_server.bind_internal_unix
+      end
 
       unless amqp_server.listeners.empty?
         spawn(name: "AMQP listener") do
@@ -285,8 +290,10 @@ module LavinMQ
           spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
         end
       end
-      spawn(name: "HTTP listener") do
-        http_server.listen
+      if http_server.bound?
+        spawn(name: "HTTP listener") do
+          http_server.listen
+        end
       end
     end
 

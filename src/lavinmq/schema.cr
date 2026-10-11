@@ -30,6 +30,14 @@ module LavinMQ
       replicator.try &.replace_file(File.join(data_dir, "schema_version"))
     end
 
+    # Also a socket, like the lavinmqctl one when it's configured in the data
+    # dir: copying it fails, and a live one mustn't be deleted
+    private def self.node_local?(data_dir, child) : Bool
+      return true if child.in?(NODE_LOCAL)
+      type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
+      type.nil? || type.socket? || type.pipe?
+    end
+
     private def self.version(data_dir) : Int32?
       File.read(File.join(data_dir, "schema_version")).to_i32
     rescue File::NotFoundError
@@ -37,7 +45,7 @@ module LavinMQ
     end
 
     private def self.backup(data_dir) : String?
-      children = Dir.children(data_dir).reject!(&.in?(NODE_LOCAL))
+      children = Dir.children(data_dir).reject! { |c| node_local?(data_dir, c) }
       return if children.empty?
 
       backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
@@ -55,7 +63,7 @@ module LavinMQ
       Log.info { "Restoring backup #{backup_dir}" }
       # delete everything in data dir except backups
       Dir.each_child(data_dir) do |child|
-        next if child.in?(NODE_LOCAL)
+        next if node_local?(data_dir, child)
         FileUtils.rm_r File.join(data_dir, child)
       end
       # move the backup files to data dir

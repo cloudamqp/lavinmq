@@ -13,8 +13,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   record Transfer, target : Int32, address : String, term : Int64
 
   @transport : Raft::TCPTransport? = nil
-  # Serves lavinmqctl this node's view of the cluster until it leads
-  @control_server : ::HTTP::Server? = nil
+  # The lavinmqctl socket, bound once for the process: the broker's API
+  # while serving (see #control_api=), this node's own view otherwise
+  @control_socket : HTTP::ControlSocket? = nil
   # Stops serving as the leader, see #on_demote
   @demote : (Proc(Nil)? ->)? = nil
   @step_down_requested = Channel(Transfer).new(1)
@@ -137,7 +138,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     return if @stopped
     @stopped = @stopping = true
     @repli_client.try &.close
-    close_control_server
+    @control_socket.try &.close
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
     @stop_signal.close
@@ -149,9 +150,18 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     JSON.build { |json| status.to_json(json) }
   end
 
-  private def close_control_server : Nil
-    @control_server.try &.close
-    @control_server = nil
+  # Where lavinmqctl requests go while this node serves, nil once it stops.
+  # The socket is bound if it couldn't be when the node started, e.g. while
+  # another node on this machine had it.
+  def control_api=(handler : ::HTTP::Handler?) : Nil
+    socket = @control_socket || return
+    socket.bind if handler
+    socket.api = handler
+  end
+
+  # The path the lavinmqctl socket was bound at, which a config reload can't change
+  def control_path : String
+    @control_socket.try(&.path) || @config.control_unix_path
   end
 
   # Follows the leader until this node is a serving leader. False if the
@@ -172,8 +182,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   private def lead(&) : Transfer?
     ensure_in_isr!
     stop_following
-    # The leader's HTTP server binds the control socket when it starts
-    close_control_server
     # No follower is replicating from this node yet, so none of them can be
     # trusted to have what it's about to confirm. They rejoin the ISR as they
     # finish syncing.
@@ -234,7 +242,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     else
     end
     @transfer_lock.synchronize { @transfer_target = nil }
-    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status, @config.control_unix_path)
   end
 
   # Exits unless *done* is closed within the demotion timeout, counted from
@@ -301,7 +308,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       ->@node.deliver(Raft::TransportEvent), execution_context: @raft_context)
     @raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
-    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status, @config.control_unix_path)
+    @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, ->local_status).tap(&.bind)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
   end
