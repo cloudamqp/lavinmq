@@ -59,8 +59,14 @@ module LavinMQ::AMQP
     @reject_on_overflow = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
+    # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
+    # @consumers.size, readable without the lock (e.g. on the delivery path)
+    @consumer_count = Atomic(Int32).new(0)
+    # Set under @consumers_lock when the queue is going away (closed,
+    # auto-deleted or expired), so no consumer can be added after that decision
+    @consumers_closed = false
     @message_ttl_change = ::Channel(Nil).new
 
     @basic_get_unacked = Deque(UnackedMessage).new
@@ -68,15 +74,15 @@ module LavinMQ::AMQP
     # Consumer accessors
 
     def consumers : Array(Client::Channel::Consumer)
-      @consumers.dup
+      @consumers_lock.synchronize { @consumers.dup }
     end
 
     def consumers_size : Int32
-      @consumers.size
+      @consumer_count.get(:relaxed)
     end
 
     def consumers_empty? : Bool
-      @consumers.empty?
+      consumers_size.zero?
     end
 
     # BasicGet unacked accessors
@@ -149,7 +155,8 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
+          # A consumer added as the TTL fired keeps the queue alive
+          next unless expire_queue
           close
           break
         end
@@ -162,7 +169,7 @@ module LavinMQ::AMQP
       loop do
         break unless wait_for_consumers_empty
         break unless wait_for_messages
-        next unless @consumers.empty?
+        next unless consumers_empty?
         break unless wait_for_message_expiration
       end
     rescue ex : MessageStore::Error
@@ -358,9 +365,9 @@ module LavinMQ::AMQP
 
     # Check if we need the expire fiber running
     private def should_start_expire_fiber? : Bool
-      return false if @msg_store.size == 0  # No messages to expire
-      return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
-      return true if @message_ttl           # Queue-level TTL means all messages need expiring
+      return false if @msg_store.size == 0 # No messages to expire
+      return false unless consumers_empty? # Expire loop can't run with consumers present; rm_consumer will restart it
+      return true if @message_ttl          # Queue-level TTL means all messages need expiring
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
@@ -370,6 +377,7 @@ module LavinMQ::AMQP
 
     private def reset_queue_state
       @closed = false
+      @consumers_closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
 
@@ -431,7 +439,7 @@ module LavinMQ::AMQP
 
     # A queue with an exclusive consumer refuses all other consumers, and an
     # exclusive consumer is refused while the queue has any consumers
-    def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
+    private def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
       @exclusive_consumer || (new_consumer_exclusive && !@consumers.empty?)
     end
 
@@ -611,8 +619,10 @@ module LavinMQ::AMQP
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
+        @consumers_closed = true
         @consumers.each &.cancel
         @consumers.clear
+        @consumer_count.set(0, :relaxed)
         @exclusive_consumer = false
         @has_priority_consumers = false
       end
@@ -659,7 +669,7 @@ module LavinMQ::AMQP
         exclusive:                    @exclusive,
         auto_delete:                  @auto_delete,
         arguments:                    @arguments,
-        consumers:                    @consumers.size,
+        consumers:                    consumers_size,
         vhost:                        @vhost.name,
         messages:                     @msg_store.size + stats[:messages_unacknowledged],
         total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
@@ -676,7 +686,7 @@ module LavinMQ::AMQP
         unacked_avg_bytes:            stats[:unacked_avg_bytes],
         operator_policy:              operator_policy.try &.name,
         policy:                       policy.try &.name,
-        exclusive_consumer_tag:       @exclusive_consumer ? @consumers.find(&.exclusive?).try(&.tag) : nil,
+        exclusive_consumer_tag:       exclusive_consumer_tag,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
         state:                        @state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
@@ -685,6 +695,11 @@ module LavinMQ::AMQP
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
       }
+    end
+
+    private def exclusive_consumer_tag : String?
+      return unless @exclusive_consumer
+      @consumers_lock.synchronize { @consumers.find(&.exclusive?).try(&.tag) }
     end
 
     enum PublishResult
@@ -833,7 +848,7 @@ module LavinMQ::AMQP
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
+      return false if zero_ttl?(msg) && !requeue && !consumers_empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
@@ -903,7 +918,10 @@ module LavinMQ::AMQP
 
     private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
+      @consumers_lock.synchronize do
+        return false unless @consumers.empty?
+        @consumers_closed = true
+      end
       @log.debug { "Queue expired" }
       @vhost.delete_queue(@name)
       true
@@ -1062,29 +1080,39 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
-      @consumers_lock.synchronize do
+    # Adds the consumer unless the queue is in exclusive use, checked atomically
+    # with the add. Returns false if the consumer was refused for that reason,
+    # raises ClosedError if the queue is closed or about to be deleted.
+    def add_consumer(consumer : Client::Channel::Consumer) : Bool
+      raise ClosedError.new if @closed
+      consumers_size = @consumers_lock.synchronize do
+        raise ClosedError.new if @consumers_closed
+        return false if in_exclusive_use?(consumer.exclusive?)
         was_empty = @consumers.empty?
         @consumers << consumer
+        @consumer_count.set(@consumers.size, :relaxed)
+        @exclusive_consumer = true if consumer.exclusive?
+        @has_priority_consumers = true unless consumer.priority.zero?
         if was_empty
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
         end
+        @consumers.size
       end
       consumer.ensure_deliver_loop unless @msg_store.empty?
-      @exclusive_consumer = true if consumer.exclusive?
-      @has_priority_consumers = true unless consumer.priority.zero?
-      @log.debug { "Adding consumer (now #{@consumers.size})" }
+      @log.debug { "Adding consumer (now #{consumers_size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
+      true
     end
 
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       return if @closed
+      now_empty = delete_queue = false
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
+        @consumer_count.set(@consumers.size, :relaxed)
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
         if deleted
           @exclusive_consumer = false if consumer.exclusive?
@@ -1098,15 +1126,23 @@ module LavinMQ::AMQP
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
         end
-      end
-      if @consumers.empty?
-        if @auto_delete
-          delete
-        else
-          notify_consumers_empty(true)
-          # Check if fiber needs to restart for message expiration
-          ensure_expire_fiber
+        # Decide while holding the lock, so that a consumer added concurrently
+        # either keeps the queue or is refused because it's being deleted
+        if @consumers.empty?
+          if @auto_delete
+            delete_queue = !@consumers_closed
+            @consumers_closed = true
+          else
+            now_empty = true
+            notify_consumers_empty(true)
+          end
         end
+      end
+      if delete_queue
+        delete
+      elsif now_empty
+        # Check if fiber needs to restart for message expiration
+        ensure_expire_fiber
       end
     end
 
@@ -1152,7 +1188,7 @@ module LavinMQ::AMQP
     end
 
     def in_use?
-      !(empty? && @consumers.empty?)
+      !(empty? && consumers_empty?)
     end
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)

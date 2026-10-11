@@ -231,9 +231,11 @@ module LavinMQ::AMQP
     end
 
     private def notify_all_stream_consumers
-      @consumers.each do |consumer|
-        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+            stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+          end
         end
       end
     end
@@ -327,11 +329,14 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer)
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-        @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
+    def add_consumer(consumer : Client::Channel::Consumer) : Bool
+      stream_consumer = consumer.as?(AMQP::StreamConsumer) || return super
+      @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
+      added = super
+    ensure
+      if stream_consumer && !added
+        @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
       end
-      super
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
