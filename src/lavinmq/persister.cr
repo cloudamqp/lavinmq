@@ -107,13 +107,15 @@ module LavinMQ
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive? || raise_if_fenced(force: true)
+      waiter.receive? || raise stale_leadership
     end
 
-    private def raise_if_fenced(force = false) : Nil
-      if force || @replicator.try &.fenced?
-        raise Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
-      end
+    private def raise_if_fenced : Nil
+      raise stale_leadership if @replicator.try &.fenced?
+    end
+
+    private def stale_leadership : Clustering::Coordinator::StaleLeadership
+      Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
     end
 
     def close : Nil
