@@ -44,13 +44,17 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
+      # Registered with the coordinator while this server is open
+      @member_removed : Int32 ->
+
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
-        @coordinator.on_member_removed { |id| drop_follower(id) }
+        @member_removed = ->drop_follower(Int32)
+        @coordinator.add_member_removed_listener(@member_removed)
       end
 
       # Disconnects a follower that was removed from the cluster. It stays out
@@ -533,6 +537,9 @@ module LavinMQ
 
       def close
         @fenced.set(true)
+        # A node makes a new server for each term it leads, the coordinator
+        # outlives them
+        @coordinator.remove_member_removed_listener(@member_removed)
         @listeners.each &.close
         @lock.synchronize do
           @followers.each &.close

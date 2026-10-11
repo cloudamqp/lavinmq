@@ -186,9 +186,14 @@ module LavinMQ::Clustering::Raft
     end
 
     # Called, in a fiber of its own, with the clustering id of every node
-    # that a committed membership change removed.
-    def on_member_removed(&block : Int32 ->) : Nil
-      @state_lock.synchronize { @removed_callbacks << block }
+    # that a committed membership change removed, until removed with
+    # #remove_member_removed_listener.
+    def add_member_removed_listener(listener : Int32 ->) : Nil
+      @state_lock.synchronize { @removed_callbacks << listener }
+    end
+
+    def remove_member_removed_listener(listener : Int32 ->) : Nil
+      @state_lock.synchronize { @removed_callbacks.delete(listener) }
     end
 
     # Replicate an ISR change. Blocks until committed (true) or until this

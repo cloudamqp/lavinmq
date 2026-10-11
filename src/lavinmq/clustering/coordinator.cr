@@ -23,8 +23,11 @@ module LavinMQ::Clustering
     end
 
     # Called, from a fiber of its own, with the id of a node that was removed
-    # from the cluster.
-    def on_member_removed(&_block : Int32 ->) : Nil
+    # from the cluster, until removed with #remove_member_removed_listener.
+    def add_member_removed_listener(listener : Int32 ->) : Nil
+    end
+
+    def remove_member_removed_listener(listener : Int32 ->) : Nil
     end
   end
 end

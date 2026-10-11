@@ -26,8 +26,12 @@ module LavinMQ::Clustering
       @node.member?(node_id)
     end
 
-    def on_member_removed(&block : Int32 ->) : Nil
-      @node.on_member_removed(&block)
+    def add_member_removed_listener(listener : Int32 ->) : Nil
+      @node.add_member_removed_listener(listener)
+    end
+
+    def remove_member_removed_listener(listener : Int32 ->) : Nil
+      @node.remove_member_removed_listener(listener)
     end
   end
 end
