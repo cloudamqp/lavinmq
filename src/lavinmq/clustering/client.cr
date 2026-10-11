@@ -5,6 +5,7 @@ require "./checksums"
 require "./proxy"
 require "lz4"
 require "http/server"
+require "../http/control_socket"
 require "wait_group"
 
 module LavinMQ
