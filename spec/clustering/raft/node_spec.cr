@@ -498,6 +498,30 @@ describe Raft::TCPTransport do
     peer.try &.close
   end
 
+  # Something at a peer's address that doesn't know the password, e.g. after
+  # the peer went down, mustn't be taken for it
+  it "refuses a peer that accepts it without knowing the password" do
+    rogue = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{rogue.local_address.port}"
+    spawn do
+      while socket = rogue.accept?
+        socket.write Bytes.new(Raft::TCPTransport::NONCE_SIZE)
+        # MAGIC, nonce, id, address, MAC
+        socket.read_fully(Bytes.new(Raft::TCPTransport::MAGIC.size + Raft::TCPTransport::NONCE_SIZE + 4))
+        socket.read_fully(Bytes.new(socket.read_bytes(Int32, Raft::Codec::Format) + Raft::TCPTransport::MAC_SIZE))
+        socket.write_byte 1u8 # Ok
+        socket.write_bytes 99, Raft::Codec::Format
+        socket.write Bytes.new(Raft::TCPTransport::MAC_SIZE)
+        socket.flush
+      end
+    end
+    client = Raft::TCPTransport.new("secret", 2, "client:1", Array(String).new, ->(_e : Raft::TransportEvent) { })
+    client.probe(addr).should be_nil
+  ensure
+    client.try &.close
+    rogue.try &.close
+  end
+
   # Frames are decoded straight from the socket, leftovers would be read as
   # the start of the next one
   it "drops a connection with a frame longer than its message" do
@@ -509,16 +533,21 @@ describe Raft::TCPTransport do
     socket = TCPSocket.new("127.0.0.1", server.local_address.port)
     nonce = Bytes.new(Raft::TCPTransport::NONCE_SIZE)
     socket.read_fully(nonce)
+    client_nonce = Bytes.new(Raft::TCPTransport::NONCE_SIZE, 7u8)
     signed = IO::Memory.new
+    signed.write "client".to_slice
     signed.write nonce
+    signed.write client_nonce
     signed.write_bytes 2, Raft::Codec::Format
     signed.write "raw:1".to_slice
     socket.write Raft::TCPTransport::MAGIC
+    socket.write client_nonce
     socket.write_bytes 2, Raft::Codec::Format
     Raft::Codec.write_str socket, "raw:1"
     socket.write OpenSSL::HMAC.digest(:sha256, "secret", signed.to_slice)
     socket.read_byte.should eq 1 # accepted
     socket.read_bytes Int32, Raft::Codec::Format
+    socket.read_fully(Bytes.new(Raft::TCPTransport::MAC_SIZE))
     events.receive.should eq Raft::Connected.new(2, "raw:1")
     msg = Raft::Codec.encode(Raft::TimeoutNow.new(2, 3))
     socket.write_bytes (msg.size + 3).to_u32, Raft::Codec::Format

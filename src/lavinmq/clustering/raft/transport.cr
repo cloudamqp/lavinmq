@@ -31,9 +31,11 @@ module LavinMQ::Clustering::Raft
 
   # One outbound connection per peer carries everything this node sends to
   # it; what the peer sends back arrives on the peer's own outbound
-  # connection. Connections authenticate with an HMAC over a server nonce,
-  # the client's clustering id and address, keyed with the shared clustering
-  # password. The server answers with its own id.
+  # connection. Both sides authenticate with an HMAC keyed with the shared
+  # clustering password: the client over both sides' nonces and its own
+  # clustering id and address, the server over both nonces and its id, so
+  # something listening at a peer's address that doesn't know the password
+  # isn't taken for that peer.
   #
   # Only one address per clustering id may be connected at a time: a node
   # moving to a new address is accepted once its old connections have closed
@@ -42,8 +44,9 @@ module LavinMQ::Clustering::Raft
   class TCPTransport < Transport
     Log = LavinMQ::Log.for "clustering.raft.transport"
 
-    MAGIC      = "LMQRAFT2".to_slice
+    MAGIC      = "LMQRAFT3".to_slice
     NONCE_SIZE =  32
+    MAC_SIZE   =  32 # HMAC-SHA256
     QUEUE_SIZE = 256
     # Seconds idle before probing, between probes, and unanswered probes
     # before a connection is dropped.
@@ -318,13 +321,15 @@ module LavinMQ::Clustering::Raft
       magic = Bytes.new(MAGIC.size)
       socket.read_fully(magic)
       raise AuthError.new("Bad protocol header") unless magic == MAGIC
+      client_nonce = Bytes.new(NONCE_SIZE)
+      socket.read_fully(client_nonce)
       id = socket.read_bytes Int32, Codec::Format
       len = socket.read_bytes Int32, Codec::Format
       raise AuthError.new("Invalid address length #{len}") unless 0 < len <= MAX_ADDRESS
       address = socket.read_string(len)
-      mac = Bytes.new(32)
+      mac = Bytes.new(MAC_SIZE)
       socket.read_fully(mac)
-      unless Crypto::Subtle.constant_time_compare(mac, hmac(nonce, id, address))
+      unless Crypto::Subtle.constant_time_compare(mac, client_mac(nonce, client_nonce, id, address))
         socket.write_byte Reply::BadPassword.value
         raise AuthError.new("Bad password")
       end
@@ -342,6 +347,7 @@ module LavinMQ::Clustering::Raft
       begin
         socket.write_byte Reply::Ok.value
         socket.write_bytes @id, Codec::Format
+        socket.write server_mac(client_nonce, nonce, @id)
       rescue ex
         release(id, address)
         raise ex
@@ -349,18 +355,27 @@ module LavinMQ::Clustering::Raft
       {id, address}
     end
 
-    # Returns the server's clustering id.
+    # Returns the server's clustering id, once it has shown that it knows the
+    # password too.
     private def authenticate_client(socket : IO) : Int32
       nonce = Bytes.new(NONCE_SIZE)
       socket.read_fully(nonce)
+      client_nonce = Random::Secure.random_bytes(NONCE_SIZE)
       socket.write MAGIC
+      socket.write client_nonce
       socket.write_bytes @id, Codec::Format
       Codec.write_str socket, @address
-      socket.write hmac(nonce, @id, @address)
+      socket.write client_mac(nonce, client_nonce, @id, @address)
       socket.flush
       case Reply.from_value?(socket.read_byte || raise IO::EOFError.new)
       when Reply::Ok
-        socket.read_bytes Int32, Codec::Format
+        id = socket.read_bytes Int32, Codec::Format
+        mac = Bytes.new(MAC_SIZE)
+        socket.read_fully(mac)
+        unless Crypto::Subtle.constant_time_compare(mac, server_mac(client_nonce, nonce, id))
+          raise AuthError.new("The peer doesn't know the clustering password")
+        end
+        id
       when Reply::SameId
         raise AuthError.new("The peer has the same clustering id as this node")
       when Reply::IdConnected
@@ -370,9 +385,21 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    private def hmac(nonce : Bytes, id : Int32, address : String) : Bytes
-      data = IO::Memory.new(nonce.size + 4 + address.bytesize)
-      data.write nonce
+    # The label keeps a client's MAC from being reflected as a server's, the
+    # nonces bind both to this connection
+    private def client_mac(server_nonce : Bytes, client_nonce : Bytes, id : Int32, address : String) : Bytes
+      mac("client", server_nonce, client_nonce, id, address)
+    end
+
+    private def server_mac(client_nonce : Bytes, server_nonce : Bytes, id : Int32) : Bytes
+      mac("server", server_nonce, client_nonce, id, "")
+    end
+
+    private def mac(label : String, server_nonce : Bytes, client_nonce : Bytes, id : Int32, address : String) : Bytes
+      data = IO::Memory.new(label.bytesize + 2 * NONCE_SIZE + 4 + address.bytesize)
+      data.write label.to_slice
+      data.write server_nonce
+      data.write client_nonce
       data.write_bytes id, Codec::Format
       data.write address.to_slice
       OpenSSL::HMAC.digest(:sha256, @password, data.to_slice)
