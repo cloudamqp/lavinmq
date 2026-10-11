@@ -72,9 +72,7 @@ module FederationSpecHelpers
         else
         end
         gate.receive?
-        server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
-        spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
-        spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+        forward(client, target)
       end
     end
     url = target.dup
@@ -84,6 +82,18 @@ module FederationSpecHelpers
   ensure
     gate.try &.close
     proxy.try &.close
+  end
+
+  # Connects `client` to `target` and copies both ways. A method of its own
+  # so the copying fibers capture this connection's sockets: blocks spawned
+  # in the accept loop would share its variables, which the next accept?
+  # overwrites, with nil once the proxy closes.
+  private def self.forward(client : TCPSocket, target : URI)
+    server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
+    spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
+    spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+  rescue IO::Error
+    client.close
   end
 end
 
