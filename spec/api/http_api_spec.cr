@@ -51,6 +51,13 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should return the time between the samples in the stats logs" do
+      with_http_server do |http, _|
+        response = http.get("/api/overview")
+        JSON.parse(response.body)["stats_interval"].should eq LavinMQ::Config.instance.stats_interval
+      end
+    end
+
     it "should filter stats if x-vhost header is set" do
       with_http_server do |http, _|
         response = http.get("/api/whoami")

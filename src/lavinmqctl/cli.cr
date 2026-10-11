@@ -9,12 +9,16 @@ require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
 
 class LavinMQCtl
+  alias TUILauncher = Proc(HTTP::Client, Proc(HTTP::Client)?, Float64, Bool, Nil)
+  @@tui_launcher : TUILauncher?
+
   @options = {} of String => String
   @args = {} of String => JSON::Any
   @cmd : Proc(Nil)?
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
+  @request_timeout : Time::Span?
   @io : IO
   @err_io : IO
 
@@ -35,6 +39,10 @@ class LavinMQCtl
     end
     global_options
     parse_cmd
+  end
+
+  def self.tui_launcher=(launcher : TUILauncher?)
+    @@tui_launcher = launcher
   end
 
   def parse_cmd
@@ -115,32 +123,43 @@ class LavinMQCtl
   end
 
   private def connect
-    if host = @options["host"]?
+    if path = control_unix_path
+      unless File.exists? path
+        abort "#{path} not found. Is LavinMQ running?"
+      end
+      unless File::Info.writable? path
+        abort "Please run lavinmqctl as root or as the same user as LavinMQ."
+      end
+      begin
+        unix_client(path)
+      rescue ex : Socket::ConnectError
+        abort "Can't connect to LavinMQ: #{ex.message}"
+      end
+    elsif host = @options["host"]?
       validate_connection_args("host")
       client_from_uri(host)
     elsif uri = @options["uri"]?
       validate_connection_args("uri")
       client_from_uri(uri)
-    elsif hostname = @options["hostname"]?
+    else
+      hostname = @options["hostname"]
       scheme = @options["scheme"]? || "http"
       port = @options["port"]?.try &.to_i? || 15672
       uri = URI.new(scheme, hostname, port)
       client_from_uri(uri)
-    else
-      path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
-      begin
-        unless File.exists? path
-          abort "#{path} not found. Is LavinMQ running?"
-        end
-        unless File::Info.writable? path
-          abort "Please run lavinmqctl as root or as the same user as LavinMQ."
-        end
-        socket = UNIXSocket.new(path)
-        HTTP::Client.new(socket)
-      rescue ex : Socket::ConnectError
-        abort "Can't connect to LavinMQ: #{ex.message}"
-      end
     end
+  end
+
+  # The control socket is used unless a host, URI or hostname is given
+  private def control_unix_path : String?
+    return if @options.has_key?("host") || @options.has_key?("uri") || @options.has_key?("hostname")
+    @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
+  end
+
+  private def unix_client(path : String) : HTTP::Client
+    socket = UNIXSocket.new(path)
+    socket.read_timeout = @request_timeout
+    HTTP::Client.new(socket)
   end
 
   private def client_from_uri(uri : String)
@@ -151,6 +170,10 @@ class LavinMQCtl
 
   private def client_from_uri(uri : URI)
     c = HTTP::Client.new(uri)
+    if timeout = @request_timeout
+      c.connect_timeout = timeout
+      c.read_timeout = timeout
+    end
     uri.user = @options["user"] if @options["user"]?
     uri.password = @options["password"] if @options["password"]?
     c.basic_auth(uri.user, uri.password) if uri.user
@@ -850,5 +873,35 @@ class LavinMQCtl
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  # The TUI can't be interrupted with Ctrl-C while it waits for a response,
+  # as the terminal is in raw mode, so it gives up on slow requests
+  TUI_TIMEOUT = 5.seconds
+
+  @[Cmd("Start the interactive dashboard", "", section: "Server")]
+  @[Opt("-i SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
+  @[Opt("--interval=SECONDS", "Poll interval in seconds (default: 1.0)", options: "interval")]
+  @[Opt("--manage", "Allow pausing queues, closing connections and other changes", options: "manage", value: "true")]
+  private def tui
+    interval = tui_interval
+    unless launcher = @@tui_launcher
+      abort "TUI support is not available"
+    end
+    @request_timeout = TUI_TIMEOUT
+    # Unlike a TCP client, one on the control socket can't reconnect by itself
+    reconnect = control_unix_path.try { |path| -> { unix_client(path) } }
+    launcher.call(http, reconnect, interval, @options["manage"]? == "true")
+  end
+
+  private def tui_interval
+    value = @options["interval"]?
+    return 1.0 unless value
+
+    interval = value.to_f?
+    unless interval && interval.finite? && interval > 0.0
+      abort "Invalid interval: #{value}"
+    end
+    interval
   end
 end

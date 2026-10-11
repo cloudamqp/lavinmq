@@ -95,6 +95,7 @@ module LavinMQ
             product_name:    "LavinMQ",
             node:            System.hostname,
             uptime:          @server.uptime.to_i,
+            stats_interval:  LavinMQ::Config.instance.stats_interval,
             object_totals:   {
               channels:    channels,
               connections: connections,
