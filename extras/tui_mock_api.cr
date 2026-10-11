@@ -367,6 +367,17 @@ module TUIMockAPI
     end
   end
 
+  # Like /api/logs, plain text
+  def self.logs : String
+    now = Time.utc
+    [
+      {now - 90.seconds, "INFO", "lmq.launcher", "Starting LavinMQ"},
+      {now - 85.seconds, "INFO", "lmq.amqp.server", "Listening on 127.0.0.1:5672"},
+      {now - 40.seconds, "WARN", "lmq.amqp.client", "Connection 127.0.0.1:50000 -> 127.0.0.1:5672 blocked: low on disk space"},
+      {now - 5.seconds, "ERROR", "lmq.queue", "Queue seed.work closed: Error reading segment"},
+    ].join('\n') { |(time, severity, source, message)| "#{time} [#{severity}] #{source} - #{message}" }
+  end
+
   ROUTES = {
     "/api/overview"          => -> { TUIMockAPI.overview },
     "/api/queues"            => -> { TUIMockAPI.queues },
@@ -408,7 +419,10 @@ module TUIMockAPI
   def self.run
     parse_args
     server = HTTP::Server.new do |context|
-      if body = response_for(context.request.path)
+      if context.request.path == "/api/logs"
+        context.response.content_type = "text/plain"
+        context.response.print logs
+      elsif body = response_for(context.request.path)
         context.response.content_type = "application/json"
         context.response.print paginate(body, context.request.query_params)
       else

@@ -122,6 +122,7 @@ capture_page "0" "10-policies" "Policies"
 capture_page "s" "11-shovels" "Shovels"
 capture_page "f" "12-federation" "Federation"
 capture_page "u" "13-users" "Users"
+capture_page "l" "14-logs" "Logs"
 
 tmux send-keys -t "$SESSION" "q"
 
