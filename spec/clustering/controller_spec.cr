@@ -146,12 +146,8 @@ describe LavinMQ::Clustering::Controller do
         configs.each &.clustering_seeds = seeds
         configs[0].clustering_bootstrap = true
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
-        launchers.each do |l|
-          spawn(name: "raft launcher spec") do
-            l.run
-          rescue SpecExit
-          end
-        end
+        exited = Channel(Nil).new(2)
+        launchers.each { |l| run_launcher(l, exited) }
         # The replication client would wait forever for the lock its own
         # launcher holds, and never report
         metrics = "http://127.0.0.1:#{configs[1].metrics_http_port}/metrics"
@@ -160,7 +156,8 @@ describe LavinMQ::Clustering::Controller do
           body.includes?("lavinmq_cluster_received_bytes_total") && body.includes?("lavinmq_raft_has_leader 1")
         end
       ensure
-        launchers.try &.reverse_each &.stop
+        # Before the data dirs are removed, closing writes to them
+        stop_launchers(launchers, exited) if launchers && exited
       end
     end
   end
