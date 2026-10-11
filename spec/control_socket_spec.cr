@@ -26,6 +26,7 @@ describe "control socket" do
         response = client.get("/api/whoami")
         response.status_code.should eq 200
         response.body.should contain "__direct"
+        client.close
       end
     ensure
       config.control_unix_path = original_path
@@ -50,6 +51,7 @@ describe "control socket" do
         response = client.get("/api/whoami")
         response.status_code.should eq 200
         response.body.should contain "__direct"
+        client.close
       end
     ensure
       config.control_unix_path = original_path

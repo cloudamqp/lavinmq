@@ -74,6 +74,7 @@ private class ControllerCluster
   # Raft ports picked for nodes that haven't started, held bound until they
   # do so a listener bound meanwhile, e.g. a replication listener, can't get one
   @reserved_ports = Hash(Int32, TCPServer).new
+  @closed = Channel(Nil).new
 
   def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300)
     ports = Array.new(size) { reserve_port }
@@ -198,7 +199,13 @@ private class ControllerCluster
     end
   end
 
+  # Blocks until the cluster is closed, like a startup that hangs
+  def hang : Nil
+    @closed.receive?
+  end
+
   def close
+    @closed.close
     @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
     @servers.each_value &.close
@@ -485,7 +492,7 @@ describe LavinMQ::Clustering::RaftController do
   it "exits when it loses leadership during a startup that hangs", tags: "slow" do
     with_controllers do |cluster|
       cluster.controllers.each &.demotion_timeout = 500.milliseconds
-      cluster.start_all(-> { sleep })
+      cluster.start_all(-> { cluster.hang })
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       cluster.controllers.reject(first).each(&.stop)
