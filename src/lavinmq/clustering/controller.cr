@@ -2,11 +2,12 @@ require "systemd"
 require "./client"
 require "./coordinator"
 require "../http/metrics_server"
+require "../runner"
 
 # Elects the leader and makes the other nodes follow it. The leader election
 # and ISR storage are done by an etcd cluster (EtcdController) or by the nodes
 # themselves with Raft (RaftController), chosen by `[clustering] backend`.
-abstract class LavinMQ::Clustering::Controller
+abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   Log = LavinMQ::Log.for "clustering.controller"
 
   def self.create(config : Config) : Controller
@@ -30,6 +31,10 @@ abstract class LavinMQ::Clustering::Controller
   end
 
   abstract def coordinator : Coordinator
+
+  def new_replicator : Server?
+    Server.new(@config, coordinator, @id)
+  end
 
   # This method is called by the Launcher#run.
   # The block will be yielded when the controller's prerequisites for a leader

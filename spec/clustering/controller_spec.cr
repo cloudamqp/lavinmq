@@ -174,7 +174,7 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(2)
         launchers.each { |l| run_launcher(l, exited) }
-        controllers = launchers.map { |l| l.@controller.as(LavinMQ::Clustering::RaftController) }
+        controllers = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftController) }
         serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
         following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
         in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
@@ -235,10 +235,10 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(3)
         launchers.each { |l| run_launcher(l, exited) }
-        leader = launchers[0].@controller.as(LavinMQ::Clustering::RaftController)
+        leader = launchers[0].@runner.as(LavinMQ::Clustering::RaftController)
         wait_for(10.seconds) do
           metrics_of(configs[0]).includes?("lavinmq_uptime") &&
-            leader.node.committed_isr.try(&.includes?(launchers[1].@controller.as(LavinMQ::Clustering::RaftController).id))
+            leader.node.committed_isr.try(&.includes?(launchers[1].@runner.as(LavinMQ::Clustering::RaftController).id))
         end
 
         # The other voter goes away, the leader can't keep its quorum

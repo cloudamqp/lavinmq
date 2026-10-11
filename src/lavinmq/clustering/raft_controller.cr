@@ -150,13 +150,18 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     JSON.build { |json| status.to_json(json) }
   end
 
+  def raft : RaftController?
+    self
+  end
+
   # Where lavinmqctl requests go while this node serves, nil once it stops.
   # The socket is bound if it couldn't be when the node started, e.g. while
   # another node on this machine had it.
-  def control_api=(handler : ::HTTP::Handler?) : Nil
-    socket = @control_socket || return
+  def serve_control_api(handler : ::HTTP::Handler?) : Bool
+    socket = @control_socket || return false
     socket.bind if handler
     socket.api = handler
+    true
   end
 
   # The path the lavinmqctl socket was bound at, which a config reload can't change

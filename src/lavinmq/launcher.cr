@@ -25,7 +25,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
-    @controller : Clustering::Controller?
+    @runner : Runner
     # Serializes stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new
     @server : LavinMQ::Server?
@@ -45,13 +45,8 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
-      if @config.clustering?
-        @runner = controller = Clustering::Controller.create(@config)
-        @controller = controller
-        controller.on_demote { |hand_over| demote(hand_over) } if controller.is_a?(Clustering::RaftController)
-      else
-        @runner = StandaloneRunner.new
-      end
+      @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
+      @runner.on_demote { |hand_over| demote(hand_over) }
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
@@ -67,16 +62,14 @@ module LavinMQ
     private def start : self
       started_at = Time.instant
       # A fresh replicator for each term this node leads, see #demote
-      if controller = @controller
-        @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
-      end
+      @replicator = @runner.new_replicator
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, raft_controller,
-        raft_controller.try(&.control_path) || @config.control_unix_path)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
+        @runner.control_path || @config.control_unix_path)
       start_listeners(amqp_server, mqtt_server, http_server)
       @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
@@ -133,7 +126,7 @@ module LavinMQ
     end
 
     private def close_listeners : Nil
-      raft_controller.try &.control_api = nil
+      @runner.serve_control_api(nil)
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
@@ -248,17 +241,13 @@ module LavinMQ
       exit 1
     end
 
-    private def raft_controller : Clustering::RaftController?
-      @controller.as?(Clustering::RaftController)
-    end
-
     # One metrics server for the rest of the process, bound before a clustered
     # node knows its role, so followers and nodes without a leader are
     # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: raft_controller.try(&.node))
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: @runner.raft.try(&.node))
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-      @controller.try &.metrics_server = metrics_server
+      @runner.metrics_server = metrics_server
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
@@ -268,11 +257,7 @@ module LavinMQ
       bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
       bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
       bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
-      if controller = raft_controller
-        controller.control_api = http_server.handler # its socket is bound for the process
-      else
-        http_server.bind_internal_unix
-      end
+      http_server.bind_internal_unix unless @runner.serve_control_api(http_server.handler)
 
       unless amqp_server.listeners.empty?
         spawn(name: "AMQP listener") do
