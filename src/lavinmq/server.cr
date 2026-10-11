@@ -117,6 +117,8 @@ module LavinMQ
 
     def close
       return if @closed.swap(true)
+      # Can lose leadership while closing, e.g. while handing it over
+      @replicator.try &.broker_closing
       close_log_exchange
       @persister.close
       Log.debug { "Closing vhosts" }

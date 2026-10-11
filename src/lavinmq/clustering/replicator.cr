@@ -47,6 +47,14 @@ module LavinMQ
       abstract def all_followers : Array(Follower)
       abstract def close
 
+      # Called as the broker starts to close. What it writes is still
+      # replicated, e.g. to a leadership transfer target, but from then on a
+      # write that finds leadership lost completes instead of raising
+      # Coordinator::StaleLeadership halfway through the close. Only
+      # #wait_for_followers acknowledges anything then, and it still raises.
+      def broker_closing : Nil
+      end
+
       # Set for good once nothing can be acknowledged as replicated anymore:
       # replication was closed, or the coordinator said this node isn't the
       # leader. Writes still complete locally (the broker may be closing), but

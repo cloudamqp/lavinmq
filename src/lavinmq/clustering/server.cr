@@ -30,6 +30,7 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @fenced = Atomic(Bool).new(false)
+      @broker_closing = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
@@ -526,6 +527,10 @@ module LavinMQ
         @fenced.get
       end
 
+      def broker_closing : Nil
+        @broker_closing.set(true)
+      end
+
       def wait_for_followers : Nil
         raise_if_fenced
         all_acked = true
@@ -578,7 +583,8 @@ module LavinMQ
       # of raising into the publish path — the operation stalls, and if the
       # coordinator stays unreachable the leader's lease expires. Once this
       # node isn't the leader anymore it raises Coordinator::StaleLeadership,
-      # so the operation fails instead of being acknowledged.
+      # so the operation fails instead of being acknowledged, unless the
+      # broker is closing, see #broker_closing.
       private def each_follower(& : Follower -> Nil) : Nil
         # Nothing it replicates can be acknowledged, and the ISR may not be
         # ours to change anymore, e.g. the broker closing after leadership
@@ -604,7 +610,14 @@ module LavinMQ
           broken.try &.each { |f| @followers.delete(f) }
           dirty = @dirty_isr
         end
-        flush_isr if dirty
+        return unless dirty
+        begin
+          flush_isr
+        rescue ex : Coordinator::StaleLeadership
+          # Fenced now, so nothing more is replicated or acknowledged
+          raise ex unless @broker_closing.get
+          Log.info { "Not the leader anymore, the rest of the broker's close isn't replicated" }
+        end
       end
 
       private def strip_datadir(path : String) : String

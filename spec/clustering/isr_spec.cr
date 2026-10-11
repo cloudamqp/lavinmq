@@ -188,6 +188,35 @@ describe LavinMQ::Clustering::Server do
       tcp_server.try &.close
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
+
+    # E.g. while handing leadership over, when replication stays open as the
+    # broker closes
+    it "closes every vhost also when it loses leadership halfway through" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "isr close spec")
+      broker = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+      client_io = sync_follower(replicator, tcp_server.local_address.port, 7)
+      wait_for { replicator.followers.any? &.id.== 7 }
+      client_io.close
+      wait_for { replicator.followers.empty? }
+      # Caught up, so it stays in the ISR until the next write commits it
+      replicator.isr_dirty?.should be_true
+      replicator.fenced?.should be_false
+      coordinator.stale = true
+      definitions = broker.vhosts["/"].@definitions.not_nil!
+      broker.close
+      replicator.fenced?.should be_true
+      definitions.@definitions_file.closed?.should be_true # its last step
+    ensure
+      client_io.try &.close
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
   end
 
   describe "once closed" do
