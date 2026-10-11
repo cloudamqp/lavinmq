@@ -951,17 +951,17 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "drops a publish when the store is closed concurrently" do
+    it "doesn't store a publish when the store is closed concurrently" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue("closed_store_publish", durable: false)
           queue = s.vhosts["/"].queue("closed_store_publish").as(LavinMQ::AMQP::Queue)
           # Simulate a delete racing publish_internal: the store is closed after
           # the @closed check but before push, so push raises ClosedError. The
-          # publish must report Dropped, not raise (which surfaced as an HTTP 500).
+          # publish must report Closed, not raise (which surfaced as an HTTP 500).
           queue.@msg_store.close
           msg = LavinMQ::Message.new("", "closed_store_publish", "body", LavinMQ::AMQP::Properties.new)
-          queue.publish(msg).dropped?.should be_true
+          queue.publish(msg).closed?.should be_true
         end
       end
     end
