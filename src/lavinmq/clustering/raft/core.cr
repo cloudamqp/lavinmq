@@ -503,7 +503,7 @@ module LavinMQ::Clustering::Raft
         @peers.each do |p|
           next unless counted?(p)
           expires = (@progress[p]? || next).last_ack + @election_timeout
-          deadline = expires if expires > now && expires < deadline
+          deadline = expires if now < expires < deadline
         end
       else
         deadline = @election_deadline
