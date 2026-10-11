@@ -535,6 +535,22 @@ module LavinMQ
         raise_if_fenced
       end
 
+      def wait_for_acks(timeout : Time::Span) : Bool
+        return false if fenced?
+        acked = Channel(Nil).new(1)
+        waiting = followers
+        spawn(name: "Wait for follower acks") do
+          waiting.each &.wait_for_confirm # until acked or disconnected
+          acked.send nil
+        end
+        select
+        when acked.receive
+          true
+        when timeout(timeout)
+          false
+        end
+      end
+
       def close
         @fenced.set(true)
         # A node makes a new server for each term it leads, the coordinator

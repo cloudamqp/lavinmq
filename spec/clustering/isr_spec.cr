@@ -153,6 +153,43 @@ describe LavinMQ::Clustering::Server do
     end
   end
 
+  describe "closing the broker" do
+    # E.g. etcd unreachable on shutdown: committing the ISR without a
+    # follower that didn't ack would be retried until the lease expires
+    it "doesn't wait on a follower that doesn't ack, nor on the coordinator" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "isr close spec")
+      broker = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+      client_io = sync_follower(replicator, tcp_server.local_address.port, 7)
+      wait_for { replicator.followers.any? &.id.== 7 }
+      # The raw follower never acks
+      replicator.append_bytes(File.join(data_dir, "lag"), "x".to_slice, 0i64)
+      wait_for { replicator.followers.find(&.id.== 7).try { |f| f.lag_in_bytes > 0 } }
+      coordinator.failing = true
+      closed = Channel(Nil).new(1)
+      spawn(name: "close broker spec") do
+        broker.close
+        closed.send nil
+      end
+      select
+      when closed.receive
+      when timeout(10.seconds)
+        fail "closing the broker kept waiting"
+      end
+      coordinator.isr_updates.last.should contain 7 # not taken out on close
+    ensure
+      coordinator.try &.failing = false
+      client_io.try &.close
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "once closed" do
     # A node makes a new server for each term it leads, a listener left
     # behind would keep every closed one reachable

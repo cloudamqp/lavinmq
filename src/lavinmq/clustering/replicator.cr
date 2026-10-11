@@ -30,6 +30,15 @@ module LavinMQ
       # acknowledged to a client (publish confirms via the Persister,
       # definition changes via the DefinitionsStore).
       abstract def wait_for_followers : Nil
+
+      # Waits up to *timeout* for the in-sync followers to ack what has been
+      # replicated, without changing the ISR. For when nothing more is
+      # acknowledged, like a closing broker, which mustn't wait on the
+      # coordinator. False when they didn't in time.
+      def wait_for_acks(timeout : Time::Span) : Bool
+        true
+      end
+
       # Ask every in-sync follower to fsync these (absolute) paths, or to sync
       # its whole data dir, before acking past what has been replicated so far.
       # Callers then wait_for_followers.
