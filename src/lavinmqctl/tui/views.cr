@@ -138,7 +138,7 @@ class LavinMQCtl
     # The view of the selected row: a queue, connection or channel, a
     # consumer's channel, or else the row's fields
     private def open_view
-      return unless state = table_state
+      return unless (state = table_state) && @items_page == @page
       index = state.cursor - @items_first
       return unless index >= 0 && (item = @items[index]?)
       view = case @page

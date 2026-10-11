@@ -104,20 +104,30 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
-The TUI refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive).
-It waits longer when the broker is slow to answer, so that at most a tenth of the
-broker's time goes to the TUI's requests, and the header then shows the interval used.
-It's styled like the management UI. The Overview page shows message rate and queue
-depth graphs, node resources, network rates, cluster followers and the queues with
-the most messages. The graphs start from the history kept by the management API and
-roll forward with each refresh, and their titles say how far back they go. The other pages are tables that fetch as many rows
-as fit in the terminal, one page at a time. Numbers are right-aligned with thousands
-separators, and a number too wide for its column is shortened, like `1.96M`. Values that
-need attention are highlighted: ready messages in a queue without consumers, unacknowledged
-messages of a channel at its prefetch limit, a node's memory or file descriptors close to
-their limit, and shovel and federation link errors. A resized terminal is redrawn right away,
-and the rows for its new size are fetched once it stops changing size. The TUI needs
-a terminal of at least 40x10.
+### Interactive Dashboard
+
+`lavinmqctl tui` shows the broker in the terminal, styled like the management UI. It
+needs a terminal of at least 40x10.
+
+It refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive). When
+the broker is slow to answer it waits longer, so that at most a tenth of the broker's
+time goes to the TUI's requests, and the header shows the interval used. A resized
+terminal is redrawn right away, and the rows for its new size are fetched once it
+stops changing size.
+
+The Overview page shows message rate and queue depth graphs, node resources, network
+rates, cluster followers and the queues with the most messages. The graphs start from
+the history kept by the management API and roll forward with each refresh, and their
+titles say how far back they go.
+
+The other pages are tables that fetch as many rows as fit in the terminal, one page at
+a time. Numbers are right-aligned with thousands separators, and a number too wide for
+its column is shortened, like `1.96M`. Values that need attention are highlighted:
+ready messages in a queue without consumers, unacknowledged messages of a channel at
+its prefetch limit, a node's memory or file descriptors close to their limit, and
+shovel and federation link errors. The selection stays on its row when the rows' order
+changes, like when sorted by a count that changes, except right after changing the
+sort order or filter.
 
 `Enter` opens the selected row. A queue shows a summary, its message rate and depth
 graphs, and its consumers, bindings, unacknowledged messages (longest unacknowledged
@@ -127,24 +137,23 @@ queue, and `Esc` goes back. A warning points out a queue with messages but no
 consumers, a paused or closed queue, a channel at its prefetch limit and a blocked
 connection. Other rows show all their fields.
 
+The Logs page shows the log entries the broker keeps in memory, newest last, with
+warnings in yellow and errors in red. `/` filters them, and `End` goes back to
+following new entries after scrolling up. Like in the management UI, the log is only
+shown to users with the `administrator` tag.
+
+Passwords in shovel and federation URIs are masked, password hashes are not shown,
+and control characters in names, like in consumer tags or MQTT client ids, are shown
+as `?`.
+
 The TUI only reads, unless it's started with `--manage`. Then `m` lists what can be
 done to the selected row, or to what's opened and its selected row: pause or resume a
 queue's consumers, restart a closed queue, close a connection or channel, cancel a
 consumer, and pause or resume a shovel. Each asks to confirm with `y`, naming what it
 changes, and the header shows `MANAGE`. Purging and deleting are left to the
-`purge_queue` and `delete_queue` commands. On the control socket the TUI can do all
-of this, as with any `lavinmqctl` command. With `--uri` the user's tags apply, so a
-user with only the `monitoring` tag can't change anything.
-
-The selection stays on its row when the rows' order changes, like when sorted by a
-count that changes, except right after changing the sort order or filter.
-
-The Logs page shows the broker's log entries that it keeps in memory, newest last,
-with warnings in yellow and errors in red. `/` filters them, and `End` goes back to
-following new entries after scrolling up. The log is only shown to users with the
-`administrator` tag, like in the management UI. Passwords in shovel and
-federation URIs are masked, password hashes are not shown, and control characters
-in names (for example in consumer tags or MQTT client ids) are shown as `?`.
+`purge_queue` and `delete_queue` commands. On the control socket the TUI can do all of
+this, as with any `lavinmqctl` command. With `--uri` the user's tags apply, so a user
+with only the `monitoring` tag can't change anything.
 
 | Key | Action |
 |-----|--------|

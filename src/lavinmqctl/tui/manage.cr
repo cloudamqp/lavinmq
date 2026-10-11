@@ -81,14 +81,19 @@ class LavinMQCtl
                  in .fields?     then page_target
                  end
         actions.concat(actions(target, view.item)) if target && !view.gone?
-        section = section(view)
-        if (row_target = section.manage) && (row = view.rows[view.cursor - view.rows_first]?)
+        if (row_target = section(view).manage) && (row = fetched_row(view.rows, view.cursor - view.rows_first))
           actions.concat(actions(row_target, row))
         end
-      elsif page_target && (row = @items[state.cursor - @items_first]?)
+      elsif page_target && @items_page == @page && (row = fetched_row(@items, state.cursor - @items_first))
         actions.concat(actions(page_target, row))
       end
       actions
+    end
+
+    # The selected row if it's fetched, the selection can have moved past
+    # the rows fetched until they're fetched again
+    private def fetched_row(rows : Array(JSON::Any), index : Int32) : JSON::Any?
+      rows[index]? if index >= 0
     end
 
     private def actions(target : Target, item : JSON::Any) : Array(Action)
