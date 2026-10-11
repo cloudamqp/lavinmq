@@ -325,22 +325,20 @@ module LavinMQ::AMQP
     private def apply_policy_limits
       @vhost.closed.when_false.receive?
       while !@closed && @policy_limits_pending.swap(false)
-        @msg_store_lock.synchronize do
-          break if @closed
-          # Read the current limits after acquiring the lock. Policy churn while
-          # this pass yields requests another pass, without spawning more fibers.
-          # A failed operation must not skip the other limit check or discard
-          # another policy update that arrived during this pass.
-          begin
-            drop_overflow
-          rescue ex
-            @log.error(ex) { "drop_overflow failed" }
-          end
-          begin
-            drop_redelivered
-          rescue ex
-            @log.error(ex) { "drop_redelivered failed" }
-          end
+        # The limits are read under the lock by drop_overflow/drop_redelivered.
+        # Policy churn while this pass yields requests another pass, without
+        # spawning more fibers. A failed operation must not skip the other
+        # limit check or discard another policy update that arrived during
+        # this pass.
+        begin
+          drop_overflow
+        rescue ex
+          @log.error(ex) { "drop_overflow failed" }
+        end
+        begin
+          drop_redelivered
+        rescue ex
+          @log.error(ex) { "drop_redelivered failed" }
         end
       end
     rescue ::Channel::ClosedError
@@ -716,8 +714,9 @@ module LavinMQ::AMQP
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
-        drop_overflow(dlx_tasks)
       end
+      # Outside the lock, as it might dead letter
+      drop_overflow(dlx_tasks)
       @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty
 
@@ -764,64 +763,74 @@ module LavinMQ::AMQP
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
       return unless (ml = @max_length) || (mlb = @max_length_bytes)
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
       return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
 
-      counter = 0
-      if ml = @max_length
-        @msg_store_lock.synchronize do
-          while @msg_store.size > ml
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen, dlx_tasks)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
-          end
+      # The limits are read again under the lock, a policy might have changed them
+      if @max_length
+        drop_messages(:maxlen, dlx_tasks) do
+          ml = @max_length
+          @msg_store.shift? if ml && @msg_store.size > ml
         end
       end
-
-      if mlb = @max_length_bytes
-        @msg_store_lock.synchronize do
-          while @msg_store.bytesize > mlb
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes, dlx_tasks)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
-          end
+      if @max_length_bytes
+        drop_messages(:maxlenbytes, dlx_tasks) do
+          mlb = @max_length_bytes
+          @msg_store.shift? if mlb && @msg_store.bytesize > mlb
         end
       end
     end
 
     private def drop_redelivered : Nil
-      counter = 0
-      if limit = @delivery_limit
+      return unless @delivery_limit
+      drop_messages(:delivery_limit) do
+        limit = @delivery_limit || next
+        env = @msg_store.first? || next
+        next unless @deliveries.fetch(env.segment_position, 0) > limit
+        @msg_store.shift?
+      end
+    end
+
+    DROP_BATCH_SIZE = 64
+
+    # Drops messages from the head of the queue for as long as the block,
+    # called with @msg_store_lock held, shifts out another one. Messages to
+    # dead letter are routed after the lock is released, as routing publishes
+    # into other queues, taking their locks, and they might dead letter back
+    # into this queue (deadlock). So the lock is held for at most a batch of
+    # messages at a time. Returns the number of dropped messages.
+    private def drop_messages(reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil,
+                              & : -> Envelope?) : Int32
+      dropped = 0
+      dead_letters = uninitialized StaticArray(SegmentPosition, DROP_BATCH_SIZE)
+      loop do
+        shifted = 0
+        dead_letter_count = 0
         @msg_store_lock.synchronize do
-          loop do
-            env = @msg_store.first? || break
-            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
-            break unless delivery_count > limit
-            env = @msg_store.shift? || break
-            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
-            expire_msg(env, :delivery_limit)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
+          while shifted < DROP_BATCH_SIZE && !@closed
+            env = yield || break
+            shifted += 1
+            sp = env.segment_position
+            @log.debug { "Dropping sp=#{sp} reason=#{reason}" }
+            if sp.has_dlx? || @dead_letter.dlx
+              dead_letters[dead_letter_count] = sp
+              dead_letter_count += 1
+            else
+              delete_message(sp)
             end
           end
         end
+        # Shifted out but not deleted, so expire_msg can still copy them, unless
+        # a purge or close removed them meanwhile
+        dead_letter_count.times { |i| expire_msg(dead_letters[i], reason, dlx_tasks) }
+        dropped += shifted
+        break if shifted < DROP_BATCH_SIZE
+        Fiber.yield if dropped % (16 * 1024) == 0
       end
+      dropped
     end
 
     private def time_to_message_expiration : Time::Span?
@@ -855,21 +864,12 @@ module LavinMQ::AMQP
     end
 
     private def expire_messages : Nil
-      i = 0
-      @msg_store_lock.synchronize do
-        loop do
-          env = @msg_store.first? || break
-          msg = env.message
-          @log.debug { "Checking if next message #{msg} has expired" }
-          if has_expired?(msg)
-            # shift it out from the msgs store, first time was just a peek
-            env = @msg_store.shift? || break
-            expire_msg(env, :expired)
-            i += 1
-          else
-            break
-          end
-        end
+      i = drop_messages(:expired) do
+        env = @msg_store.first? || next
+        msg = env.message
+        @log.debug { "Checking if next message #{msg} has expired" }
+        # shift it out from the msgs store, first time was just a peek
+        @msg_store.shift? if has_expired?(msg)
       end
       @log.info { "Expired #{i} messages" } if i > 0
     end

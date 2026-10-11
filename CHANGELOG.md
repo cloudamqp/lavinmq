@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Two queues that dead-letter into each other (for example on overflow) could deadlock when publishes to both ran at the same time; dropped messages are now dead-lettered after the source queue's lock is released [#2396](https://github.com/cloudamqp/lavinmq/pull/2396)
 - A publish to a queue that was closed, e.g. on shutdown, is nacked instead of confirmed, as the message wasn't stored [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - Closing a vhost, e.g. on shutdown, could leave a connection open that was then served by the closed vhost: its publishes were never confirmed and its consumers got nothing [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - `OverflowError` from the HTTP API or stats loop when a queue became empty while its average message size was read [#2384](https://github.com/cloudamqp/lavinmq/pull/2384)

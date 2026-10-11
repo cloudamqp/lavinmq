@@ -644,6 +644,42 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: a queue dropping overflow held its lock while dead
+      # lettering into the other queue, which needs that queue's lock, so
+      # two queues dead lettering into each other at the same time deadlocked
+      it "should not deadlock with two mutually dead-lettering queues on several threads", tags: "slow" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          {"dlx_dl_a" => "dlx_dl_b", "dlx_dl_b" => "dlx_dl_a"}.each do |name, other|
+            vhost.declare_queue(name, durable: true, auto_delete: false,
+              arguments: LavinMQ::AMQP::Table.new({
+                "x-max-length"              => 1,
+                "x-dead-letter-exchange"    => "",
+                "x-dead-letter-routing-key" => other,
+              }))
+          end
+          queues = {vhost.queue("dlx_dl_a"), vhost.queue("dlx_dl_b")}
+          ctx = Fiber::ExecutionContext::Parallel.new("dlx-deadlock", 2)
+          wg = WaitGroup.new(2)
+          queues.each do |q|
+            q = q.should_not be_nil
+            ctx.spawn do
+              20_000.times { q.publish(LavinMQ::Message.new("", q.name, "body")) }
+            ensure
+              wg.done
+            end
+          end
+          done = Channel(Nil).new
+          spawn { wg.wait; done.close }
+          select
+          when done.receive?
+          when timeout(10.seconds)
+            fail "deadlocked"
+          end
+          queues.each &.should_not(be_nil).message_count.should eq 1
+        end
+      end
+
       it "should not stack overflow with a long chain" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
