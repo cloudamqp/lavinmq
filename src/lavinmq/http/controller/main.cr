@@ -61,7 +61,7 @@ module LavinMQ
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size
-            queues += vhost.sessions_size
+            queues += vhost.mqtt.sessions_size
             vhost.each_exchange { |e| bindings += e.binding_count }
             vhost.each_queue do |q|
               ready += q.message_count
@@ -69,7 +69,7 @@ module LavinMQ
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
             end
-            vhost.each_session do |s|
+            vhost.mqtt.each_session do |s|
               ready += s.message_count
               unacked += s.unacked_count
               add_logs!(ready_log, s.message_count_log)

@@ -40,7 +40,7 @@ module MqttSpecs
             publish(pub, topic: "t", payload: payload, qos: 0u8)
             disconnect(pub)
           end
-          session = server.vhosts["/"].session("mqtt.slow")
+          session = server.vhosts["/"].mqtt.session("mqtt.slow")
           # Published asynchronously, wait for it to be stored in its own segment
           wait_for { session.@msg_store.@segments.last_value.size > payload.size }
           segment = session.@msg_store.@segments.last_value
@@ -69,7 +69,7 @@ module MqttSpecs
             20_000.times { publish(pub, topic: "t", payload: payload, qos: 0u8) }
             disconnect(pub)
           end
-          session = server.vhosts["/"].session("mqtt.stuck")
+          session = server.vhosts["/"].mqtt.session("mqtt.stuck")
           wait_for { session.message_count > 0 }
           sleep 1.5.seconds # the first write has timed out, the client is closing
           sub.io.as(TCPSocket).read_timeout = 10.seconds

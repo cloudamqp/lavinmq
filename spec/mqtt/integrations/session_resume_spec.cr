@@ -80,7 +80,7 @@ module MqttSpecs
         sent = deliver_unacked(server, ["old"]).first
         # Must be offline first: published to a session that has not detached
         # yet, "new" would go to the dying connection and join the window.
-        wait_for { server.vhosts["/"].session("mqtt.resumer").client.nil? }
+        wait_for { server.vhosts["/"].mqtt.session("mqtt.resumer").client.nil? }
         publish_from(server, "a/b", ["new"])
 
         with_client_io(server) do |io|
@@ -180,12 +180,12 @@ module MqttSpecs
           publish_from(server, "a/b", ["1"])
 
           read_publish(io) # read, never acked: a message is in flight
-          server.vhosts["/"].session("mqtt.cleaner").unacked_count.should eq 1
+          server.vhosts["/"].mqtt.session("mqtt.cleaner").unacked_count.should eq 1
           disconnect(io)
         end
 
         # The session goes with the connection, in-flight window and all.
-        wait_for { !server.vhosts["/"].session_exists?("mqtt.cleaner") }
+        wait_for { server.vhosts["/"].mqtt.session?("mqtt.cleaner").nil? }
 
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
@@ -200,7 +200,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # Requeued on detach, so still ready and still counted - only the packet
@@ -227,7 +227,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         session.purge.should eq 1
@@ -246,7 +246,7 @@ module MqttSpecs
         deliver_unacked(server, ["1"])
 
         vhost = server.vhosts["/"]
-        session = vhost.session("mqtt.resumer")
+        session = vhost.mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         session.message_count.should eq 1
 
@@ -263,7 +263,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # `next_id` hands out 0 once the sequence wraps, so a real session can put
@@ -288,7 +288,7 @@ module MqttSpecs
       with_server do |server|
         sent = deliver_unacked(server, ["0", "1", "2"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         # A purge takes the requeued messages first, in delivery order, so "0"
         # goes and the two the client still holds ids for stay.
@@ -311,7 +311,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["0", "1", "2"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         publish_from(server, "a/b", ["3", "4"])
         wait_for { session.message_count == 5 }
@@ -332,7 +332,7 @@ module MqttSpecs
         sent = deliver_unacked(server, ["0", "1"])
         first_id = sent.first.packet_id.not_nil!
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # Point the second message at the first one's id. Resends go out in sp

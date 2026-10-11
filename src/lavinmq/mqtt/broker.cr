@@ -27,7 +27,7 @@ module LavinMQ
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
-        @exchange = @vhost.mqtt_exchange
+        @exchange = @vhost.mqtt.exchange
       end
 
       def permission_service : PermissionService

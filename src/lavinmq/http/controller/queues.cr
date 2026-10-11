@@ -9,7 +9,7 @@ module LavinMQ
     module QueueHelpers
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
-        q = vhost.queue?(name) || vhost.session?(name)
+        q = vhost.queue?(name) || vhost.mqtt.session?(name)
         not_found(context, "Not Found") unless q
         q
       end
@@ -30,14 +30,14 @@ module LavinMQ
       private def register_routes
         get "/api/queues" do |context, _|
           vhosts = vhosts(user(context))
-          itr = vhosts.flat_map(&.queues) + vhosts.flat_map(&.sessions)
+          itr = vhosts.flat_map(&.queues) + vhosts.flat_map(&.mqtt.sessions)
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.queues + vhost.sessions)
+            page(context, vhost.queues + vhost.mqtt.sessions)
           end
         end
 
@@ -75,7 +75,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = vhost.queue?(name) || vhost.session?(name)
+            q = vhost.queue?(name) || vhost.mqtt.session?(name)
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")

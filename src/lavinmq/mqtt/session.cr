@@ -266,7 +266,7 @@ module LavinMQ
       end
 
       def bindings
-        @vhost.session_subscriptions(self)
+        @vhost.mqtt.subscriptions(self)
       end
 
       private def find_subscription(tf)

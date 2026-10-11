@@ -126,7 +126,7 @@ module MqttSpecs
       subscribe(io, topic_filters: mk_topic_filters({topic, 1u8}))
       disconnect(io)
     end
-    session = server.vhosts["/"].session("mqtt.client_id")
+    session = server.vhosts["/"].mqtt.session("mqtt.client_id")
     wait_for { session.consumer_count.zero? }
     session
   end
