@@ -62,11 +62,41 @@ describe LavinMQ::PersistentMap do
     v1 = LavinMQ::PersistentMap(String, Value).new.put("a", a)
     v2 = v1.put("b", Value.new("b"))
     v3 = v2.delete("a")
+    a2 = Value.new("a2")
+    v4 = v2.put("a", a2)
     v1.keys.should eq ["a"]
     v2.keys.sort!.should eq ["a", "b"]
     v3.keys.should eq ["b"]
     v1["a"].should be(a)
+    v2["a"].should be(a)
+    v4["a"].should be(a2)
+    v4.size.should eq 2
     v3["a"]?.should be_nil
+  end
+
+  it "leaves earlier versions unchanged when replacing in a collision node" do
+    k0 = FixedHashKey.new("x", 42u64)
+    k1 = FixedHashKey.new("y", 42u64)
+    a = Value.new("a")
+    v1 = LavinMQ::PersistentMap(FixedHashKey, Value).new.put(k0, a).put(k1, Value.new("b"))
+    v2 = v1.put(k0, Value.new("a2"))
+    v1[k0].should be(a)
+    v2[k0].name.should eq "a2"
+  end
+
+  it "returns the removed value" do
+    a = Value.new("a")
+    map = LavinMQ::PersistentMap(String, Value).new.put("a", a)
+    rest, value = map.delete_with_value("a")
+    value.should be(a)
+    rest.empty?.should be_true
+    same, missing = map.delete_with_value("b")
+    missing.should be_nil
+    same.should be(map)
+  end
+
+  it "raises KeyError for a missing key" do
+    expect_raises(KeyError) { LavinMQ::PersistentMap(String, Value).new["a"] }
   end
 
   it "returns itself when deleting a missing key" do
@@ -82,13 +112,15 @@ describe LavinMQ::PersistentMap do
     4.times { |i| keys << FixedHashKey.new("deep#{i}", (i.to_u64 << 60) | 0xABCDEF) }
     # Identical 64-bit hashes: a collision node
     5.times { |i| keys << FixedHashKey.new("same#{i}", 42u64) }
+    # Sharing low fragments with the collision node's hash: splits it
+    2.times { |i| keys << FixedHashKey.new("near#{i}", 42u64 | ((i.to_u64 + 1) << 20)) }
     keys.each do |k|
       ref[k] = v = Value.new(k.name)
       map = map.put(k, v)
     end
     assert_same_contents(map, ref)
     # Replace in a collision node
-    k = keys.last
+    k = keys[-3]
     ref[k] = v = Value.new("new")
     map = map.put(k, v)
     assert_same_contents(map, ref)
@@ -110,6 +142,12 @@ describe LavinMQ::CowMap do
     map["a"].should be(a)
     map.has_key?("a").should be_true
     map.size.should eq 1
+    map.values.should eq [a]
+    map.any? { |(k, _)| k == "a" }.should be_true
+    seen = [] of String
+    map.each { |(k, _)| seen << k }
+    map.each_value { |v| seen << v.name }
+    seen.should eq ["a", "a"]
     map.delete("a").should be(a)
     map.delete("a").should be_nil
     map.empty?.should be_true
@@ -131,7 +169,7 @@ describe LavinMQ::CowMap do
     stop = Atomic(Bool).new(false)
     errors = Atomic(Int32).new(0)
     ctx = Fiber::ExecutionContext::Parallel.new("persistent-map-spec", 4)
-    wg = WaitGroup.new(8)
+    wg = WaitGroup.new(10)
     8.times do |r|
       ctx.spawn do
         i = r
@@ -145,6 +183,19 @@ describe LavinMQ::CowMap do
         wg.done
       end
     end
+    # Iterating snapshots: every stable key, and at most the one tmp key
+    2.times do
+      ctx.spawn do
+        until stop.get(:relaxed)
+          stable_seen = tmp_seen = 0
+          map.snapshot.each { |(k, _)| k.starts_with?("tmp") ? (tmp_seen += 1) : (stable_seen += 1) }
+          errors.add(1) unless stable_seen == stable.size && tmp_seen <= 1
+          Fiber.yield
+        end
+      ensure
+        wg.done
+      end
+    end
     20_000.times do |i|
       map["tmp#{i}"] = Value.new("tmp")
       map.delete("tmp#{i}")
@@ -153,5 +204,22 @@ describe LavinMQ::CowMap do
     wg.wait
     errors.get.should eq 0
     map.size.should eq stable.size
+  end
+  it "doesn't lose updates from concurrent writers", tags: "slow" do
+    map = LavinMQ::CowMap(String, Value).new
+    ctx = Fiber::ExecutionContext::Parallel.new("persistent-map-writers", 4)
+    wg = WaitGroup.new(4)
+    4.times do |w|
+      ctx.spawn do
+        2_000.times do |i|
+          map["w#{w}-#{i}"] = Value.new("v")
+          map.delete("w#{w}-#{i}") if i.odd?
+        end
+      ensure
+        wg.done
+      end
+    end
+    wg.wait
+    map.size.should eq 4 * 1_000
   end
 end
