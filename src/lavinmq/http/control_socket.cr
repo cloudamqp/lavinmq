@@ -36,6 +36,19 @@ module LavinMQ
         end
       end
 
+      # Binds *http* to the socket at *path*, after .prepare, and lets only
+      # the owner and its group connect
+      def self.bind(http : ::HTTP::Server, path : String) : Socket::UNIXAddress
+        prepare(path)
+        addr = http.bind_unix(path)
+        File.chmod(path, 0o660)
+        Log.info { "Bound to #{addr}" }
+        addr
+      rescue ex
+        File.delete?(path) if addr # rather than left open to anyone
+        raise ex
+      end
+
       getter path : String
       @api : ::HTTP::Handler? = nil
       @api_lock = Mutex.new
@@ -49,11 +62,8 @@ module LavinMQ
       # another node on this machine serves the socket.
       def bind : Bool
         return true if @bound
-        ControlSocket.prepare(@path)
-        addr = @http.bind_unix(@path)
+        ControlSocket.bind(@http, @path)
         @bound = true
-        File.chmod(@path, 0o660)
-        Log.info { "Bound to #{addr}" }
         spawn(name: "Control socket listener") do
           @http.listen
         rescue ex

@@ -34,6 +34,24 @@ describe "control socket" do
     end
   end
 
+  it "lets only the owner and its group connect, also to a follower's socket" do
+    config = LavinMQ::Config.instance
+    original_path = config.control_unix_path
+    path = File.tempname("lavinmqctl-spec", ".sock")
+    config.control_unix_path = path
+    with_amqp_server do |s|
+      s.http_server.bind_internal_unix
+      File.info(path).permissions.value.should eq 0o660
+    end
+    socket = LavinMQ::HTTP::ControlSocket.new(path)
+    socket.bind.should be_true
+    File.info(path).permissions.value.should eq 0o660
+  ensure
+    socket.try &.close
+    config.control_unix_path = original_path if config && original_path
+    File.delete?(path) if path
+  end
+
   it "uses the socket bound at startup even after the config is reloaded" do
     config = LavinMQ::Config.instance
     original_path = config.control_unix_path
@@ -59,10 +77,10 @@ describe "control socket" do
     end
   end
 
-  describe "prepare_control_socket" do
+  describe "ControlSocket.prepare" do
     it "does nothing if the path does not exist" do
       path = File.tempname("ctl", ".sock")
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::HTTP::ControlSocket.prepare(path)
       File.exists?(path).should be_false
     end
 
@@ -70,7 +88,7 @@ describe "control socket" do
       path = File.tempname("ctl", ".sock")
       File.touch(path)
       expect_raises(Exception, /not a socket/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+        LavinMQ::HTTP::ControlSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -83,7 +101,7 @@ describe "control socket" do
       sock.bind(Socket::UNIXAddress.new(path))
       sock.close
       File.info(path, follow_symlinks: false).type.socket?.should be_true
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::HTTP::ControlSocket.prepare(path)
       File.exists?(path).should be_false
     ensure
       File.delete?(path) if path
@@ -93,7 +111,7 @@ describe "control socket" do
       path = File.tempname("ctl", ".sock")
       server = UNIXServer.new(path)
       expect_raises(LavinMQ::HTTP::ControlSocketInUseError, /already in use/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+        LavinMQ::HTTP::ControlSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -121,7 +139,7 @@ describe "control socket" do
       original_path = config.control_unix_path
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
       config.control_unix_path = socket_path
-      File.touch(socket_path) # not a socket: prepare_control_socket raises a plain Exception
+      File.touch(socket_path) # not a socket: ControlSocket.prepare raises a plain Exception
       LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
     ensure
       config.control_unix_path = original_path if config && original_path

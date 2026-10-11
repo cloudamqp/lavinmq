@@ -94,11 +94,8 @@ module LavinMQ
       end
 
       def bind_internal_unix
-        Server.prepare_control_socket(@internal_unix_socket_path)
-        addr = @http.bind_unix(@internal_unix_socket_path)
+        addr = ControlSocket.bind(@http, @internal_unix_socket_path)
         @internal_bound = true
-        File.chmod(@internal_unix_socket_path, 0o660)
-        Log.info { "Bound to #{addr}" }
         addr
       end
 
@@ -122,11 +119,6 @@ module LavinMQ
                                                     path = Config.instance.control_unix_path) : ControlSocket?
         socket = ControlSocket.new(path, cluster_status)
         socket if socket.bind
-      end
-
-      # See ControlSocket.prepare
-      def self.prepare_control_socket(path)
-        ControlSocket.prepare(path)
       end
     end
   end
