@@ -188,7 +188,10 @@ test.describe('stream tabs', _ => {
         consumer_details: allConsumers.slice(0, Math.min(limit, total))
       } })
     })
+    // beforeEach already loaded the page, so a goto would only change the
+    // hash; reload so the queue is fetched through the route above
     await page.goto(`/stream#${queueHash}&tab=consumers`)
+    await page.reload()
 
     const count = page.locator('#consumer-count')
     const rows = page.locator('#table tbody tr:has(button)')

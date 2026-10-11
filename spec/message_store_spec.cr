@@ -171,6 +171,40 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  # Regression: avg_bytesize is read without the queue's lock (HTTP API,
+  # stats), so the store can become empty between its zero check and the
+  # division, which turned into Infinity and raised OverflowError
+  it "#avg_bytesize doesn't raise while the store empties concurrently", tags: "slow" do
+    with_store do |store|
+      sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      ctx = Fiber::ExecutionContext::Parallel.new("avg-bytesize", 4)
+      done = Atomic(Bool).new(false)
+      errors = Atomic(Int32).new(0)
+      wg = WaitGroup.new
+      3.times do
+        wg.add(1)
+        ctx.spawn do
+          until done.get(:acquire)
+            begin
+              store.avg_bytesize
+            rescue OverflowError
+              errors.add(1, :relaxed)
+            end
+          end
+        ensure
+          wg.done
+        end
+      end
+      200_000.times do
+        store.shift?.should_not be_nil
+        store.requeue(sp)
+      end
+      done.set(true, :release)
+      wg.wait
+      errors.get.should eq 0
+    end
+  end
+
   it "deletes orphaned ack files" do
     mktmpdir do |dir|
       # Create a dummy msgs file
