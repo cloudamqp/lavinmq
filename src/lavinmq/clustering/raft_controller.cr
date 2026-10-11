@@ -31,15 +31,21 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Otherwise a busy default context could delay heartbeats past the election
   # timeout: followers would start elections and the leader would step down on
   # losing its quorum, while it's only busy. The work in it is small, so one
-  # thread is enough.
-  @raft_context = Fiber::ExecutionContext::Concurrent.new("Raft")
+  # thread is enough. One for the process, it can't be stopped: a node runs
+  # one controller, but specs run many.
+  @@raft_context : Fiber::ExecutionContext::Concurrent? = nil
+  @@raft_context_lock = Mutex.new
+
+  private def raft_context : Fiber::ExecutionContext::Concurrent
+    @@raft_context_lock.synchronize { @@raft_context ||= Fiber::ExecutionContext::Concurrent.new("Raft") }
+  end
 
   def initialize(config : Config)
     super(config)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?, execution_context: @raft_context)
+      bootstrap: may_bootstrap?, execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
@@ -310,8 +316,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     address = @config.clustering_raft_address
     peers = @config.clustering_seed_addresses.reject(address)
     transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
-      ->@node.deliver(Raft::TransportEvent), execution_context: @raft_context)
-    @raft_context.spawn(name: "Raft listener") { transport.listen(server) }
+      ->@node.deliver(Raft::TransportEvent), execution_context: raft_context)
+    raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
     @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, ->local_status).tap(&.bind)
   rescue ex : Socket::BindError
