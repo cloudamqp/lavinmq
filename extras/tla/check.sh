@@ -30,6 +30,15 @@ if [ ! -f "$JAR" ]; then
   mv "$JAR.tmp" "$JAR"
 fi
 
+# TLC finished the search, rather than crashing or running out of memory
+completed() {
+  if [ "$1" = simulate ]; then
+    grep -q '^Finished in' "$2"
+  else
+    grep -q '^Model checking completed. No error has been found.' "$2"
+  fi
+}
+
 header() { sed -n "s/^\\\\\\* $2: *//p" "$1" | head -1; }
 
 if [ $# -gt 0 ]; then
@@ -64,15 +73,17 @@ for model in "${models[@]}"; do
   java -XX:+UseParallelGC "${jvm[@]}" -cp "$JAR" tlc2.TLC "${args[@]}" MC > "$out" 2>&1 || true
   took=$((SECONDS - start))
   violated=$(sed -n 's/^Error: Invariant \(.*\) is violated.*/\1/p' "$out" | head -1)
-  stats=$(grep -E '^[0-9,]+ states generated' "$out" | tail -1 || true)
+  stats=$(grep -E '^[0-9,]+ states generated|^Progress: [0-9]+ states checked' "$out" | tail -1 || true)
   if grep -qE '^Error: (Parsing|Semantic|TLC threw|The exception)|^Exception' "$out"; then
     result="error, see $out"
-  elif [ "$expect" = pass ] && [ -z "$violated" ]; then
+  elif [ "$expect" = pass ] && [ -z "$violated" ] && completed "$mode" "$out"; then
     result=ok
   elif [ "$expect" != pass ] && [ "$violated" = "$expect" ]; then
     result="ok (found the expected counterexample)"
   elif [ -n "$violated" ]; then
     result="FAILED: $violated violated, see $out"
+  elif [ "$expect" = pass ]; then
+    result="FAILED: TLC didn't complete, see $out"
   else
     result="FAILED: expected a counterexample to $expect, see $out"
   fi

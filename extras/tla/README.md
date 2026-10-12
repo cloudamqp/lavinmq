@@ -41,7 +41,8 @@ as appended (in memory and the page cache) and how much of it is fsynced.
   - `Restart`: the process restarts and loses its volatile state, the page cache survives;
   - `PowerLoss`: the machine loses power and loses what it hadn't fsynced.
 - **`AbstainAfterPowerLoss`**: after a power loss a server doesn't vote or campaign until it has
-  heard from a leader, since it may have lost entries it had acknowledged.
+  caught up with a leader's whole log. It may have lost entries it had acknowledged, and only
+  then does it hold them all again.
   - If no majority is left that may vote, servers give up abstaining (`GiveUpAbstaining`), because
     otherwise the cluster would never elect a leader again. The spec records that as
     `unsafeRecovery`.
@@ -87,4 +88,40 @@ exhaustive `bfs`, or `simulate` for random behaviours), and whether CI runs it (
 The `MC_bug_*` models re-introduce a known mistake each, and TLC must find a counterexample. That
 shows the invariants actually catch the problems they're there for.
 
-RESULTS
+| Model | Tier | Expect | Result |
+|---|---|---|---|
+| `MC_durable` | full | pass | 58.6M distinct states, depth 37, about 80 min on 4 cores |
+| `MC_replicated_abstain` | full | pass | not run to completion yet |
+| `MC_durable_small` | quick | pass | 1.4M distinct states, about 2 min |
+| `MC_replicated_abstain_small` | quick | pass | 1.8M distinct states, about 2 min |
+| `MC_durable_sim`, `MC_replicated_abstain_sim` | quick | pass | random behaviours for 2 min each, up to 4 terms and 2 crashes |
+| `MC_bug_no_gate` | quick | `NoPhantomDelivery` | found in seconds |
+| `MC_bug_replicated_no_abstain` | quick | `NoPhantomDelivery` | found in seconds |
+| `MC_bug_stop_abstain_on_contact` | quick | `NoPhantomDelivery` | found in seconds |
+| `MC_bug_ack_before_fsync` | quick | `LeaderCompleteness` | found in seconds |
+| `MC_bug_uncapped_durable_ack` | quick | `LeaderCompleteness` | found in seconds |
+| `MC_bug_eager_delete` | quick | `NoPrematureDelete` | found in seconds |
+| `MC_bug_no_term_check` | quick | `LeaderCompleteness` | found in seconds (needs 4 terms) |
+
+All models use 3 servers, 1 message and 1 segment file. The full models allow 3 terms, 4 log
+entries and 1 crash. The small ones allow 2 terms, the replicated one also only 3 entries.
+
+## What it found
+
+- **Delivering on majority replication alone loses delivered messages.** In
+  `MC_bug_replicated_no_abstain`:
+  1. A follower acks a message it hasn't fsynced, and the leader delivers it.
+  2. The follower loses power and loses the message.
+  3. The follower votes for a candidate that lacks the message.
+
+  That takes one power loss, not a majority losing power at once.
+- **Abstaining until the server has heard from a leader isn't enough**
+  (`MC_bug_stop_abstain_on_contact`): a heartbeat that doesn't carry the lost entries would end
+  the abstention. The server has to abstain until it has caught up with the leader's whole log.
+- **What remains with replicated delivery:** if a majority loses power together, it either stays
+  without a leader or gives up abstaining, and then delivered messages can be lost.
+  `MC_replicated_abstain` checks that nothing else can lose them. Delivering on the durable commit
+  index avoids this case, at the cost of an fsync in the delivery latency.
+- **A follower's durable ack must be capped at what it knows matches the leader's log**
+  (`MC_bug_uncapped_durable_ack`). Otherwise fsynced entries left over from an earlier term are
+  counted for the leader's entries at the same index.
