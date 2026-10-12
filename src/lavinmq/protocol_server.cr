@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "./accept_loop"
 require "../stdlib/io_buffered"
 
 module LavinMQ
@@ -111,8 +112,7 @@ module LavinMQ
     end
 
     private def listen_tcp(s : TCPServer)
-      loop do
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} listener") do |client|
         next client.close if closed? || @server.closed?
         accept_tcp(client)
       end
@@ -122,8 +122,7 @@ module LavinMQ
     end
 
     private def listen_unix(s : UNIXServer)
-      loop do # do not try to use while
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} unix listener") do |client|
         next client.close if closed? || @server.closed?
         accept_unix(client)
       end
@@ -133,8 +132,7 @@ module LavinMQ
     end
 
     private def listen_tls(s : TCPServer, context : OpenSSL::SSL::Context::Server)
-      loop do # do not try to use while
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} TLS listener") do |client|
         next client.close if closed? || @server.closed?
         accept_tls(client, context)
       end

@@ -185,16 +185,9 @@ module LavinMQ
         @{{ m.id }} = {{ m.id }}
       {% end %}
 
-      until @rss_log.size < log_size
-        @rss_log.shift
-      end
-
-      rss = statm_rss(statm) || ps_rss
-      @rss = rss
-      @rss_log.push @rss
-
-      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
-
+      # Before the memory stats, which open files, so that publishers are
+      # stopped when the disk is about to fill up also while out of file
+      # descriptors. statfs needs none.
       begin
         fs_stats = Filesystem.info(@data_dir)
         until @disk_free_log.size < log_size
@@ -213,6 +206,16 @@ module LavinMQ
       rescue File::NotFoundError
         # Ignore when server is closed and deleted already
       end
+
+      until @rss_log.size < log_size
+        @rss_log.shift
+      end
+
+      rss = statm_rss(statm) || ps_rss
+      @rss = rss
+      @rss_log.push @rss
+
+      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
     end
 
     private def stats_loop
@@ -221,15 +224,21 @@ module LavinMQ
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
       until closed?
-        @stats_collection_duration_seconds_total = Time.measure do
-          @stats_rates_collection_duration_seconds = Time.measure do
-            update_stats_rates
+        begin
+          @stats_collection_duration_seconds_total = Time.measure do
+            @stats_rates_collection_duration_seconds = Time.measure do
+              update_stats_rates
+            end
+            @stats_system_collection_duration_seconds = Time.measure do
+              update_system_metrics(statm)
+            end
           end
-          @stats_system_collection_duration_seconds = Time.measure do
-            update_system_metrics(statm)
-          end
+          @gc_stats = GC.prof_stats
+        rescue ex
+          # Like when out of file descriptors. The loop has to go on, as it
+          # also stops publishers when the disk is about to fill up.
+          Log.error { "Could not collect stats: #{ex.message}" }
         end
-        @gc_stats = GC.prof_stats
 
         control_flow!
         sleep @config.stats_interval.milliseconds

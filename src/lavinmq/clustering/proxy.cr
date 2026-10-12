@@ -1,5 +1,6 @@
 require "socket"
 require "../config"
+require "../accept_loop"
 require "../proxy_protocol"
 
 module LavinMQ
@@ -23,7 +24,7 @@ module LavinMQ
 
       def forward_to(target_host, target_port, @proxy_header = false)
         Log.info { "Proxying from #{@local_address} to #{target_host}:#{target_port}" }
-        while socket = @server.accept?
+        AcceptLoop.each(@server, "Proxy listener") do |socket|
           spawn handle_client(socket, target_host, target_port), name: "Handle proxy client"
         end
       end
