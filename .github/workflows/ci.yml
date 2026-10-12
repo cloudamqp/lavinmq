@@ -97,6 +97,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: DIAG storage
+        run: |
+          df -h /tmp /dev/shm . || true
+          findmnt -T /tmp || true
+          free -m || true
+          uname -r; ldd --version | head -1
+
       - name: Spec
         run: make test
 
@@ -533,6 +540,13 @@ jobs:
           chmod +x bin/lavinmq
           bin/lavinmq --data-dir /tmp/amqp --pidfile /tmp/lavinmq.pid >lavinmq.log 2>&1 &
           curl -s -o /dev/null --retry 30 --retry-delay 1 --retry-connrefused http://localhost:15672/
+
+      - name: DIAG storage
+        run: |
+          df -h /tmp /dev/shm . || true
+          findmnt -T /tmp || true
+          free -m || true
+          uname -r; ldd --version | head -1
 
       - name: Run stress test
         run: |
