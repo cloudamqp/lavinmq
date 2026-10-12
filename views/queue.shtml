@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-primary-queue-row" class="hide">
+              <th>Retry queue of</th>
+              <td id="q-primary-queue"></td>
+            </tr>
             <tr>
               <th>Consumers</th>
               <td id="q-consumers"></td>
@@ -84,6 +88,35 @@
         <section class="card cols-3">
           <h3>Arguments</h3>
           <pre class="arguments" id="q-arguments"></pre>
+        </section>
+        <section class="card hide" id="q-delayed-retry">
+          <h3>Automatic retries</h3>
+          <table class="details-table">
+            <tr>
+              <th>Initial delay</th>
+              <td id="q-retry-min"></td>
+            </tr>
+            <tr>
+              <th>Backoff</th>
+              <td id="q-retry-backoff"></td>
+            </tr>
+            <tr>
+              <th>Max delay</th>
+              <td id="q-retry-max"></td>
+            </tr>
+            <tr>
+              <th>Delivery limit</th>
+              <td id="q-retry-delivery-limit"></td>
+            </tr>
+            <tr>
+              <th>Messages delayed</th>
+              <td id="q-retry-messages-delayed"></td>
+            </tr>
+            <tr>
+              <th>Retry queue</th>
+              <td id="q-retry-queue"></td>
+            </tr>
+          </table>
         </section>
         <section class="card">
           <h3>Rates</h3>
