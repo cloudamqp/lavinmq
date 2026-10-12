@@ -10,6 +10,22 @@ ensure
   s.try &.close
 end
 
+# The follower's side of a version 2 or 3 replication handshake: the start
+# header, the leader's echoed header and challenge, our HMAC, the leader's
+# accept byte and the follower id
+def clustering_handshake(io : IO, password : String, header : Bytes, id : Int32) : Nil
+  io.write header
+  echo = Bytes.new(8)
+  io.read_fully(echo)
+  echo.should eq header
+  challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+  io.read_fully(challenge)
+  io.write LavinMQ::Clustering.challenge_response(password, challenge, header)
+  io.read_byte.should eq 0u8
+  io.write_bytes id, IO::ByteFormat::LittleEndian
+  io.flush
+end
+
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper
   class TestClient < LavinMQ::Clustering::Client

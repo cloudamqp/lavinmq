@@ -23,12 +23,7 @@ end
 # lz4 reader
 private def connect_v3(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
-  io.write LavinMQ::Clustering::StartV3
-  io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-  io.write server.password.to_slice
-  io.read_byte
-  io.write_bytes id, IO::ByteFormat::LittleEndian
-  io.flush
+  clustering_handshake(io, server.password, LavinMQ::Clustering::StartV3, id)
   {io, Compress::LZ4::Reader.new(io)}
 end
 
@@ -37,13 +32,17 @@ end
 # socket and the LZ4 reader positioned at the start of the change stream.
 private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clustering::Start) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
-  io.write header
-  io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-  io.write server.password.to_slice
-  io.read_byte # password-accepted byte
-  io.write_bytes id, IO::ByteFormat::LittleEndian
-  io.flush
   v3 = LavinMQ::Clustering.header_version(header) >= 3
+  if LavinMQ::Clustering.header_version(header) >= 2
+    clustering_handshake(io, server.password, header, id)
+  else
+    io.write header
+    io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    io.write server.password.to_slice
+    io.read_byte # password-accepted byte
+    io.write_bytes id, IO::ByteFormat::LittleEndian
+    io.flush
+  end
   if v3 # offer no position: a full sync follows
     LavinMQ::Clustering::WireV3.write_resume_request(io, 0u64, 0u64)
     LavinMQ::Clustering::WireV3.read_resume_reply(io)[0].should be_false
