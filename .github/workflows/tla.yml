@@ -1,0 +1,27 @@
+name: TLA+
+on:
+  pull_request:
+    paths:
+      - 'extras/tla/**'
+      - '.github/workflows/tla.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'extras/tla/**'
+      - '.github/workflows/tla.yml'
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: quick or full
+        default: full
+
+jobs:
+  model-check:
+    name: Model check
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      # TLC runs on the runner's preinstalled Java
+      - run: extras/tla/check.sh ${{ inputs.tier || 'quick' }}

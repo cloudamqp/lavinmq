@@ -55,6 +55,10 @@ bin/chaos-test: extras/chaos_test.cr lib | bin
 chaos-test: bin/lavinmq bin/chaos-test
 	bin/chaos-test
 
+.PHONY: tla
+tla:
+	extras/tla/check.sh $(or $(TIER),quick)
+
 .PHONY: benchmark
 benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
 	$<
