@@ -40,6 +40,9 @@ jobs:
           git_describe=$(git describe --tags)
           echo "version=${git_describe:1}" >> $GITHUB_ENV
 
+      - name: Use a clean ${{ matrix.os }} image for the install test
+        run: echo "test_image=$(sed 's/-/:/' <<< ${{ matrix.os }})" >> $GITHUB_ENV
+
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
@@ -48,6 +51,7 @@ jobs:
           pull: true
           build-args: |
             build_image=84codes/crystal:latest-${{ matrix.os }}
+            test_image=${{ env.test_image }}
             version=${{ env.version }}
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds

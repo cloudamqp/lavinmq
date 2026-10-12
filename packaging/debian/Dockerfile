@@ -1,4 +1,5 @@
 ARG build_image=84codes/crystal:latest-ubuntu-22.04
+ARG test_image=ubuntu:22.04
 
 FROM $build_image AS builder
 RUN apt-get update && apt-get install -y devscripts help2man lintian debhelper liblz4-dev libssl-dev
@@ -15,12 +16,12 @@ RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
 ARG DEB_BUILD_OPTIONS="parallel=2"
 RUN debuild --preserve-envvar=version -us -uc
 
-FROM ubuntu:22.04 AS test
+FROM $test_image AS test
+WORKDIR /pkgs
 COPY --from=builder /usr/src/*deb .
 RUN apt-get update && apt-get install -y ./*.deb
 RUN lavinmq --version
 
-# Copy the deb package to a scratch image, that then can be exported
+# Export from the test stage, otherwise BuildKit skips the install test
 FROM scratch
-ARG version
-COPY --from=builder /usr/src/*deb .
+COPY --from=test /pkgs/ .
