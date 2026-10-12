@@ -99,6 +99,19 @@
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a> |
+            <a class="arg-tooltip" data-tag="x-delayed-retry-min" data-value="1000">Retry min delay
+              <span class="tooltiptext">Enables automatic retries with backoff: the initial delay (milliseconds)
+                before a message rejected with requeue=true is redelivered. Retries end when the delivery limit
+                is reached (defaults to 20 when unset).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-delayed-retry-multiplier">Retry multiplier
+              <span class="tooltiptext">Backoff shape: omit for linear (delay × attempt), 1 for constant,
+                2 or more for exponential (delay × multiplier^(attempt-1)).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-delayed-retry-max">Retry max delay
+              <span class="tooltiptext">Cap on a single retry delay (milliseconds). Only clamps the delay, never
+                ends retries; termination is governed by the delivery limit.</span>
+            </a> |
             <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
               <span class="tooltiptext">Determines what happens to messages when the maximum length of a queue is
                 reached. Valid value are drop-head (default) and reject-publish.</span>
