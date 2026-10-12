@@ -20,8 +20,8 @@ module LavinMQ
     def on_demote(&_block : Proc(Nil)? ->) : Nil
     end
 
-    # The replication server for a term this node leads
-    def new_replicator : Clustering::Server?
+    # What replicates the data dir for a term this node leads
+    def new_replicator : Clustering::Replicator?
     end
 
     # The raft cluster, for its HTTP API and metrics

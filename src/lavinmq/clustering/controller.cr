@@ -32,7 +32,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 
   abstract def coordinator : Coordinator
 
-  def new_replicator : Server?
+  def new_replicator : Replicator?
     Server.new(@config, coordinator, @id)
   end
 

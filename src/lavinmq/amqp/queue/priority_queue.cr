@@ -92,8 +92,8 @@ module LavinMQ::AMQP
         Dir.each_child(@msg_dir) do |f|
           if f.matches? pattern
             filepath = File.join(@msg_dir, f)
-            File.delete? filepath
             @replicator.try &.delete_file(filepath)
+            File.delete? filepath
             Fiber.yield if ((i &+= 1) % 8096).zero?
           end
         end

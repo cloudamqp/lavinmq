@@ -97,8 +97,10 @@ module LavinMQ::Clustering::Raft
     private record ProposeData, data : Bytes, reply : Channel(Tuple(Int64, Int64)?)
     private record AwaitCommit, index : Int64, term : Int64, reply : Channel(Bool)
     private record LocalDurable, index : Int64
+    private record GetFiles, reply : Channel(FileTable?)
+    private record FreezeLog, frozen : Bool, reply : Channel(Nil)
     private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | CheckTransfer | GetStatus |
-                          GetMetrics | ProposeData | AwaitCommit | LocalDurable
+                          GetMetrics | ProposeData | AwaitCommit | LocalDurable | GetFiles | FreezeLog
 
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
@@ -144,7 +146,8 @@ module LavinMQ::Clustering::Raft
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
                    bootstrap = false,
-                   @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
+                   @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current,
+                   log_replication = false)
       @election_timeout = election_timeout
       state = @storage.load
       journal = JournalLogStore.new(@storage.dir, state.try(&.journal_generation) || 0i64,
@@ -159,6 +162,7 @@ module LavinMQ::Clustering::Raft
         Time.instant, state, bootstrap: bootstrap, log: @log)
       # Compacted when every responsive peer has the entries, see #compact
       @core.compact_on_commit = false
+      @core.isr_enabled = !log_replication
       @seeds = seeds.to_set << @address
       @term = @core.term
       @committed_isr = @core.committed_isr
@@ -252,6 +256,24 @@ module LavinMQ::Clustering::Raft
       await reply, false
     rescue Channel::ClosedError
       false
+    end
+
+    # The broker's files as the log has them, as of the last entry appended
+    def files : FileTable?
+      reply = Channel(FileTable?).new(1)
+      @events.send GetFiles.new(reply)
+      await reply, nil
+    rescue Channel::ClosedError
+      nil
+    end
+
+    # Keeps other leaders from changing the log, and the files, while frozen,
+    # see Core#log_frozen. Unfreezing reconciles the files with the log first.
+    def freeze_log(frozen : Bool) : Nil
+      reply = Channel(Nil).new(1)
+      @events.send FreezeLog.new(frozen, reply)
+      await reply, nil
+    rescue Channel::ClosedError
     end
 
     # The payload of this node's own entries up to *index* is fsynced
@@ -448,6 +470,14 @@ module LavinMQ::Clustering::Raft
           @unsynced_payload.shift
           @mark_dirty = true
         end
+      in GetFiles
+        event.reply.send @log.applier.current.dup
+      in FreezeLog
+        @core.log_frozen = event.frozen
+        # Unfrozen once the broker has stopped: what it changed after the log
+        # stopped taking its changes is undone
+        @log.applier.reconcile unless event.frozen
+        event.reply.send nil
       in GetStatus
         event.reply.send build_status
       in GetMetrics

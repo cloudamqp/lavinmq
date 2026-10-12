@@ -236,6 +236,10 @@ module LavinMQ::Clustering::Raft
     # #handle_append_entries, and this node doesn't campaign. Set while the
     # broker stops serving, so nothing changes under its feet.
     property? log_frozen = false
+    # Whether only ISR members may lead and be promoted. Off when the broker's
+    # data is in the log: Raft's own rules then keep a node lacking committed
+    # data from leading.
+    property? isr_enabled = true
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
     # The entries after the snapshot, committed or not
@@ -557,7 +561,7 @@ module LavinMQ::Clustering::Raft
         addresses[id] = address
       in .promote?
         return MembershipError::NotLearner unless learners.includes?(id)
-        return MembershipError::NotInIsr unless committed_isr.try(&.includes?(id))
+        return MembershipError::NotInIsr unless committed_isr_allows?(id)
         return MembershipError::NotCaughtUp unless caught_up?(id)
         learners.delete(id)
         relocated.delete(id)
@@ -671,7 +675,7 @@ module LavinMQ::Clustering::Raft
     private def transfer_refusal(peer : Int32) : TransferRefusal?
       return TransferRefusal::NotMember unless @peers.includes?(peer)
       return TransferRefusal::NotVoter unless @voters.includes?(peer)
-      return TransferRefusal::NotInIsr unless latest_isr.try(&.includes?(peer))
+      return TransferRefusal::NotInIsr unless isr_allows?(peer)
       TransferRefusal::Unresponsive unless at_home?(peer) && responsive?(peer)
     end
 
@@ -690,7 +694,7 @@ module LavinMQ::Clustering::Raft
 
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
       up_to_date = log_up_to_date?(msg.last_log_index, msg.last_log_term)
-      candidate_in_isr = in_isr?(latest_isr, msg.from)
+      candidate_in_isr = isr_allows?(msg.from)
       eligible = up_to_date && candidate_in_isr && @voters.includes?(msg.from) && at_home?(msg.from) &&
                  may_vote_for_log?(msg.last_log_index)
       sticky = !msg.transfer && leader_recent?(now)
@@ -700,8 +704,10 @@ module LavinMQ::Clustering::Raft
       else
         handle_vote(msg, eligible, sticky, now)
       end
-      if candidate_in_isr && !up_to_date
-        # TODO: bound this to a frame before entries carry data
+      # Only for the ISR rule: an ISR member that's behind a voter can still
+      # win once it has that voter's log. Entries with data can't go this way,
+      # their payload isn't in the log.
+      if @isr_enabled && candidate_in_isr && !up_to_date
         send msg.from, CatchUp.new(@id, @term, @snapshot.index, @snapshot.term, @snapshot.isr, @log.entries,
           @snapshot.membership)
       end
@@ -890,7 +896,7 @@ module LavinMQ::Clustering::Raft
       # At a new address the leader first has to make us a learner here,
       # unless there has been no leader to do so for a long time
       return false if moved_from && !@trust_moved
-      return false unless in_isr?(latest_isr, @id)
+      return false unless isr_allows?(@id)
       @bootstrap || last_index > 0
     end
 
@@ -1001,7 +1007,7 @@ module LavinMQ::Clustering::Raft
         return
       end
       m.relocated.each do |id|
-        next unless m.learners.includes?(id) && committed_isr.try(&.includes?(id)) && caught_up?(id)
+        next unless m.learners.includes?(id) && committed_isr_allows?(id) && caught_up?(id)
         propose_membership(MembershipChange::Promote, id, @now)
         return
       end
@@ -1064,6 +1070,17 @@ module LavinMQ::Clustering::Raft
       else
         @seed_addresses.includes?(address)
       end
+    end
+
+    # Whether the ISR lets *node_id* lead, see #isr_enabled?
+    private def isr_allows?(node_id : Int32) : Bool
+      !@isr_enabled || in_isr?(latest_isr, node_id)
+    end
+
+    # Whether the committed ISR lets *node_id* be promoted, see #isr_enabled?
+    private def committed_isr_allows?(node_id : Int32) : Bool
+      return true unless @isr_enabled
+      committed_isr.try(&.includes?(node_id)) || false
     end
 
     private def in_isr?(isr : Set(Int32)?, node_id : Int32) : Bool

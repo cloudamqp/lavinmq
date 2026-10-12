@@ -117,10 +117,11 @@ module LavinMQ
         return false if @deleted
         @deleted = true
         close
+        # Before the store removes its dir, see Replicator#delete_file
+        @replicator.try &.delete_file(@metadata_file)
         @msg_store_lock.synchronize do
           @msg_store.delete
         end
-        @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
       end
@@ -226,7 +227,7 @@ module LavinMQ
       # Written to a temporary file and renamed into place, so a crash
       # mid-write leaves the previous file rather than a truncated one.
       private def write_metadata_file(username : String?) : Nil
-        FileSystem.replace(@metadata_file) do |f|
+        FileSystem.replace(@metadata_file, @replicator) do |f|
           {name: @name, client_id: @client_id, username: username}.to_json(f)
         end
         @replicator.try &.replace_file(@metadata_file)

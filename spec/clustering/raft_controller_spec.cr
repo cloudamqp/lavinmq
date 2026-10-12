@@ -76,7 +76,8 @@ private class ControllerCluster
   @reserved_ports = Hash(Int32, TCPServer).new
   @closed = Channel(Nil).new
 
-  def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300)
+  def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300,
+                 @log_replication = false)
     ports = Array.new(size) { reserve_port }
     # Another process can take a reserved port between its release and the
     # node binding it, so don't let a node join someone else's cluster
@@ -103,6 +104,7 @@ private class ControllerCluster
     config = LavinMQ::Config.new
     @configs << config
     config.clustering_bootstrap = bootstrap
+    config.clustering_raft_log_replication = @log_replication
     config.data_dir = dir
     config.clustering = true
     config.clustering_bind = "127.0.0.1"
@@ -214,8 +216,9 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, bootstrap : Int32? = 0, replication = false, election_timeout = 300, &)
-  cluster = ControllerCluster.new(size, bootstrap, replication, election_timeout)
+private def with_controllers(size = 3, bootstrap : Int32? = 0, replication = false, election_timeout = 300,
+                             log_replication = false, &)
+  cluster = ControllerCluster.new(size, bootstrap, replication, election_timeout, log_replication)
   yield cluster
 ensure
   cluster.try &.close
@@ -530,6 +533,38 @@ describe LavinMQ::Clustering::RaftController do
       # When its peers are back it can be elected again, in the same process
       others.each { |c| cluster.restart(c) }
       wait_for(10.seconds) { cluster.controllers.any?(&.node.serving.value) }
+      should_not_have_exited(cluster)
+    end
+  end
+
+  it "replicates through the raft log, and takes the log's changes again once demoted", tags: "slow" do
+    with_controllers(log_replication: true) do |cluster|
+      cluster.start_all
+      first = cluster.next_leader
+      dir = cluster.dirs[cluster.controllers.index!(first)]
+      replicator = first.new_replicator.as(LavinMQ::Clustering::RaftReplicator)
+      File.write File.join(dir, "f"), "hello"
+      replicator.register_file(File.join(dir, "f"))
+      replicator.wait_for_followers
+      others = cluster.controllers.reject(first)
+      wait_for { others.count { |c| File.exists?(File.join(cluster.dirs[cluster.controllers.index!(c)], "f")) } >= 1 }
+
+      # Cut off, it steps down, the log is unfrozen and it follows the next
+      # leader's changes
+      replicator.close
+      others.each(&.stop)
+      receive_within(cluster.demotions, 5.seconds).should eq({first, true})
+      others.each { |c| cluster.restart(c) }
+      second = cluster.next_leader(10.seconds)
+      second.should_not eq first
+      second_dir = cluster.dirs[cluster.controllers.index!(second)]
+      File.read(File.join(second_dir, "f")).should eq "hello"
+      second_replicator = second.new_replicator.as(LavinMQ::Clustering::RaftReplicator)
+      File.write File.join(second_dir, "g"), "again"
+      second_replicator.register_file(File.join(second_dir, "g"))
+      second_replicator.wait_for_followers
+      wait_for { (File.read(File.join(dir, "g")) rescue nil) == "again" }
+      second_replicator.close
       should_not_have_exited(cluster)
     end
   end

@@ -1,6 +1,7 @@
 require "../../spec_helper"
 require "../../../src/lavinmq/clustering/raft/node"
 require "../../../src/lavinmq/clustering/raft/transport"
+require "../../../src/lavinmq/clustering/raft_replicator"
 
 private alias Raft = LavinMQ::Clustering::Raft
 
@@ -148,6 +149,17 @@ private def propose(leader : LavinMQ::Clustering::Raft::Node, & : LavinMQ::Clust
   index, term = leader.propose_data(batch.to_slice.dup).not_nil!
   leader.local_durable(index)
   leader.await_commit(index, term).should be_true
+end
+
+# The replicated files under *dir*, relative, with their content
+private def replicated_files(dir : String) : Hash(String, String)
+  files = Hash(String, String).new
+  Dir.glob(File.join(dir, "**", "*"), match: File::MatchOptions::DotFiles) do |path|
+    rel = path[dir.size + 1..]
+    next if rel.split('/').any? { |name| LavinMQ::Schema.node_local_file?(name) }
+    files[rel] = File.read(path) if File.file?(path)
+  end
+  files
 end
 
 private def with_raft_cluster(size = 3, &)
@@ -527,6 +539,73 @@ describe Raft::Node do
         new_leader.propose_isr(Set{1, 2, 3}).should be_true
         c.start(old_addr)
         wait_for { File.read(File.join(dir, "v", "f")) == "kept" }
+      end
+    end
+  end
+
+  describe "with a RaftReplicator" do
+    it "replicates what a message store writes to the followers" do
+      with_raft_cluster do |c|
+        leader = c.wait_for_leader
+        leader.propose_isr(Set{1, 2, 3}).should be_true
+        index = (0..2).find! { |i| c.nodes[c.address(i)] == leader }
+        dir = c.dirs[index]
+        others = (0..2).reject(index).map { |i| c.dirs[i] }
+        replicator = LavinMQ::Clustering::RaftReplicator.new(leader, "secret", dir)
+        begin
+          Dir.mkdir_p File.join(dir, "vhost", "queue")
+          store = LavinMQ::MessageStore.new(File.join(dir, "vhost", "queue"), replicator)
+          100.times { |i| store.push(LavinMQ::Message.new("", "rk", "body #{i}")) }
+          10.times do
+            env = store.shift?.not_nil!
+            store.delete(env.segment_position)
+          end
+          LavinMQ::FileSystem.replace(File.join(dir, "users.json"), replicator, &.print("[]"))
+          replicator.replace_file(File.join(dir, "users.json"))
+          LavinMQ::FileSystem.replace(File.join(dir, "users.json"), replicator, &.print("[1]"))
+          replicator.replace_file(File.join(dir, "users.json"))
+          replicator.wait_for_followers
+          # Cut to what's written, mapped files are larger until then
+          store.close
+          expected = replicated_files(dir)
+          expected["users.json"].should eq "[1]"
+          expected.keys.count(&.starts_with?("vhost/queue/msgs.")).should eq 1
+          # Committed with a majority, the other one may lag
+          wait_for { others.all? { |d| replicated_files(d) == expected } }
+        ensure
+          replicator.close
+        end
+      end
+    end
+
+    it "puts back a file whose delete a deposed leader never got committed" do
+      with_raft_cluster do |c|
+        leader = c.wait_for_leader
+        leader.propose_isr(Set{1, 2, 3}).should be_true
+        index = (0..2).find! { |i| c.nodes[c.address(i)] == leader }
+        old_addr = c.address(index)
+        dir = c.dirs[index]
+        path = File.join(dir, "v", "f")
+        Dir.mkdir_p File.dirname(path)
+        File.write path, "kept"
+        replicator = LavinMQ::Clustering::RaftReplicator.new(leader, "secret", dir)
+        replicator.register_file(path)
+        replicator.wait_for_followers
+
+        others = (0..2).reject(index).map { |i| c.address(i) }
+        others.each { |a| c.stop(a) }
+        replicator.delete_file(path)
+        File.delete?(path)
+        # Proposed, but nobody acks it
+        replicator.wait_for_acks(200.milliseconds).should be_false
+        File.exists?(path).should be_false
+        replicator.close
+        c.stop(old_addr)
+        others.each { |a| c.start(a) }
+        new_leader = c.wait_for_leader
+        new_leader.propose_isr(Set{1, 2, 3}).should be_true
+        c.start(old_addr)
+        wait_for { (File.read(path) rescue nil) == "kept" }
       end
     end
   end

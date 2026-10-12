@@ -24,29 +24,33 @@ module LavinMQ
       File.open(path, &.fsync)
     end
 
-    def self.durable_rename(source : String, destination : String) : Nil
+    # A *replicator* (Clustering::Replicator) gets to keep what's at
+    # *destination* first, see Replicator#preserve_before_replace
+    def self.durable_rename(source : String, destination : String, replicator = nil) : Nil
       File.open(source, &.fsync) if Config.instance.sync?
+      replicator.try &.preserve_before_replace(destination)
       File.rename(source, destination)
       fsync_rename_dirs(source, destination)
     end
 
     # Renames the open file in place, so the caller can keep using it under
     # its new path
-    def self.durable_rename(source : File | MFile, destination : String) : Nil
+    def self.durable_rename(source : File | MFile, destination : String, replicator = nil) : Nil
       source.flush if source.is_a?(File)
       source.fsync if Config.instance.sync?
+      replicator.try &.preserve_before_replace(destination)
       source_path = source.path
       source.rename(destination)
       fsync_rename_dirs(source_path, destination)
     end
 
     # Atomically replaces `path` with what the block writes, via a tmp file
-    def self.replace(path : String, & : File ->) : Nil
+    def self.replace(path : String, replicator = nil, & : File ->) : Nil
       tmp_path = "#{path}.tmp"
       begin
         File.open(tmp_path, "w") do |file|
           yield file
-          durable_rename(file, path)
+          durable_rename(file, path, replicator)
         end
       ensure
         File.delete?(tmp_path)

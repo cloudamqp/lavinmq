@@ -481,8 +481,8 @@ module LavinMQ::AMQP
         next unless f.starts_with?("acks.") || f.starts_with?("tmp.acks.")
         path = File.join(@msg_dir, f)
         @log.info { "Deleting ack file not used by streams: #{path}" }
-        File.delete?(path)
         @replicator.try &.delete_file(path)
+        File.delete?(path)
       end
     rescue File::NotFoundError
       # msg_dir does not exist, nothing to load

@@ -38,8 +38,8 @@ module LavinMQ::AMQP
     end
 
     def delete : Nil
-      @mfile.delete(raise_on_missing: false)
       @replicator.try &.delete_file(@mfile.path)
+      @mfile.delete(raise_on_missing: false)
       @mfile.close
     end
 
@@ -121,7 +121,7 @@ module LavinMQ::AMQP
         @positions[consumer_tag] = @mfile.size
         @mfile.write_bytes offset
       end
-      FileSystem.durable_rename(@mfile, old_mfile.path)
+      FileSystem.durable_rename(@mfile, old_mfile.path, @replicator)
       @replicator.try &.replace_file(@mfile) # ship the compacted file whole; keeps the MFile registered
       old_mfile.close(truncate_to_size: false)
     end

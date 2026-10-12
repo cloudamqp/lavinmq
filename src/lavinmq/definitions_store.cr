@@ -400,7 +400,7 @@ module LavinMQ
             end
           end
         end
-        FileSystem.durable_rename(io, @definitions_file_path)
+        FileSystem.durable_rename(io, @definitions_file_path, @replicator)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io

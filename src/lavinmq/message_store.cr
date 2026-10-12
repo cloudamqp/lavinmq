@@ -322,11 +322,13 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      file.delete(raise_on_missing: false)
+      # The replicator first: it may move the file instead, see
+      # Replicator#delete_file
       if replicator = @replicator
         replicator.delete_file(meta_file_name(file)) if including_meta
         replicator.delete_file(file.path)
       end
+      file.delete(raise_on_missing: false)
       File.delete?(meta_file_name(file)) if including_meta
       # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
@@ -512,8 +514,8 @@ module LavinMQ
         msgs_path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
-          File.delete(path)
           @replicator.try &.delete_file(path)
+          File.delete?(path)
           next
         end
 
@@ -723,7 +725,7 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      FileSystem.durable_rename(tmp_path, final_path)
+      FileSystem.durable_rename(tmp_path, final_path, @replicator)
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the

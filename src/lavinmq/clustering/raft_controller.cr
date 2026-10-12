@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "./raft_replicator"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
 class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
@@ -45,8 +46,20 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?, execution_context: raft_context)
+      bootstrap: may_bootstrap?, execution_context: raft_context,
+      log_replication: log_replication?)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
+  end
+
+  # Whether the data is replicated through the raft log, see RaftReplicator,
+  # instead of the replication stream (Server and Client)
+  private def log_replication? : Bool
+    @config.clustering_raft_log_replication?
+  end
+
+  def new_replicator : Replicator?
+    return super unless log_replication?
+    RaftReplicator.new(@node, @coordinator.password, @config.data_dir)
   end
 
   # How long stopping to serve, or a startup that lost leadership, may take
@@ -180,12 +193,18 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Serves as the leader until leadership is lost, a transfer is requested,
   # or the node stops. Returns the requested transfer, if that's why.
   private def lead(&) : Transfer?
-    ensure_in_isr!
     stop_following
-    # No follower is replicating from this node yet, so none of them can be
-    # trusted to have what it's about to confirm. They rejoin the ISR as they
-    # finish syncing.
-    @coordinator.update_isr(Set{@id})
+    if log_replication?
+      # Until the broker has stopped and the files are reconciled with the
+      # log, see #demote, no other leader's entries may change them
+      @node.freeze_log(true)
+    else
+      ensure_in_isr!
+      # No follower is replicating from this node yet, so none of them can be
+      # trusted to have what it's about to confirm. They rejoin the ISR as they
+      # finish syncing.
+      @coordinator.update_isr(Set{@id})
+    end
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     # Replicated writes fail once leadership is lost, which ends a startup
     # that waits for them, but exit if it hangs on something else
@@ -274,6 +293,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       else
         hand_over.try &.call
       end
+      # What the broker changed that wasn't replicated is undone, and the
+      # log follows the new leader
+      @node.freeze_log(false) if log_replication?
     rescue ex
       Log.fatal(exception: ex) { "Failed to stop serving, exiting" }
       exit 3
@@ -368,6 +390,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     report_metrics_of r
     r.member_check = -> { @node.self_member? }
     r.serve_control_socket = false
+    r.replicate = !log_replication?
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil

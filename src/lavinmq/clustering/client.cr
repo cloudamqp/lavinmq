@@ -41,6 +41,9 @@ module LavinMQ
       # Whether to serve the lavinmqctl socket while following, unless the
       # controller already does
       property? serve_control_socket = true
+      # Whether to replicate the leader's data dir, or only proxy clients to
+      # the leader: the raft log replicates it then, see RaftReplicator
+      property? replicate = true
       getter streamed_bytes = 0_u64
       # Whether the leader's replication server has let this node in. A
       # leader binds that listener after its client listeners, so it's
@@ -133,6 +136,10 @@ module LavinMQ
         end
         if unix_mqtt_proxy = @unix_mqtt_proxy
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
+        unless @replicate
+          @closing.receive?
+          return
         end
         loop do
           hash_local_files

@@ -670,3 +670,89 @@ describe LavinMQ::Clustering::Client, tags: "slow" do
     end
   end
 end
+
+# Three raft nodes replicating through their log, see RaftReplicator. The
+# first one leads, its data dir is the specs' one.
+private class RaftLogCluster
+  getter nodes = Array(LavinMQ::Clustering::Raft::Node).new
+  getter dirs = Array(String).new
+
+  def initialize
+    listeners = Array.new(3) { TCPServer.new("127.0.0.1", 0) }
+    addrs = listeners.map { |l| "127.0.0.1:#{l.local_address.port}" }
+    @dirs << LavinMQ::Config.instance.data_dir
+    2.times { @dirs << File.tempname("lavinmq", "raft-log-spec").tap { |d| Dir.mkdir_p d } }
+    addrs.each_with_index do |addr, i|
+      # Only the first may lead before there's any raft state
+      node = LavinMQ::Clustering::Raft::Node.new(i + 1, addr, addrs, "tcp://#{addr}",
+        LavinMQ::Clustering::Raft::Storage.new(@dirs[i]), 300.milliseconds, 50.milliseconds,
+        bootstrap: i == 0, log_replication: true)
+      transport = LavinMQ::Clustering::Raft::TCPTransport.new("secret", i + 1, addr, addrs.reject(addr),
+        ->node.deliver(LavinMQ::Clustering::Raft::TransportEvent))
+      spawn transport.listen(listeners[i])
+      node.run(transport)
+      @nodes << node
+    end
+    wait_for(5.seconds) { leader.serving.value }
+  end
+
+  def leader : LavinMQ::Clustering::Raft::Node
+    @nodes.first
+  end
+
+  def replicator : LavinMQ::Clustering::RaftReplicator
+    LavinMQ::Clustering::RaftReplicator.new(leader, "secret", @dirs.first)
+  end
+
+  def close : Nil
+    @nodes.each &.close
+    @dirs[1..].each { |d| FileUtils.rm_rf d }
+  end
+end
+
+# The replicated files under *dir*, relative, with their content
+private def replicated_files(dir : String) : Hash(String, String)
+  files = Hash(String, String).new
+  Dir.glob(File.join(dir, "**", "*"), match: File::MatchOptions::DotFiles) do |path|
+    rel = path[dir.size + 1..]
+    next if rel.split('/').any? { |name| LavinMQ::Schema.node_local_file?(name) }
+    files[rel] = File.read(path) if File.file?(path)
+  end
+  files
+end
+
+describe LavinMQ::Clustering::RaftReplicator, tags: "slow" do
+  it "confirms publishes once committed, and the followers end up with the leader's files" do
+    cluster = RaftLogCluster.new
+    begin
+      replicator = cluster.replicator
+      with_amqp_server(replicator: replicator) do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("raft_confirm", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 100)
+          150.times { q.publish body, props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+          ch.wait_for_confirms.should be_true
+          # Acked, so the first segment is deleted
+          q.subscribe(no_ack: false, &.ack)
+          dq = s.vhosts["/"].queue("raft_confirm").as(LavinMQ::AMQP::DurableQueue)
+          wait_for { dq.message_count == 0 && dq.@msg_store.@segments.size == 1 }
+          ch.queue("raft_deleted", durable: true).delete
+        end
+        vhost = s.vhosts.create("raft_vhost")
+        with_channel(s, vhost: "raft_vhost") do |ch|
+          ch.queue("q", durable: true).publish_confirm "hello"
+        end
+        s.vhosts.delete("raft_vhost")
+        Dir.exists?(File.join(s.data_dir, vhost.dir)).should be_false
+        s.vhosts["/"].delete_queue("raft_confirm")
+      end
+      replicator.close
+      expected = replicated_files(cluster.dirs.first)
+      expected.keys.any?(&.ends_with?("definitions.amqp")).should be_true
+      wait_for { cluster.dirs[1..].all? { |d| replicated_files(d) == expected } }
+    ensure
+      cluster.close
+    end
+  end
+end

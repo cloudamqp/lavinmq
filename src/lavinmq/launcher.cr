@@ -24,7 +24,7 @@ module LavinMQ
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
-    @replicator : Clustering::Server?
+    @replicator : Clustering::Replicator?
     @runner : Runner
     # Serializes stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new

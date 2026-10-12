@@ -119,7 +119,7 @@ module LavinMQ
         @index.each do |topic|
           f.puts topic
         end
-        FileSystem.durable_rename(f, @index_file_name)
+        FileSystem.durable_rename(f, @index_file_name, @replicator)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end
@@ -136,11 +136,11 @@ module LavinMQ
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
+          @replicator.try &.delete_file(File.join(@dir, file_name))
           if file = @files.delete(file_name)
             file.close
-            file.delete
+            File.delete?(file.path)
           end
-          @replicator.try &.delete_file(File.join(@dir, file_name))
         end
       end
 

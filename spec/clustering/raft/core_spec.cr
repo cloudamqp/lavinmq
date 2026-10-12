@@ -308,6 +308,18 @@ describe Raft::Core do
     sim.leader.not_nil!.id.should eq in_sync
   end
 
+  it "elects a node outside the ISR when the ISR is disabled" do
+    sim = SimCluster.new(3)
+    sim.cores.each_value &.isr_enabled = false
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    sim.propose(leader, Set{leader.id})
+    sim.advance(100.milliseconds)
+    sim.crash(leader.id)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.leader.not_nil!.id.should_not eq leader.id
+  end
+
   it "lets a leader step down when it loses the majority" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }

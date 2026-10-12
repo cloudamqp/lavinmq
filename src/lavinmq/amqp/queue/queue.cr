@@ -636,14 +636,15 @@ module LavinMQ::AMQP
       @deleted = true
       close
       @state = QueueState::Deleted
-      @msg_store_lock.synchronize do
-        @msg_store.delete
-      end
+      # Before the store removes its dir, see Replicator#delete_file
       if durable?
         @vhost.replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
           r.delete_file(dotqueue_file)
         end
+      end
+      @msg_store_lock.synchronize do
+        @msg_store.delete
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }

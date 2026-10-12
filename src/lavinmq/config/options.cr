@@ -462,6 +462,12 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
       property clustering_heartbeat_interval = 250
 
+      # Temporary, until the raft backend always replicates through its log
+      @[CliOpt("", "--clustering-raft-log-replication", "Replicate the data through the raft log instead of the replication stream, raft backend only (experimental)", ->(_v : String) { true }, section: "clustering")]
+      @[IniOpt(ini_name: raft_log_replication, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_LOG_REPLICATION")]
+      property? clustering_raft_log_replication = false
+
       @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet, raft backend only", ->(_v : String) { true }, section: "clustering")]
       @[IniOpt(ini_name: bootstrap, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]

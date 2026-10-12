@@ -15,6 +15,8 @@ module LavinMQ
       # the positional append(path, pos, length) overload.
       abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
       abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
+      # Called before the file or dir is deleted locally, which then finds it
+      # gone if the replicator moved it to undo the delete if need be
       abstract def delete_file(path : String)
       abstract def delete_dir(path : String)
       abstract def followers : Array(Follower)
@@ -61,6 +63,18 @@ module LavinMQ
       # #wait_for_followers raises Coordinator::StaleLeadership from then on.
       def fenced? : Bool
         false
+      end
+
+      # Whether #wait_for_followers waits for the leader's own fsync too, so
+      # #request_fsync and #request_syncfs are of no use
+      def confirms_by_commit? : Bool
+        false
+      end
+
+      # Called before a file at *path* is replaced by a rename, see
+      # FileSystem.durable_rename. A replicator that can undo the replace
+      # keeps the old content.
+      def preserve_before_replace(path : String) : Nil
       end
 
       abstract def listen(server : TCPServer)
