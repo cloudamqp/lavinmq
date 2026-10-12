@@ -4,6 +4,7 @@ import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 import { DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
@@ -12,8 +13,8 @@ if (vhost && vhost !== '_all') {
   url += HTTP.url`?vhost=${vhost}`
 }
 
-function update (cb) {
-  HTTP.request('GET', url).then((response) => {
+function update (cb, signal) {
+  return HTTP.request('GET', url, { signal }).then((response) => {
     render(response)
     if (cb) {
       cb(response)
@@ -30,8 +31,7 @@ function render (data) {
 }
 
 function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
+  Poller.start(signal => update(cb, signal))
 }
 
 const gcStatsFields = [
@@ -253,7 +253,7 @@ const queueChurnChart = Chart.render('queueChurnChart', '/s')
 const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
 
 const followersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   update (items) { this.items = items }
   reload () { }
 })()

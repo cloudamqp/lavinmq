@@ -64,6 +64,18 @@ describe LavinMQ::Server do
     end
   end
 
+  it "doesn't hold the TCP read buffer of idle TLS connections" do
+    with_amqp_server(tls: true) do |s|
+      with_channel(s, tls: true, verify_mode: OpenSSL::SSL::VerifyMode::NONE) do |ch|
+        ch.queue # a roundtrip, so the connection is idle afterwards
+        client = s.connections.first.as(LavinMQ::AMQP::Client)
+        tcp = client.@socket.as(OpenSSL::SSL::Socket).@bio.to_reference.io.as(TCPSocket)
+        tcp.buffer_pool.should_not be_nil
+        wait_for { tcp.@in_buffer.null? }
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -277,9 +289,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end
@@ -766,6 +778,27 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue("exlusive_consumer", auto_delete: true)
         q.subscribe { }
+      end
+    end
+  end
+
+  it "refuses an exclusive consumer when the queue already has consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("exclusive_consumer_after_shared", auto_delete: true)
+        q.subscribe { }
+
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+          with_channel(s) do |ch2|
+            q2 = ch2.queue("exclusive_consumer_after_shared", passive: true)
+            q2.subscribe(exclusive: true) { }
+          end
+        end
+
+        # The refused exclusive consumer must not lock out further consumers
+        with_channel(s) do |ch3|
+          ch3.queue("exclusive_consumer_after_shared", passive: true).subscribe { }
+        end
       end
     end
   end

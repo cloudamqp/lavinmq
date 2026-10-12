@@ -144,6 +144,28 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose socket buffer pool stats" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("buffer_pool_metrics")
+          q.publish_confirm "m"
+          q.get.should_not be_nil
+        end
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        size = LavinMQ::Config.instance.socket_buffer_size.to_s
+        %w[available allocated_total reused_total released_total dropped_total].each do |key|
+          metric = parsed_metrics.find do |m|
+            m[:key] == "lavinmq_socket_buffer_pool_#{key}" && m[:attrs]["buffer_size"]? == size
+          end
+          metric.should_not be_nil, "lavinmq_socket_buffer_pool_#{key} missing"
+        end
+        reused = parsed_metrics.find! do |m|
+          m[:key] == "lavinmq_socket_buffer_pool_reused_total" && m[:attrs]["buffer_size"]? == size
+        end
+        reused[:value].should be > 0
+      end
+    end
+
     it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
       uptime1 = uninitialized Time::Span
       with_metrics_server do |_, server|
@@ -522,6 +544,28 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_false
       response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
+    end
+  end
+end
+
+describe LavinMQ::HTTP::MetricsServer do
+  it "switches from follower to leader metrics on the same socket" do
+    with_amqp_server do |s|
+      h = LavinMQ::HTTP::MetricsServer.new
+      begin
+        addr = h.bind_tcp("127.0.0.1", 0)
+        spawn(name: "metrics listen") { h.listen }
+        Fiber.yield
+        http = HTTPSpecHelper.new(addr)
+        http.get("/metrics").body.should_not contain "lavinmq_identity_info"
+
+        h.leader = s
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        response.body.should contain "lavinmq_identity_info"
+      ensure
+        h.close
+      end
     end
   end
 end

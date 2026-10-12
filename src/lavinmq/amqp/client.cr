@@ -10,21 +10,15 @@ require "./connection_reply_code"
 require "./reply_text"
 require "../rough_time"
 require "../connection_info"
-require "../observable"
-require "./queue/event"
 require "../auth/permission_cache"
+require "../../stdlib/io_buffered_discard"
+require "../../stdlib/socket_shutdown"
 
 module LavinMQ
   module AMQP
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
-      include Observer(QueueEvent)
-
-      def on(event : QueueEvent, data : Object?)
-        @exclusive_queues.delete(data) if event.deleted? && data.is_a?(Queue)
-      end
-
       getter vhost, log, name
       getter user
       getter max_frame_size : UInt32
@@ -542,8 +536,8 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
-        # Iterate a snapshot because Queue#close fires QueueEvent::Deleted,
-        # whose observer mutates @exclusive_queues.
+        # Iterate a snapshot because Queue#close deletes exclusive queues,
+        # which calls back into #exclusive_queue_deleted.
         @exclusive_queues.dup.each(&.close)
         @exclusive_queues.clear
         case user = @user
@@ -552,9 +546,21 @@ module LavinMQ
         end
       end
 
+      # The connection is first shut down, which makes an ongoing write,
+      # e.g. of a large message to a slowly reading client, fail right away
+      # instead of holding the write lock. The socket is then closed under
+      # the write lock, so that closing never runs concurrently with a write.
+      # Buffered data is dropped instead of flushed: after a failed write it
+      # may already have been partly sent, and the connection is being
+      # abandoned anyway.
       private def close_socket
         @running = false
-        @socket.close
+        socket = @socket
+        socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
+        @write_lock.synchronize do
+          socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
+          socket.close
+        end
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
@@ -760,6 +766,11 @@ module LavinMQ
         q.exclusive? && !@exclusive_queues.includes?(q)
       end
 
+      # Called by Queue#delete on the queue's exclusive owner
+      def exclusive_queue_deleted(q : Queue) : Nil
+        @exclusive_queues.delete(q)
+      end
+
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
@@ -830,7 +841,7 @@ module LavinMQ
         if frame.exclusive
           q = @vhost.queue(frame.queue_name)
           @exclusive_queues << q
-          q.register_observer(self)
+          q.exclusive_owner = self
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)

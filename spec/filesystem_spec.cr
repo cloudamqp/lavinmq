@@ -12,8 +12,9 @@ describe FilesystemInfo do
 
     info = Filesystem.info(path)
     info.total.should eq df_total
-    # free space can change between the two measurements
-    info.available.should be_close(df_available, df_total // 100)
+    # free space can change between the two measurements, either way: compare
+    # signed, as be_close on unsigned values overflows when actual < expected
+    info.available.to_i64.should be_close(df_available.to_i64, (df_total // 100).to_i64)
   end
 
   {% if flag?(:linux) %}

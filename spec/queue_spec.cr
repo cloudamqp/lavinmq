@@ -23,6 +23,19 @@ def with_queue(&)
   end
 end
 
+# Runs the block on `n` fibers in the (parallel) context and waits for them
+def in_parallel(ctx, n, &blk : Int32 -> Nil)
+  wg = WaitGroup.new(n)
+  n.times do |i|
+    ctx.spawn do
+      blk.call(i)
+    ensure
+      wg.done
+    end
+  end
+  wg.wait
+end
+
 describe LavinMQ::AMQP::Queue do
   it "should not expire message before server is fully started" do
     # https://github.com/cloudamqp/lavinmq/issues/1697
@@ -48,6 +61,21 @@ describe LavinMQ::AMQP::Queue do
         with_channel(s) do |ch|
           ch.queue("dlq").get.should_not be_nil, failure_message: "Message not dead lettered?!"
         end
+      end
+    end
+  end
+
+  it "batches expire loop wakeups without waking before the deadline" do
+    RoughTime.paused do
+      now = RoughTime.unix_ms
+      LavinMQ::AMQP::Queue.time_to_expiration_wakeup(now).should eq Time::Span.zero
+      LavinMQ::AMQP::Queue.time_to_expiration_wakeup(now - 5).should eq Time::Span.zero
+      g = LavinMQ::AMQP::Queue::EXPIRE_WAKEUP_GRANULARITY_MS
+      base = (now // g + 1) * g # a granularity boundary in the future
+      (1..g).each do |offset|
+        expire_at = base + offset
+        wait = LavinMQ::AMQP::Queue.time_to_expiration_wakeup(expire_at)
+        (now + wait.total_milliseconds.to_i64).should eq base + g
       end
     end
   end
@@ -609,6 +637,111 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "segment deleted while a message from it is being delivered" do
+    # Three of these fill the first segment, the fourth opens a new one
+    body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+
+    segment_file = ->(q : LavinMQ::AMQP::Queue, sp : LavinMQ::SegmentPosition) do
+      store = q.@msg_store
+      if store.is_a?(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+        store.@stores[sp.priority].@segments[sp.segment]
+      else
+        store.@segments[sp.segment]
+      end
+    end
+
+    # The yield is where a delivery can be suspended in a socket write, so the
+    # spec deletes the segment from inside it
+    ack_last_message_mid_delivery = ->(q : LavinMQ::AMQP::Queue) do
+      4.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+      2.times { q.basic_get(false) { |env| q.ack(env.segment_position) } }
+      mfile = nil
+      q.basic_get(false) do |env|
+        mfile = segment_file.call(q, env.segment_position)
+        # What a client's basic.ack(delivery_tag: 0, multiple: true) does
+        # while the delivery of that message is still being written
+        q.ack(env.segment_position)
+        mfile.try(&.deleted?).should be_true
+        mfile.try(&.closed?).should be_false
+        String.new(env.message.body).should eq body
+      end.should be_true
+      mfile.try(&.closed?).should be_true
+    end
+
+    it "keeps the segment mapped when the message is acked during the delivery" do
+      with_queue do |q|
+        ack_last_message_mid_delivery.call(q)
+      end
+    end
+
+    it "keeps the segment mapped in a priority queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("pq", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-priority" => 2}))
+        ack_last_message_mid_delivery.call(vhost.queue("pq").as(LavinMQ::AMQP::Queue))
+      end
+    end
+
+    it "keeps the segment mapped when the queue is closed during a basic.get" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        mfile = nil
+        q.basic_get(false) do |env|
+          segment = segment_file.call(q, env.segment_position)
+          mfile = segment
+          size = segment.size
+          # Unlike consumers, a basic.get isn't waited for by Queue#close
+          q.close
+          segment.closed?.should be_false
+          String.new(env.message.body).should eq body
+          # Only the unmap is deferred, the file is truncated right away
+          File.size(segment.path).should eq size
+        end.should be_true
+        mfile.try(&.closed?).should be_true
+      end
+    end
+
+    it "doesn't truncate a segment reopened before the deferred close" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        path = ""
+        reopened = nil
+        q.basic_get(false) do |env|
+          path = segment_file.call(q, env.segment_position).path
+          q.close
+          # E.g. a vhost restart while the delivery is still being written
+          store = LavinMQ::MessageStore.new(File.dirname(path), nil)
+          reopened = store
+          store.@wfile.path.should eq path
+          store.push(LavinMQ::Message.new("", q.name, body))
+        end.should be_true
+        store = reopened.not_nil!
+        File.size(path).should be >= store.@wfile.size
+        store.close
+      end
+    end
+
+    it "keeps the segment mapped when the queue is purged during a no-ack delivery" do
+      with_queue do |q|
+        4.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+        2.times { q.basic_get(false) { |env| q.ack(env.segment_position) } }
+        mfile = nil
+        q.basic_get(true) do |env|
+          mfile = segment_file.call(q, env.segment_position)
+          # Another consumer moves the read position on to the next segment,
+          # then purge deletes every segment but the read and write ones
+          q.basic_get(true) { }
+          q.purge
+          mfile.try(&.deleted?).should be_true
+          mfile.try(&.closed?).should be_false
+          String.new(env.message.body).should eq body
+        end.should be_true
+        mfile.try(&.closed?).should be_true
+      end
+    end
+  end
+
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
       with_amqp_server do |s|
@@ -746,17 +879,17 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "drops a publish when the store is closed concurrently" do
+    it "doesn't store a publish when the store is closed concurrently" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue("closed_store_publish", durable: false)
           queue = s.vhosts["/"].queue("closed_store_publish").as(LavinMQ::AMQP::Queue)
           # Simulate a delete racing publish_internal: the store is closed after
           # the @closed check but before push, so push raises ClosedError. The
-          # publish must report Dropped, not raise (which surfaced as an HTTP 500).
+          # publish must report Closed, not raise (which surfaced as an HTTP 500).
           queue.@msg_store.close
           msg = LavinMQ::Message.new("", "closed_store_publish", "body", LavinMQ::AMQP::Properties.new)
-          queue.publish(msg).dropped?.should be_true
+          queue.publish(msg).closed?.should be_true
         end
       end
     end
@@ -832,6 +965,47 @@ describe LavinMQ::AMQP::Queue do
           sleep 10.milliseconds
           sq.unacked_count.should eq 1
           sq.unacked_bytesize.should eq(bytesize/2)
+        end
+      end
+    end
+  end
+
+  describe "delivery limit" do
+    # Regression: the delivery counts were read and written outside
+    # @msg_store_lock, so deliveries, acks and rejects on different threads
+    # mutated the Hash concurrently and corrupted it
+    it "keeps delivery counts consistent with parallel gets, rejects and acks", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("dl", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_000}))
+        q = vhost.queue("dl").as(LavinMQ::AMQP::Queue)
+        ctx = Fiber::ExecutionContext::Parallel.new("delivery-limit", 4)
+        # Several rounds, as one round only corrupts the Hash some of the time
+        20.times do
+          count = 5_000
+          count.times { q.publish(LavinMQ::Message.new("", q.name, "body")) }
+          sps = Array(Array(LavinMQ::SegmentPosition)).new(4) { Array(LavinMQ::SegmentPosition).new }
+          # Every get adds a delivery count, racing the other threads' inserts
+          in_parallel(ctx, 4) do |i|
+            while q.basic_get(false) { |env| sps[i] << env.segment_position }
+            end
+          end
+          q.@deliveries.size.should eq count
+          # Requeue all and get them again, so their counts are read and updated
+          in_parallel(ctx, 4) { |i| sps[i].each { |sp| q.reject(sp, requeue: true) } }
+          sps.each &.clear
+          in_parallel(ctx, 4) do |i|
+            while q.basic_get(false) { |env| sps[i] << env.segment_position }
+            end
+          end
+          sps.sum(&.size).should eq count
+          q.@deliveries.size.should eq count
+          q.@deliveries.each_value &.should(eq 2)
+          # Acks remove the counts
+          in_parallel(ctx, 4) { |i| sps[i].each { |sp| q.ack(sp) } }
+          q.message_count.should eq 0
+          q.@deliveries.size.should eq 0
         end
       end
     end
@@ -990,7 +1164,7 @@ describe LavinMQ::AMQP::Queue do
 
     it "still cleans up exclusive queues on connection close when many are open" do
       # Regression for the iteration-mutation hazard: cleanup iterates
-      # @exclusive_queues while Queue#close fires the observer that mutates it.
+      # @exclusive_queues while Queue#close calls back into Client#exclusive_queue_deleted.
       with_amqp_server do |s|
         ch = nil
         with_channel(s) do |c|

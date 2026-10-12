@@ -18,6 +18,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/broker"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -41,20 +42,21 @@ module LavinMQ
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    # Set by the server's disk space monitor, read by every publishing client
+    @flow = Atomic(Bool).new(true)
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
+    @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
@@ -188,6 +190,10 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections.add client
+      # Added after #close closed the connections, it'd be served by a
+      # closed vhost. Not #close, an MQTT client's waits for its read loop,
+      # which only starts after this.
+      client.force_close if closed?
     end
 
     def rm_connection(client : Client)
@@ -215,7 +221,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -226,11 +232,12 @@ module LavinMQ
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
-      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator)
+      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
+      @mqtt_broker = MQTT::Broker.new(self)
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
@@ -518,21 +525,23 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
-      # then force close the remaining (close tcp socket)
-      each_connection &.force_close
+      # then force close the remaining (close tcp socket), a copy as they
+      # delete themselves when closed
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
+      @mqtt_broker.try &.close
       each_exchange &.close
       Fiber.yield
       definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
-      @mqtt_permission_service.save!
     end
 
     def delete
       close(reason: "VHost deleted")
       Fiber.yield
+      @replicator.try &.delete_dir(@data_dir)
       FileUtils.rm_rf @data_dir
     end
 
@@ -589,6 +598,10 @@ module LavinMQ
 
     def upstreams
       @upstreams.not_nil!
+    end
+
+    def mqtt_broker : MQTT::Broker
+      @mqtt_broker.not_nil!
     end
 
     def shovels

@@ -15,6 +15,9 @@ module LavinMQ::AMQP
       "x-dead-letter-routing-key",
       "x-expires",
       "x-delivery-limit",
+      "x-delayed-retry-min",
+      "x-delayed-retry-max",
+      "x-delayed-retry-multiplier",
       "x-overflow",
       "x-single-active-consumer",
       "x-max-priority",
@@ -149,7 +152,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Dropped if @state.closed?
+      return PublishResult::Closed if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -159,9 +162,9 @@ module LavinMQ::AMQP
       PublishResult::Ok
     rescue MessageStore::ClosedError
       # Closed/deleted concurrently after the @state.closed? check; treat as
-      # dropped instead of surfacing the race as an error (see Queue#publish_internal).
+      # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
-      PublishResult::Dropped
+      PublishResult::Closed
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
@@ -175,6 +178,15 @@ module LavinMQ::AMQP
 
     def reader(offset)
       StreamReader.new(self, offset)
+    end
+
+    # Yields a message for StreamReader, see StreamMessageStore#read_with_lease?
+    protected def read_with_lease?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
+      stream_msg_store.read_with_lease?(@msg_store_lock, segment, position) { |env| yield env }
+    end
+
+    protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?
+      @msg_store_lock.synchronize { stream_msg_store.next_segment_offset(segment) }
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
@@ -200,9 +212,11 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
-      yield env # deliver the message
-      true
+      # Retention can drop the segment while the delivery is suspended in a
+      # socket write
+      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer) do |env|
+        yield env # deliver the message
+      end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
@@ -213,6 +227,9 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
+    end
+
+    def requeue(sp : SegmentPosition)
     end
 
     private def drop_overflow : Nil

@@ -227,7 +227,7 @@ module DeadLetteringSpec
           ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
 
           msg = q.get(no_ack: false).not_nil!
-          sleep 1100.milliseconds
+          sleep 1020.milliseconds
           msg.reject(requeue: true)
 
           dlq_msg = wait_for { dlq.get }.should_not be_nil

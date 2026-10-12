@@ -131,6 +131,28 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should return the tag of an exclusive consumer" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_consumer_tag")
+          q.subscribe(tag: "the-exclusive-one", exclusive: true) { }
+          response = http.get("/api/queues/%2f/exclusive_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should eq "the-exclusive-one"
+        end
+      end
+    end
+
+    it "should not return an exclusive consumer tag for a normal consumer on an exclusive queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_queue_consumer_tag", exclusive: true)
+          q.subscribe(tag: "not-exclusive") { }
+          response = http.get("/api/queues/%2f/exclusive_queue_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should be_nil
+        end
+      end
+    end
+
     it "should return 404 if queue does not exist" do
       with_http_server do |http, _|
         response = http.get("/api/queues/%2f/404")
@@ -491,6 +513,30 @@ describe LavinMQ::HTTP::QueuesController do
                   "properties", "payload", "payload_encoding"]
           body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
           s.vhosts["/"].queue("q3").message_count.should be > 0
+        end
+      end
+    end
+
+    it "should not move peeked messages to the retry queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("q3-retry-peek", args: args)
+          q.publish_confirm "m1"
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
+          response = http.post("/api/queues/%2f/q3-retry-peek/get", body: body)
+          response.status_code.should eq 200
+          s.vhosts["/"].queue("q3-retry-peek").message_count.should eq 1
+          s.vhosts["/"].queue("amq.retry-q3-retry-peek").message_count.should eq 0
         end
       end
     end

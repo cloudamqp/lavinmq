@@ -2,7 +2,6 @@ require "./filesystem"
 require "json"
 require "./vhost"
 require "./auth/base_user"
-require "./observable"
 
 module LavinMQ
   class DeletedVHostStats
@@ -22,13 +21,7 @@ module LavinMQ
   end
 
   class VHostStore
-    enum Event
-      Added
-      Deleted
-      Closed
-    end
     include Enumerable({String, VHost})
-    include Observable(Event)
 
     Log = LavinMQ::Log.for "vhost_store"
 
@@ -74,11 +67,12 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true,
+               mqtt_default_group : Bool = true)
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_default_group)
       Log.info { "Created vhost #{name}" }
       # Grant the creating user full permissions on the new vhost. Only local
       # users have stored permissions; OAuth users get theirs from token scopes.
@@ -90,7 +84,6 @@ module LavinMQ
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: save)
       @vhosts[name] = vhost
       save! if save
-      notify_observers(Event::Added, name)
       vhost
     end
 
@@ -100,7 +93,6 @@ module LavinMQ
         @deleted_stats.add(vhost)
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        notify_observers(Event::Deleted, name)
         Log.info { "Deleted vhost #{name}" }
         save!
         vhost
@@ -124,10 +116,7 @@ module LavinMQ
       end
       WaitGroup.wait do |wg|
         @vhosts.each_value do |vhost|
-          wg.spawn do
-            vhost.close
-            notify_observers(Event::Closed, vhost.name)
-          end
+          wg.spawn { vhost.close }
         end
       end
     end

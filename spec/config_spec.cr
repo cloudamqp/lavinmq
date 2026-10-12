@@ -107,13 +107,14 @@ describe LavinMQ::Config do
           stats_log_size = 240
           set_timestamp = true
           socket_buffer_size = 32768
-          tcp_nodelay = true
+          tcp_nodelay = false
           segment_size = 16777216
           sync = false
           syncfs_threshold = 8
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
+          tcp_send_timeout = 30
           log_exchange = true
           free_disk_min = 1073741824
           free_disk_warn = 5368709120
@@ -196,13 +197,14 @@ describe LavinMQ::Config do
     config.stats_log_size.should eq 240
     config.set_timestamp?.should be_true
     config.socket_buffer_size.should eq 32768
-    config.tcp_nodelay?.should be_true
+    config.tcp_nodelay?.should be_false
     config.segment_size.should eq 16777216
     config.sync?.should be_false
     config.syncfs_threshold.should eq 8
     config.tcp_keepalive.should eq({120, 20, 5})
     config.tcp_recv_buffer_size.should eq 65536
     config.tcp_send_buffer_size.should eq 65536
+    config.tcp_send_timeout.should eq 30
     config.log_exchange?.should be_true
     config.free_disk_min.should eq 1073741824
     config.free_disk_warn.should eq 5368709120
@@ -639,6 +641,25 @@ describe LavinMQ::Config do
         expect_raises(LavinMQ::Config::Error, /stats_interval/) do
           config.parse(["-c", config_file.path])
         end
+      end
+    end
+  end
+
+  describe "tcp_send_timeout" do
+    it "defaults to 15 seconds" do
+      LavinMQ::Config.new.tcp_send_timeout.should eq 15
+    end
+
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          tcp_send_timeout = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /tcp_send_timeout/) do
+        config.parse(["-c", config_file.path])
       end
     end
   end

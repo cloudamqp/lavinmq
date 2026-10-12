@@ -811,6 +811,24 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "removes the vhost dir from follower when vhost is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        vhost = s.vhosts.create("churn")
+        with_channel(s, vhost: "churn") do |ch|
+          q = ch.queue("q", durable: true)
+          q.publish_confirm "hello"
+        end
+        replicated_dir = File.join(cluster.follower_config.data_dir, vhost.dir)
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        Dir.exists?(replicated_dir).should be_true
+        s.vhosts.delete("churn")
+        wait_for { !Dir.exists?(replicated_dir) }
+      end
+    end
+  end
+
   it "keeps the queue dir on follower when a segment is deleted but the queue isn't" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|

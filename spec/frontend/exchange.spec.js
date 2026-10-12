@@ -22,6 +22,19 @@ test.describe('exchange', _ => {
     }
   })
 
+  test('renders the details once a refresh succeeds after a failed first load', async ({ page }) => {
+    await page.clock.install()
+    let failed = false
+    await page.route(`**/${apiPath}`, route => {
+      if (failed) return route.fallback()
+      failed = true
+      return route.fulfill({ status: 503, json: { reason: 'unavailable' } })
+    })
+    await page.goto(pagePath)
+    await page.clock.runFor(5000)
+    await expect(page.locator('#e-type')).toHaveText('topic')
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 

@@ -34,7 +34,9 @@ describe LavinMQCtl::DefinitionsGenerator do
     end
   end
 
-  it "emits no permission groups for a vhost without mqtt_permissions.json" do
+  # The server creates the default group for such a vhost when it loads it.
+  # Without it the definitions would lock the vhost down when imported.
+  it "emits the default group for a vhost without mqtt_permissions.json" do
     with_data_dir do |data_dir|
       File.write(File.join(data_dir, "vhosts.json"), %([{"name": "/", "dir": "vh1"}]))
       vhost_dir = File.join(data_dir, "vh1")
@@ -45,7 +47,8 @@ describe LavinMQCtl::DefinitionsGenerator do
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
       body = JSON.parse(io.to_s)
 
-      body["mqtt_permissions"].as_a.should be_empty
+      expected = LavinMQ::MQTT::PermissionGroup.default("/")
+      body["mqtt_permissions"].as_a.should eq [JSON.parse(expected.to_json)]
     end
   end
 

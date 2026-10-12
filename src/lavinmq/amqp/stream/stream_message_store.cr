@@ -82,16 +82,11 @@ module LavinMQ::AMQP
       return if consumer.segment_acquired?
       consumer.segment_acquired = true
       seg = consumer.segment
-      if count = @segment_readers[seg]?
-        @segment_readers[seg] = count + 1
-      else
-        @segment_readers[seg] = 1u32
-        @segments[seg]?.try { |mfile| read_ahead(mfile) }
-      end
+      @segment_readers[seg] = (@segment_readers[seg]? || 0u32) + 1
     end
 
-    # Readahead for reading a full segment, which can still be advised random
-    # from when it was written (see MessageStore#random_access_for_sync).
+    # Readahead for a fast consumer reading a full segment, segments are
+    # otherwise mapped without it (see MessageStore#open_segment).
     # Normal rather than sequential advice: several consumers can read the
     # same segment, and the kernel evicts pages read through a sequential
     # mapping early, possibly before the next consumer has read them.
@@ -221,14 +216,25 @@ module LavinMQ::AMQP
       offset_at(@segments.first_key, 4u32).first
     end
 
+    # Like #read, but yields the message outside `lock`, see #shift_with_lease?
+    def read_with_lease?(lock : Mutex, segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
+      env = lock.synchronize { read(segment, position).try &.lease } || return false
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
     def read(segment : UInt32, position : UInt32) : Envelope?
       return if @closed
-      rfile = @segments[segment]
+      rfile = @segments[segment]? || return # dropped by retention
       return if position == rfile.size
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
         puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
@@ -255,7 +261,7 @@ module LavinMQ::AMQP
         consumer.pos += sp.bytesize
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
@@ -269,7 +275,7 @@ module LavinMQ::AMQP
             offset, _, _ = offset_at(sp.segment, sp.position)
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
-            return Envelope.new(sp, msg, redelivered: true)
+            return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
             raise Error.new(segment, cause: ex)
           end
@@ -281,13 +287,22 @@ module LavinMQ::AMQP
       @segments.each_key.find { |sid| sid > segment }
     end
 
+    # The segment after `segment` and the offset of its first message
+    def next_segment_offset(segment) : Tuple(UInt32, Int64)?
+      if seg = next_segment_id(segment)
+        {seg, @segment_first_offset[seg]}
+      end
+    end
+
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
+        fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
+        consumer.segment_since = RoughTime.instant
         acquire_segment(consumer)
-        @segments[seg_id]
+        @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
       end
     end
 
@@ -303,11 +318,7 @@ module LavinMQ::AMQP
 
     # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      if @segment_readers.has_key?(seg)
-        mfile.advise(MFile::Advice::Normal) # see #read_ahead, still @wfile here
-      else
-        mfile.dontneed
-      end
+      mfile.dontneed unless @segment_readers.has_key?(seg)
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
