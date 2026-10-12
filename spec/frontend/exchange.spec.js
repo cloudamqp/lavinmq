@@ -55,6 +55,26 @@ test.describe('exchange', _ => {
     await expect(page).toHaveURL(new RegExp(`exchange${newHash}`))
   })
 
+  test('marks policy and arguments unsupported for x-mqtt-topic exchanges', async ({ page }) => {
+    const exchangeResponse = {
+      name: 'mlogs',
+      vhost: '/',
+      type: 'x-mqtt-topic',
+      durable: true,
+      auto_delete: false,
+      internal: true,
+      arguments: {},
+      effective_arguments: [],
+      message_stats: {},
+      policy: 'all-queues'
+    }
+    const exchangeLoaded = helpers.waitForPathRequest(page, 'api/exchanges/%2F/mlogs', { response: exchangeResponse })
+    await page.goto('/exchange#vhost=%2F&name=mlogs')
+    await expect(exchangeLoaded).toBeRequested()
+    await expect(page.locator('#e-policy')).toHaveText('Not supported')
+    await expect(page.locator('#e-arguments')).toHaveText('Not supported by this exchange type')
+  })
+
   test('keeps binding form values and table unchanged when add fails', async ({ page }) => {
     const errors = []
     let bindingsReloaded = false
