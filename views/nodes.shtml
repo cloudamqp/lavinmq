@@ -77,7 +77,7 @@
         <h3>Queue churn</h3>
         <div class="chart-container" id="queueChurnChart"></div>
       </section>
-      <section class="card">
+      <section class="card" id="followers-section" hidden>
         <div class="table-header">
           <h2 class="has-badge">
             Followers
@@ -119,6 +119,7 @@
                 <th class="left">In sync</th>
                 <th class="right">Log index</th>
                 <th class="left">Caught up</th>
+                <th class="right">Lag</th>
                 <th class="right require-administrator"></th>
               </tr>
             </thead>

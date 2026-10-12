@@ -1366,6 +1366,19 @@ footer .logo {
   padding: 0 0 1.5rem;
 }
 
+.card:has(.table-header)>p,
+.card:has(.table-header)>form {
+  padding: 0 1.5rem;
+}
+
+.card:has(.table-header)>p {
+  margin: 1rem 0;
+}
+
+.card:has(.table-header)>form {
+  margin-top: 1.5rem;
+}
+
 .table thead {
   background-color: var(--color-border-separator);
 }

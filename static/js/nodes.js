@@ -272,6 +272,8 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
 })
 
+let followersById = {}
+
 // Cluster members, only with the raft clustering backend. The cluster API
 // answers 400/404 otherwise, so use fetch directly instead of HTTP.request
 // to not alert about that.
@@ -295,6 +297,8 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
   Table.renderCell(tr, 3, item.in_isr ? '●' : '○')
   Table.renderCell(tr, 4, item.match_index == null ? '' : numFormatter.format(item.match_index), 'right')
   Table.renderCell(tr, 5, item.caught_up ? '●' : '○')
+  const follower = followersById[item.node_id]
+  Table.renderCell(tr, 6, follower ? humanizeBytes(follower.sent_bytes - follower.acked_bytes) : '', 'right')
   const buttons = document.createElement('div')
   buttons.classList.add('buttons', 'require-administrator')
   if (item.role === 'learner') {
@@ -325,24 +329,37 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
       }
     }))
   }
-  Table.renderCell(tr, 6, buttons, 'right')
+  Table.renderCell(tr, 7, buttons, 'right')
 })
+
+// The cluster members table already covers the followers with the raft backend
+function updateFollowersVisibility () {
+  const hasFollowers = (followersDataSource.items || []).length > 0
+  document.getElementById('followers-section').hidden = !hasFollowers || !document.getElementById('cluster-section').hidden
+}
 
 function updateCluster () {
   return window.fetch('api/cluster').then((response) => {
     const section = document.getElementById('cluster-section')
     if (!response.ok) {
-      section.hidden = true
       // No raft cluster, or not an administrator, which won't change
-      if ([400, 403, 404].includes(response.status)) clearInterval(clusterPoll)
+      if ([400, 403, 404].includes(response.status)) {
+        section.hidden = true
+        updateFollowersVisibility()
+        clearInterval(clusterPoll)
+      }
+      // Otherwise (409 not the leader, 503 no answer) it is transient, e.g.
+      // during a leadership change, so keep showing the last known members
       return
     }
     return response.json().then((cluster) => {
       if (!Array.isArray(cluster.members)) {
         section.hidden = true
+        updateFollowersVisibility()
         return
       }
       section.hidden = false
+      updateFollowersVisibility()
       document.getElementById('cluster-summary').textContent =
         `Leader ${cluster.leader}, term ${cluster.term}. In-sync replicas: ${(cluster.isr || []).join(', ')}`
       clusterDataSource.update(cluster.members)
@@ -418,7 +435,10 @@ function updateCharts (response) {
     }
     Chart.update(queueChurnChart, queueChurnStats)
   }
-  followersDataSource.update(response[0].followers)
+  const followers = response[0].followers || []
+  followersById = Object.fromEntries(followers.map((f) => [f.id, f]))
+  followersDataSource.update(followers)
+  updateFollowersVisibility()
 }
 
 function humanizeBytes (bytes, si = false, dp = 1) {
