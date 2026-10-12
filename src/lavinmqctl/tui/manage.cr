@@ -114,19 +114,20 @@ class LavinMQCtl
       return [] of Action if name.empty?
       path = "/api/queues/#{URI.encode_path_segment(vhost)}/#{URI.encode_path_segment(name)}"
       what = "queue #{name} in vhost #{vhost}"
-      state = Fields.text(queue, "state")
-      actions = [] of Action
-      if state == "paused"
-        actions << Action.new("Resume the consumers of queue #{name}", "PUT", "#{path}/resume",
-          "Resume the consumers of #{what}?", "Resumed the consumers of #{what}")
+      # Like the management UI, as the broker answers 204 but does nothing
+      # for a queue in another state
+      case Fields.text(queue, "state")
+      when "running"
+        [Action.new("Pause the consumers of queue #{name}", "PUT", "#{path}/pause",
+          "Pause the consumers of #{what}? They get no messages until it's resumed.", "Paused the consumers of #{what}")]
+      when "paused"
+        [Action.new("Resume the consumers of queue #{name}", "PUT", "#{path}/resume",
+          "Resume the consumers of #{what}?", "Resumed the consumers of #{what}")]
+      when "closed"
+        [Action.new("Restart queue #{name}", "PUT", "#{path}/restart", "Restart #{what}?", "Restarted #{what}")]
       else
-        actions << Action.new("Pause the consumers of queue #{name}", "PUT", "#{path}/pause",
-          "Pause the consumers of #{what}? They get no messages until it's resumed.", "Paused the consumers of #{what}")
+        [] of Action
       end
-      if state == "closed"
-        actions << Action.new("Restart queue #{name}", "PUT", "#{path}/restart", "Restart #{what}?", "Restarted #{what}")
-      end
-      actions
     end
 
     private def connection_actions(connection : JSON::Any) : Array(Action)

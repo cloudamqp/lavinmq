@@ -836,6 +836,19 @@ describe LavinMQCtl::TUI do
     requests.none?(&.starts_with?("PUT")).should be_true
   end
 
+  it "only offers what the queue's state allows" do
+    {
+      "paused" => "1  Resume the consumers of queue q",
+      "closed" => "1  Restart queue q",
+      "flow"   => "Nothing to manage here",
+    }.each do |state, offered|
+      queues = {items: [{vhost: "v", name: "q", state: state}], filtered_count: 1}
+      screen, _ = run_tui('2', 'm', TUI::Key::CtrlC, responses: with_response("/api/queues", queues), manage: true)
+      screen.text.should contain(offered)
+      screen.text.should_not contain("Pause the consumers")
+    end
+  end
+
   it "says why a change failed" do
     screen, _ = run_tui('2', 'm', '1', 'y', manage: true, action_status: 403)
     screen.text.should contain("Failed: HTTP 403 Access refused")
