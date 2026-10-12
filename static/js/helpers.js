@@ -203,7 +203,7 @@ const stateClasses = new class {
       this.#state_classes.add(track)
     }
     if (this.#values.length > 0 && this.#state_classes.size > 0) {
-      const klasses = this.#values.values().filter(i => this.#state_classes.has(i)).toArray()
+      const klasses = Array.from(this.#values).filter(i => this.#state_classes.has(i))
       window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
     } else {
       window.localStorage.removeItem('lmq.stateclasses')
@@ -234,7 +234,7 @@ const stateClasses = new class {
       toRemove = new RegExp(`^(${toRemove.join('|')})$`)
     }
     if (toRemove instanceof RegExp) {
-      this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
+      this.#values.remove(...Array.from(this.#values).filter(v => toRemove.test(v)))
     }
     this.#persist()
   }
