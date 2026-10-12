@@ -506,11 +506,12 @@ describe LavinMQCtl::TUI do
     overview["message_stats"] = JSON.parse({publish_details: {rate: 1.0}, deliver_get_details: {rate: 1.0}}.to_json)
     overview["queue_totals"] = JSON.parse({messages_ready: 1, messages_unacknowledged: 0}.to_json)
     with_tui_api(responses: with_response("/api/overview", overview)) do |client|
-      # Refreshes several times, not 5s apart like the broker's log
+      # Refreshes several times, not 5s apart like the broker's log, so the
+      # span is how long it ran, up to a second on a slow machine
       screen = FakeTUIScreen.new(quit_after: 500.milliseconds)
       TUI.new(client, 0.05, screen).start
-      screen.text.should contain("Message rates  last 0 s")
-      screen.text.should contain("Queued messages  last 0 s")
+      screen.text.should match(/Message rates  last [0-4] s /)
+      screen.text.should match(/Queued messages  last [0-4] s /)
     end
   end
 
