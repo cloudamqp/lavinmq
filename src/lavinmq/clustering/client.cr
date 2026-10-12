@@ -944,19 +944,10 @@ module LavinMQ
             end
             item = acks.try_receive? || break
           end
-          if syncfs || fsync_paths.size > @config.syncfs_threshold
-            sync_to_disk
-          else
-            fsync_to_disk(fsync_paths)
-          end
+          synced = sync_batch(syncfs, fsync_paths)
           fsync_paths.clear
           if progress
-            if syncfs || (progress.lsn > @persisted_lsn && Time.instant - @last_persist > PERSIST_INTERVAL)
-              # Everything applied up to this progress is on disk after a
-              # syncfs, so the position can move
-              sync_to_disk unless syncfs
-              persist_position(progress.lsn)
-            end
+            persist_if_due(progress.lsn, synced)
             WireV3.write_ack(socket, progress.lsn, progress.bytes)
           elsif ack_bytes > 0
             socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian
@@ -965,6 +956,28 @@ module LavinMQ
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
+      end
+
+      # Sync what a batch of acks requires: the requested paths, or the whole
+      # data dir when asked to or when they are many. Returns whether the
+      # whole data dir was synced.
+      private def sync_batch(syncfs : Bool, paths : Set(String)) : Bool
+        if syncfs || paths.size > @config.syncfs_threshold
+          sync_to_disk
+          true
+        else
+          fsync_to_disk(paths)
+          false
+        end
+      end
+
+      # Everything applied up to `lsn` is on disk after a sync of the whole
+      # data dir, so the position can move there; done at every such sync
+      # and at least every PERSIST_INTERVAL while entries are applied
+      private def persist_if_due(lsn : UInt64, synced : Bool) : Nil
+        return unless synced || (lsn > @persisted_lsn && Time.instant - @last_persist > PERSIST_INTERVAL)
+        sync_to_disk unless synced
+        persist_position(lsn)
       end
 
       # Make all replicated writes durable before acking the leader.
