@@ -83,7 +83,7 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-latest
-            container: 84codes/crystal:latest-ubuntu-24.04
+            container: 84codes/crystal:latest-ubuntu-26.04
           - arch: arm64
             runner: ubuntu-26.04-arm
             container: 84codes/crystal:latest-ubuntu-26.04
