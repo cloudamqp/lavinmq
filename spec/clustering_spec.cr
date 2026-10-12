@@ -333,6 +333,29 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "replicates a session's segment once its first message creates it" do
+    with_clustering do |cluster|
+      replicator = cluster.replicator
+      dir = File.join(cluster.config.data_dir, "session")
+      follower_dir = File.join(cluster.follower_config.data_dir, "session")
+      Dir.mkdir_p(dir)
+      store = LavinMQ::MQTT::SessionMessageStore.new(dir, replicator)
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      Dir.exists?(follower_dir).should be_false # nothing to replicate yet
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      cluster.stop
+      store.close
+      Dir.children(follower_dir).select(&.starts_with?("msgs.")).should eq ["msgs.0000000001"]
+      follower = LavinMQ::MQTT::SessionMessageStore.new(follower_dir, nil)
+      follower.size.should eq 1
+      String.new(follower.shift?.not_nil!.message.body).should eq "body"
+    ensure
+      store.try &.close
+      follower.try &.close
+    end
+  end
+
   it "replicates and streams retained messages to followers" do
     with_clustering do |cluster|
       replicator = cluster.replicator

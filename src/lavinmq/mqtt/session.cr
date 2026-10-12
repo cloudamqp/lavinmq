@@ -103,6 +103,7 @@ module LavinMQ
       @routing_generation = 0u32
       # Set once a wait fails while open: only a shutdown stops the persister
       @persister_stopped = false
+      @deliver_loop_started = false
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -135,7 +136,14 @@ module LavinMQ
         restore_publish_sent
         @msg_store.on_original_packet_id_dropped = ->original_packet_id_dropped(SegmentPosition, UInt16)
         @msg_store.on_original_packet_id_released = ->original_packet_id_released(UInt16)
+        ensure_deliver_loop unless @msg_store.empty?
+      end
 
+      # Started by the first message, as a fiber's stack costs mappings too.
+      # Only messages need it: requeues come from deliveries it made.
+      private def ensure_deliver_loop : Nil
+        return if @deliver_loop_started
+        @deliver_loop_started = true
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -368,6 +376,12 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
+        # Messages only reach a session through its subscriptions. Creating the
+        # segment here keeps it out of the publish that first routes to it,
+        # which a fanout to many new subscribers would pay for each of them.
+        @msg_store_lock.synchronize do
+          @msg_store.open_first_segment unless @msg_store.closed
+        end
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments
@@ -394,6 +408,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.push(msg)
           drop_overflow
+          ensure_deliver_loop
         end
         @publish_count.add(1, :relaxed)
         true

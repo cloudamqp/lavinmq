@@ -420,4 +420,186 @@ module MqttSpecs
       end
     end
   end
+
+  describe "a session's resources" do
+    session_files = ->(server : LavinMQ::Server, client_id : String) do
+      dir = server.vhosts["/"].session("mqtt.#{client_id}").@msg_store.@msg_dir
+      Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+    end
+    deliver_loop_started = ->(server : LavinMQ::Server, client_id : String) do
+      server.vhosts["/"].session("mqtt.#{client_id}").@deliver_loop_started
+    end
+    live_deliver_loops = -> do
+      count = 0
+      Fiber.each { |f| count += 1 if f.name == "Session#deliver_loop" && !f.dead? }
+      count
+    end
+
+    {false, true}.each do |clean_session|
+      it "has no segment or deliver loop for a publish-only client (clean_session=#{clean_session})" do
+        with_server do |server|
+          loops = live_deliver_loops.call
+          mmaps = MFile.mmap_count
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub", clean_session: clean_session)
+            publish(io, topic: "a/b", qos: 1u8, packet_id: 1u16)
+            publish(io, topic: "a/b", qos: 0u8)
+            pingpong(io)
+            session_files.call(server, "pub").should be_empty
+            server.vhosts["/"].session("mqtt.pub").@msg_store.@segments.should be_empty
+            deliver_loop_started.call(server, "pub").should be_false
+            live_deliver_loops.call.should eq loops
+            MFile.mmap_count.should eq mmaps
+            disconnect(io)
+          end
+        end
+      end
+    end
+
+    it "creates the segment at SUBSCRIBE and starts delivering on the first message" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          session_files.call(server, "sub").should be_empty
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session_files.call(server, "sub").should eq ["msgs.0000000001"]
+          deliver_loop_started.call(server, "sub").should be_false
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            publish(pub, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 2u16)
+            publish(pub, topic: "a/b", payload: "2".to_slice, qos: 1u8, packet_id: 3u16)
+            disconnect(pub)
+          end
+          {read_publish(sub), read_publish(sub)}.map { |p| String.new(p.payload) }.should eq({"1", "2"})
+          session_files.call(server, "sub").should eq ["msgs.0000000001"]
+          deliver_loop_started.call(server, "sub").should be_true
+          disconnect(sub)
+        end
+      end
+    end
+
+    it "starts no deliver loop for a QoS 0 message dropped while offline" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          disconnect(sub)
+        end
+        with_client_io(server) do |pub|
+          connect(pub, client_id: "pub")
+          publish(pub, topic: "a/b", qos: 0u8)
+          pingpong(pub)
+          disconnect(pub)
+        end
+        server.vhosts["/"].session("mqtt.sub").message_count.should eq 0
+        deliver_loop_started.call(server, "sub").should be_false
+      end
+    end
+
+    it "delivers what an offline session got before its first connection back" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          disconnect(sub)
+        end
+        with_client_io(server) do |pub|
+          connect(pub, client_id: "pub")
+          publish(pub, topic: "a/b", payload: "offline".to_slice, qos: 1u8, packet_id: 4u16)
+          disconnect(pub)
+        end
+        deliver_loop_started.call(server, "sub").should be_true
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          String.new(read_publish(sub).payload).should eq "offline"
+          disconnect(sub)
+        end
+      end
+    end
+
+    describe "across a restart" do
+      it "keeps a publish-only session without a segment, until it subscribes" do
+        with_server(clean_dir: false) do |server|
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub")
+            publish(sub, topic: "a/b", qos: 1u8, packet_id: 10u16)
+            disconnect(sub)
+          end
+        end
+        with_server do |server|
+          session_files.call(server, "sub").should be_empty
+          deliver_loop_started.call(server, "sub").should be_false
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub").as(MQTT::Protocol::Connack).session_present?.should be_true
+            subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+            session_files.call(server, "sub").should eq ["msgs.0000000001"]
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "a/b", payload: "after".to_slice, qos: 1u8, packet_id: 5u16)
+              disconnect(pub)
+            end
+            String.new(read_publish(sub).payload).should eq "after"
+            disconnect(sub)
+          end
+        end
+      end
+
+      it "delivers the messages a session was restored with" do
+        with_server(clean_dir: false) do |server|
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub")
+            subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+            disconnect(sub)
+          end
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            publish(pub, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 6u16)
+            publish(pub, topic: "a/b", payload: "2".to_slice, qos: 1u8, packet_id: 7u16)
+            disconnect(pub)
+          end
+        end
+        with_server do |server|
+          deliver_loop_started.call(server, "sub").should be_true
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub")
+            {read_publish(sub), read_publish(sub)}.map { |p| String.new(p.payload) }.should eq({"1", "2"})
+            disconnect(sub)
+          end
+        end
+      end
+
+      it "starts no deliver loop for a session restored empty" do
+        with_server(clean_dir: false) do |server|
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub")
+            subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 8u16)
+              disconnect(pub)
+            end
+            puback(sub, read_publish(sub).packet_id)
+            pingpong(sub) # the PUBACK is handled
+            disconnect(sub)
+          end
+        end
+        with_server do |server|
+          session_files.call(server, "sub").should eq ["msgs.0000000001"]
+          server.vhosts["/"].session("mqtt.sub").message_count.should eq 0
+          deliver_loop_started.call(server, "sub").should be_false
+          with_client_io(server) do |sub|
+            connect(sub, client_id: "sub")
+            sub.should be_silent
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "a/b", payload: "2".to_slice, qos: 1u8, packet_id: 9u16)
+              disconnect(pub)
+            end
+            String.new(read_publish(sub).payload).should eq "2"
+            disconnect(sub)
+          end
+        end
+      end
+    end
+  end
 end

@@ -86,6 +86,20 @@ class MFile < IO
     end
   end
 
+  # A zero-sized file with no mapping and no file behind it. Reads see EOF and
+  # any write fails the capacity check, so a store can hold it in place of a
+  # segment it hasn't created yet.
+  def self.unmapped : self
+    new(unmapped: true)
+  end
+
+  protected def initialize(*, unmapped : Bool)
+    @path = ""
+    @readonly = true
+    @writeonly = false
+    @buffer = Pointer(UInt8).null
+  end
+
   def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
     mfile = new(path, capacity, writeonly)
     begin
@@ -182,6 +196,7 @@ class MFile < IO
 
   private def close_mapping(truncate_to_size) : Nil
     return if @closed.swap(true, :acquire_release)
+    return if @buffer.null? # see .unmapped
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
     @@mmap_count.sub(1, :relaxed)

@@ -180,3 +180,19 @@ describe MFile do
     end
   end
 end
+
+describe "MFile.unmapped" do
+  it "is an empty file without a mapping" do
+    mmaps = MFile.mmap_count
+    mfile = MFile.unmapped
+    MFile.mmap_count.should eq mmaps
+    {mfile.size, mfile.capacity, mfile.pos}.should eq({0, 0, 0})
+    mfile.to_slice.should be_empty
+    mfile.read(Bytes.new(4)).should eq 0
+    mfile.dontneed
+    expect_raises(IO::EOFError) { mfile.write "x".to_slice }
+    mfile.close
+    mfile.closed?.should be_true
+    MFile.mmap_count.should eq mmaps
+  end
+end

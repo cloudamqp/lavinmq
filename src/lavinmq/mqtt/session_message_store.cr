@@ -12,6 +12,12 @@ module LavinMQ
       # multi-threading, tracked in #2067.
       @original_packet_ids = Hash(SegmentPosition, UInt16).new
 
+      # A publish-only client's session never receives a message, so it
+      # shouldn't hold a mapped segment. Session#subscribe creates it.
+      private def lazy_first_segment? : Bool
+        true
+      end
+
       def remember_original_packet_id(sp : SegmentPosition, packet_id : UInt16) : Nil
         @original_packet_ids[sp] = packet_id
       end

@@ -45,16 +45,36 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
-      @wfile_id = @segments.last_key
-      @wfile = @segments.last_value
-      @rfile_id = @segments.first_key
-      @rfile = @segments.first_value
+      if @segments.empty? # see #lazy_first_segment?
+        @wfile_id = @rfile_id = 0u32
+        @wfile = @rfile = MFile.unmapped
+      else
+        @wfile_id = @segments.last_key
+        @wfile = @segments.last_value
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
+      end
       unless @closed
         load_stats_from_segments
         prune_orphaned_acks
         delete_unused_segments
       end
       @empty.set empty? unless @closed
+    end
+
+    # Whether a store without segments waits for its first message to create
+    # one, instead of mapping one up front. Until then @wfile and @rfile are an
+    # `MFile.unmapped`: shift? sees EOF and write_to_disk rolls over to
+    # segment 1. Not for streams, which expect a segment to always exist.
+    private def lazy_first_segment? : Bool
+      false
+    end
+
+    # Creates the first segment of a store that has none yet, so that its
+    # first message doesn't pay for it
+    def open_first_segment : Nil
+      raise ClosedError.new if @closed
+      open_new_segment if @segments.empty?
     end
 
     def push(msg) : SegmentPosition
@@ -543,7 +563,7 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
-    private def load_segments_from_disk : Nil
+    private def segment_ids_on_disk : Array(UInt32)
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
         if f.starts_with?("msgs.") && f.size == 15
@@ -551,6 +571,11 @@ module LavinMQ
         end
       end
       ids.sort!
+    end
+
+    private def load_segments_from_disk : Nil
+      ids = segment_ids_on_disk
+      return if ids.empty? && lazy_first_segment?
       was_empty = ids.empty?
       ids << 1_u32 if was_empty
       last_idx = ids.size - 1
@@ -763,7 +788,7 @@ module LavinMQ
     end
 
     private def delete_unused_segments : Nil
-      current_seg = @segments.last_key
+      current_seg = @segments.last_key? || return
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
