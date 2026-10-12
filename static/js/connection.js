@@ -4,6 +4,7 @@ import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 Helpers.disableUserMenuVhost()
 
@@ -28,15 +29,17 @@ function closeChannelForm (name) {
 }
 
 const connectionUrl = `api/connections/${connection}`
-function updateConnection (all) {
-  HTTP.request('GET', connectionUrl).then(item => {
+let detailsRendered = false
+function updateConnection () {
+  return HTTP.request('GET', connectionUrl).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
     Chart.update(chart, stats)
     const stateEl = document.getElementById('state')
     if (item.state !== stateEl.textContent) {
       stateEl.textContent = item.state
     }
-    if (all) {
+    if (!detailsRendered) {
+      detailsRendered = true
       const isAMQP = item.protocol && item.protocol.includes('AMQP')
 
       document.getElementById('conn-username').textContent = item.user
@@ -87,8 +90,7 @@ function updateConnection (all) {
     }
   }).catch(() => {})
 }
-updateConnection(true)
-setInterval(updateConnection, 5000)
+Poller.start(updateConnection)
 const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQueryState: false })
 const tableOptions = {
   dataSource: channelsDataSource,

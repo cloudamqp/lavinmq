@@ -38,6 +38,20 @@
           </label>
         </form>
       </li>
+      <li class="flex flex-row items-center" id="refresh-control" hidden>
+        <div class="refresh-pill">
+          <button id="refresh-toggle" type="button" aria-pressed="false" aria-label="Pause auto-refresh">
+            <span class="refresh-ring" aria-hidden="true"></span>
+            <svg class="icon-pause" xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M9 5V19M15 5V19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <svg class="icon-play" xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5.5V18.5C8 19.3 8.87 19.78 9.54 19.35L19.6 12.85C20.21 12.45 20.21 11.55 19.6 11.15L9.54 4.65C8.87 4.22 8 4.7 8 5.5Z"/>
+            </svg>
+          </button>
+          <select id="refresh-rate" class="dropdown" aria-label="Refresh interval"></select>
+        </div>
+      </li>
       <li class="flex flex-row items-center">
         <div id="theme-switcher">
           <button id="theme-light" data-theme="light" title="Light theme">
