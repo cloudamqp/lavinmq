@@ -14,9 +14,14 @@ module LavinMQ
     # The raft log's journal, one file per generation, see
     # Clustering::Raft::JournalLogStore
     RAFT_LOG_PREFIX = ".raft_log."
+    # The raft log's file tables, trash, staged and quarantined files, see
+    # Clustering::Raft::FileApplier
+    RAFT_FILES_PREFIX = ".raft_files."
+    RAFT_DIRS         = {".raft_trash", ".raft_staging", ".raft_quarantine"}
 
     def self.node_local_file?(name : String) : Bool
-      name.in?(NODE_LOCAL) || name.starts_with?(RAFT_LOG_PREFIX)
+      name.in?(NODE_LOCAL) || name.in?(RAFT_DIRS) ||
+        name.starts_with?(RAFT_LOG_PREFIX) || name.starts_with?(RAFT_FILES_PREFIX)
     end
 
     def self.migrate(data_dir, replicator) : Nil
