@@ -199,7 +199,7 @@ describe LavinMQ::MQTT::PermissionService do
       held = service["g"]?.not_nil!
       service.update("g") do |current|
         current.put_rule(rule("b/#", read: true))
-        current.add_member("c2")
+        current.add_member?("c2")
       end
       held.rules.keys.should eq ["a--"]
       held.members.should eq ["c1"]

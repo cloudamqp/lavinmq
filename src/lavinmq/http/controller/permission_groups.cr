@@ -117,7 +117,7 @@ module LavinMQ
             member = params["username"]
             added = false
             found = vhost.mqtt_permission_service.update(params["name"]) do |group|
-              added = group.add_member(member)
+              added = group.add_member?(member)
             end
             not_found(context) unless found
             context.response.status = added ? ::HTTP::Status::CREATED : ::HTTP::Status::NO_CONTENT
@@ -130,7 +130,7 @@ module LavinMQ
             member = params["username"]
             removed = false
             vhost.mqtt_permission_service.update(params["name"]) do |group|
-              removed = group.remove_member(member)
+              removed = group.delete_member(member)
             end
             not_found(context) unless removed
             context.response.status = ::HTTP::Status::NO_CONTENT

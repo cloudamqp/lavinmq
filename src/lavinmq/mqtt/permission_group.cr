@@ -73,13 +73,13 @@ module LavinMQ
         PermissionGroup.new(@name, @vhost, @members.dup, @rules.values)
       end
 
-      def add_member(username : String) : Bool
+      def add_member?(username : String) : Bool
         return false if @members.includes?(username)
         @members << username
         true
       end
 
-      def remove_member(username : String) : Bool
+      def delete_member(username : String) : Bool
         !@members.delete(username).nil?
       end
 

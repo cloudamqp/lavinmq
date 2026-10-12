@@ -10,29 +10,29 @@ private def rule(identifier, pattern = "a/#", read = false, write = false)
 end
 
 describe LavinMQ::MQTT::PermissionGroup do
-  describe "#add_member" do
+  describe "#add_member?" do
     it "adds a new member and reports it" do
       g = group
-      g.add_member("c1").should be_true
+      g.add_member?("c1").should be_true
       g.members.should eq ["c1"]
     end
 
     it "reports an existing member without duplicating it" do
       g = group(["c1"])
-      g.add_member("c1").should be_false
+      g.add_member?("c1").should be_false
       g.members.should eq ["c1"]
     end
   end
 
-  describe "#remove_member" do
+  describe "#delete_member" do
     it "removes a member and reports it" do
       g = group(["c1", "c2"])
-      g.remove_member("c1").should be_true
+      g.delete_member("c1").should be_true
       g.members.should eq ["c2"]
     end
 
     it "reports a missing member" do
-      group.remove_member("c1").should be_false
+      group.delete_member("c1").should be_false
     end
   end
 
