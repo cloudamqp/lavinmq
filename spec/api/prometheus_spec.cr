@@ -144,6 +144,28 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose socket buffer pool stats" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("buffer_pool_metrics")
+          q.publish_confirm "m"
+          q.get.should_not be_nil
+        end
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        size = LavinMQ::Config.instance.socket_buffer_size.to_s
+        %w[available allocated_total reused_total released_total dropped_total].each do |key|
+          metric = parsed_metrics.find do |m|
+            m[:key] == "lavinmq_socket_buffer_pool_#{key}" && m[:attrs]["buffer_size"]? == size
+          end
+          metric.should_not be_nil, "lavinmq_socket_buffer_pool_#{key} missing"
+        end
+        reused = parsed_metrics.find! do |m|
+          m[:key] == "lavinmq_socket_buffer_pool_reused_total" && m[:attrs]["buffer_size"]? == size
+        end
+        reused[:value].should be > 0
+      end
+    end
+
     it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
       uptime1 = uninitialized Time::Span
       with_metrics_server do |_, server|
