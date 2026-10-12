@@ -50,6 +50,10 @@ function updateExchange (all) {
         policyLink.textContent = item.policy
         document.getElementById('e-policy').appendChild(policyLink)
       }
+      if (item.type === 'x-mqtt-topic') {
+        document.getElementById('e-policy').textContent = 'Not supported'
+        document.getElementById('e-arguments').textContent = 'Not supported by this exchange type'
+      }
     }
   }).catch(() => {})
 }
