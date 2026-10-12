@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Data race on the vhost and server flow-control flags read by every publish [#2400](https://github.com/cloudamqp/lavinmq/pull/2400)
+- Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
+- Management UI login failed with "Authentication failure" in Safari versions without iterator helpers (before 18.4), even though credentials were accepted. The UI no longer uses `Iterator.prototype.filter`/`toArray` on `DOMTokenList` [#2428](https://github.com/cloudamqp/lavinmq/pull/2428)
 - A publish to a queue that was closed, e.g. on shutdown, is nacked instead of confirmed, as the message wasn't stored [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - Closing a vhost, e.g. on shutdown, could leave a connection open that was then served by the closed vhost: its publishes were never confirmed and its consumers got nothing [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - `OverflowError` from the HTTP API or stats loop when a queue became empty while its average message size was read [#2384](https://github.com/cloudamqp/lavinmq/pull/2384)
