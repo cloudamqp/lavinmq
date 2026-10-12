@@ -91,7 +91,7 @@ shows the invariants actually catch the problems they're there for.
 | Model | Tier | Expect | Result |
 |---|---|---|---|
 | `MC_durable` | full | pass | 58.6M distinct states, depth 37, about 80 min on 4 cores |
-| `MC_replicated_abstain` | full | pass | not run to completion yet |
+| `MC_replicated_abstain` | full | pass | not completed: no violation in 128M distinct states (depth 22) in 2 h, with 44M still queued. Tracking which follower holds what in memory makes the state space far larger than `MC_durable`'s |
 | `MC_durable_small` | quick | pass | 1.4M distinct states, about 2 min |
 | `MC_replicated_abstain_small` | quick | pass | 1.8M distinct states, about 2 min |
 | `MC_durable_sim`, `MC_replicated_abstain_sim` | quick | pass | random behaviours for 2 min each, up to 4 terms and 2 crashes |
