@@ -73,6 +73,14 @@ module LavinMQ
         end
       end
 
+      # A delivery of this consumer the session returns to the queue when it
+      # closes. Like an AMQP channel's close, a broker requeue: right away,
+      # never through the queue's delayed retry, and not counted as a reject.
+      def returned(sp : SegmentPosition) : Nil
+        decrement_unacked
+        @queue.requeue(sp)
+      end
+
       protected def decrement_unacked : Nil
         unacked = @unacked.sub(1, :relaxed)
         @has_capacity.set(true) if unacked == @prefetch_count
@@ -99,7 +107,7 @@ module LavinMQ
             tag = @session.next_delivery_tag(self, sp) unless @closed
             unless tag
               raise Cancelled.new if @no_ack # the queue requeues it
-              @queue.reject(sp, true)
+              @queue.requeue(sp)
               raise Cancelled.new
             end
             increment_unacked

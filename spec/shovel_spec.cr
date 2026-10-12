@@ -233,6 +233,28 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "requeues unacked deliveries on close right away, not through delayed retry" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        args = AMQ::Protocol::Table.new({"x-delayed-retry-min" => 60_000_i64})
+        vhost.declare_queue("ls_retry", true, false, args)
+        q = vhost.queue("ls_retry")
+        ShovelSpecHelpers.publish(vhost, "ls_retry", "m")
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10
+        delivered = Channel(Nil).new(1)
+        spawn do
+          session.consume("ls_retry", "T", false, false, AMQ::Protocol::Table.new) { delivered.send nil }
+        rescue
+        end
+        delivered.receive
+        session.close
+        # Like a closed AMQP channel; a minute in the retry queue otherwise
+        should_eventually(eq 1) { q.message_count }
+      end
+    end
+
     it "keeps the consumer of a reopened session when an earlier consume ends late" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

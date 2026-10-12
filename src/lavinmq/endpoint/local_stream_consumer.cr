@@ -68,6 +68,12 @@ module LavinMQ
         end
       end
 
+      # A stream keeps every message: one returned is read again from this
+      # consumer's requeued positions
+      def returned(sp : SegmentPosition) : Nil
+        settled(sp, ack: false, requeue: true)
+      end
+
       def waiting_for_messages? : Bool
         (@offset + prefetch_count) >= @stream.last_offset && accepts?
       end

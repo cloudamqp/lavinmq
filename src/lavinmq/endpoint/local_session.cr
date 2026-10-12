@@ -89,7 +89,7 @@ module LavinMQ
           @unacked.clear
           list
         end
-        unacked.each { |u| u.consumer.settled(u.sp, ack: false, requeue: true) }
+        unacked.each { |u| u.consumer.returned(u.sp) }
         # and every publish still waiting for its confirm is nacked
         unconfirmed = @confirm_lock.synchronize do
           list = @unconfirmed.to_a
