@@ -1,3 +1,5 @@
+import { expect } from '@playwright/test'
+
 async function waitForPathRequest (page, path, { response = {}, method = 'GET', body = undefined } = {}) {
   const matchUrl = new URL(path, 'http://example.com')
   const pathCondition = (url) => {
@@ -54,4 +56,9 @@ async function trackCspViolations (page) {
   return () => page.evaluate(() => window.__cspViolations || [])
 }
 
-export { waitForPathRequest, trackCspViolations }
+async function pollerSettled (page, { hung = 0 } = {}) {
+  const inFlight = () => page.evaluate(async url => (await import(url)).inFlightCount(), '/js/poller.js')
+  await expect.poll(inFlight).toBeLessThanOrEqual(hung)
+}
+
+export { waitForPathRequest, trackCspViolations, pollerSettled }
