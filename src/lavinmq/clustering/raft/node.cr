@@ -142,6 +142,8 @@ module LavinMQ::Clustering::Raft
       @saved_generation = state.try(&.journal_generation) || 0i64
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, state, bootstrap: bootstrap, log: @log)
+      # Compacted when every responsive peer has the entries, see #compact
+      @core.compact_on_commit = false
       @seeds = seeds.to_set << @address
       @term = @core.term
       @committed_isr = @core.committed_isr
@@ -437,12 +439,15 @@ module LavinMQ::Clustering::Raft
 
     private def flush : Nil
       save if @core.dirty?
+      # Saved, so the leader may count itself for what it appended
+      @core.durable_to(@core.last_index)
       if transport = @transport
         @core.take_outbox.each do |(to, msg)|
           @core.address_of(to).try { |address| transport.send(address, msg) }
         end
       end
       resolve_pending
+      compact
       publish_state
       sync_transport
       # After answering and sending, nothing waits for it, see Core#unsaved_commit?
@@ -465,6 +470,12 @@ module LavinMQ::Clustering::Raft
     rescue ex
       Log.fatal(exception: ex) { "Could not persist raft state to #{@storage.path}" }
       exit 1
+    end
+
+    # Folds what's committed into the snapshot, as far as the peers have it
+    private def compact : Nil
+      index = @core.compactable_index
+      @core.compact_to(index) if index > @core.snapshot_index
     end
 
     private def pending(index : Int64, reply : Channel(Bool)) : Pending

@@ -146,6 +146,7 @@ private class SimCluster
           @disk[c.id] = c.hard_state
           c.persisted
         end
+        c.durable_to(c.last_index)
         c.take_outbox.each do |m|
           msg = m[1]
           @appends[m[0]] << msg if msg.is_a?(Raft::AppendEntries)
@@ -631,6 +632,7 @@ describe Raft::Core, "membership" do
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
     core.role.leader?.should be_true
+    core.durable_to(core.last_index) # saved, as the Node does
     core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
     core.serving_leader?.should be_true
     core.latest_membership.should be_nil
@@ -732,6 +734,7 @@ describe Raft::Core, "membership" do
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
     core.role.leader?.should be_true
     core.propose_membership(Raft::MembershipChange::AddLearner, 4, now, "n4").should eq Raft::MembershipError::NotServing
+    core.durable_to(core.last_index) # saved, as the Node does
     core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
     core.serving_leader?.should be_true
     core.propose_membership(Raft::MembershipChange::AddLearner, 4, now, "n4").should be_a Int64
@@ -1231,5 +1234,57 @@ describe "Raft::Core replication" do
     sim.advance(SimCluster::HEARTBEAT * 3)
     sim.appends.values.flatten.should_not be_empty
     sim.appends.values.flatten.all?(&.entries.empty?).should be_true
+  end
+end
+
+describe "Raft::Core durability" do
+  it "counts the leader towards a commit only for what it has on disk" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1), bootstrap: true)
+    core.connected(2, "n2", now)
+    core.connected(3, "n3", now)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
+    core.commit_index.should eq 0 # one of three has it on disk
+    core.durable_to(core.last_index)
+    core.commit_index.should eq core.last_index
+  end
+
+  it "compacts no further than what every responsive peer has" do
+    sim = SimCluster.new(3, compact_on_commit: false)
+    leader = sim.elect(Set{1, 2, 3})
+    behind = sim.cores.keys.find! { |id| id != leader.id }
+    sim.isolated << behind
+    3.times { sim.propose(leader, Set{1, 2, 3}) }
+    sim.advance(SimCluster::HEARTBEAT * 2)
+    # Still counted as responsive for an election timeout
+    leader.compactable_index.should eq sim[behind].last_index
+    sim.advance(SimCluster::ELECTION * 2)
+    leader.compactable_index.should eq leader.commit_index
+  end
+
+  it "doesn't change a frozen log, nor campaign" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "tcp://n1:5679", 100.milliseconds, 20.milliseconds, now)
+    core.compact_on_commit = false
+    core.step(Raft::AppendEntries.new(2, 1, "tcp://n2:5679", 0, 0, [Raft::Entry.new(1, Set{1, 2})], 0), now)
+    core.take_outbox
+    core.log_frozen = true
+    core.step(Raft::AppendEntries.new(2, 1, "tcp://n2:5679", 1, 1, [Raft::Entry.new(1, Set{1})], 1), now)
+    core.last_index.should eq 1
+    core.commit_index.should eq 0
+    core.take_outbox.should eq [{2, Raft::AppendResponse.new(1, 1, true, 1)}]
+    core.step(Raft::AppendEntries.new(3, 2, "tcp://n3:5679", 1, 2, [] of Raft::Entry, 0), now) # conflicting
+    core.last_index.should eq 1
+    campaigns?(core, now).should be_false
+    core.log_frozen = false
+    core.step(Raft::AppendEntries.new(3, 2, "tcp://n3:5679", 0, 0, [Raft::Entry.new(2, Set{3})], 0), now)
+    core.last_index.should eq 1
+    core.latest_isr.should eq Set{3}
   end
 end

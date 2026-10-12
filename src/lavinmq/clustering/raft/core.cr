@@ -226,6 +226,14 @@ module LavinMQ::Clustering::Raft
     # membership are all the state there is, so nothing needs the entries
     # after that, unless they carry data a follower may still need.
     property? compact_on_commit = true
+    # How much of the log is on this node's disk. The leader only counts
+    # itself towards committing what is, see #durable_to.
+    getter local_durable_index = 0i64
+    # While set the log isn't changed for another leader: its appends are
+    # acknowledged as far as the log already matches, see
+    # #handle_append_entries, and this node doesn't campaign. Set while the
+    # broker stops serving, so nothing changes under its feet.
+    property? log_frozen = false
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
     # The entries after the snapshot, committed or not
@@ -284,11 +292,36 @@ module LavinMQ::Clustering::Raft
       end
       # What's committed beyond the snapshot is learnt from the leader again
       @commit_index = @snapshot.index
+      # What was loaded is on disk
+      @local_durable_index = @log.last_index
       @committed_isr = @snapshot.isr
       @committed_membership = @snapshot.membership
       @election_deadline = now + randomized_election_timeout
       @heartbeat_due = now
       refresh_membership
+    end
+
+    def snapshot_index : Int64
+      @snapshot.index
+    end
+
+    # The log up to *index* is on this node's disk now
+    def durable_to(index : Int64) : Nil
+      index = Math.min(index, last_index)
+      return if index <= @local_durable_index
+      @local_durable_index = index
+      advance_commit if @role.leader?
+    end
+
+    # How far the log can be compacted: what's committed and on disk here, and
+    # on the leader also what every responsive peer has. A peer that's behind
+    # that gets a snapshot when it's back.
+    def compactable_index : Int64
+      index = Math.min(@commit_index, @local_durable_index)
+      if @role.leader?
+        @peers.each { |p| index = Math.min(index, match_index(p)) if responsive?(p) }
+      end
+      index
     end
 
     def hard_state : HardState
@@ -716,8 +749,13 @@ module LavinMQ::Clustering::Raft
       end
       if msg.prev_index >= @snapshot.index && term_at(msg.prev_index) != msg.prev_term
         # Conflicting entries are never committed, drop them
-        truncate_from(msg.prev_index)
+        truncate_from(msg.prev_index) unless @log_frozen
         send msg.from, AppendResponse.new(@id, @term, false, msg.prev_index - 1)
+        return
+      end
+      if @log_frozen
+        # It matches up to there, the entries wait
+        send msg.from, AppendResponse.new(@id, @term, true, msg.prev_index)
         return
       end
       merge_entries(msg.prev_index, msg.entries)
@@ -734,6 +772,7 @@ module LavinMQ::Clustering::Raft
         return
       end
       accept_leader(msg.term, msg.from, msg.leader_uri, now)
+      return if @log_frozen
       install_snapshot(msg.index, msg.snapshot_term, msg.isr, msg.membership)
       send msg.from, AppendResponse.new(@id, @term, true, msg.index)
     end
@@ -743,7 +782,7 @@ module LavinMQ::Clustering::Raft
     # committed before that term, one with the same last term extends ours.
     private def handle_catch_up(msg : CatchUp, now : Time::Instant) : Nil
       become_follower(msg.term, nil) if msg.term > @term
-      return if leader_recent?(now)
+      return if @log_frozen || leader_recent?(now)
       last = msg.snapshot_index + msg.entries.size
       last_term = msg.entries.last?.try(&.term) || msg.snapshot_term
       return unless last_term > self.last_term || (last_term == self.last_term && last > last_index)
@@ -758,6 +797,7 @@ module LavinMQ::Clustering::Raft
       @log.reset(index, term)
       @snapshot = Snapshot.new(index, term, isr, membership)
       @commit_index = index
+      @local_durable_index = index
       @committed_isr = isr
       @committed_membership = membership
       @dirty = @meta_dirty = true
@@ -836,6 +876,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def may_campaign? : Bool
+      return false if @log_frozen
       return false unless @voters.includes?(@id)
       # At a new address the leader first has to make us a learner here,
       # unless there has been no leader to do so for a long time
@@ -1172,7 +1213,8 @@ module LavinMQ::Clustering::Raft
       n = last_index
       while n > @commit_index
         break if term_at(n) != @term # only entries of the current term are committed by counting
-        replicated = self_vote + @peers.count { |p| counted?(p) && match_index(p) >= n }
+        own = @local_durable_index >= n ? self_vote : 0
+        replicated = own + @peers.count { |p| counted?(p) && match_index(p) >= n }
         if replicated >= quorum
           commit_to n
           return
@@ -1227,6 +1269,7 @@ module LavinMQ::Clustering::Raft
       return if index <= @commit_index || index > last_index
       reverted = (index..last_index).any? { |i| @log.entry(i).membership }
       @log.truncate_from(index)
+      @local_durable_index = Math.min(@local_durable_index, index - 1)
       @dirty = true
       refresh_membership if reverted
     end
