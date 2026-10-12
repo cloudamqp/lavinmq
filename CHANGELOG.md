@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client connections share per-thread pools of socket read and write buffers. Write buffers are returned after each flush, and idle connections no longer hold a read buffer while waiting for data (TLS connections still hold the TLS socket's read buffer, but no longer the underlying TCP socket's), lowering memory usage with many connections. Pool stats are exposed as `socket_buffer_pool_*` Prometheus metrics, and `SIGUSR1` debug output includes them and fiber stack usage [#2343](https://github.com/cloudamqp/lavinmq/pull/2343)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
@@ -35,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The broker no longer exits when it runs out of file descriptors while accepting a connection. All listeners, including the HTTP API, metrics, clustering and proxy listeners, pause and keep accepting once connections close, and the stats loop, which also stops publishers when the disk is about to fill up, keeps running through errors [#2422](https://github.com/cloudamqp/lavinmq/pull/2422)
+- A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
+- Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)
+- Data race on the vhost and server flow-control flags read by every publish [#2400](https://github.com/cloudamqp/lavinmq/pull/2400)
+- Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
 - Management UI login failed with "Authentication failure" in Safari versions without iterator helpers (before 18.4), even though credentials were accepted. The UI no longer uses `Iterator.prototype.filter`/`toArray` on `DOMTokenList` [#2428](https://github.com/cloudamqp/lavinmq/pull/2428)
 - A publish to a queue that was closed, e.g. on shutdown, is nacked instead of confirmed, as the message wasn't stored [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - Closing a vhost, e.g. on shutdown, could leave a connection open that was then served by the closed vhost: its publishes were never confirmed and its consumers got nothing [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
