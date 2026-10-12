@@ -344,7 +344,7 @@ describe "Delayed Message Exchange" do
         q = ch.queue("delayed-stats")
         q.bind(x.name, "rk")
         ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 50})
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 500})
         x.publish_confirm "test", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
         ex.publish_out_count.should eq 0
         wait_for { s.vhosts["/"].queue("delayed-stats").message_count == 1 }
