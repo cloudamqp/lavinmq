@@ -19,6 +19,7 @@ COPY static/ static/
 COPY views/ views/
 COPY src/ src/
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
+COPY extras/lavinmq.sysusers /root/rpmbuild/SOURCES/
 ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true

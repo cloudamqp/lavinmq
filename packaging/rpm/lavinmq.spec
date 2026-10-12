@@ -8,7 +8,8 @@ BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel 
 %{?sysusers_requires_compat}
 Suggests: etcd
 URL: https://github.com/cloudamqp/lavinmq
-Source: lavinmq.tar.gz
+Source0: lavinmq.tar.gz
+Source1: lavinmq.sysusers
 
 %description
 A resource efficient message queue server implementing the AMQP protocol
@@ -25,7 +26,7 @@ make
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
-%sysusers_create_compat %{_sysusersdir}/%{name}.conf
+%sysusers_create_compat %{SOURCE1}
 
 %post
 %systemd_post %{name}.service
