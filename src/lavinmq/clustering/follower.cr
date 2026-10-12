@@ -92,6 +92,24 @@ module LavinMQ
         Log.info { "Accepted ID #{@id.to_s(36)}" }
       end
 
+      # Where a v3 follower says it is: the journal it last streamed and the
+      # lsn it has durably applied. The server decides whether to resume.
+      def read_resume_request : {UInt64, UInt64}
+        WireV3.read_resume_request(@socket)
+      end
+
+      def send_resume_reply(resume : Bool, journal_id : UInt64) : Nil
+        WireV3.write_resume_reply(@socket, resume, journal_id)
+      end
+
+      # Tell a v3 follower, after its full sync, the lsn its stream starts at
+      def send_cut(lsn : UInt64) : Nil
+        @write_lock.synchronize do
+          WireV3.write_cut(@lz4, lsn)
+          @lz4.flush
+        end
+      end
+
       # `caps` (last sync of a joining follower) limits each file to the byte
       # count recorded as that follower's synced baseline, so the snapshot and
       # the baseline agree and in-flight writes aren't duplicated.
@@ -390,13 +408,36 @@ module LavinMQ
         end
       end
 
+      # The bytes of an append entry. A resuming follower may be sent entries
+      # whose mmap lease was released (see Journal#read); those are read from
+      # the file, which still holds them unless it was since deleted or
+      # rewritten. Then nil: the entry is sent as a delete of the path, which
+      # the later delete or replace entry makes right.
+      private def append_payload(entry : Journal::Entry) : Bytes?
+        return entry.payload if entry.mfile || !entry.op.append?
+        bytes = Bytes.new(entry.len)
+        File.open(File.join(@data_dir, entry.path)) do |f|
+          f.read_at(entry.offset, entry.len) do |io|
+            io.read_fully(bytes)
+          end
+        end
+        bytes
+      rescue File::NotFoundError | IO::EOFError
+        Log.debug { "#{entry.path} no longer holds the bytes of journal entry #{entry.lsn}, sending it as a delete" }
+        nil
+      end
+
       # Every record carries its lsn and an append its offset, so the follower
       # applies it idempotently: nothing is skipped against the join cut, the
       # bytes it already has are simply rewritten with the same content.
       private def encode_v3(entry : Journal::Entry) : Nil
         size = case entry.op
                in .append?, .append_bytes?
-                 WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, entry.payload)
+                 if bytes = append_payload(entry)
+                   WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, bytes)
+                 else
+                   WireV3.write_delete(@lz4, entry.lsn, entry.path)
+                 end
                in .append_value?
                  buf = uninitialized UInt8[4]
                  IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
@@ -416,9 +457,13 @@ module LavinMQ
       private def encode_v2(entry : Journal::Entry) : Nil
         case entry.op
         in .append?, .append_bytes?
-          bytes = entry.payload
-          skip = already_synced(entry.path, entry.offset, bytes.bytesize.to_i64)
-          write_append(entry.path, bytes[skip..]) if skip < bytes.bytesize
+          if bytes = append_payload(entry)
+            skip = already_synced(entry.path, entry.offset, bytes.bytesize.to_i64)
+            write_append(entry.path, bytes[skip..]) if skip < bytes.bytesize
+          else
+            write_delete(entry.path)
+            forget_baseline(entry.path)
+          end
         in .append_value?
           case skip = already_synced(entry.path, entry.offset, entry.len)
           when 0         then write_append(entry.path, entry.value)

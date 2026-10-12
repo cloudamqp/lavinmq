@@ -160,6 +160,47 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "resumes a restarted follower from the journal without a full sync" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("resume", durable: true)
+          q.publish_confirm "before", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        end
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        cluster.repli.close # the follower process goes away, its position is on disk
+        wait_for { cluster.replicator.followers.empty? }
+
+        with_channel(s) do |ch|
+          ch.queue("resume", durable: true).publish_confirm "while away", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        end
+
+        restarted = LavinMQ::Clustering::Client.new(cluster.follower_config, 1, cluster.replicator.password, proxy: false)
+        done = WaitGroup.new(1)
+        spawn(name: "restarted follower") do
+          restarted.follow("localhost", cluster.port)
+          done.done
+        end
+        wait_for { cluster.replicator.followers.first?.try { |f| f.synced? && f.lag_in_bytes == 0 } }
+        with_channel(s) do |ch|
+          ch.queue("resume", durable: true).publish_confirm "after", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        end
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        restarted.full_syncs.should eq 0
+        restarted.close
+        done.wait
+      end
+
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        q = server.vhosts["/"].queue("resume").as(LavinMQ::AMQP::DurableQueue)
+        q.message_count.should eq 3
+      ensure
+        server.close
+      end
+    end
+  end
+
   it "confirms publishes once synced locally and replicated to followers" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|

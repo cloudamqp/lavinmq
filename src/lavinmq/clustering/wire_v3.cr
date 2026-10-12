@@ -77,6 +77,57 @@ module LavinMQ
         record_size(Op::Fsync, path)
       end
 
+      # After authenticating, a follower tells the leader where it is: the id
+      # of the journal it last streamed and the lsn it has durably applied (0
+      # and 0 for none). The leader answers whether it resumes the stream
+      # from there (1) or starts a full sync (0), and with its journal id.
+      # After a full sync's second pass the leader sends the lsn the stream
+      # starts at, so the follower can record its position.
+      RESUME_FULL_SYNC = 0u8
+      RESUME_STREAM    = 1u8
+
+      def self.write_resume_request(io : IO, journal_id : UInt64, applied_lsn : UInt64) : Nil
+        buf = uninitialized UInt8[16]
+        slice = buf.to_slice
+        IO::ByteFormat::LittleEndian.encode(journal_id, slice[0, 8])
+        IO::ByteFormat::LittleEndian.encode(applied_lsn, slice[8, 8])
+        io.write slice
+      end
+
+      def self.read_resume_request(io : IO) : {UInt64, UInt64}
+        buf = uninitialized UInt8[16]
+        io.read_fully(buf.to_slice)
+        {IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[0, 8]),
+         IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[8, 8])}
+      end
+
+      def self.write_resume_reply(io : IO, resume : Bool, journal_id : UInt64) : Nil
+        buf = uninitialized UInt8[9]
+        slice = buf.to_slice
+        slice[0] = resume ? RESUME_STREAM : RESUME_FULL_SYNC
+        IO::ByteFormat::LittleEndian.encode(journal_id, slice[1, 8])
+        io.write slice
+      end
+
+      def self.read_resume_reply(io : IO) : {Bool, UInt64}
+        buf = uninitialized UInt8[9]
+        io.read_fully(buf.to_slice)
+        resume = case buf[0]
+                 when RESUME_STREAM    then true
+                 when RESUME_FULL_SYNC then false
+                 else                       raise ProtocolError.new("Unknown resume reply #{buf[0]}")
+                 end
+        {resume, IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[1, 8])}
+      end
+
+      def self.write_cut(io : IO, lsn : UInt64) : Nil
+        io.write_bytes lsn, IO::ByteFormat::LittleEndian
+      end
+
+      def self.read_cut(io : IO) : UInt64
+        io.read_bytes UInt64, IO::ByteFormat::LittleEndian
+      end
+
       record Header, lsn : UInt64, op : Op, path : String
 
       def self.read_header(io : IO) : Header

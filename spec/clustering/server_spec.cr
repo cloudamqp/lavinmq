@@ -20,6 +20,19 @@ private class FakeJournalSubscriber
   end
 end
 
+# A version 3 handshake up to the resume request; returns the socket and the
+# lz4 reader
+private def connect_v3(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
+  io = TCPSocket.new("localhost", port)
+  io.write LavinMQ::Clustering::StartV3
+  io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+  io.write server.password.to_slice
+  io.read_byte
+  io.write_bytes id, IO::ByteFormat::LittleEndian
+  io.flush
+  {io, Compress::LZ4::Reader.new(io)}
+end
+
 # Drives the clustering handshake + the two full-sync passes (requesting no
 # files) so the follower reaches the Synced state on the leader. Returns the
 # socket and the LZ4 reader positioned at the start of the change stream.
@@ -31,6 +44,11 @@ private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clust
   io.read_byte # password-accepted byte
   io.write_bytes id, IO::ByteFormat::LittleEndian
   io.flush
+  v3 = LavinMQ::Clustering.header_version(header) >= 3
+  if v3 # offer no position: a full sync follows
+    LavinMQ::Clustering::WireV3.write_resume_request(io, 0u64, 0u64)
+    LavinMQ::Clustering::WireV3.read_resume_reply(io)[0].should be_false
+  end
   lz4 = Compress::LZ4::Reader.new(io)
   sha1_size = Digest::SHA1.new.digest_size
   2.times do
@@ -43,6 +61,7 @@ private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clust
     io.write_bytes 0i32 # request no files
     io.flush
   end
+  LavinMQ::Clustering::WireV3.read_cut(lz4) if v3
   {io, lz4}
 end
 
@@ -449,6 +468,118 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     ensure
       io.try &.close
       mfile.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "resuming a version 3 follower" do
+    it "streams from the entry after the one the follower applied, without a full sync" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "resume spec")
+      path = File.join(data_dir, "resumed")
+      File.write(path, "")
+      server.register_file(path)
+      # Entries the follower will claim to have, journaled while nobody listens
+      server.append_bytes(path, "a".to_slice, 0i64)
+      server.append_bytes(path, "b".to_slice, 1i64)
+      applied = server.journal.last_lsn
+
+      io, lz4 = connect_v3(server, tcp_server.local_address.port, 8)
+      LavinMQ::Clustering::WireV3.write_resume_request(io, server.journal.id, applied)
+      resume, journal_id = LavinMQ::Clustering::WireV3.read_resume_reply(io)
+      resume.should be_true
+      journal_id.should eq server.journal.id
+      wait_for { server.followers.any? &.id.== 8 }
+      server.followers.find!(&.id.== 8).applied_lsn.should eq applied
+
+      server.append_bytes(path, "c".to_slice, 2i64)
+      header = LavinMQ::Clustering::WireV3.read_header(lz4) # no file lists: the stream directly
+      header.lsn.should eq applied + 1
+      header.path.should eq "resumed"
+      lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 2i64
+      lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 1i64
+      lz4.read_string(1).should eq "c"
+    ensure
+      io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "sends the bytes of an entry whose mmap lease is gone from the file" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "resume mfile spec")
+      mfile = MFile.new(File.join(data_dir, "seg"), 64)
+      mfile.print "head"
+      server.register_file(mfile)
+      server.append(mfile.path, 0, 4)
+      mfile.print "tail"
+      lsn = server.journal.last_lsn + 1
+      server.append(mfile.path, 4, 4) # no subscriber: never leased
+      mfile.close
+      gone = MFile.new(File.join(data_dir, "gone"), 64)
+      gone.print "x"
+      server.register_file(gone)
+      server.append(gone.path, 0, 1)
+      gone.delete
+      gone.close
+
+      io, lz4 = connect_v3(server, tcp_server.local_address.port, 9)
+      LavinMQ::Clustering::WireV3.write_resume_request(io, server.journal.id, lsn - 1)
+      LavinMQ::Clustering::WireV3.read_resume_reply(io)[0].should be_true
+
+      header = LavinMQ::Clustering::WireV3.read_header(lz4)
+      header.lsn.should eq lsn
+      lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64
+      lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64
+      lz4.read_string(4).should eq "tail"
+      header = LavinMQ::Clustering::WireV3.read_header(lz4)
+      header.lsn.should eq lsn + 1
+      header.op.delete?.should be_true # the file is gone, a later entry deletes it anyway
+      header.path.should eq "gone"
+    ensure
+      io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "asks for a full sync from another journal or an evicted entry, and sends the cut after it" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "resume full sync spec")
+      server.append_bytes(File.join(data_dir, "f"), "a".to_slice, 0i64)
+
+      io, lz4 = connect_v3(server, tcp_server.local_address.port, 10)
+      LavinMQ::Clustering::WireV3.write_resume_request(io, server.journal.id + 1, 1u64)
+      resume, journal_id = LavinMQ::Clustering::WireV3.read_resume_reply(io)
+      resume.should be_false
+      journal_id.should eq server.journal.id
+      sha1_size = Digest::SHA1.new.digest_size
+      2.times do
+        loop do
+          len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+          break if len.zero?
+          lz4.skip len
+          lz4.skip sha1_size
+        end
+        io.write_bytes 0i32
+        io.flush
+      end
+      LavinMQ::Clustering::WireV3.read_cut(lz4).should eq server.journal.head
+      wait_for { server.followers.any? &.id.== 10 }
+    ensure
+      io.try &.close
       server.try &.close
       tcp_server.try &.close
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir

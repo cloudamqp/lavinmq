@@ -74,6 +74,12 @@ module LavinMQ
         abstract def journal_position=(lsn : UInt64)
       end
 
+      # Identifies this journal to followers: a follower resumes from the lsn
+      # it has applied only against the journal it got it from (a new leader
+      # starts a new journal at lsn 1). Never 0, which a follower uses for
+      # "no position".
+      getter id : UInt64 = Random::Secure.rand(1u64..UInt64::MAX)
+
       # Lsn 0 is never assigned: "nothing journaled yet" (see #last_lsn)
       @head = 1u64
       @tail = 1u64
@@ -163,28 +169,43 @@ module LavinMQ
       end
 
       # The entry at lsn, with its mfile leased for the caller, who must
-      # `release_lease` it after use. Nil once the entry is evicted or
-      # released (the caller fell behind, see #behind?) or not yet appended.
+      # `release_lease` it after use. Nil once the entry is evicted (the
+      # caller fell behind, see #behind?) or not yet appended. An entry whose
+      # lease was already released (every subscriber had passed it when a
+      # follower came back to resume from it) comes without its mfile: the
+      # mapping may be gone, so the caller reads the bytes from the file.
       def read(lsn : UInt64) : Entry?
         @lock.synchronize do
-          return if lsn < @released || lsn >= @head
+          return if lsn < @tail || lsn >= @head
           entry = @ring[(lsn % @capacity).to_i32]
-          entry.mfile.try &.lease
-          entry
+          if lsn >= @released
+            entry.mfile.try &.lease
+            entry
+          elsif entry.mfile
+            Entry.new(entry.lsn, entry.op, entry.path, entry.offset, entry.len, nil, entry.bytes, entry.value)
+          else
+            entry
+          end
         end
       end
 
       # True when the entry at lsn is gone: a sender at that position can't
       # continue and its follower must resync
       def behind?(lsn : UInt64) : Bool
-        @lock.synchronize { lsn < @released }
+        @lock.synchronize { lsn < @tail }
+      end
+
+      # Whether a follower that has applied `lsn` can resume from the journal
+      # (every later entry is still here)
+      def resumable?(lsn : UInt64) : Bool
+        @lock.synchronize { lsn + 1 >= @tail && lsn < @head }
       end
 
       # Entries appended from now on are kept for the subscriber, which
-      # starts at the current head
-      def subscribe(subscriber : Subscriber) : Nil
+      # starts at the current head unless it resumes from `from`
+      def subscribe(subscriber : Subscriber, from : UInt64? = nil) : Nil
         @lock.synchronize do
-          subscriber.journal_position = @head
+          subscriber.journal_position = from || @head
           @subscribers << subscriber unless @subscribers.includes?(subscriber)
         end
       end

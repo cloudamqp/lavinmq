@@ -317,10 +317,14 @@ module LavinMQ
 
       @listeners = Array(TCPServer).new(1)
 
+      # The position this node had as a follower, meaningless once it leads
+      POSITION_FILE = ".replication_position"
+
       def listen(server : TCPServer)
         server.listen
         # called before accepting followers, no lock needed
         @file_index.lock { |_files, checksums| checksums.restore }
+        File.delete? File.join(@data_dir, POSITION_FILE)
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -338,6 +342,7 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
+        resume_from = negotiate_resume(follower)
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
             Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
@@ -346,7 +351,11 @@ module LavinMQ
           end
           @followers << follower # Starts in Syncing state
         end
-        sync_and_serve(follower)
+        if resume_from
+          resume_and_serve(follower, resume_from)
+        else
+          sync_and_serve(follower)
+        end
       rescue AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
@@ -357,6 +366,37 @@ module LavinMQ
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
+      end
+
+      # A v3 follower reports the journal and lsn it has applied up to. When
+      # that's this journal and every later entry is still in it, the stream
+      # resumes from there and the full sync is skipped. Returns the lsn to
+      # resume from, nil for a full sync.
+      private def negotiate_resume(follower : Follower) : UInt64?
+        return if follower.protocol_version < 3
+        journal_id, applied = follower.read_resume_request
+        resume = journal_id == @journal.id && @journal.resumable?(applied)
+        follower.send_resume_reply(resume, @journal.id)
+        if resume
+          Log.info { "Follower id=#{follower.id.to_s(36)} resumes from journal entry #{applied + 1}" }
+          applied + 1
+        else
+          Log.info { "Follower id=#{follower.id.to_s(36)} needs a full sync" } if journal_id != 0
+          nil
+        end
+      end
+
+      # Serve a follower that has everything up to `from`: stream from there.
+      private def resume_and_serve(follower : Follower, from : UInt64) : Nil
+        @journal.subscribe(follower, from)
+        @lock.synchronize do
+          follower.mark_synced!
+          update_isr
+        end
+        follower.start_sender(@journal, from)
+        follower.ack_loop
+      ensure
+        cleanup(follower)
       end
 
       # Full-sync an already-registered follower into the Synced state, then
@@ -384,6 +424,7 @@ module LavinMQ
           sizes = snapshot_sizes
           follower.full_sync(sizes) # sync the last, capped at the cut
           follower.capture_synced_baseline(sizes)
+          follower.send_cut(cut_lsn) if follower.protocol_version >= 3
           @lock.synchronize do
             follower.mark_synced! # Change state to Synced
             update_isr
@@ -393,6 +434,10 @@ module LavinMQ
         # Wait for follower to disconnect or be closed
         follower.ack_loop
       ensure
+        cleanup(follower)
+      end
+
+      private def cleanup(follower : Follower) : Nil
         @journal.unsubscribe(follower)
         # Covers everything after registration, including a full_sync that
         # raised or an update_isr that failed right after mark_synced! — a

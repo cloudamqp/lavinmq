@@ -75,6 +75,26 @@ module ClientV3Spec
     nil
   end
 
+  # The leader's side of a v3 connection up to the resume reply
+  def self.accept(leader_io : IO, journal_id : UInt64, resume : Bool) : {UInt64, UInt64}
+    header = Bytes.new(8)
+    leader_io.read_fully(header)
+    header.should eq LavinMQ::Clustering::StartV3
+    len = leader_io.read_bytes UInt8, IO::ByteFormat::LittleEndian
+    leader_io.skip(len)
+    leader_io.write_byte 0u8
+    leader_io.read_bytes Int32, IO::ByteFormat::LittleEndian # the follower id
+    request = WireV3.read_resume_request(leader_io)
+    WireV3.write_resume_reply(leader_io, resume, journal_id)
+    request
+  end
+
+  def self.position_file(data_dir) : String?
+    File.read(File.join(data_dir, LavinMQ::Clustering::Client::POSITION_FILE)).strip
+  rescue File::NotFoundError
+    nil
+  end
+
   describe LavinMQ::Clustering::Client do
     describe "version 3 appends" do
       it "writes at the given offset and acks the record as applied" do
@@ -241,6 +261,107 @@ module ClientV3Spec
           s.lz4.flush
           wait_applied(s.leader_io, 3u64)
           s.client.syncs_started.should eq 1
+          s.close
+        end
+      end
+    end
+
+    describe "resuming from the journal" do
+      it "records the cut after a full sync and offers it on the next connect" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, version: 3)
+          client_socket, leader_io = FakeSocket.pair # sync sets TCP options on its socket
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4 = Compress::LZ4::Writer.new(leader_io, Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          journal_id = 42u64
+          leader = Channel({UInt64, UInt64}).new(1)
+          spawn(name: "full sync leader") do
+            leader.send accept(leader_io, journal_id, resume: false)
+            2.times do
+              lz4.write_bytes 0i32, IO::ByteFormat::LittleEndian # empty file list
+              lz4.flush
+              leader_io.read_bytes Int32, IO::ByteFormat::LittleEndian # no files requested
+            end
+            WireV3.write_cut(lz4, 100u64)
+            lz4.flush
+          end
+          client.sync_public(client_socket, lz4_reader)
+          leader.receive.should eq({0u64, 0u64}) # nothing to offer yet
+          client.full_syncs.should eq 1
+          client.persisted_lsn.should eq 99
+          client.journal_id.should eq journal_id
+          position_file(data_dir).should eq "42 99"
+          client_socket.close
+          leader_io.close
+
+          # A new client in the same data dir offers that position
+          client2 = make_client(data_dir, version: 3)
+          client2.persisted_lsn.should eq 99
+          client2.journal_id.should eq journal_id
+          client_socket, leader_io = FakeSocket.pair # sync sets TCP options on its socket
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          spawn(name: "resuming leader") { leader.send accept(leader_io, journal_id, resume: true) }
+          client2.sync_public(client_socket, lz4_reader)
+          leader.receive.should eq({journal_id, 99u64})
+          client2.full_syncs.should eq 0
+          client_socket.close
+          leader_io.close
+        end
+      end
+
+      it "forgets its position while a full sync is under way" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, LavinMQ::Clustering::Client::POSITION_FILE), "7 50\n"
+          client = make_client(data_dir, version: 3)
+          client.persisted_lsn.should eq 50
+          client_socket, leader_io = FakeSocket.pair # sync sets TCP options on its socket
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4 = Compress::LZ4::Writer.new(leader_io, Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "stalling leader") do
+            accept(leader_io, 7u64, resume: false)
+            lz4.write_bytes 0i32, IO::ByteFormat::LittleEndian
+            lz4.flush
+            leader_io.read_bytes Int32, IO::ByteFormat::LittleEndian
+            # the second pass never completes
+          end
+          spawn(name: "client sync") do
+            client.sync_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          wait_for { position_file(data_dir).nil? }
+          client.persisted_lsn.should eq 0
+          client_socket.close
+          leader_io.close
+        end
+      end
+
+      it "streams from the entry after its position and persists what it applied on close" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, LavinMQ::Clustering::Client::POSITION_FILE), "7 50\n"
+          s = start(data_dir)
+          # The leader resumes at 51, which the stream must start with
+          append(s, 51, "seg", 0, "head")
+          append(s, 52, "seg", 4, "tail")
+          wait_applied(s.leader_io, 52u64)
+          close_client(s.client)
+          position_file(data_dir).should eq "7 52"
+          s.close
+        end
+      end
+
+      it "rejects a stream that doesn't start after its position" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, LavinMQ::Clustering::Client::POSITION_FILE), "7 50\n"
+          errors = Channel(Exception).new(1)
+          s = start(data_dir, errors: errors)
+          append(s, 1, "seg", 0, "head")
+          select
+          when ex = errors.receive
+            ex.should be_a(LavinMQ::Clustering::ProtocolError)
+            ex.message.should match /Expected journal entry 51/
+          when timeout(2.seconds)
+            fail "a stream not continuing from the position was accepted"
+          end
           s.close
         end
       end

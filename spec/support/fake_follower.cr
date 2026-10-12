@@ -45,6 +45,8 @@ class FakeSocket < TCPSocket
   end
 
   delegate read, write, to: @io
+  # IO::Buffered defines read_byte itself, so it must be routed too
+  delegate read_byte, to: @io
   delegate close, closed?, to: @io
 
   # ack_loop sets read_timeout to drive its flush/ack-deadline cadence; route it

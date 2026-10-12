@@ -72,6 +72,18 @@ module ClusteringSpecHelper
       authenticate(socket)
     end
 
+    def sync_public(socket, lz4)
+      sync(socket, lz4)
+    end
+
+    def persisted_lsn : UInt64
+      @persisted_lsn
+    end
+
+    def journal_id : UInt64
+      @journal_id
+    end
+
     private def fsync_path(path : String) : Nil
       @fsynced_paths << path
       super
@@ -136,6 +148,8 @@ end
 
 class SpecClustering
   getter replicator, config, follower_config, repli
+  # The leader's replication port, for a second follower
+  getter port : Int32
 
   @follower_stopped = WaitGroup.new(1)
   @follower_config : LavinMQ::Config
@@ -144,6 +158,7 @@ class SpecClustering
   def initialize(@config : LavinMQ::Config, follower_data_dir : String)
     @replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
+    @port = tcp_server.local_address.port
 
     @follower_config = @config.dup.tap &.data_dir = follower_data_dir
     @repli = LavinMQ::Clustering::Client.new(@follower_config, 1, replicator.password, proxy: false)

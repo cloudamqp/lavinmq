@@ -32,9 +32,13 @@ Every replicated change on the leader (an append to a segment or to the definiti
 
 The journal keeps a bounded number of entries (262,144, about 18 MiB of memory; message bodies are not copied into it). A follower that falls further behind than that disconnects and rejoins with a bulk sync.
 
+### Resuming
+
+A follower records its position in the leader's journal in `.replication_position` in its data directory: the journal's id and the last entry it has applied, written after syncing the data directory (at every full-filesystem sync, at least every 30 seconds while streaming, and on shutdown or promotion). When it reconnects it offers that position, and if the leader still holds every later entry it streams from there: no file lists, no checksums, no file transfers. Entries applied after the position was written are simply applied again, which is harmless since every append carries its offset. A restarted or briefly disconnected follower therefore rejoins in seconds. A new leader has a new journal, so after a failover followers do a bulk sync.
+
 ### Bulk Sync
 
-When a follower first connects (or has fallen behind the journal), it performs a bulk sync:
+When a follower first connects, follows a new leader, or has fallen behind the journal, it performs a bulk sync:
 
 1. The leader sends a file index with checksums of all data files
 2. The follower requests files that are missing or have mismatching checksums

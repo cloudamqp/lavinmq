@@ -91,7 +91,8 @@ describe LavinMQ::Clustering::Journal do
         mfile.print "hello"
         journal = LavinMQ::Clustering::Journal.new(8)
         lsn = journal.append_mfile("seg", mfile, 0i64, 5i64)
-        journal.read(lsn).should be_nil # nobody may read it, it was never leased
+        # Never leased: a reader gets the entry without the mapping
+        journal.read(lsn).not_nil!.mfile.should be_nil
         mfile.close
         mfile.closed?.should be_true
       end
@@ -118,6 +119,50 @@ describe LavinMQ::Clustering::Journal do
         journal.unsubscribe(sub)
         mfile2.closed?.should be_true
       end
+    end
+  end
+
+  describe "resuming" do
+    it "serves entries all subscribers passed, without their mmap lease" do
+      with_datadir do |data_dir|
+        mfile = MFile.new(File.join(data_dir, "seg"), 64)
+        mfile.print "hello"
+        journal = LavinMQ::Clustering::Journal.new(8)
+        sub = FakeSubscriber.new
+        journal.subscribe(sub)
+        lsn = journal.append_mfile("seg", mfile, 0i64, 5i64)
+        sub.journal_position = lsn + 1
+        journal.release_unneeded # the lease is gone, the mapping may be too
+        mfile.close
+        mfile.closed?.should be_true
+
+        entry = journal.read(lsn).not_nil!
+        entry.mfile.should be_nil # the reader fetches the bytes from the file
+        entry.op.append?.should be_true
+        entry.offset.should eq 0
+        entry.len.should eq 5
+        journal.behind?(lsn).should be_false
+        journal.resumable?(lsn - 1).should be_true
+        journal.resumable?(lsn).should be_true # caught up: nothing to send
+        journal.resumable?(lsn + 1).should be_false
+      end
+    end
+
+    it "is not resumable from an evicted entry" do
+      journal = LavinMQ::Clustering::Journal.new(4)
+      6.times { journal.delete("f") } # lsns 1..6, the first two evicted
+      journal.resumable?(1).should be_false
+      journal.resumable?(2).should be_true # entry 3 onwards is here
+      journal.id.should_not eq 0
+    end
+
+    it "lets a late subscriber start below the released mark" do
+      journal = LavinMQ::Clustering::Journal.new(8)
+      3.times { journal.delete("f") }
+      late = FakeSubscriber.new
+      journal.subscribe(late, 2u64)
+      late.journal_position.should eq 2
+      journal.read(2).not_nil!.lsn.should eq 2
     end
   end
 

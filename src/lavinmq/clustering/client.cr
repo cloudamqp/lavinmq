@@ -91,6 +91,17 @@ module LavinMQ
       @received_bytes = 0i64
       # Connections lost since start, not counting the first connect
       getter reconnects = 0
+      # Full syncs done since start; a reconnect that resumes from the
+      # journal doesn't count
+      getter full_syncs = 0
+      # The journal the position below belongs to, 0 for none
+      @journal_id = 0u64
+      # Highest lsn whose record is durably applied, as last persisted
+      @persisted_lsn = 0u64
+      @last_persist = Time.instant
+      # How often the ack loop syncs the data dir to persist the position,
+      # so a restart resumes close to where it was
+      PERSIST_INTERVAL = 30.seconds
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -108,6 +119,7 @@ module LavinMQ
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
+        restore_position
 
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
@@ -212,11 +224,26 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
+        if @protocol_version >= 3
+          # Offer where we are; the leader resumes the stream from there when
+          # it still has every later journal entry
+          WireV3.write_resume_request(socket, @journal_id, @persisted_lsn)
+          resume, journal_id = WireV3.read_resume_reply(socket)
+          if resume
+            Log.info { "Resuming replication from journal entry #{@persisted_lsn + 1}" }
+            return
+          end
+          @journal_id = journal_id
+        end
         full_sync(socket, lz4)
       end
 
       private def full_sync(socket, lz4)
         reset_file_state
+        # The position is meaningless until the sync is complete; a crash
+        # midway must not resume from it
+        forget_position
+        @full_syncs += 1
         full_sync_time = Time.measure do
           bulk_time = Time.measure { sync_files(socket, lz4) }
           Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
@@ -225,8 +252,41 @@ module LavinMQ
           # Fsync requests only cover what's streamed after this, so make
           # everything received so far durable before acking anything
           sync_to_disk
+          if @protocol_version >= 3
+            # Everything before the cut is on disk now
+            persist_position(WireV3.read_cut(lz4) - 1)
+          end
         end
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
+      end
+
+      POSITION_FILE = ".replication_position"
+
+      # The position is only persisted after a sync of the whole data dir,
+      # so what it claims applied is on disk; a crash costs at most the
+      # entries since, which are re-applied when resuming (records carry
+      # their offsets, so applying one twice is harmless).
+      private def persist_position(lsn : UInt64) : Nil
+        @persisted_lsn = lsn
+        @last_persist = Time.instant
+        path = File.join(@data_dir, POSITION_FILE)
+        tmp = "#{path}.tmp"
+        File.write(tmp, "#{@journal_id} #{lsn}\n")
+        FileSystem.durable_rename(tmp, path)
+      end
+
+      private def forget_position : Nil
+        @persisted_lsn = 0u64
+        File.delete? File.join(@data_dir, POSITION_FILE)
+      end
+
+      private def restore_position : Nil
+        journal_id, _, lsn = File.read(File.join(@data_dir, POSITION_FILE)).strip.partition(" ")
+        @journal_id = journal_id.to_u64
+        @persisted_lsn = lsn.to_u64
+      rescue File::NotFoundError
+      rescue ex : ArgumentError
+        Log.warn { "Ignoring malformed #{POSITION_FILE}: #{ex.message}" }
       end
 
       # Forget the data dir as the previous connection left it. The sync ahead
@@ -432,7 +492,7 @@ module LavinMQ
             # checksums.sha1(.tmp) is local-only replication metadata, never
             # sent by the leader; skip it so the "delete files not on leader"
             # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp", POSITION_FILE, "#{POSITION_FILE}.tmp")
             yield path
           end
         end
@@ -493,9 +553,11 @@ module LavinMQ
       # offset (see WireV3). Records are applied in place, so a retransmitted
       # one is harmless, and acked by lsn once applied.
       private def stream_changes_v3(lz4)
-        @applied_lsn = 0u64
+        @applied_lsn = @persisted_lsn
         @received_bytes = 0i64
-        expected = nil.as(UInt64?)
+        # The leader streams from the entry after the one we reported (after a
+        # full sync: the cut), so the first lsn is known
+        expected = (@persisted_lsn + 1).as(UInt64?)
         loop do
           header = WireV3.read_header(lz4)
           if expected && header.lsn != expected
@@ -889,6 +951,12 @@ module LavinMQ
           end
           fsync_paths.clear
           if progress
+            if syncfs || (progress.lsn > @persisted_lsn && Time.instant - @last_persist > PERSIST_INTERVAL)
+              # Everything applied up to this progress is on disk after a
+              # syncfs, so the position can move
+              sync_to_disk unless syncfs
+              persist_position(progress.lsn)
+            end
             WireV3.write_ack(socket, progress.lsn, progress.bytes)
           elsif ack_bytes > 0
             socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian
@@ -1008,6 +1076,16 @@ module LavinMQ
         # Finalize all pending checksums
         finalize_digests
         @checksums.store
+        # Record where to resume from; a promotion or restart then needs no
+        # full sync. The ack loop is done, so the applied lsn is final.
+        if @protocol_version >= 3 && @applied_lsn > @persisted_lsn
+          begin
+            sync_data_dir if @config.sync?
+            persist_position(@applied_lsn)
+          rescue ex
+            Log.warn(exception: ex) { "Could not persist the replication position" }
+          end
+        end
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
       end
 
