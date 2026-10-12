@@ -658,5 +658,6 @@ jobs:
 
       - name: Run property tests
         # Known flaky under parallel load; see AGENTS.md (Gotchas).
+        timeout-minutes: 10
         run: ./"$QC_BIN"
 
