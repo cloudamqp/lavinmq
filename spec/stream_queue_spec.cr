@@ -49,6 +49,41 @@ end
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
+  describe "Arguments" do
+    it "should refuse the retry arguments" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /x-delayed-retry-min/) do
+            ch.queue("stream-retry-args", args: AMQP::Client::Arguments.new({
+              "x-queue-type"        => "stream",
+              "x-delayed-retry-min" => 1000,
+            }))
+          end
+        end
+      end
+    end
+  end
+
+  describe "Requeue" do
+    it "should not requeue messages into the store on channel close" do
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, "stream-close-requeue", 2)
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream-close-requeue", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false) do |msg|
+            msgs.send msg
+          end
+          msgs.receive
+        end
+        sleep 50.milliseconds
+        sq = s.vhosts["/"].queue("stream-close-requeue")
+        sq.message_count.should eq 2
+      end
+    end
+  end
+
   describe "Consume" do
     it "should get message with offset 2" do
       with_amqp_server do |s|
@@ -842,17 +877,17 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  it "drops a publish when the store is closed concurrently" do
+  it "doesn't store a publish when the store is closed concurrently" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("stream-closed-store-publish", args: stream_queue_args)
         stream = s.vhosts["/"].queue("stream-closed-store-publish").as(LavinMQ::AMQP::Stream)
         # Simulate a delete racing publish_internal: the store is closed after
         # the @state.closed? check but before push, so push raises ClosedError.
-        # The publish must report Dropped, not raise (mirrors the queue spec).
+        # The publish must report Closed, not raise (mirrors the queue spec).
         stream.@msg_store.close
         msg = LavinMQ::Message.new("", "stream-closed-store-publish", "body", LavinMQ::AMQP::Properties.new)
-        stream.publish(msg).dropped?.should be_true
+        stream.publish(msg).closed?.should be_true
       end
     end
   end

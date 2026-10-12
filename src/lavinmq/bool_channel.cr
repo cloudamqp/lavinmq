@@ -37,6 +37,9 @@ class BoolChannel
   getter when_true = StateChannel.new
   getter when_false = StateChannel.new
   @value : Atomic(Bool)
+  # Makes updating the value and switching the active channel one step, so
+  # concurrent sets can't leave them disagreeing
+  @lock = Mutex.new
 
   def initialize(value : Bool)
     @value = Atomic.new(value)
@@ -52,14 +55,18 @@ class BoolChannel
   end
 
   def swap(value : Bool)
-    ret = @value.swap(value)
-    update_active_channel(value) unless ret == value
-    ret
+    @lock.synchronize do
+      ret = @value.swap(value)
+      update_active_channel(value) unless ret == value
+      ret
+    end
   end
 
   def set(value : Bool) : Nil
-    @value.set(value)
-    update_active_channel(value)
+    @lock.synchronize do
+      @value.set(value)
+      update_active_channel(value)
+    end
     nil
   end
 
