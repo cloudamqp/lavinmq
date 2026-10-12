@@ -549,14 +549,17 @@ describe LavinMQ::Clustering::RaftController do
       others = cluster.controllers.reject(first)
       wait_for { others.count { |c| File.exists?(File.join(cluster.dirs[cluster.controllers.index!(c)], "f")) } >= 1 }
 
-      # Cut off, it steps down, the log is unfrozen and it follows the next
-      # leader's changes
+      # Handed over, it stops serving, the log is unfrozen and it follows the
+      # next leader's changes
+      target = others.first
+      wait_for { File.exists?(File.join(cluster.dirs[cluster.controllers.index!(target)], "f")) }
       replicator.close
-      others.each(&.stop)
-      receive_within(cluster.demotions, 5.seconds).should eq({first, true})
-      others.each { |c| cluster.restart(c) }
+      transfer = first.request_transfer(cluster.address(target))
+      transfer.should be_a(LavinMQ::Clustering::RaftController::Transfer)
+      first.step_down(transfer.as(LavinMQ::Clustering::RaftController::Transfer))
+      receive_within(cluster.demotions, 5.seconds).should eq({first, false})
       second = cluster.next_leader(10.seconds)
-      second.should_not eq first
+      second.should eq target
       second_dir = cluster.dirs[cluster.controllers.index!(second)]
       File.read(File.join(second_dir, "f")).should eq "hello"
       second_replicator = second.new_replicator.as(LavinMQ::Clustering::RaftReplicator)
