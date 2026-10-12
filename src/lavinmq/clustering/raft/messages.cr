@@ -20,8 +20,8 @@ module LavinMQ::Clustering::Raft
   # and every entry carries the full value of whichever it changes (nil for
   # the other, and for both in the no-op a new leader appends, unless it's the
   # first leader), so the latest non-nil value is the whole state and
-  # compaction is trivial.
-  record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil
+  # compaction is trivial. `data` is the broker's, opaque to the Core.
+  record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil, data : Bytes? = nil
 
   # `from` is the sender's clustering id. Messages are one-way: replies are
   # sent back as their own message over the sender's outbound connection.
@@ -214,16 +214,37 @@ module LavinMQ::Clustering::Raft
         io.write_bytes e.term, Format
         write_isr io, e.isr
         write_membership io, e.membership
+        write_data io, e.data
       end
     end
 
-    # `max` bounds the count by what the input could possibly hold.
-    def read_entries(io, max : Int32) : Array(Entry)
+    # `max` bounds the count, and each entry's data, by what the input could
+    # possibly hold.
+    def read_entries(io, max : Int32, with_data = true) : Array(Entry)
       count = io.read_bytes Int32, Format
       raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= max
       Array(Entry).new(count) do
-        Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io))
+        Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io),
+          with_data ? read_data(io, max) : nil)
       end
+    end
+
+    def write_data(io, data : Bytes?) : Nil
+      if data
+        io.write_bytes data.size, Format
+        io.write data
+      else
+        io.write_bytes -1, Format
+      end
+    end
+
+    def read_data(io, max : Int32) : Bytes?
+      size = io.read_bytes Int32, Format
+      return if size < 0
+      raise IO::Error.new("Invalid entry data size #{size}") if size > max
+      data = Bytes.new(size)
+      io.read_fully(data)
+      data
     end
 
     def write_str(io, str : String) : Nil

@@ -622,6 +622,41 @@ describe Raft::Storage do
     end
   end
 
+  it "round-trips entries with data" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      state = Raft::HardState.new(7, nil, 3, 6, nil, [
+        Raft::Entry.new(7, nil, nil, "ops".to_slice),
+        Raft::Entry.new(7, nil, nil, Bytes.empty),
+        Raft::Entry.new(7, Set{2}),
+      ])
+      storage.save(state)
+      storage.load.should eq state
+    end
+  end
+
+  it "loads a version 3 state file, whose entries have no data" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      body = IO::Memory.new
+      body.write "LMQRAFT".to_slice
+      body.write_byte 3u8
+      body.write_bytes 7i64, IO::ByteFormat::LittleEndian # term
+      body.write_byte 0u8                                 # no vote
+      body.write_bytes 3i64, IO::ByteFormat::LittleEndian # snapshot index
+      body.write_bytes 6i64, IO::ByteFormat::LittleEndian # snapshot term
+      Raft::Codec.write_isr(body, Set{1, 2})              # snapshot ISR
+      Raft::Codec.write_membership(body, nil)             # snapshot membership
+      body.write_bytes 1, IO::ByteFormat::LittleEndian    # one entry
+      body.write_bytes 7i64, IO::ByteFormat::LittleEndian # its term
+      Raft::Codec.write_isr(body, Set{2})                 # its ISR
+      Raft::Codec.write_membership(body, nil)             # its membership
+      body.write_bytes Digest::CRC32.checksum(body.to_slice), IO::ByteFormat::LittleEndian
+      File.write(storage.path, body.to_slice)
+      storage.load.should eq Raft::HardState.new(7, nil, 3, 6, Set{1, 2}, [Raft::Entry.new(7, Set{2})])
+    end
+  end
+
   it "detects a corrupt state file" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
@@ -659,6 +694,23 @@ describe Raft::Codec do
       Raft::CatchUp.new(2, 3, 8, 2, nil, entries, members),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
+  end
+
+  it "round-trips entries with data" do
+    entries = [Raft::Entry.new(3, nil, nil, "ops".to_slice), Raft::Entry.new(3, Set{1}, nil, Bytes.empty)]
+    msgs = [
+      Raft::AppendEntries.new(1, 3, "tcp://a:5679", 8, 2, entries, 7),
+      Raft::CatchUp.new(2, 3, 8, 2, nil, entries),
+    ] of Raft::Message
+    msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
+  end
+
+  it "rejects entry data larger than the frame" do
+    msg = Raft::AppendEntries.new(1, 3, "u", 8, 2, [Raft::Entry.new(3, nil, nil, "abc".to_slice)], 7)
+    bytes = Raft::Codec.encode(msg)
+    # the entry ends with its data's length and the 3 bytes
+    bytes[bytes.size - 3 - 4, 4].copy_from(Bytes[0xff, 0xff, 0xff, 0x7f])
+    expect_raises(IO::Error) { Raft::Codec.decode(bytes) }
   end
 
   it "rejects an implausible member count" do

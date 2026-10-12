@@ -1,4 +1,5 @@
 require "./messages"
+require "./log_store"
 
 module LavinMQ::Clustering::Raft
   enum Role
@@ -137,8 +138,8 @@ module LavinMQ::Clustering::Raft
   #   they bound how long a deposed leader can believe it still leads.
   class Core
     private record Departing, index : Int64, deadline : Time::Instant, address : String
-    # Everything committed, see #commit_to: the log up to and including
-    # `index`, folded into the ISR and membership it ended with
+    # The compacted log, see #compact_to: the log up to and including `index`,
+    # folded into the ISR and membership it ended with
     private record Snapshot, index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?
 
     # What the leader knows about a peer
@@ -178,9 +179,18 @@ module LavinMQ::Clustering::Raft
     # that crashes before saving this just finds them uncommitted, and they
     # can't be lost: nothing has to wait for it.
     getter? unsaved_commit = false
+    # Compact the log as soon as entries are committed. The ISR and the
+    # membership are all the state there is, so nothing needs the entries
+    # after that, unless they carry data a follower may still need.
+    property? compact_on_commit = true
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
-    @entries = Array(Entry).new
+    # The entries after the snapshot, committed or not
+    @log : LogStore
+    getter commit_index = 0i64
+    # The ISR and the membership as of the commit index
+    getter committed_isr : Set(Int32)? = nil
+    getter committed_membership : Membership? = nil
     # The configured seeds, used until the log has a membership
     @seed_addresses : Array(String)
     # The clustering ids of the configured seeds that we know of
@@ -224,15 +234,19 @@ module LavinMQ::Clustering::Raft
         @voted_for = state.voted_for
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
           state.snapshot_membership)
-        @entries = state.entries.dup
       end
+      @log = MemoryLogStore.new(@snapshot.index, @snapshot.term, state.try(&.entries) || Array(Entry).new)
+      # What's committed beyond the snapshot is learnt from the leader again
+      @commit_index = @snapshot.index
+      @committed_isr = @snapshot.isr
+      @committed_membership = @snapshot.membership
       @election_deadline = now + randomized_election_timeout
       @heartbeat_due = now
       refresh_membership
     end
 
     def hard_state : HardState
-      HardState.new(@term, @voted_for, @snapshot.index, @snapshot.term, @snapshot.isr, @entries.dup,
+      HardState.new(@term, @voted_for, @snapshot.index, @snapshot.term, @snapshot.isr, @log.entries,
         @snapshot.membership)
     end
 
@@ -247,37 +261,23 @@ module LavinMQ::Clustering::Raft
     end
 
     def last_index : Int64
-      @snapshot.index + @entries.size
+      @log.last_index
     end
 
     def last_term : Int64
-      @entries.last?.try(&.term) || @snapshot.term
+      @log.term_at(last_index)
     end
 
     # The ISR of the latest entry in the log, committed or not.
     def latest_isr : Set(Int32)?
-      @entries.reverse_each { |e| e.isr.try { |isr| return isr } }
-      @snapshot.isr
-    end
-
-    # Committed entries are folded into the snapshot right away, see
-    # #commit_to, so the snapshot is everything that's committed
-    def commit_index : Int64
-      @snapshot.index
-    end
-
-    def committed_isr : Set(Int32)?
+      @log.reverse_each { |e| e.isr.try { |isr| return isr } }
       @snapshot.isr
     end
 
     # The membership of the latest entry in the log, committed or not. It's
     # nil until a leader has made it from its seeds.
     def latest_membership : Membership?
-      @entries.reverse_each { |e| e.membership.try { |m| return m } }
-      @snapshot.membership
-    end
-
-    def committed_membership : Membership?
+      @log.reverse_each { |e| e.membership.try { |m| return m } }
       @snapshot.membership
     end
 
@@ -401,7 +401,7 @@ module LavinMQ::Clustering::Raft
     # Leader whose no-op of this term is committed, i.e. it has applied every
     # entry committed by earlier leaders and may act on the ISR.
     def serving_leader? : Bool
-      @role.leader? && @snapshot.index >= @term_start_index
+      @role.leader? && @commit_index >= @term_start_index
     end
 
     # Before there's a membership every seed is a voter, also the
@@ -599,7 +599,8 @@ module LavinMQ::Clustering::Raft
         handle_vote(msg, eligible, sticky, now)
       end
       if candidate_in_isr && !up_to_date
-        send msg.from, CatchUp.new(@id, @term, @snapshot.index, @snapshot.term, @snapshot.isr, @entries.dup,
+        # TODO: bound this to a frame before entries carry data
+        send msg.from, CatchUp.new(@id, @term, @snapshot.index, @snapshot.term, @snapshot.isr, @log.entries,
           @snapshot.membership)
       end
     end
@@ -658,7 +659,7 @@ module LavinMQ::Clustering::Raft
       end
       merge_entries(msg.prev_index, msg.entries)
       match = msg.prev_index + msg.entries.size
-      if msg.commit > @snapshot.index
+      if msg.commit > @commit_index
         commit_to Math.min(msg.commit, match)
       end
       send msg.from, AppendResponse.new(@id, @term, true, match)
@@ -687,10 +688,15 @@ module LavinMQ::Clustering::Raft
       merge_entries(msg.snapshot_index, msg.entries)
     end
 
+    # Everything up to *index* is committed and folded into *isr* and
+    # *membership*. Our log is dropped, the leader sends what follows.
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
-      return if index <= @snapshot.index
-      @entries.clear
+      return if index <= @commit_index
+      @log.reset(index, term)
       @snapshot = Snapshot.new(index, term, isr, membership)
+      @commit_index = index
+      @committed_isr = isr
+      @committed_membership = membership
       @dirty = true
       refresh_membership
     end
@@ -698,7 +704,8 @@ module LavinMQ::Clustering::Raft
     private def merge_entries(prev_index : Int64, entries : Array(Entry)) : Nil
       entries.each_with_index do |entry, i|
         index = prev_index + 1 + i
-        next if index <= @snapshot.index
+        # Committed, so we have it already
+        next if index <= @commit_index
         if index <= last_index
           next if term_at(index) == entry.term
           truncate_from(index)
@@ -914,7 +921,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def membership_pending? : Bool
-      @entries.any?(&.membership)
+      (@commit_index + 1..last_index).any? { |i| @log.entry(i).membership }
     end
 
     private def seeds_identified? : Bool
@@ -1016,13 +1023,12 @@ module LavinMQ::Clustering::Raft
         return
       end
       prev = next_index - 1
-      entries = @entries[(next_index - @snapshot.index - 1).to_i..]? || Array(Entry).new
-      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @snapshot.index)
+      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), @log.slice(next_index), @commit_index)
     end
 
     private def advance_commit : Nil
       n = last_index
-      while n > @snapshot.index
+      while n > @commit_index
         break if term_at(n) != @term # only entries of the current term are committed by counting
         replicated = self_vote + @peers.count { |p| counted?(p) && match_index(p) >= n }
         if replicated >= quorum
@@ -1033,39 +1039,52 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    # Committed entries are folded into the snapshot right away: the state is
-    # a single ISR, so there's nothing to gain from keeping them.
     private def commit_to(index : Int64) : Nil
+      index = Math.min(index, last_index)
+      return if index <= @commit_index
+      (@commit_index + 1..index).each do |i|
+        e = @log.entry(i)
+        e.isr.try { |isr| @committed_isr = isr }
+        e.membership.try { |m| @committed_membership = m }
+      end
+      @commit_index = index
+      compact_to(index) if @compact_on_commit
+    end
+
+    # Folds the committed entries up to *index* into the snapshot and drops
+    # them from the log
+    def compact_to(index : Int64) : Nil
+      index = Math.min(index, @commit_index)
       return if index <= @snapshot.index
       isr = @snapshot.isr
       membership = @snapshot.membership
-      count = (index - @snapshot.index).to_i
-      @entries.first(count).each do |e|
+      (@snapshot.index + 1..index).each do |i|
+        e = @log.entry(i)
         e.isr.try { |s| isr = s }
         e.membership.try { |m| membership = m }
       end
-      @snapshot = Snapshot.new(index, term_at(index), isr, membership)
-      @entries.shift(count)
+      term = term_at(index)
+      @snapshot = Snapshot.new(index, term, isr, membership)
+      @log.compact_to(index, term)
       @unsaved_commit = true
     end
 
     private def term_at(index : Int64) : Int64
-      return @snapshot.term if index == @snapshot.index
-      return 0i64 if index < @snapshot.index
-      @entries[(index - @snapshot.index - 1).to_i]?.try(&.term) || 0i64
+      @log.term_at(index)
     end
 
     private def append(entry : Entry) : Nil
-      @entries << entry
+      @log.append entry
       @dirty = true
       refresh_membership if entry.membership
     end
 
+    # Committed entries are never truncated: a leader that conflicts with
+    # them can't have been elected
     private def truncate_from(index : Int64) : Nil
-      keep = (index - @snapshot.index - 1).to_i
-      return if keep >= @entries.size || keep < 0
-      reverted = @entries[keep..].any?(&.membership)
-      @entries.truncate(0, keep)
+      return if index <= @commit_index || index > last_index
+      reverted = (index..last_index).any? { |i| @log.entry(i).membership }
+      @log.truncate_from(index)
       @dirty = true
       refresh_membership if reverted
     end

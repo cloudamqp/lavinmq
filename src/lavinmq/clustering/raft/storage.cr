@@ -7,8 +7,10 @@ module LavinMQ::Clustering::Raft
   # file, fsync it, rename over the old one and fsync the directory.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 3u8
-    Format  = IO::ByteFormat::LittleEndian
+    VERSION = 4u8
+    # Version 3 entries had no data, they're still read
+    OLDEST_VERSION = 3u8
+    Format         = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
     MAX_ENTRIES = 1 << 20
 
@@ -67,14 +69,16 @@ module LavinMQ::Clustering::Raft
     private def decode(io) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
-      raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
+      unless version && OLDEST_VERSION <= version <= VERSION
+        raise CorruptError.new("#{@path} has unsupported version #{version}")
+      end
       term = io.read_bytes Int64, Format
       voted_for = io.read_bytes(Int32, Format) if Codec.read_bool(io)
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
       snapshot_membership = Codec.read_membership(io)
-      entries = Codec.read_entries(io, MAX_ENTRIES)
+      entries = Codec.read_entries(io, MAX_ENTRIES, with_data: version >= 4)
       HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership)
     end
   end

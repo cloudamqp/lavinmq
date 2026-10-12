@@ -21,7 +21,7 @@ private class SimCluster
   @seeds : Array(String)
   @inflight = Deque(Tuple(Int32, Raft::Message)).new
 
-  def initialize(size : Int32, seed = 1, @bootstrap : Array(Int32)? = nil)
+  def initialize(size : Int32, seed = 1, @bootstrap : Array(Int32)? = nil, @compact_on_commit = true)
     (1..size).each { |id| @addresses[id] = "n#{id}" }
     @seeds = @addresses.values
     @addresses.each_key do |id|
@@ -169,7 +169,9 @@ private class SimCluster
   private def new_core(id, seed, state = nil)
     address = @addresses[id]
     Raft::Core.new(id, address, @seeds, "tcp://#{address}:5679", ELECTION, HEARTBEAT,
-      @now, state, Random.new(seed + id - 1), bootstrap: @bootstrap.nil? || @bootstrap.not_nil!.includes?(id))
+      @now, state, Random.new(seed + id - 1), bootstrap: @bootstrap.nil? || @bootstrap.not_nil!.includes?(id)).tap do |c|
+      c.compact_on_commit = @compact_on_commit
+    end
   end
 end
 
@@ -1102,5 +1104,73 @@ describe Raft::Core, "leadership transfer" do
     old.transfer_leadership.should eq Raft::TransferResult::Pending
     sim.advance(100.milliseconds)
     sim.leader.not_nil!.id.should eq behind
+  end
+end
+
+describe "Raft::Core without compacting on commit" do
+  it "keeps committed entries in its log" do
+    sim = SimCluster.new(3, compact_on_commit: false)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    index = sim.propose(leader, Set{1, 2, 3}).not_nil!
+    sim.advance(100.milliseconds)
+    leader.commit_index.should be >= index
+    sim.cores.each_value do |c|
+      c.committed_isr.should eq Set{1, 2, 3}
+      c.hard_state.snapshot_index.should eq 0
+      c.hard_state.entries.size.should eq c.last_index
+    end
+  end
+
+  it "compacts only what's committed" do
+    sim = SimCluster.new(3, compact_on_commit: false)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    sim.propose(leader, Set{1, 2, 3})
+    sim.advance(100.milliseconds)
+    sim.cores.each_key { |id| sim.isolated << id unless id == leader.id }
+    sim.propose(leader, Set{leader.id})
+    leader.commit_index.should be < leader.last_index
+    leader.compact_to(leader.last_index)
+    leader.hard_state.snapshot_index.should eq leader.commit_index
+    leader.hard_state.snapshot_isr.should eq Set{1, 2, 3}
+    leader.committed_isr.should eq Set{1, 2, 3}
+  end
+
+  it "catches up a follower from the log, or a snapshot when it's compacted" do
+    sim = SimCluster.new(3, compact_on_commit: false)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    behind, other = sim.cores.keys.reject(leader.id)
+    sim.isolated << behind
+    3.times { |i| sim.propose(leader, Set{leader.id, other, i + 10}) }
+    sim.advance(100.milliseconds)
+    sim.isolated.delete(behind)
+    sim.advance(200.milliseconds)
+    sim[behind].last_index.should eq leader.last_index
+    sim[behind].committed_isr.should eq leader.committed_isr
+    sim[behind].hard_state.snapshot_index.should eq 0 # from the log, no snapshot
+
+    sim.isolated << behind
+    3.times { |i| sim.propose(leader, Set{leader.id, other, i + 20}) }
+    sim.advance(100.milliseconds)
+    leader.compact_to(leader.commit_index)
+    sim.isolated.delete(behind)
+    sim.advance(200.milliseconds)
+    sim[behind].last_index.should eq leader.last_index
+    sim[behind].committed_isr.should eq leader.committed_isr
+    sim[behind].hard_state.snapshot_index.should eq leader.hard_state.snapshot_index
+  end
+
+  it "doesn't truncate committed entries for a conflicting leader" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "tcp://n1:5679", 100.milliseconds, 20.milliseconds, now)
+    core.compact_on_commit = false
+    core.step(Raft::AppendEntries.new(2, 1, "tcp://n2:5679", 0, 0, [Raft::Entry.new(1, Set{1, 2})], 1), now)
+    core.commit_index.should eq 1
+    core.step(Raft::AppendEntries.new(3, 2, "tcp://n3:5679", 1, 2, [] of Raft::Entry, 0), now)
+    core.last_index.should eq 1
+    core.commit_index.should eq 1
+    core.committed_isr.should eq Set{1, 2}
   end
 end
