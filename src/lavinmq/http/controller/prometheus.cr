@@ -339,7 +339,7 @@ module LavinMQ
         writer.write({name:  "resident_memory_limit_bytes",
                       value: @server.mem_limit,
                       type:  "gauge",
-                      help:  "Memory high watermark in bytes"})
+                      help:  "Memory limit for the process in bytes"})
       end
 
       private def global_metrics(writer)
