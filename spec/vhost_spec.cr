@@ -241,6 +241,37 @@ describe LavinMQ::VHost do
     end
   end
 
+  # A closed connection removes itself from the vhost, which must not make
+  # the close skip the next one: that one would be served by a closed vhost
+  it "closes every connection, also when they're removed while closing" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      conns = Array.new(3) { AMQP::Client.new(port: amqp_port(s)).connect }
+      begin
+        wait_for { vhost.connections_size == conns.size }
+        clients = vhost.connections.map(&.as(LavinMQ::AMQP::Client))
+        # Runs when closing yields, like the first one's read loop ending
+        spawn { vhost.rm_connection(clients.first) }
+        vhost.@connections.close_all("Broker shutdown", vhost.@log)
+        clients.reject(&.closed?).map(&.name).should be_empty
+      ensure
+        conns.each { |c| c.close rescue nil }
+      end
+    end
+  end
+
+  it "closes a connection that's added once it's closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |_ch|
+        client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+        closed_vhost = s.vhosts.create("closed")
+        closed_vhost.close
+        closed_vhost.add_connection(client)
+        client.closed?.should be_true
+      end
+    end
+  end
+
   it "serializes concurrent saves so they don't race on the tmp file" do
     with_amqp_server do |s|
       store = s.vhosts

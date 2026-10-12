@@ -97,14 +97,14 @@ module LavinMQ
         message = Message.new(msg.timestamp, name, msg.routing_key, properties, msg.bodysize, msg.body_io)
         message.needs_sync = msg.needs_sync?
         count = 0u32
-        overflow = false
+        rejected = false
         destinations.each do |destination, _binding_key|
           case destination
           in AMQP::Queue
             case destination.publish(message)
-            in .ok?       then count += 1
-            in .overflow? then overflow = true
-            in .dropped?  then nil
+            in .ok?                 then count += 1
+            in .overflow?, .closed? then rejected = true
+            in .dropped?            then nil
             end
           in AMQP::Exchange
             count += 1 if destination.route_msg(message, ctx.queues, ctx.exchanges).routed?
@@ -112,13 +112,14 @@ module LavinMQ
           message.body_io.rewind
         end
         @publish_out_count.add(count, :relaxed)
-        ctx.outcomes[self] = count_unroutable(outcome, handled: count.positive? || overflow)
+        ctx.outcomes[self] = count_unroutable(outcome, handled: count.positive? || rejected)
         count.positive?
       end
 
       # Like Exchange#route_msg: unroutable when no destination accepted the
-      # publish and none refused it for overflow. A later filter of the same
-      # publish can still route it, so an earlier count is taken back then.
+      # publish and none rejected it (overflow or a closed queue). A later
+      # filter of the same publish can still route it, so an earlier count is
+      # taken back then.
       private def count_unroutable(outcome : MQTT::PublishContext::Outcome, handled : Bool) : MQTT::PublishContext::Outcome
         if handled
           @unroutable_count.sub(1, :relaxed) if outcome.counted_unroutable

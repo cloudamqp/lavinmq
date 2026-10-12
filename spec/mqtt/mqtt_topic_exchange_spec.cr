@@ -283,6 +283,27 @@ module MqttSpecs
       end
     end
 
+    it "does not count a publish refused by a closed queue as unroutable" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("gone", true, false)
+        vhost.bind_queue("gone", "xmqtt", "a/#")
+        vhost.queue("gone").close
+
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "a/b", payload: "x".to_slice, qos: 0u8)
+          disconnect(io)
+        end
+
+        exchange = vhost.exchange("xmqtt")
+        wait_for { exchange.publish_in_count == 1 }
+        exchange.publish_out_count.should eq 0
+        exchange.unroutable_count.should eq 0
+      end
+    end
+
     # The order the tree yields filters in is not defined, so a filter that
     # routes the publish can come after one that counted it as unroutable.
     it "counts a publish as unroutable once, and only if no filter routes it" do
@@ -290,11 +311,10 @@ module MqttSpecs
         vhost = server.vhosts["/"]
         vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
         exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
-        vhost.declare_queue("closed", true, false)
+        vhost.declare_exchange("sink", "direct", true, false)
         vhost.declare_queue("open", true, false)
-        exchange.bind(vhost.queue("closed").as(LavinMQ::AMQP::Queue), "a/#", nil)
+        exchange.bind(vhost.exchange("sink").as(LavinMQ::AMQP::Exchange), "a/#", nil)
         exchange.bind(vhost.queue("open").as(LavinMQ::AMQP::Queue), "a/+", nil)
-        vhost.queue("closed").close
         msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
         ctx = LavinMQ::MQTT::PublishContext.new
 
