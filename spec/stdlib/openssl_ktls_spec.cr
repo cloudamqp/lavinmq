@@ -5,6 +5,7 @@ private def ktls_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
   tcp_server = TCPServer.new("localhost", 0)
   port = tcp_server.local_address.port
   done = Channel(Nil).new
+  release = Channel(Nil).new(1)
 
   spawn do
     client_ctx = OpenSSL::SSL::Context::Client.new
@@ -14,6 +15,7 @@ private def ktls_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
     ssl.sync = true
     ssl.puts "hello"
     ssl.gets
+    release.receive # stay connected, and silent, until the server is done
     ssl.close
     tcp.close
     done.send nil
@@ -26,6 +28,7 @@ private def ktls_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
 
   yield ssl_client
 ensure
+  release.try &.send nil
   ssl_client.try &.close
   tcp_client.try &.close
   tcp_server.try &.close
@@ -58,6 +61,19 @@ describe OpenSSL::SSL::Socket do
         ktls_handshake(ctx) do |ssl|
           ssl.ktls_send?.should be_true
           ssl.ktls_status.should_not eq "off"
+        end
+      end
+
+      it "raises IO::TimeoutError when a kTLS read times out" do
+        ctx = OpenSSL::SSL::Context::Server.new
+        ctx.certificate_chain = "spec/resources/server_certificate.pem"
+        ctx.private_key = "spec/resources/server_key.pem"
+        ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS | OpenSSL::SSL::Options::NO_TLS_V1_3)
+
+        ktls_handshake(ctx) do |ssl|
+          pending!("kTLS receive offload not active") unless ssl.ktls_recv?
+          ssl.read_timeout = 50.milliseconds
+          expect_raises(IO::TimeoutError) { ssl.gets }
         end
       end
     {% end %}
