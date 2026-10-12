@@ -1216,7 +1216,9 @@ describe "Raft::Core replication" do
     sim.run_until { sim.leader.try &.serving_leader? }
     leader = sim.leader.not_nil!
     sim.appends.clear
-    data = Bytes.new(300 * 1024, 1u8)
+    batch = Raft::Ops::Batch.new
+    batch.append_inline(1, 0, Bytes.new(300 * 1024, 1u8))
+    data = batch.to_slice.dup
     5.times { leader.propose_data(data, sim.now) }
     sim.pump
     sim.advance(100.milliseconds)
@@ -1255,7 +1257,7 @@ describe "Raft::Core durability" do
     core.commit_index.should eq core.last_index
   end
 
-  it "compacts no further than what every responsive peer has" do
+  it "compacts no further than what every peer, or every responsive peer, has" do
     sim = SimCluster.new(3, compact_on_commit: false)
     leader = sim.elect(Set{1, 2, 3})
     behind = sim.cores.keys.find! { |id| id != leader.id }
@@ -1263,9 +1265,10 @@ describe "Raft::Core durability" do
     3.times { sim.propose(leader, Set{1, 2, 3}) }
     sim.advance(SimCluster::HEARTBEAT * 2)
     # Still counted as responsive for an election timeout
-    leader.compactable_index.should eq sim[behind].last_index
+    leader.compactable_index(only_responsive: true).should eq sim[behind].last_index
     sim.advance(SimCluster::ELECTION * 2)
-    leader.compactable_index.should eq leader.commit_index
+    leader.compactable_index(only_responsive: true).should eq leader.commit_index
+    leader.compactable_index.should eq sim[behind].last_index
   end
 
   it "doesn't change a frozen log, nor campaign" do

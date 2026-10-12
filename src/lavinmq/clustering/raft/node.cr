@@ -2,6 +2,8 @@ require "json"
 require "./core"
 require "./storage"
 require "./journal"
+require "./applying_log_store"
+require "../../filesystem"
 require "./transport"
 require "../../bool_channel"
 require "../../logger"
@@ -92,7 +94,11 @@ module LavinMQ::Clustering::Raft
     private record GetMetrics, reply : Channel(Metrics)
     # A proposal that's answered once its entry is committed, or lost
     private record Pending, index : Int64, term : Int64, done : Bool ->
-    private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | CheckTransfer | GetStatus | GetMetrics
+    private record ProposeData, data : Bytes, reply : Channel(Tuple(Int64, Int64)?)
+    private record AwaitCommit, index : Int64, term : Int64, reply : Channel(Bool)
+    private record LocalDurable, index : Int64
+    private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | CheckTransfer | GetStatus |
+                          GetMetrics | ProposeData | AwaitCommit | LocalDurable
 
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
@@ -129,6 +135,11 @@ module LavinMQ::Clustering::Raft
     @save_buckets = Array(UInt64).new(SAVE_BUCKETS.size + 1, 0_u64)
     @save_count = 0_u64
     @save_sum = 0.0
+    # This node's own data entries, as leader, whose payload isn't known to be
+    # on disk yet, see #local_durable
+    @unsynced_payload = Deque(Int64).new
+    # The durable mark changed, see JournalLogStore#mark_durable
+    @mark_dirty = false
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
@@ -136,9 +147,13 @@ module LavinMQ::Clustering::Raft
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       @election_timeout = election_timeout
       state = @storage.load
-      @log = JournalLogStore.new(@storage.dir, state.try(&.journal_generation) || 0i64,
+      journal = JournalLogStore.new(@storage.dir, state.try(&.journal_generation) || 0i64,
         state.try(&.snapshot_index) || 0i64, state.try(&.snapshot_term) || 0i64,
         state.try(&.entries) || Array(Entry).new)
+      applier = FileApplier.new(@storage.dir, journal.snapshot_index)
+      (journal.snapshot_index + 1..journal.last_index).each { |i| applier.replay(i, journal.entry(i).data) }
+      applier.reconcile
+      @log = ApplyingLogStore.new(journal, applier)
       @saved_generation = state.try(&.journal_generation) || 0i64
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, state, bootstrap: bootstrap, log: @log)
@@ -215,6 +230,34 @@ module LavinMQ::Clustering::Raft
       await reply, false
     rescue Channel::ClosedError
       false
+    end
+
+    # Appends an entry with the broker's ops, *data*, as the leader. Returns
+    # its index and term once appended, nil when not the leader. The payload
+    # is in the files already, and must be reported fsynced with
+    # #local_durable before this node counts itself for committing it.
+    def propose_data(data : Bytes) : Tuple(Int64, Int64)?
+      reply = Channel(Tuple(Int64, Int64)?).new(1)
+      @events.send ProposeData.new(data, reply)
+      await reply, nil
+    rescue Channel::ClosedError
+      nil
+    end
+
+    # Waits until the entry at *index* in *term* is committed. False when it
+    # won't be in that term: leadership was lost, or the node stopped.
+    def await_commit(index : Int64, term : Int64) : Bool
+      reply = Channel(Bool).new(1)
+      @events.send AwaitCommit.new(index, term, reply)
+      await reply, false
+    rescue Channel::ClosedError
+      false
+    end
+
+    # The payload of this node's own entries up to *index* is fsynced
+    def local_durable(index : Int64) : Nil
+      @events.send LocalDurable.new(index)
+    rescue Channel::ClosedError
     end
 
     # Add the node at `address` as non-voting learner. It must be running, so
@@ -315,7 +358,7 @@ module LavinMQ::Clustering::Raft
       if @transport
         @stopped.receive?
       else
-        @log.close
+        close_log
         @stopped.close
       end
       @transport.try &.close
@@ -342,7 +385,7 @@ module LavinMQ::Clustering::Raft
       @pending.each &.done.call(false)
       @pending.clear
       @serving.set(false)
-      @log.close
+      close_log
       @stopped.close
     end
 
@@ -392,6 +435,19 @@ module LavinMQ::Clustering::Raft
       in CheckTransfer
         result = @core.transfer_check(event.target)
         event.reply.send result.is_a?(Int32) ? {result, @core.term} : result
+      in ProposeData
+        @log.local = true
+        index = @core.propose_data(event.data, Time.instant)
+        @log.local = false
+        @unsynced_payload << index if index
+        event.reply.send(index ? {index, @core.term} : nil)
+      in AwaitCommit
+        @pending << Pending.new(event.index, event.term, ->(committed : Bool) { event.reply.send committed })
+      in LocalDurable
+        while (first = @unsynced_payload.first?) && first <= event.index
+          @unsynced_payload.shift
+          @mark_dirty = true
+        end
       in GetStatus
         event.reply.send build_status
       in GetMetrics
@@ -438,11 +494,14 @@ module LavinMQ::Clustering::Raft
     end
 
     private def flush : Nil
-      save if @core.dirty?
-      # Saved, so the leader may count itself for what it appended
-      @core.durable_to(@core.last_index)
+      forget_unsynced_payload
+      save if @core.dirty? || @mark_dirty
+      # Saved, so the leader may count itself for what it appended, up to what
+      # its broker has fsynced the payload of
+      @core.durable_to(durable_bound)
       if transport = @transport
         @core.take_outbox.each do |(to, msg)|
+          msg = with_payload(msg) || next if msg.is_a?(AppendEntries)
           @core.address_of(to).try { |address| transport.send(address, msg) }
         end
       end
@@ -457,14 +516,23 @@ module LavinMQ::Clustering::Raft
     # The log first, then `.raft_state` if what it holds changed, or names
     # another journal generation, and only then are the generations it no
     # longer names dropped. See JournalLogStore.
+    # The payload written to the files, then the log, then `.raft_state` if
+    # what it holds changed or it names another journal generation, and only
+    # then are the journal generations and file tables it no longer names
+    # dropped. See JournalLogStore and FileApplier.
     private def save : Nil
       started = Time.instant
-      @log.sync
-      if @core.meta_dirty? || @core.unsaved_commit? || @log.generation != @saved_generation
-        @storage.save(@core.meta_state.copy_with(journal_generation: @log.generation))
-        @saved_generation = @log.generation
+      journal = @log.journal
+      @log.applier.sync
+      journal.mark_durable(durable_bound)
+      journal.sync
+      if @core.meta_dirty? || @core.unsaved_commit? || journal.generation != @saved_generation
+        @storage.save(@core.meta_state.copy_with(journal_generation: journal.generation))
+        @saved_generation = journal.generation
       end
-      @log.drop_old_generations
+      journal.drop_old_generations
+      @log.applier.drop_old_tables
+      @mark_dirty = false
       observe_save((Time.instant - started).total_seconds)
       @core.persisted
     rescue ex
@@ -472,9 +540,47 @@ module LavinMQ::Clustering::Raft
       exit 1
     end
 
+    # What the log is on disk up to: all of it, unless this node's own data
+    # entries' payload isn't yet
+    private def durable_bound : Int64
+      (@unsynced_payload.first? || @core.last_index + 1) - 1
+    end
+
+    # Own data entries that were truncated have no payload to wait for. When
+    # no longer the leader nothing reports it anymore, so it's synced here.
+    private def forget_unsynced_payload : Nil
+      while (last = @unsynced_payload.last?) && last > @core.last_index
+        @unsynced_payload.pop
+      end
+      return if @unsynced_payload.empty? || @core.role.leader?
+      File.open(@storage.dir) { |dir| FileSystem.syncfs(dir.fd) }
+      @unsynced_payload.clear
+      @mark_dirty = true
+    end
+
+    # Where the transport reads the payload of an append's entries from. Nil
+    # when a file is gone, the append isn't sent then.
+    private def with_payload(msg : AppendEntries) : AppendEntries?
+      return msg if msg.entries.empty?
+      plan = @log.applier.payload_plan(msg.entries) || return msg
+      msg.copy_with(payload: plan)
+    rescue ex : FileApplier::Unavailable
+      Log.warn { "Can't send entries #{msg.prev_index + 1}..#{msg.prev_index + msg.entries.size}: #{ex.message}" }
+      nil
+    end
+
+    private def close_log : Nil
+      @log.journal.close
+      @log.applier.close
+    end
+
+    # The log is kept for peers that are down, so they can catch up from it
+    # when they're back, until it holds this much
+    MAX_LOG_BYTES = 512i64 << 20
+
     # Folds what's committed into the snapshot, as far as the peers have it
     private def compact : Nil
-      index = @core.compactable_index
+      index = @core.compactable_index(only_responsive: @log.journal.live_bytes > MAX_LOG_BYTES)
       @core.compact_to(index) if index > @core.snapshot_index
     end
 

@@ -1,3 +1,5 @@
+require "./ops"
+
 module LavinMQ::Clustering::Raft
   # The cluster configuration. Nodes are known by their clustering id, the
   # address is where to reach them, so a node that moves keeps its identity.
@@ -20,8 +22,20 @@ module LavinMQ::Clustering::Raft
   # and every entry carries the full value of whichever it changes (nil for
   # the other, and for both in the no-op a new leader appends, unless it's the
   # first leader), so the latest non-nil value is the whole state and
-  # compaction is trivial. `data` is the broker's, opaque to the Core.
-  record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil, data : Bytes? = nil
+  # compaction is trivial. `data` is the broker's, an Ops batch. `payload`
+  # only travels with it: the bytes its Append ops write, never logged.
+  record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil, data : Bytes? = nil,
+    payload : Bytes? = nil do
+    # The bytes of the Append ops in `data`
+    def payload_size : Int64
+      d = data || return 0i64
+      Ops.payload_bytes(d)
+    end
+  end
+
+  # Where the leader reads payload from: a range of a file, which must still
+  # be the inode `ino`. `path` is absolute.
+  record PayloadRange, path : String, pos : Int64, len : Int64, ino : UInt64
 
   # `from` is the sender's clustering id. Messages are one-way: replies are
   # sent back as their own message over the sender's outbound connection.
@@ -30,8 +44,11 @@ module LavinMQ::Clustering::Raft
 
   record VoteResponse, from : Int32, term : Int64, granted : Bool, pre_vote : Bool
 
+  # `payload` is where the leader reads its entries' payload from, set by the
+  # Node before the transport sends it, see Transport.
   record AppendEntries, from : Int32, term : Int64, leader_uri : String,
-    prev_index : Int64, prev_term : Int64, entries : Array(Entry), commit : Int64
+    prev_index : Int64, prev_term : Int64, entries : Array(Entry), commit : Int64,
+    payload : Array(PayloadRange)? = nil
 
   # On failure match_index is a hint of the follower's last index.
   record AppendResponse, from : Int32, term : Int64, success : Bool, match_index : Int64

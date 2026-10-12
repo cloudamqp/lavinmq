@@ -198,6 +198,8 @@ module LavinMQ::Clustering::Raft
     # Entries in one AppendEntries, by their encoded size, at least one entry
     # is always sent. Below Codec::MAX_FRAME, which the receiver enforces.
     MAX_APPEND_BYTES = 512i64 << 10
+    # Payload with one AppendEntries, at least one entry's is always sent
+    MAX_APPEND_PAYLOAD = 4i64 << 20
 
     # Election timeouts without a leader before voters at new addresses are
     # trusted, see at_home?. Long enough that a normal election has had
@@ -314,12 +316,16 @@ module LavinMQ::Clustering::Raft
     end
 
     # How far the log can be compacted: what's committed and on disk here, and
-    # on the leader also what every responsive peer has. A peer that's behind
-    # that gets a snapshot when it's back.
-    def compactable_index : Int64
+    # on the leader also what every peer has, or with *only_responsive* what
+    # every responsive peer has. A peer that's behind that gets a snapshot
+    # when it's back.
+    def compactable_index(only_responsive = false) : Int64
       index = Math.min(@commit_index, @local_durable_index)
       if @role.leader?
-        @peers.each { |p| index = Math.min(index, match_index(p)) if responsive?(p) }
+        @peers.each do |p|
+          next if only_responsive && !responsive?(p)
+          index = Math.min(index, match_index(p))
+        end
       end
       index
     end
@@ -794,6 +800,9 @@ module LavinMQ::Clustering::Raft
     # *membership*. Our log is dropped, the leader sends what follows.
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
       return if index <= @commit_index
+      # What isn't known to be committed may be another leader's that never
+      # will be, undone before the snapshot takes over
+      truncate_from(@commit_index + 1)
       @log.reset(index, term)
       @snapshot = Snapshot.new(index, term, isr, membership)
       @commit_index = index
@@ -1185,19 +1194,23 @@ module LavinMQ::Clustering::Raft
     # size of the entries.
     private def send_entries(peer : Int32, from : Int64) : Tuple(Int64, Int64)
       entries = Array(Entry).new
-      bytes = 0i64
+      bytes = payload = 0i64
       index = from
       while index <= last_index
         entry = @log.entry(index)
         size = entry_size(entry)
-        break if !entries.empty? && bytes + size > MAX_APPEND_BYTES
+        payload_size = entry.payload_size
+        unless entries.empty?
+          break if bytes + size > MAX_APPEND_BYTES || payload + payload_size > MAX_APPEND_PAYLOAD
+        end
         entries << entry
         bytes += size
+        payload += payload_size
         index += 1
       end
       prev = from - 1
       send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @commit_index)
-      {prev + entries.size, bytes}
+      {prev + entries.size, bytes + payload}
     end
 
     # Roughly what an entry takes in an AppendEntries

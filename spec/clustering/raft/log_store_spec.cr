@@ -270,4 +270,46 @@ describe Raft::JournalLogStore do
       end
     end
   end
+
+  it "drops what's after the last durable mark on opening" do
+    with_journal_dir do |dir|
+      log = Raft::JournalLogStore.new(dir, 0, 0, 0)
+      3.times { |i| log.append entry(1, i.to_s) }
+      log.mark_durable(2)
+      log.sync
+      log.close
+      reopened = Raft::JournalLogStore.new(dir, 1, 0, 0)
+      reopened.entries.should eq [entry(1, "0"), entry(1, "1")]
+      reopened.append entry(2, "x")
+      reopened.mark_durable(3)
+      reopened.sync
+      reopened.close
+      Raft::JournalLogStore.new(dir, 1, 0, 0).tap do |again|
+        again.entries.should eq [entry(1, "0"), entry(1, "1"), entry(2, "x")]
+        again.close
+      end
+    end
+  end
+
+  it "keeps every entry without a durable mark, and the mark in a new generation" do
+    with_journal_dir do |dir|
+      log = Raft::JournalLogStore.new(dir, 0, 0, 0)
+      2.times { log.append entry(1) }
+      log.sync
+      log.close
+      Raft::JournalLogStore.new(dir, 1, 0, 0).tap do |reopened|
+        reopened.last_index.should eq 2
+        reopened.mark_durable(1)
+        reopened.reset(0, 0) # a new generation, the live entries rewritten
+        reopened.append entry(1)
+        reopened.append entry(1)
+        reopened.sync
+        reopened.close
+      end
+      Raft::JournalLogStore.new(dir, 2, 0, 0).tap do |reopened|
+        reopened.last_index.should eq 1
+        reopened.close
+      end
+    end
+  end
 end

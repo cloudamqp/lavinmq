@@ -36,13 +36,25 @@ module LavinMQ::Clustering::Raft
 
     # Trash the log refers to, with the index of the entry that put it there
     @trash = Deque(Tuple(Int64, Int64)).new
+    # Files gone from `current` that are in the trash: their trash path
+    # (relative) and the index that put them there, for sending payload
+    @retired = Hash(UInt32, Tuple(String, Int64)).new
     @files = Hash(UInt32, File).new
     @touched_files = Set(UInt32).new
     @touched_dirs = Set(String).new
 
     def initialize(@data_dir : String, @base_index : Int64)
-      @base = FileTable.load(@data_dir, @base_index)
+      @base = load_base
       @current = @base.dup
+    end
+
+    # Before the data was in the Raft log there were no tables, the log only
+    # held the ISR and the membership
+    private def load_base : FileTable
+      FileTable.load(@data_dir, @base_index)
+    rescue ex : FileTable::CorruptError
+      raise ex if Dir.children(@data_dir).any? { |n| FileTable.file?(n) }
+      FileTable.new
     end
 
     # The tables only, for entries already on disk, as when starting
@@ -83,6 +95,65 @@ module LavinMQ::Clustering::Raft
       undos.reverse_each &.call
       @current = before
       @trash.reject! { |t| t[0] >= from }
+      @retired.reject! { |_, r| r[1] >= from }
+    end
+
+    # Starts over at *index*, as when a snapshot is installed. The files are
+    # as the snapshot brings them, see the snapshot client.
+    def reset(index : Int64, table : FileTable) : Nil
+      close_files
+      @base = table
+      @current = table.dup
+      @base_index = index
+      @trash.clear
+      @retired.clear
+    end
+
+    # Where the payload of *entries* is on this node, the leader: a range per
+    # Append op, nil when they have none. Raises Unavailable when a file is
+    # gone.
+    def payload_plan(entries : Array(Entry)) : Array(PayloadRange)?
+      plan = nil
+      entries.each do |entry|
+        data = entry.data || next
+        Ops.each(data) do |op|
+          next unless op.type.append?
+          path, ino = locate(op.id)
+          (plan ||= Array(PayloadRange).new) << PayloadRange.new(path, op.pos, op.len, ino)
+        end
+      end
+      plan
+    end
+
+    class Unavailable < Exception; end
+
+    # The absolute path and inode of a file, in the trash too
+    private def locate(id : UInt32) : Tuple(String, UInt64)
+      if e = @current[id]?
+        e.ino = inode(abs(e.path)) if e.ino.zero?
+        {abs(e.path), e.ino}
+      elsif r = @retired[id]?
+        path = abs(r[0])
+        {path, inode(path)}
+      else
+        raise Unavailable.new("File #{id} is gone")
+      end
+    end
+
+    private def inode(path : String) : UInt64
+      FileApplier.inode(path) || raise Unavailable.new("#{path} is gone")
+    end
+
+    # The inode of *path*, nil if there's no such file
+    def self.inode(path : String) : UInt64?
+      return unless LibC.stat(path.check_no_null_byte, out stat) == 0
+      stat.st_ino.to_u64
+    end
+
+    # The inode of an open file
+    def self.inode(file : File) : UInt64
+      raise IO::Error.from_errno("fstat") unless LibC.fstat(file.fd, out stat) == 0
+      stat.st_ino.to_u64
     end
 
     # Fsyncs what was written since the last call, files and directories
@@ -108,6 +179,7 @@ module LavinMQ::Clustering::Raft
         FileUtils.rm_rf(trash_root(t[1]))
         @base.trash_watermark = Math.max(@base.trash_watermark, t[1])
       end
+      @retired.reject! { |_, r| r[1] <= index }
       @current.trash_watermark = @base.trash_watermark
       @base.save(@data_dir, index)
       @base_index = index
@@ -214,15 +286,23 @@ module LavinMQ::Clustering::Raft
       in .install?
         e = table[op.id]
         target = op.path!
-        table.by_path?(target).try { |old| table.remove(old.id) }
+        table.by_path?(target).try do |old|
+          table.remove(old.id)
+          @retired[old.id] = {File.join(TRASH_DIR, op.tid.to_s, target), index} if track
+        end
         table.move(e, target)
         e.flags &= ~Ops::STAGING
         @trash << {index, op.tid} if track
       in .delete?
-        table.remove(op.id)
+        table.remove(op.id).try do |e|
+          @retired[op.id] = {File.join(TRASH_DIR, op.tid.to_s, e.path), index} if track
+        end
         @trash << {index, op.tid} if track
       in .delete_dir?
-        table.under(op.path!).each { |e| table.remove(e.id) }
+        table.under(op.path!).each do |e|
+          table.remove(e.id)
+          @retired[e.id] = {File.join(TRASH_DIR, op.tid.to_s, e.path), index} if track
+        end
         @trash << {index, op.tid} if track
       in .truncate_to?
         table[op.id].size = op.pos
@@ -246,8 +326,13 @@ module LavinMQ::Clustering::Raft
           @touched_dirs << File.dirname(path)
         end
       in .append?
-        bytes = payload || raise Ops::CorruptError.new("No payload for an append")
-        raise Ops::CorruptError.new("The payload is short") if offset + op.len > bytes.size
+        bytes = payload
+        if bytes.nil? || offset + op.len > bytes.size
+          # As from a voter catching up a candidate, which has no payload
+          Log.warn { "No payload for #{op.len} bytes to #{@current[op.id]?.try(&.path)}, a snapshot is needed" }
+          @needs_snapshot = true
+          return offset
+        end
         write(op.id, op.pos, bytes[offset, op.len])
         return offset + op.len
       in .append_inline?

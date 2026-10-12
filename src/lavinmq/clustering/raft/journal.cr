@@ -36,6 +36,9 @@ module LavinMQ::Clustering::Raft
     enum RecordType : UInt8
       Append   = 1
       Truncate = 2
+      # The entries up to this index are durable, their payload too, see
+      # #mark_durable
+      Durable = 3
     end
 
     class CorruptError < Exception; end
@@ -54,7 +57,10 @@ module LavinMQ::Clustering::Raft
     @journal_bytes = 0i64
     # Size of the record that appended each live entry, and their sum
     @record_sizes = Deque(Int32).new
-    @live_bytes = 0i64
+    # Bytes of the records of the live entries, what a new generation holds
+    getter live_bytes = 0i64
+    # The last index marked durable, see #mark_durable
+    @durable_mark : Int64? = nil
 
     # Opens generation *generation* in *dir*, after the snapshot at
     # *snapshot_index*. Generation 0 means there's no journal yet: *entries*,
@@ -107,7 +113,19 @@ module LavinMQ::Clustering::Raft
       return if index > last_index
       @mem.truncate_from(index)
       forget_truncated
+      @durable_mark.try { |m| @durable_mark = Math.min(m, index - 1) }
       write_record(RecordType::Truncate) { |io| io.write_bytes index, Format }
+    end
+
+    # Records that the entries up to *index* are durable, payload included,
+    # synced with the next #sync. On opening the journal, entries after the
+    # last mark are dropped: the leader logs its own entries before their
+    # payload is fsynced, so after a crash those may lack it. Without any mark
+    # every entry counts as durable.
+    def mark_durable(index : Int64) : Nil
+      return if @durable_mark == index
+      @durable_mark = index
+      write_record(RecordType::Durable) { |io| io.write_bytes index, Format }
     end
 
     def compact_to(index : Int64, term : Int64) : Nil
@@ -193,6 +211,9 @@ module LavinMQ::Clustering::Raft
         @record_sizes << record_size
         @live_bytes += record_size
       end
+      if mark = @durable_mark
+        write_record(RecordType::Durable) { |io| io.write_bytes mark, Format }
+      end
     end
 
     # Generations no `.raft_state` names: replaced ones a crash kept from
@@ -239,6 +260,10 @@ module LavinMQ::Clustering::Raft
         end
       end
       @journal_bytes = pos.to_i64
+      if (mark = @durable_mark) && mark < last_index && mark >= snapshot_index
+        Log.warn { "#{path} has entries #{mark + 1}..#{last_index} that weren't on disk yet, dropping them" }
+        truncate_from(mark + 1)
+      end
     end
 
     # Applies the record at *pos*, returns its size, or nil when it's cut
@@ -275,6 +300,9 @@ module LavinMQ::Clustering::Raft
           @mem.truncate_from(index)
           forget_truncated
         end
+        @durable_mark.try { |m| @durable_mark = Math.min(m, index - 1) }
+      when RecordType::Durable
+        @durable_mark = io.read_bytes Int64, Format
       else
         raise CorruptError.new("Unknown journal record type")
       end

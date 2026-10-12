@@ -140,6 +140,16 @@ private class StallingTransport < Raft::Transport
   end
 end
 
+# Proposes an op batch on the leader, its payload being in the leader's files
+# already and fsynced, and waits for it to be committed
+private def propose(leader : LavinMQ::Clustering::Raft::Node, & : LavinMQ::Clustering::Raft::Ops::Batch ->) : Nil
+  batch = LavinMQ::Clustering::Raft::Ops::Batch.new
+  yield batch
+  index, term = leader.propose_data(batch.to_slice.dup).not_nil!
+  leader.local_durable(index)
+  leader.await_commit(index, term).should be_true
+end
+
 private def with_raft_cluster(size = 3, &)
   cluster = TCPRaftCluster.new(size)
   yield cluster
@@ -464,6 +474,63 @@ describe Raft::Node do
     end
   end
 
+  describe "with data in the log" do
+    it "replicates the leader's files to the followers" do
+      with_raft_cluster do |c|
+        leader = c.wait_for_leader
+        leader.propose_isr(Set{1, 2, 3}).should be_true
+        index = (0..2).find! { |i| c.nodes[c.address(i)] == leader }
+        dir = c.dirs[index]
+        others = (0..2).reject(index).map { |i| c.dirs[i] }
+
+        Dir.mkdir_p File.join(dir, "v")
+        File.write File.join(dir, "v", "f"), "hello"
+        propose(leader) { |b| b.create(1, "v/f"); b.append(1, 0, 5) }
+        wait_for { others.all? { |d| File.read(File.join(d, "v", "f")) == "hello" rescue false } }
+
+        File.open(File.join(dir, "v", "f"), "a", &.print(" world"))
+        propose(leader, &.append(1, 5, 6))
+        wait_for { others.all? { |d| File.read(File.join(d, "v", "f")) == "hello world" } }
+
+        trashed = File.join(dir, ".raft_trash", "7", "v", "f")
+        Dir.mkdir_p File.dirname(trashed)
+        File.rename File.join(dir, "v", "f"), trashed
+        propose(leader, &.delete(1, 7_i64))
+        wait_for { others.none? { |d| File.exists?(File.join(d, "v", "f")) } }
+        # Compacted once every peer has it, which purges the trash
+        wait_for { ([dir] + others).none? { |d| Dir.exists?(File.join(d, ".raft_trash", "7")) } }
+      end
+    end
+
+    it "undoes a deposed leader's uncommitted changes when it rejoins" do
+      with_raft_cluster do |c|
+        leader = c.wait_for_leader
+        leader.propose_isr(Set{1, 2, 3}).should be_true
+        index = (0..2).find! { |i| c.nodes[c.address(i)] == leader }
+        old_addr = c.address(index)
+        dir = c.dirs[index]
+        Dir.mkdir_p File.join(dir, "v")
+        File.write File.join(dir, "v", "f"), "kept"
+        propose(leader) { |b| b.create(1, "v/f"); b.append(1, 0, 4) }
+        wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
+
+        others = (0..2).reject(index).map { |i| c.address(i) }
+        others.each { |a| c.stop(a) }
+        File.open(File.join(dir, "v", "f"), "a", &.print(" lost"))
+        batch = LavinMQ::Clustering::Raft::Ops::Batch.new
+        batch.append(1, 4, 5)
+        lost = leader.propose_data(batch.to_slice.dup).not_nil!
+        leader.local_durable(lost[0])
+        c.stop(old_addr)
+        others.each { |a| c.start(a) }
+        new_leader = c.wait_for_leader
+        new_leader.propose_isr(Set{1, 2, 3}).should be_true
+        c.start(old_addr)
+        wait_for { File.read(File.join(dir, "v", "f")) == "kept" }
+      end
+    end
+  end
+
   it "ignores a copy of a node's data dir while the original is connected" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
@@ -473,7 +540,7 @@ describe Raft::Node do
       original = c.address(index)
       copy_dir = c.new_dir
       FileUtils.cp(File.join(c.dirs[index], ".raft_state"), copy_dir)
-      Dir.glob(File.join(c.dirs[index], ".raft_log.*"), match: File::MatchOptions::DotFiles) { |f| FileUtils.cp(f, copy_dir) }
+      Dir.glob(File.join(c.dirs[index], ".raft_{log,files}.*"), match: File::MatchOptions::DotFiles) { |f| FileUtils.cp(f, copy_dir) }
       _, copy = c.start_extra(index + 1, [c.address(0), c.address(1), c.address(2)], copy_dir)
       sleep 1.second
       membership = leader.membership.not_nil!

@@ -19,6 +19,8 @@ module LavinMQ::Clustering::Raft
       property size : Int64
       property flags : UInt8
       getter id : UInt32
+      # The file's inode on this node, 0 until looked up, not saved
+      property ino = 0u64
 
       def initialize(@id : UInt32, @path : String, @size : Int64 = 0i64, @flags : UInt8 = 0u8)
       end
