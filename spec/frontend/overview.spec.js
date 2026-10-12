@@ -26,10 +26,12 @@ test.describe("overview", _ => {
     const loaded = overviewLoaded()
     await page.goto('/')
     await loaded
+    await helpers.pollerSettled(page)
     for (let i = 0; i < 3; i++) {
       const refreshed = overviewLoaded()
       await page.clock.runFor(30000)
       await refreshed
+      await helpers.pollerSettled(page)
     }
     const points = await page.evaluate(async () => {
       const { Chart } = await import('/js/lib/chart.js')
