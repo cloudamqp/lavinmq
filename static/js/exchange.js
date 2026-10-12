@@ -53,6 +53,7 @@ function updateExchange (all) {
       if (item.type === 'x-mqtt-topic') {
         document.getElementById('e-policy').textContent = 'Not supported'
         document.getElementById('e-arguments').textContent = 'Not supported by this exchange type'
+        document.querySelector('#addBinding [name="routing_key"]').placeholder = 'MQTT topic filter, e.g. sensors/+/temp'
       }
     }
   }).catch(() => {})
