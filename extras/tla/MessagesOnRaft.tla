@@ -46,8 +46,12 @@ CONSTANTS
     \* raft-election branch does)
     DeliveryGate,
     \* After losing power a server doesn't vote, nor campaign, until it has
-    \* heard from a leader: it may have lost entries it had acked
+    \* caught up with a leader's whole log: it may have lost entries it had
+    \* acked, and only holds them all again then
     AbstainAfterPowerLoss,
+    \* Servers stop abstaining as soon as they hear from a leader, caught up
+    \* or not
+    BugStopAbstainOnContact,
     \* Followers ack entries as durable before fsyncing them
     BugAckBeforeFsync,
     \* Followers ack their whole fsynced log as durable, not just the part
@@ -245,9 +249,11 @@ Replicate(s, t, i) ==
            newLog == IF keep THEN log[t] ELSE Append(SubSeq(log[t], 1, i), entry)
            newDurable == IF keep THEN durableLen[t] ELSE Min(durableLen[t], i)
            ver == i + Len(entries)
+           caughtUp == logOk /\ ver = Len(log[s])
        IN /\ currentTerm' = [currentTerm EXCEPT ![t] = currentTerm[s]]
           /\ role' = [role EXCEPT ![t] = "Follower"]
-          /\ abstain' = [abstain EXCEPT ![t] = FALSE]   \* heard from a leader
+          /\ abstain' = [abstain EXCEPT ![t] =
+                            IF BugStopAbstainOnContact \/ caughtUp THEN FALSE ELSE @]
           /\ IF ~logOk
              THEN UNCHANGED <<log, durableLen, commitIndex, matchMem, matchDur, deleted>>
              ELSE /\ log' = [log EXCEPT ![t] = newLog]
