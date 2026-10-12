@@ -6,8 +6,8 @@ require "socket"
 # These rely on stdlib internals (Socket's @fd_lock, the event loop's
 # wait_readable), so re-verify them, and bump the version here, when
 # upgrading Crystal. Replace them if the stdlib gets an equivalent API.
-{% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.22.0") < 0 %}
-  {% warning "Socket#read_nonblock is only tested with Crystal 1.21, not #{Crystal::VERSION.id}" %}
+{% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.23.0") < 0 %}
+  {% warning "Socket#read_nonblock is only tested with Crystal 1.21 and 1.22, not #{Crystal::VERSION.id}" %}
 {% end %}
 
 lib LibC
