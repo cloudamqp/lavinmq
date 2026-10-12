@@ -94,8 +94,8 @@ function handleQueueState (state) {
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 let detailsRendered = false
-function updateQueue (all) {
-  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
+function updateQueue (all, signal) {
+  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
@@ -151,7 +151,7 @@ function updateQueue (all) {
       }
     }).catch(() => {})
 }
-Poller.start(updateQueue)
+Poller.start(signal => updateQueue(false, signal))
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
