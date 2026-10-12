@@ -102,9 +102,6 @@ module LavinMQ
         @http.listen
       end
 
-      # Closing the control socket's listener deletes its file. That's left to
-      # it, as this server may not have bound the socket: another node can be
-      # serving it, or this server only listens on TCP, like in specs.
       def close
         @http.try &.close
       end
