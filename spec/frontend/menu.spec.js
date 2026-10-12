@@ -18,7 +18,8 @@ test.describe('menu', _ => {
     { path: '/vhosts', cls: 'vhosts', label: 'Virtual hosts' },
     { path: '/policies', cls: 'policies', label: 'Policies' },
     { path: '/operator-policies', cls: 'operator-policies', label: 'Operator policies' },
-    { path: '/users', cls: 'users', label: 'Users' }
+    { path: '/users', cls: 'users', label: 'Users' },
+    { path: '/mqtt-permissions', cls: 'mqtt-permissions', label: 'MQTT permissions' }
   ]
 
   for (const { path, cls, label } of pages) {

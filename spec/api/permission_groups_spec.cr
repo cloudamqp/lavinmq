@@ -336,6 +336,43 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       end
     end
 
+    it "lists rules with pagination and filtering" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+        3.times do |i|
+          rule = {pattern: "sensors/#{i}/#", read: true, write: false}.to_json
+          http.put("/api/mqtt/permission-groups/%2f/grp/rules/rule-#{i}", body: rule).status_code.should eq 201
+        end
+
+        paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules?page=2&page_size=2").body)
+        paged["items"].as_a.map(&.["identifier"].as_s).should eq ["rule-2"]
+        paged["total_count"].as_i.should eq 3
+        paged["page_count"].as_i.should eq 2
+
+        filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules?name=rule-1").body).as_a
+        filtered.map(&.["identifier"].as_s).should eq ["rule-1"]
+      end
+    end
+
+    it "gets a single rule by identifier" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+        rule = {pattern: "status/+", read: true, write: false}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/grp/rules/status", body: rule).status_code.should eq 201
+
+        response = http.get("/api/mqtt/permission-groups/%2f/grp/rules/status")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["identifier"].as_s.should eq "status"
+        body["pattern"].as_s.should eq "status/+"
+        body["read"].as_bool.should be_true
+        body["write"].as_bool.should be_false
+
+        http.get("/api/mqtt/permission-groups/%2f/grp/rules/missing").status_code.should eq 404
+        http.get("/api/mqtt/permission-groups/%2f/missing/rules/status").status_code.should eq 404
+      end
+    end
+
     it "rejects an invalid rule, creating nothing" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201

@@ -238,6 +238,16 @@ main.main-grid {
   grid-column: auto / span 12;
 }
 
+/* A card that hugs its content instead of stretching to the row height */
+.self-start {
+  align-self: start;
+}
+
+/* Balance the 2rem gap that the heading leaves above the field */
+#addMember {
+  padding-bottom: 2.5rem;
+}
+
 [data-tab-content] {
   grid-column: 1 / -1;
   display: grid;
@@ -1031,6 +1041,7 @@ footer .logo {
   --icon-policies: url(img/icons/icon-policies-dark.svg);
   --icon-operator-policies: url(img/icons/icon-opolicies-dark.svg);
   --icon-users: url(img/icons/icon-users-dark.svg);
+  --icon-mqtt-permissions: url(img/icons/icon-mqtt-permissions-dark.svg);
   --icon-http-api: url(img/icons/icon-external-dark.svg);
   --icon-sliders: url('img/icons/icon-sliders-dark.svg');
 }
@@ -1049,6 +1060,7 @@ footer .logo {
   --icon-policies: url(img/icons/icon-policies-light.svg);
   --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
   --icon-users: url(img/icons/icon-users-light.svg);
+  --icon-mqtt-permissions: url(img/icons/icon-mqtt-permissions-light.svg);
   --icon-http-api: url(img/icons/icon-external-light.svg);
   --icon-sliders: url('img/icons/icon-sliders-light.svg');
 }
@@ -1197,6 +1209,13 @@ footer .logo {
     &.users {
       a { background-image: var(--icon-users); }
       .users & a {
+        background-color: var(--highlight-color);
+        opacity: 1;
+      }
+    }
+    &.mqtt-permissions {
+      a { background-image: var(--icon-mqtt-permissions); }
+      .mqtt-permissions & a {
         background-color: var(--highlight-color);
         opacity: 1;
       }

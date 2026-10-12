@@ -12,6 +12,8 @@ function editItem (form, item, valueFactories) {
     if (valueFactories[input.name]) { value = valueFactories[input.name](item) }
     if (input instanceof window.HTMLSelectElement) {
       input.selectedIndex = Array.from(input.options).findIndex(i => i.value === value)
+    } else if (input.type === 'checkbox') {
+      input.checked = !!value
     } else {
       // Missing values should render as empty, not as the string "undefined"
       input.value = value ?? ''
