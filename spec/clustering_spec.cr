@@ -586,14 +586,10 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       end
     end
 
-    # Wait for lag to increase
-    loop do
-      select
-      when appended.receive?
-      when timeout 0.1.seconds
-      end
-      break if replicator.@followers.first?.try &.lag_in_bytes.>(0)
-    end
+    # Wait for lag to increase. Sleeping between checks parks the fill fiber
+    # on its channel send, so the follower's sender fiber gets to run; polling
+    # the channel instead would ping-pong between the two and starve it.
+    wait_for { replicator.@followers.first?.try &.lag_in_bytes.>(0) }
 
     # Now disconnect the follower. Our "fill" fiber should continue or exit
     client_io.close
