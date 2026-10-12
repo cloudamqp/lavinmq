@@ -97,7 +97,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 - A dedicated MQTT exchange handles topic routing
 - Each MQTT session is an AMQP queue
 - MQTT subscriptions are bindings on the MQTT exchange
-- MQTT topic separators (`/`) map directly to AMQP routing key segments
+- The MQTT topic is used unchanged as the routing key: `/` is not translated to `.`, also not for messages delivered to AMQP consumers through an [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp)
 - Message properties are mapped between protocols (e.g., `delivery_mode` maps to QoS, `mqtt.retain` header tracks retain flag)
 
 ## Consuming MQTT Messages over AMQP
