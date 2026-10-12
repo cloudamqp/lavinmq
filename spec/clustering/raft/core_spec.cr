@@ -20,6 +20,8 @@ private class SimCluster
   @addresses = Hash(Int32, String).new
   @seeds : Array(String)
   @inflight = Deque(Tuple(Int32, Raft::Message)).new
+  # Every AppendEntries sent, delivered or not, by recipient
+  getter appends = Hash(Int32, Array(Raft::AppendEntries)).new { |h, k| h[k] = Array(Raft::AppendEntries).new }
 
   def initialize(size : Int32, seed = 1, @bootstrap : Array(Int32)? = nil, @compact_on_commit = true)
     (1..size).each { |id| @addresses[id] = "n#{id}" }
@@ -144,7 +146,11 @@ private class SimCluster
           @disk[c.id] = c.hard_state
           c.persisted
         end
-        c.take_outbox.each { |m| @inflight << m }
+        c.take_outbox.each do |m|
+          msg = m[1]
+          @appends[m[0]] << msg if msg.is_a?(Raft::AppendEntries)
+          @inflight << m
+        end
       end
       break if @inflight.empty?
       while item = @inflight.shift?
@@ -1172,5 +1178,58 @@ describe "Raft::Core without compacting on commit" do
     core.last_index.should eq 1
     core.commit_index.should eq 1
     core.committed_isr.should eq Set{1, 2}
+  end
+end
+
+describe "Raft::Core replication" do
+  it "doesn't send entries again while they're in flight" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    follower = sim.cores.keys.find! { |id| id != leader.id }
+    sim.isolated << follower
+    sim.appends.clear
+    20.times { sim.propose(leader, Set{leader.id}) }
+    sent = sim.appends[follower].sum(&.entries.size)
+    sent.should be <= 20
+    sim.appends[follower].count { |m| !m.entries.empty? }.should be <= Raft::Core::MAX_INFLIGHT
+  end
+
+  it "sends entries again after they were lost" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    follower = sim.cores.keys.find! { |id| id != leader.id }
+    sim.isolated << follower
+    5.times { sim.propose(leader, Set{leader.id}) }
+    sim.advance(10.milliseconds)
+    sim.isolated.delete(follower)
+    sim.advance(SimCluster::HEARTBEAT * 4)
+    sim[follower].last_index.should eq leader.last_index
+  end
+
+  it "keeps appends within the frame size" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    sim.appends.clear
+    data = Bytes.new(300 * 1024, 1u8)
+    5.times { leader.propose_data(data, sim.now) }
+    sim.pump
+    sim.advance(100.milliseconds)
+    sim.cores.each_value { |c| c.last_index.should eq leader.last_index }
+    sim.appends.each_value do |messages|
+      messages.each { |m| Raft::Codec.encode(m).size.should be <= Raft::Codec::MAX_FRAME }
+    end
+  end
+
+  it "sends heartbeats without entries once a peer has everything" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.advance(100.milliseconds)
+    sim.appends.clear
+    sim.advance(SimCluster::HEARTBEAT * 3)
+    sim.appends.values.flatten.should_not be_empty
+    sim.appends.values.flatten.all?(&.entries.empty?).should be_true
   end
 end

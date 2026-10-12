@@ -306,10 +306,16 @@ module LavinMQ::Clustering::Raft
       socket.tcp_keepalive_idle, socket.tcp_keepalive_interval, socket.tcp_keepalive_count = KEEPALIVE
     end
 
-    # *frame* is the connection's encoding buffer, reused for every message
+    # *frame* is the connection's encoding buffer, reused for every message.
+    # A message larger than the peer accepts is dropped here, sending it would
+    # only make the peer close the connection.
     private def write_frame(io : IO, msg : Message, frame : IO::Memory) : Nil
       frame.clear
       Codec.encode(msg, frame)
+      if frame.size > Codec::MAX_FRAME
+        Log.error { "Not sending a #{msg.class.name} of #{frame.size} bytes, more than a frame can be" }
+        return
+      end
       io.write_bytes frame.size.to_u32, Codec::Format
       io.write frame.to_slice
     end

@@ -144,7 +144,13 @@ module LavinMQ::Clustering::Raft
     # folded into the ISR and membership it ended with
     private record Snapshot, index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?
 
-    # What the leader knows about a peer
+    # What the leader knows about a peer, and what it has sent it.
+    #
+    # A peer is probed until it accepts an append: one message at a time,
+    # walking next_index back on rejections. Then entries are replicated to
+    # it optimistically, next_index moving on as they're sent, with a bounded
+    # number of messages and bytes in flight. A rejection, or no progress for
+    # #resend_after, makes it probed again from what it has.
     private class Progress
       # The next entry to send it
       property next_index : Int64
@@ -155,10 +161,43 @@ module LavinMQ::Clustering::Raft
       property last_ack : Time::Instant
       # When it last answered this leader, unlike last_ack never seeded
       property answered : Time::Instant? = nil
+      property? probing = true
+      # A probe is out, the next goes when it's answered or on a heartbeat
+      property? probe_sent = false
+      # The last index of each message in flight, with its size
+      getter inflight = Deque(Tuple(Int64, Int64)).new
+      property inflight_bytes = 0i64
+      # When match_index last moved, or replication (re)started
+      property progressed : Time::Instant
 
       def initialize(@next_index : Int64, @last_ack : Time::Instant)
+        @progressed = @last_ack
+      end
+
+      # Forgets the messages in flight up to *index*, it has those
+      def acked(index : Int64) : Nil
+        while (first = @inflight.first?) && first[0] <= index
+          @inflight.shift
+          @inflight_bytes -= first[1]
+        end
+      end
+
+      # Back to probing, from *next_index*
+      def probe(next_index : Int64) : Nil
+        @probing = true
+        @probe_sent = false
+        @next_index = next_index
+        @inflight.clear
+        @inflight_bytes = 0i64
       end
     end
+
+    # Messages and bytes in flight to a peer being replicated to
+    MAX_INFLIGHT       = 8
+    MAX_INFLIGHT_BYTES = 16i64 << 20
+    # Entries in one AppendEntries, by their encoded size, at least one entry
+    # is always sent. Below Codec::MAX_FRAME, which the receiver enforces.
+    MAX_APPEND_BYTES = 512i64 << 10
 
     # Election timeouts without a leader before voters at new addresses are
     # trusted, see at_home?. Long enough that a normal election has had
@@ -439,6 +478,17 @@ module LavinMQ::Clustering::Raft
       last_index
     end
 
+    # Append an entry with the broker's *data*. Returns its index, or nil when
+    # not the leader. Committed like #propose.
+    def propose_data(data : Bytes, now : Time::Instant) : Int64?
+      return unless @role.leader?
+      @now = now
+      append Entry.new(@term, nil, nil, data)
+      advance_commit
+      broadcast_append
+      last_index
+    end
+
     # Append a single-server membership change. Returns its index, or why it
     # was refused. It's committed once `commit_index` reaches the index while
     # still leader in the same term. Only one change can be in flight, and only
@@ -509,7 +559,7 @@ module LavinMQ::Clustering::Raft
         manage_membership
         if now >= @heartbeat_due
           @heartbeat_due = now + @heartbeat_interval
-          broadcast_append
+          heartbeat(now)
         end
       else
         @trust_moved = true if leaderless_for(now) >= @election_timeout * MOVED_TRUST_AFTER
@@ -742,10 +792,15 @@ module LavinMQ::Clustering::Raft
       if msg.success
         if msg.match_index > progress.match_index
           progress.match_index = msg.match_index
+          progress.progressed = now
           advance_commit
         end
-        progress.next_index = Math.max(progress.next_index, msg.match_index + 1)
-        send_append(msg.from) if progress.next_index <= last_index
+        progress.acked(msg.match_index)
+        if progress.probing?
+          progress.probing = false
+          progress.next_index = Math.max(progress.next_index, msg.match_index + 1)
+        end
+        send_append(msg.from)
         if (d = @departing[msg.from]?) && msg.match_index >= d.index
           @departing.delete(msg.from)
           refresh_membership
@@ -755,7 +810,9 @@ module LavinMQ::Clustering::Raft
           send msg.from, TimeoutNow.new(@id, @term)
         end
       else
-        progress.next_index = Math.max(1i64, Math.min(progress.next_index - 1, msg.match_index + 1))
+        # The hint is the last entry it has, or one before the one it lacks
+        next_index = Math.min(progress.next_index - 1, msg.match_index + 1)
+        progress.probe(Math.max(progress.match_index + 1, next_index))
         send_append(msg.from)
       end
     end
@@ -977,9 +1034,31 @@ module LavinMQ::Clustering::Raft
       term > last_term || (term == last_term && index >= last_index)
     end
 
+    # Sends what each peer can take of the new entries
     private def broadcast_append : Nil
       @peers.each { |p| send_append(p) }
       @departing.each_key { |p| send_append(p) }
+    end
+
+    # Every peer hears from the leader, also when there's nothing new to send
+    # it. A probe that wasn't answered goes again, and so do entries in flight
+    # without progress for #resend_after, two heartbeats.
+    private def heartbeat(now : Time::Instant) : Nil
+      @progress.each do |peer, progress|
+        next unless tracked?(peer)
+        if progress.probing?
+          progress.probe_sent = false
+        elsif !progress.inflight.empty? && now - progress.progressed >= resend_after
+          progress.probe(progress.match_index + 1)
+        end
+        send_append(peer, heartbeat: true)
+      end
+    end
+
+    # How long entries in flight may go unacknowledged before they're sent
+    # again, as lost
+    private def resend_after : Time::Span
+      @heartbeat_interval * 2
     end
 
     private def expire_departing(now : Time::Instant) : Nil
@@ -1028,15 +1107,65 @@ module LavinMQ::Clustering::Raft
       @peers.each { |p| @progress[p] ||= Progress.new(last_index + 1, @now) }
     end
 
-    private def send_append(peer : Int32) : Nil
-      next_index = @progress[peer]?.try(&.next_index) || last_index + 1
-      if next_index <= @snapshot.index
+    # Sends a peer the entries it can take, see Progress. With *heartbeat*
+    # something is sent also when no entries are: an empty append after what
+    # it's known to have, which can't make it truncate anything.
+    private def send_append(peer : Int32, heartbeat = false) : Nil
+      progress = @progress[peer]? || return
+      if progress.next_index <= @snapshot.index
         send peer, InstallSnapshot.new(@id, @term, @uri, @snapshot.index, @snapshot.term, @snapshot.isr,
           @snapshot.membership)
         return
       end
-      prev = next_index - 1
-      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), @log.slice(next_index), @commit_index)
+      sent = false
+      if progress.probing?
+        unless progress.probe_sent?
+          send_entries(peer, progress.next_index)
+          progress.probe_sent = true
+          sent = true
+        end
+      else
+        while progress.next_index <= last_index && progress.inflight.size < MAX_INFLIGHT &&
+              progress.inflight_bytes < MAX_INFLIGHT_BYTES
+          last, bytes = send_entries(peer, progress.next_index)
+          progress.inflight << {last, bytes}
+          progress.inflight_bytes += bytes
+          progress.next_index = last + 1
+          sent = true
+        end
+      end
+      return if sent || !heartbeat
+      prev = Math.max(progress.match_index, @snapshot.index)
+      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), Array(Entry).new, @commit_index)
+    end
+
+    # One AppendEntries from *from* on, as many entries as fit in
+    # MAX_APPEND_BYTES but at least one. Returns the last index sent and the
+    # size of the entries.
+    private def send_entries(peer : Int32, from : Int64) : Tuple(Int64, Int64)
+      entries = Array(Entry).new
+      bytes = 0i64
+      index = from
+      while index <= last_index
+        entry = @log.entry(index)
+        size = entry_size(entry)
+        break if !entries.empty? && bytes + size > MAX_APPEND_BYTES
+        entries << entry
+        bytes += size
+        index += 1
+      end
+      prev = from - 1
+      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @commit_index)
+      {prev + entries.size, bytes}
+    end
+
+    # Roughly what an entry takes in an AppendEntries
+    private def entry_size(entry : Entry) : Int64
+      size = 32i64
+      entry.data.try { |d| size += d.size }
+      entry.isr.try { |i| size += 4 * i.size }
+      entry.membership.try { |m| size += 64 * m.addresses.size }
+      size
     end
 
     private def advance_commit : Nil
