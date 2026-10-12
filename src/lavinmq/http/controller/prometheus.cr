@@ -450,7 +450,18 @@ module LavinMQ
                       value: @server.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
+        if journal_lsn = @server.journal_lsn
+          writer.write({name:  "replication_journal_lsn",
+                        value: journal_lsn,
+                        type:  "gauge",
+                        help:  "Sequence number of the latest replicated change on this leader"})
+        end
         @server.followers.each do |f|
+          writer.write({name:   "follower_applied_lsn",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.applied_lsn,
+                        type:   "gauge",
+                        help:   "Sequence number of the latest change the follower has applied; replication_journal_lsn minus this is its lag in entries"})
           writer.write({name:   "follower_lag_in_bytes",
                         labels: {id: f.id.to_s(36)},
                         value:  f.lag_in_bytes,

@@ -238,6 +238,11 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           acked.should_not be_nil
           sent.not_nil!.should be > 0
           acked.not_nil!.should be > 0
+          journal_line = body.lines.find!(&.starts_with?("lavinmq_replication_journal_lsn "))
+          journal_lsn = journal_line.split(' ').last.to_f
+          applied = metric_value(body, "lavinmq_follower_applied_lsn", {"id" => follower_id})
+          journal_lsn.should be > 0
+          applied.should eq journal_lsn # caught up: every change applied
         end
 
         serve_follower_metrics(cluster.repli) do |http|

@@ -67,6 +67,8 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `stats_rates_collection_duration_seconds` | gauge | Time to update stats rates |
 | `stats_system_collection_duration_seconds` | gauge | Time to collect system metrics |
 | `total_connected_followers` | gauge | Number of follower nodes connected |
+| `replication_journal_lsn` | gauge | Sequence number of the latest replicated change, served on the leader |
+| `follower_applied_lsn` | gauge | Sequence number of the latest change a follower has applied (labeled by `id`); `replication_journal_lsn` minus it is the follower's lag in entries |
 | `follower_lag_in_bytes` | gauge | Bytes not yet synchronized to a follower (labeled by `id`) |
 | `follower_bytes_sent_total` | counter | Bytes streamed to a follower since it started streaming (labeled by `id`), served on the leader |
 | `follower_bytes_acked_total` | counter | Bytes a follower acknowledged since it started streaming (labeled by `id`), served on the leader |

@@ -74,6 +74,13 @@ module LavinMQ
       @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
+    # The sequence number of the latest replicated change, nil when not
+    # clustered. Compared with a follower's applied_lsn it's the follower's
+    # lag in journal entries.
+    def journal_lsn : UInt64?
+      @replicator.as?(Clustering::Server).try &.journal.last_lsn
+    end
+
     def stop
       return if @closed.swap(true)
       close_log_exchange

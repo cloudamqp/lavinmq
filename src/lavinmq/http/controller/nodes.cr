@@ -81,6 +81,7 @@ module LavinMQ
           run_queue:          0,
           sockets_used:       @server.vhosts.sum { |_, v| v.connections_size },
           followers:          @server.followers,
+          journal_lsn:        @server.journal_lsn,
         }
       end
 
