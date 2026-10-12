@@ -1,6 +1,7 @@
 require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
+require "../schema"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -438,8 +439,7 @@ module LavinMQ
             # Local-only files the leader never sends; skip them so the
             # "delete files not on leader" sweep doesn't wipe them. Losing
             # .raft_state would let this node vote twice in a term.
-            next if child.in?(".lock", ".clustering_id", ".raft_state", ".raft_state.tmp",
-                      "checksums.sha1", "checksums.sha1.tmp")
+            next if Schema.node_local_file?(child) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end

@@ -11,6 +11,13 @@ module LavinMQ
     # replacing meanwhile. Restoring an older raft state could let this node
     # vote twice in a term.
     NODE_LOCAL = {"backups", ".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
+    # The raft log's journal, one file per generation, see
+    # Clustering::Raft::JournalLogStore
+    RAFT_LOG_PREFIX = ".raft_log."
+
+    def self.node_local_file?(name : String) : Bool
+      name.in?(NODE_LOCAL) || name.starts_with?(RAFT_LOG_PREFIX)
+    end
 
     def self.migrate(data_dir, replicator) : Nil
       case v = version(data_dir)
@@ -33,7 +40,7 @@ module LavinMQ
     # Also a socket, like the lavinmqctl one when it's configured in the data
     # dir: copying it fails, and a live one mustn't be deleted
     private def self.node_local?(data_dir, child) : Bool
-      return true if child.in?(NODE_LOCAL)
+      return true if node_local_file?(child)
       type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
       type.nil? || type.socket? || type.pipe?
     end

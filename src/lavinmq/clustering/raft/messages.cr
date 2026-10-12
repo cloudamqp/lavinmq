@@ -210,12 +210,7 @@ module LavinMQ::Clustering::Raft
 
     def write_entries(io, entries : Array(Entry)) : Nil
       io.write_bytes entries.size, Format
-      entries.each do |e|
-        io.write_bytes e.term, Format
-        write_isr io, e.isr
-        write_membership io, e.membership
-        write_data io, e.data
-      end
+      entries.each { |e| write_entry(io, e) }
     end
 
     # `max` bounds the count, and each entry's data, by what the input could
@@ -223,10 +218,19 @@ module LavinMQ::Clustering::Raft
     def read_entries(io, max : Int32, with_data = true) : Array(Entry)
       count = io.read_bytes Int32, Format
       raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= max
-      Array(Entry).new(count) do
-        Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io),
-          with_data ? read_data(io, max) : nil)
-      end
+      Array(Entry).new(count) { read_entry(io, max, with_data) }
+    end
+
+    def write_entry(io, entry : Entry) : Nil
+      io.write_bytes entry.term, Format
+      write_isr io, entry.isr
+      write_membership io, entry.membership
+      write_data io, entry.data
+    end
+
+    def read_entry(io, max : Int32, with_data = true) : Entry
+      Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io),
+        with_data ? read_data(io, max) : nil)
     end
 
     def write_data(io, data : Bytes?) : Nil

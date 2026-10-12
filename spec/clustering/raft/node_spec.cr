@@ -432,6 +432,38 @@ describe Raft::Node do
     end
   end
 
+  it "keeps its log in a journal, also after migrating a state file that held it" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      index = (0..2).find! { |i| c.nodes[c.address(i)] != leader }
+      addr = c.address(index)
+      dir = c.dirs[index]
+      wait_for { c.nodes[addr].committed_isr == Set{1, 2, 3} }
+      c.stop(addr)
+      storage = Raft::Storage.new(dir)
+      state = storage.load.not_nil!
+      state.journal_generation.should be > 0
+      state.entries.should be_empty
+      journal = Dir.children(dir).select { |n| Raft::JournalLogStore.generation_file?(n) }
+      journal.should eq [".raft_log.#{state.journal_generation}"]
+
+      # As an older version left it: the entries in the state file, no journal
+      log = Raft::JournalLogStore.new(dir, state.journal_generation, state.snapshot_index, state.snapshot_term)
+      entries = log.entries
+      log.close
+      journal.each { |n| File.delete(File.join(dir, n)) }
+      storage.save(state.copy_with(entries: entries, journal_generation: 0i64))
+      c.start(addr, index)
+      c.wait_for_leader.propose_isr(Set{1, 2, 3}).should be_true
+      wait_for { storage.load.try { |s| s.journal_generation > 0 && s.entries.empty? } }
+      migrated = storage.load.not_nil!
+      migrated.term.should be >= state.term
+      Dir.children(dir).select { |n| Raft::JournalLogStore.generation_file?(n) }
+        .should eq [".raft_log.#{migrated.journal_generation}"]
+    end
+  end
+
   it "ignores a copy of a node's data dir while the original is connected" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
@@ -441,6 +473,7 @@ describe Raft::Node do
       original = c.address(index)
       copy_dir = c.new_dir
       FileUtils.cp(File.join(c.dirs[index], ".raft_state"), copy_dir)
+      Dir.glob(File.join(c.dirs[index], ".raft_log.*"), match: File::MatchOptions::DotFiles) { |f| FileUtils.cp(f, copy_dir) }
       _, copy = c.start_extra(index + 1, [c.address(0), c.address(1), c.address(2)], copy_dir)
       sleep 1.second
       membership = leader.membership.not_nil!
@@ -602,6 +635,15 @@ describe Raft::Storage do
       storage = Raft::Storage.new(dir)
       storage.load.should be_nil
       state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})])
+      storage.save(state)
+      storage.load.should eq state
+    end
+  end
+
+  it "round-trips the journal generation" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [] of Raft::Entry, journal_generation: 4i64)
       storage.save(state)
       storage.load.should eq state
     end

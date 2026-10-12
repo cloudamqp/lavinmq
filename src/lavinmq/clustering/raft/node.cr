@@ -1,6 +1,7 @@
 require "json"
 require "./core"
 require "./storage"
+require "./journal"
 require "./transport"
 require "../../bool_channel"
 require "../../logger"
@@ -134,8 +135,13 @@ module LavinMQ::Clustering::Raft
                    bootstrap = false,
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       @election_timeout = election_timeout
+      state = @storage.load
+      @log = JournalLogStore.new(@storage.dir, state.try(&.journal_generation) || 0i64,
+        state.try(&.snapshot_index) || 0i64, state.try(&.snapshot_term) || 0i64,
+        state.try(&.entries) || Array(Entry).new)
+      @saved_generation = state.try(&.journal_generation) || 0i64
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
-        Time.instant, @storage.load, bootstrap: bootstrap)
+        Time.instant, state, bootstrap: bootstrap, log: @log)
       @seeds = seeds.to_set << @address
       @term = @core.term
       @committed_isr = @core.committed_isr
@@ -307,6 +313,7 @@ module LavinMQ::Clustering::Raft
       if @transport
         @stopped.receive?
       else
+        @log.close
         @stopped.close
       end
       @transport.try &.close
@@ -333,6 +340,7 @@ module LavinMQ::Clustering::Raft
       @pending.each &.done.call(false)
       @pending.clear
       @serving.set(false)
+      @log.close
       @stopped.close
     end
 
@@ -441,9 +449,17 @@ module LavinMQ::Clustering::Raft
       save if @core.unsaved_commit?
     end
 
+    # The log first, then `.raft_state` if what it holds changed, or names
+    # another journal generation, and only then are the generations it no
+    # longer names dropped. See JournalLogStore.
     private def save : Nil
       started = Time.instant
-      @storage.save(@core.hard_state)
+      @log.sync
+      if @core.meta_dirty? || @core.unsaved_commit? || @log.generation != @saved_generation
+        @storage.save(@core.meta_state.copy_with(journal_generation: @log.generation))
+        @saved_generation = @log.generation
+      end
+      @log.drop_old_generations
       observe_save((Time.instant - started).total_seconds)
       @core.persisted
     rescue ex

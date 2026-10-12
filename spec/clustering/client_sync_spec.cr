@@ -695,12 +695,14 @@ module ClientSyncSpec
         end
       end
 
-      # Regression: the raft state (term + vote) is local-only. Deleting it on
-      # a full sync would let the node vote twice in the same term.
+      # Regression: the raft state (term + vote) and its log are local-only.
+      # Deleting them on a full sync would let the node vote twice in the
+      # same term, or lose entries it acknowledged.
       it "keeps the raft state across a sync" do
         with_datadir do |data_dir|
           File.write File.join(data_dir, ".raft_state"), "state"
           File.write File.join(data_dir, ".raft_state.tmp"), "tmp"
+          File.write File.join(data_dir, ".raft_log.3"), "log"
           client = make_client(data_dir)
           server_io, client_io = UNIXSocket.pair
           lz4_reader = Compress::LZ4::Reader.new(client_io)
@@ -717,6 +719,7 @@ module ClientSyncSpec
           end
           File.read(File.join(data_dir, ".raft_state")).should eq "state"
           File.exists?(File.join(data_dir, ".raft_state.tmp")).should be_true
+          File.read(File.join(data_dir, ".raft_log.3")).should eq "log"
         end
       end
 

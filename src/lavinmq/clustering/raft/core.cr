@@ -9,9 +9,11 @@ module LavinMQ::Clustering::Raft
   end
 
   # What must be on disk before any message produced alongside it is sent.
+  # `entries` are only here when the log is kept in memory, a journal keeps
+  # them otherwise, and `journal_generation` says which, see JournalLogStore.
   record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry), snapshot_membership : Membership? = nil
+    entries : Array(Entry), snapshot_membership : Membership? = nil, journal_generation : Int64 = 0i64
 
   enum TransferResult
     # TimeoutNow was sent to the target
@@ -174,6 +176,8 @@ module LavinMQ::Clustering::Raft
     # The state changed in a way that must be saved before any message
     # produced alongside it leaves the node
     getter? dirty = false
+    # The term, the vote or the snapshot changed, unlike only the log
+    getter? meta_dirty = false
     # Only committed entries were folded into the snapshot since the last
     # save. They were saved when appended and a majority has them, so a node
     # that crashes before saving this just finds them uncommitted, and they
@@ -225,7 +229,7 @@ module LavinMQ::Clustering::Raft
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
                    now : Time::Instant, state : HardState? = nil, @random : Random = Random.new,
-                   @bootstrap = false)
+                   @bootstrap = false, log : LogStore? = nil)
       @seed_addresses = seeds.reject(@address).uniq!
       @now = now
       @leaderless_since = now
@@ -235,7 +239,10 @@ module LavinMQ::Clustering::Raft
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
           state.snapshot_membership)
       end
-      @log = MemoryLogStore.new(@snapshot.index, @snapshot.term, state.try(&.entries) || Array(Entry).new)
+      @log = log || MemoryLogStore.new(@snapshot.index, @snapshot.term, state.try(&.entries) || Array(Entry).new)
+      unless @log.snapshot_index == @snapshot.index
+        raise ArgumentError.new("The log starts after #{@log.snapshot_index}, the snapshot is at #{@snapshot.index}")
+      end
       # What's committed beyond the snapshot is learnt from the leader again
       @commit_index = @snapshot.index
       @committed_isr = @snapshot.isr
@@ -250,8 +257,14 @@ module LavinMQ::Clustering::Raft
         @snapshot.membership)
     end
 
+    # The hard state without the log, for when the log persists itself
+    def meta_state : HardState
+      HardState.new(@term, @voted_for, @snapshot.index, @snapshot.term, @snapshot.isr, Array(Entry).new,
+        @snapshot.membership)
+    end
+
     def persisted : Nil
-      @dirty = @unsaved_commit = false
+      @dirty = @meta_dirty = @unsaved_commit = false
     end
 
     def take_outbox : Array(Tuple(Int32, Message))
@@ -616,7 +629,7 @@ module LavinMQ::Clustering::Raft
       granted = msg.term == @term && eligible && (@voted_for.nil? || @voted_for == msg.from)
       if granted && @voted_for != msg.from
         @voted_for = msg.from
-        @dirty = true
+        @dirty = @meta_dirty = true
       end
       @election_deadline = now + randomized_election_timeout if granted
       send msg.from, VoteResponse.new(@id, @term, granted, pre_vote: false)
@@ -697,7 +710,7 @@ module LavinMQ::Clustering::Raft
       @commit_index = index
       @committed_isr = isr
       @committed_membership = membership
-      @dirty = true
+      @dirty = @meta_dirty = true
       refresh_membership
     end
 
@@ -795,7 +808,7 @@ module LavinMQ::Clustering::Raft
       @voted_for = @id
       @leader = nil
       @leader_uri = nil
-      @dirty = true
+      @dirty = @meta_dirty = true
       @votes.clear
       @votes << @id
       @election_deadline = now + randomized_election_timeout
@@ -812,7 +825,7 @@ module LavinMQ::Clustering::Raft
       if term > @term
         @term = term
         @voted_for = nil
-        @dirty = true
+        @dirty = @meta_dirty = true
       end
       @leaderless_since = @now if @role.leader?
       @role = Role::Follower

@@ -2,13 +2,14 @@ require "digest/crc32"
 require "./core"
 
 module LavinMQ::Clustering::Raft
-  # Persists a HardState. The state is a handful of bytes (ISR entries are
-  # compacted on commit), so every save rewrites the whole file: write a temp
+  # Persists a HardState. The state is a handful of bytes, the log is in a
+  # JournalLogStore, so every save rewrites the whole file: write a temp
   # file, fsync it, rename over the old one and fsync the directory.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 4u8
-    # Version 3 entries had no data, they're still read
+    VERSION = 5u8
+    # Still read: version 3 entries had no data, before version 5 the entries
+    # were here and not in a journal
     OLDEST_VERSION = 3u8
     Format         = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
@@ -17,6 +18,7 @@ module LavinMQ::Clustering::Raft
     class CorruptError < Exception; end
 
     getter path : String
+    getter dir : String
 
     def initialize(dir : String)
       @dir = dir
@@ -64,6 +66,7 @@ module LavinMQ::Clustering::Raft
       Codec.write_isr(io, state.snapshot_isr)
       Codec.write_membership(io, state.snapshot_membership)
       Codec.write_entries(io, state.entries)
+      io.write_bytes state.journal_generation, Format
     end
 
     private def decode(io) : HardState
@@ -79,7 +82,9 @@ module LavinMQ::Clustering::Raft
       snapshot_isr = Codec.read_isr(io)
       snapshot_membership = Codec.read_membership(io)
       entries = Codec.read_entries(io, MAX_ENTRIES, with_data: version >= 4)
-      HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership)
+      journal_generation = version >= 5 ? io.read_bytes(Int64, Format) : 0i64
+      HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership,
+        journal_generation)
     end
   end
 end
