@@ -1,4 +1,5 @@
 import * as helpers from './helpers.js'
+import * as Poller from './poller.js'
 import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title, Filler } from './lib/chart.js'
 import './lib/chartjs-adapter-luxon.esm.js'
 Chart.register(TimeScale)
@@ -14,9 +15,9 @@ Chart.register(Filler)
 const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
   '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79', '#770f1c']
 
-const POLLING_RATE = 5000
+const SAMPLE_INTERVAL = 5000
 const X_AXIS_LENGTH = 600000 // 10 min
-const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
+const MAX_TICKS = X_AXIS_LENGTH / SAMPLE_INTERVAL
 
 function render (id, unit, fill = false, stacked = false, reverseStack = false) {
   const el = document.getElementById(id)
@@ -143,31 +144,17 @@ function createDataset (key, color, fill, order = 0) {
   }
 }
 
-function addToDataset (dataset, data, date) {
-  const point = {
-    x: date,
-    y: value(data)
+function addToDataset (dataset, data, date, interval = Poller.getRate()) {
+  const last = dataset.data.at(-1)
+  if (last && date - last.x >= 2 * Math.max(interval, dataset.interval)) {
+    dataset.data.push({ x: new Date(date - interval), y: null })
   }
+  dataset.interval = interval
   if (dataset.data.length >= MAX_TICKS) {
     dataset.data.shift()
   }
-  dataset.data.push(point)
-  fillDatasetVoids(dataset)
+  dataset.data.push({ x: date, y: value(data) })
   fixDatasetLength(dataset)
-}
-
-function fillDatasetVoids (dataset) {
-  let prevPoint = dataset.data[0]
-  let moreIter = false
-  dataset.data.forEach((point, i) => {
-    const timeDiff = point.x.getTime() - prevPoint.x.getTime()
-    if (timeDiff >= POLLING_RATE * 2) {
-      dataset.data.splice(i, 0, { x: new Date(point.x.getTime() - POLLING_RATE), y: null })
-      moreIter = timeDiff >= POLLING_RATE * 3
-    }
-    prevPoint = point
-  })
-  moreIter && fillDatasetVoids(dataset)
 }
 
 function fixDatasetLength (dataset) {
@@ -194,8 +181,8 @@ function update (chart, data, filled = false) {
       chart.data.datasets.push(dataset)
       const log = data[`${key}_log`] || data[key].log || []
       log.forEach((p, i) => {
-        const pDate = new Date(date.getTime() - POLLING_RATE * (log.length - i))
-        addToDataset(dataset, p, pDate)
+        const pDate = new Date(date.getTime() - SAMPLE_INTERVAL * (log.length - i))
+        addToDataset(dataset, p, pDate, SAMPLE_INTERVAL)
       })
     }
     addToDataset(dataset, data[key], date)
