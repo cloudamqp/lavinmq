@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
 - Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)
 - Data race on the vhost and server flow-control flags read by every publish [#2400](https://github.com/cloudamqp/lavinmq/pull/2400)
 - Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
