@@ -401,7 +401,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           working-directory: rabbitmq_http_api_client
-          ruby-version: '3.4'
+          ruby-version: '3.3'
           bundler-cache: true
 
       - name: Run specs
