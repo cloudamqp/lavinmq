@@ -36,6 +36,38 @@ describe LavinMQ::Launcher do
     blocker.try &.close
   end
 
+  it "aborts startup when the control socket is in use, leaving it to the node serving it" do
+    with_datadir do |data_dir|
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      serving = UNIXServer.new(socket_path)
+      launcher : LavinMQ::Launcher? = nil
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.data_dir_lock = false
+      config.amqp_bind = "127.0.0.1"
+      config.amqp_port = 0
+      config.amqps_port = -1
+      config.http_port = -1
+      config.https_port = -1
+      config.mqtt_port = -1
+      config.mqtts_port = -1
+      config.metrics_http_port = -1
+      config.control_unix_path = socket_path
+      original_config = LavinMQ::Config.instance
+      LavinMQ::Config.instance = config # the HTTP server reads the control socket path from it
+      launcher = LavinMQ::Launcher.new(config)
+
+      expect_raises(SpecExit, /Exiting with code 1/) do
+        launcher.not_nil!.start_for_spec
+      end
+      File.exists?(socket_path).should be_true
+    ensure
+      launcher.try &.stop
+      LavinMQ::Config.instance = original_config if original_config
+      serving.try &.close
+    end
+  end
+
   it "exits when the data directory is locked by another process" do
     with_datadir do |data_dir|
       lock = LavinMQ::DataDirLock.new(data_dir)
