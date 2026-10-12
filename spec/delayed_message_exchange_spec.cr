@@ -354,7 +354,7 @@ describe "Delayed Message Exchange" do
     end
   end
 
-  it "should treat publish as unroutable when the internal delayed queue is closed" do
+  it "should nack publish when the internal delayed queue is closed" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.exchange(x_name, "topic", args: x_args)
@@ -366,8 +366,8 @@ describe "Delayed Message Exchange" do
         ch.on_return { |msg| returns.send({msg.reply_code, msg.reply_text}) }
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 10_000})
         ch.basic_publish_confirm("test", x_name, "rk", mandatory: true,
-          props: AMQP::Client::Properties.new(headers: hdrs))
-        ex.unroutable_count.should eq 1
+          props: AMQP::Client::Properties.new(headers: hdrs)).should be_false
+        ex.unroutable_count.should eq 0
         ex.publish_out_count.should eq 0
         reply_code, reply_text = returns.receive
         reply_code.should eq 312

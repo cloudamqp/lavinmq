@@ -241,9 +241,11 @@ module LavinMQ
           d.add(msg)
         end
         if should_delay_message?(msg.properties.headers)
-          if (q = @delayed_queue) && q.delay(msg)
+          if q = @delayed_queue
             # publish_out is counted when the message is routed after the delay
-            return PublishResult::Routed
+            return PublishResult::Routed if q.delay(msg)
+            # The delayed queue is closed, reject like a closed queue in route_msg
+            return PublishResult::Rejected
           else
             @unroutable_count.add(1, :relaxed)
             return PublishResult::None
