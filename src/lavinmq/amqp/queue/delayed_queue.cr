@@ -80,7 +80,7 @@ module LavinMQ::AMQP
     end
 
     private def time_to_message_expiration : Time::Span?
-      delayed_msg_store.time_to_next_expiration?
+      @msg_store_lock.synchronize { delayed_msg_store.time_to_next_expiration? }
     end
 
     # Policies never apply to internal queues

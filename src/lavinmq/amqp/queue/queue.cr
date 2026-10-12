@@ -629,7 +629,7 @@ module LavinMQ::AMQP
     # keeps applying to the message's total age; the delayed store expires at
     # timestamp + x-delay, so the age since publish is folded into the delay
     private def route_to_retry_queue(sp : SegmentPosition, msg : BytesMessage, retry_queue : DelayedRetryQueue, base_delay : Int64) : Bool
-      delivery_count = @deliveries.fetch(sp, 1)
+      delivery_count = @msg_store_lock.synchronize { @deliveries.fetch(sp, 1) }
       delay_ms = calculate_retry_delay(base_delay, delivery_count)
       props = msg.properties
       h = props.headers || AMQP::Table.new
@@ -733,8 +733,8 @@ module LavinMQ::AMQP
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
+        @deliveries.clear
       end
-      @deliveries.clear
       @basic_get_unacked.clear
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -809,8 +809,9 @@ module LavinMQ::AMQP
 
     enum PublishResult
       Ok       # message accepted and stored
-      Dropped  # queue closed or message was a duplicate
+      Dropped  # message was a duplicate
       Overflow # rejected by max-length / max-length-bytes (overflow=reject-publish)
+      Closed   # queue closed, the message wasn't stored
     end
 
     class Closed < Exception; end
@@ -834,7 +835,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
-      return PublishResult::Dropped if @closed
+      return PublishResult::Closed if @closed
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -862,9 +863,9 @@ module LavinMQ::AMQP
       PublishResult::Ok
     rescue MessageStore::ClosedError
       # A racing delete closed the store. If push hadn't stored the message it's
-      # dropped (avoids an HTTP 500); if it had, a later ClosedError from the
+      # not stored (avoids an HTTP 500); if it had, a later ClosedError from the
       # post-publish expire-fiber check still means the publish succeeded.
-      pushed ? PublishResult::Ok : PublishResult::Dropped
+      pushed ? PublishResult::Ok : PublishResult::Closed
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
@@ -1129,9 +1130,13 @@ module LavinMQ::AMQP
       if @delivery_limit || @delayed_retry_min
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
-        headers["x-delivery-count"] = delivery_count if delivery_count > 0
-        @deliveries[sp] = delivery_count + 1
+        # Acks and rejects on other threads update @deliveries too
+        delivery_count = @msg_store_lock.synchronize do
+          count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
+          @deliveries[sp] = count + 1
+          count
+        end
+        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
         env.message.properties.headers = headers
       end
       env
@@ -1161,8 +1166,8 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit || @delayed_retry_min
       @msg_store_lock.synchronize do
+        @deliveries.delete(sp) if @delivery_limit || @delayed_retry_min
         @msg_store.delete(sp)
       end
     end
@@ -1205,7 +1210,7 @@ module LavinMQ::AMQP
         return expire_msg(sp, :expired)
       end
       if delivery_limit = @delivery_limit
-        if @deliveries.fetch(sp, 0) > delivery_limit
+        if @msg_store_lock.synchronize { @deliveries.fetch(sp, 0) } > delivery_limit
           return expire_msg(sp, :delivery_limit)
         end
       end
