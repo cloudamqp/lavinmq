@@ -30,8 +30,8 @@ function closeChannelForm (name) {
 
 const connectionUrl = `api/connections/${connection}`
 let detailsRendered = false
-function updateConnection () {
-  return HTTP.request('GET', connectionUrl).then(item => {
+function updateConnection (signal) {
+  return HTTP.request('GET', connectionUrl, { signal }).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
     Chart.update(chart, stats)
     const stateEl = document.getElementById('state')

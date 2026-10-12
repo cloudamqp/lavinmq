@@ -15,6 +15,9 @@ module LavinMQ::AMQP
       "x-dead-letter-routing-key",
       "x-expires",
       "x-delivery-limit",
+      "x-delayed-retry-min",
+      "x-delayed-retry-max",
+      "x-delayed-retry-multiplier",
       "x-overflow",
       "x-single-active-consumer",
       "x-max-priority",
@@ -213,6 +216,9 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
+    end
+
+    def requeue(sp : SegmentPosition)
     end
 
     private def drop_overflow : Nil
