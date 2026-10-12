@@ -1663,8 +1663,13 @@ describe LavinMQ::AMQP::Stream do
               wg.done
             end
             wg.wait
-            wait_for { consumer.unacked == msg_count }
-            sps = server_ch.unacked.map(&.sp)
+            # The consumer counts a delivery before the channel records it,
+            # and the deliver loop may be on another thread
+            wait_for do
+              consumer.unacked == msg_count &&
+                server_ch.@unack_lock.synchronize { server_ch.unacked.size } == msg_count
+            end
+            sps = server_ch.@unack_lock.synchronize { server_ch.unacked.map(&.sp) }
             sps.size.should eq msg_count
 
             wg = WaitGroup.new(3)
