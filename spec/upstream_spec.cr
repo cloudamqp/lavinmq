@@ -877,6 +877,10 @@ describe LavinMQ::Federation::Upstream do
         upstream.stop_link(old_ex)
 
         upstream.links.should eq [link]
+        # Closing the link closes its connection only once it has one. A link
+        # still connecting would connect to a server already shutting down,
+        # and its client would log the forced close during a later spec.
+        wait_for { link.state.running? }
       ensure
         upstream.try &.close
       end
