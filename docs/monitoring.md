@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory limit for the process in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
