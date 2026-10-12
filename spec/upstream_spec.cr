@@ -40,9 +40,7 @@ module UpstreamSpecHelpers
         else
         end
         gate.receive?
-        server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
-        spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
-        spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+        forward(client, target)
       end
     end
     url = target.dup
@@ -52,6 +50,18 @@ module UpstreamSpecHelpers
   ensure
     gate.try &.close
     proxy.try &.close
+  end
+
+  # Connects `client` to `target` and copies both ways. A method of its own
+  # so the copying fibers capture this connection's sockets: blocks spawned
+  # in the accept loop would share its variables, which the next accept?
+  # overwrites, with nil once the proxy closes.
+  private def self.forward(client : TCPSocket, target : URI)
+    server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
+    spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
+    spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+  rescue IO::Error
+    client.close
   end
 
   def self.start_link(upstream, pattern = "downstream_ex", applies_to = "exchanges")
@@ -867,6 +877,10 @@ describe LavinMQ::Federation::Upstream do
         upstream.stop_link(old_ex)
 
         upstream.links.should eq [link]
+        # Closing the link closes its connection only once it has one. A link
+        # still connecting would connect to a server already shutting down,
+        # and its client would log the forced close during a later spec.
+        wait_for { link.state.running? }
       ensure
         upstream.try &.close
       end

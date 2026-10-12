@@ -1,6 +1,7 @@
 import * as Chart from './chart.js'
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
+import * as Poller from './poller.js'
 
 const numFormatter = new Intl.NumberFormat()
 const msgChart = Chart.render('msgChart', 'msgs', true, true, true)
@@ -80,13 +81,13 @@ function cacheKey () {
   return 'api/overview/' + vhost
 }
 
-function update (cb) {
+function update (cb, signal) {
   const vhost = window.sessionStorage.getItem('vhost')
   const headers = new window.Headers()
   if (vhost && vhost !== '_all') {
     headers.append('x-vhost', vhost)
   }
-  HTTP.request('GET', 'api/overview', { headers }).then(function (response) {
+  return HTTP.request('GET', 'api/overview', { headers, signal }).then(function (response) {
     try {
       window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
     } catch (e) {
@@ -110,6 +111,5 @@ function render (data) {
 }
 
 function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
+  Poller.start(signal => update(cb, signal))
 }
