@@ -6,7 +6,7 @@ After=network.target
 
 [Service]
 ExecStart=/usr/bin/lavinmq -c /etc/lavinmq/lavinmq.%i.ini
-Restart=on-failure
+Restart=always
 User=lavinmq
 Group=lavinmq
 LimitNOFILE=infinity

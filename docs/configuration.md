@@ -116,9 +116,18 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
-| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
-| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
+| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | `tcp://hostname:port` when bound to all interfaces, else `tcp://bind:port` | Advertised URI for peers |
+| `backend` | `--clustering-backend` | `LAVINMQ_CLUSTERING_BACKEND` | String | `raft` when `seeds` are set, else `etcd` | Leader election backend, `raft` (built in, recommended for new clusters) or `etcd`. Rarely needed, `seeds` selects raft |
+| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated), etcd backend only |
+| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix, etcd backend only |
+| `seeds` | `--clustering-seeds` | `LAVINMQ_CLUSTERING_SEEDS` | String | (required) | Raft addresses (comma-separated, port defaults to `5680`) to form or join a cluster with: every node of a new cluster, or any member when joining. IPv6 addresses use brackets. Raft backend only |
+| `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Port for leader election traffic, bound on `bind`, raft backend only |
+| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | host of `advertised_uri`, `:raft_port` | The `host:port` other nodes reach this node's raft port at, raft backend only |
+| `password` | `--clustering-password` | `LAVINMQ_CLUSTERING_PASSWORD` | String | (empty) | Shared secret authenticating nodes to each other, at most 255 bytes. Either this or `password_file` is required, raft backend only |
+| `password_file` | `--clustering-password-file` | `LAVINMQ_CLUSTERING_PASSWORD_FILE` | String | (empty) | File with the shared secret, overrides `password`. Mode `0600` recommended; group or other access produces a warning. Raft backend only |
+| `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts, raft backend only |
+| `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats, raft backend only |
+| `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when starting a new cluster or migrating from etcd, raft backend only |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

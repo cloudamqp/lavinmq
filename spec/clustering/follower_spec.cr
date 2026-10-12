@@ -40,9 +40,13 @@ end
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
   client_socket.write header
-  client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-  client_socket.write password.to_slice
-  client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+  if LavinMQ::Clustering.header_version(header) >= 2
+    spawn(name: "answer challenge") { answer_challenge(client_socket, password, header) }
+  else
+    client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    client_socket.write password.to_slice
+    client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+  end
   follower.negotiate!(password)
   client_socket.read_byte.should eq 0u8
 end
@@ -57,6 +61,18 @@ end
 
 private def ack(client_socket, lsn : UInt64, bytes : Int64)
   WireV3.write_ack(client_socket, lsn, bytes)
+end
+
+# Answers a version 2 or 3 leader's challenge: it echoes our header, then
+# sends the challenge
+private def answer_challenge(client_socket, password, header = LavinMQ::Clustering::StartV2, id = 1) : Nil
+  echo = Bytes.new(8)
+  client_socket.read_fully(echo)
+  echo.should eq header
+  challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+  client_socket.read_fully(challenge)
+  client_socket.write LavinMQ::Clustering.challenge_response(password, challenge, header)
+  client_socket.write_bytes id, IO::ByteFormat::LittleEndian
 end
 
 module FollowerSpec
@@ -875,6 +891,22 @@ module FollowerSpec
       end
     end
 
+    it "rejects a version 2 challenge response made with another password" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        client_socket.write LavinMQ::Clustering::StartV2
+        spawn(name: "answer challenge") { answer_challenge(client_socket, "bar") }
+        expect_raises(LavinMQ::Clustering::AuthenticationError) do
+          follower.negotiate!("foo")
+        end
+        client_socket.read_byte.should eq 1u8
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "accepts a version 1 header" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
@@ -892,8 +924,6 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
         client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 4, 0, 0]
-        client_socket.write_bytes 3u8, IO::ByteFormat::LittleEndian # the password that follows a header
-        client_socket.write "foo".to_slice
         expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
           follower.negotiate!("foo")
         end

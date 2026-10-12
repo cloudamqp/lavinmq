@@ -269,8 +269,172 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   Table.renderCell(tr, 1, item.remote_address)
   Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
   Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+  Table.renderCell(tr, 4, memberLag(item), 'right')
 })
+
+let followersById = {}
+// Sequence number of the leader's latest replicated change, from /api/nodes
+let journalLsn = null
+
+// A member's replication lag, in journal entries when both sides report
+// their position and in bytes otherwise
+function memberLag (follower) {
+  if (!follower) return ''
+  const bytes = humanizeBytes(follower.sent_bytes - follower.acked_bytes)
+  if (journalLsn == null || follower.applied_lsn == null) return bytes
+  const entries = Math.max(0, journalLsn - follower.applied_lsn)
+  return `${numFormatter.format(entries)} entries, ${bytes}`
+}
+
+// The reason a member can't be promoted or made leader yet, or null when it can
+function notReadyReason (item) {
+  if (!item.in_isr) return 'Not in the in-sync replica set yet'
+  if (!item.caught_up) return 'Not caught up with the leader yet'
+  return null
+}
+
+function readinessButton (item, text, click) {
+  const btn = DOM.button.edit({ text, click })
+  const reason = notReadyReason(item)
+  if (reason) {
+    btn.disabled = true
+    btn.title = reason
+  }
+  return btn
+}
+
+// Cluster members, only with the raft clustering backend. The cluster API
+// answers 400/404 otherwise, so use fetch directly instead of HTTP.request
+// to not alert about that.
+const clusterDataSource = new (class extends DataSource {
+  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  update (items) { this.items = items }
+  reload () { }
+})()
+const clusterTableOpts = {
+  dataSource: clusterDataSource,
+  keyColumns: ['node_id'],
+  countId: 'cluster-members-count'
+}
+const clusterRequest = (method, path, body) => {
+  return HTTP.request(method, path, body ? { body } : {}).then((r) => { updateCluster(); return r })
+}
+Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) => {
+  Table.renderCell(tr, 0, item.leader ? item.address + ' (leader)' : item.address)
+  Table.renderCell(tr, 1, item.node_id || '')
+  Table.renderCell(tr, 2, item.role)
+  Table.renderCell(tr, 3, item.in_isr ? '●' : '○')
+  Table.renderCell(tr, 4, item.match_index == null ? '' : numFormatter.format(item.match_index), 'right')
+  Table.renderCell(tr, 5, item.caught_up ? '●' : '○')
+  Table.renderCell(tr, 6, memberLag(followersById[item.node_id]), 'right')
+  const buttons = document.createElement('div')
+  buttons.classList.add('buttons', 'require-administrator')
+  if (item.role === 'learner') {
+    // The leader refuses to promote a learner that isn't in sync and caught
+    // up, so the button says why instead of failing
+    buttons.append(readinessButton(item, 'Promote', () => {
+      clusterRequest('POST', HTTP.url`api/cluster/members/${item.node_id}/promote`)
+        .then(() => DOM.toast(`Promoted ${item.address}`)).catch(() => {})
+    }))
+  } else if (!item.leader) {
+    buttons.append(readinessButton(item, 'Make leader', () => {
+      if (!window.confirm(`Hand over leadership to ${item.address}? The current leader stops serving and continues as a follower.`)) return
+      clusterRequest('POST', 'api/cluster/transfer-leadership', { target: item.node_id })
+        .then(() => DOM.toast(`Handing over leadership to ${item.address}`)).catch(() => {})
+    }))
+  }
+  if (!item.leader) {
+    buttons.append(DOM.button.delete({
+      text: 'Remove',
+      click: () => {
+        if (!window.confirm(`Remove ${item.address} from the cluster? Shut the node down afterwards.`)) return
+        clusterRequest('DELETE', HTTP.url`api/cluster/members/${item.node_id}`)
+          .then(() => DOM.toast(`Removed ${item.address}`)).catch(() => {})
+      }
+    }))
+  }
+  Table.renderCell(tr, 7, buttons, 'right')
+})
+
+// The cluster members table already covers the followers with the raft backend
+function updateFollowersVisibility () {
+  const hasFollowers = (followersDataSource.items || []).length > 0
+  document.getElementById('followers-section').hidden = !hasFollowers || !document.getElementById('cluster-section').hidden
+}
+
+const CLUSTER_POLL_MS = 5000
+// Without a raft cluster the API answers 400/404; check again now and then
+// in case the node is restarted with one, rather than needing a reload
+const CLUSTER_RECHECK_MS = 60000
+let clusterPoll = null
+let clusterPollMs = 0
+
+function pollCluster (ms) {
+  if (clusterPollMs === ms) return
+  clearInterval(clusterPoll)
+  clusterPollMs = ms
+  clusterPoll = ms ? setInterval(updateCluster, ms) : null
+}
+
+function clusterSummary (cluster) {
+  const isr = (cluster.isr || []).join(', ')
+  if (!cluster.leader) return `No leader elected (term ${cluster.term}). In-sync replicas: ${isr}`
+  return `Leader ${cluster.leader}, term ${cluster.term}. In-sync replicas: ${isr}`
+}
+
+function updateCluster () {
+  return window.fetch('api/cluster').then((response) => {
+    const section = document.getElementById('cluster-section')
+    if (!response.ok) {
+      if ([400, 404].includes(response.status)) {
+        // No raft cluster
+        section.hidden = true
+        updateFollowersVisibility()
+        pollCluster(CLUSTER_RECHECK_MS)
+      } else if (response.status === 403) {
+        // Not an administrator, which won't change
+        section.hidden = true
+        updateFollowersVisibility()
+        pollCluster(0)
+      }
+      // Otherwise (409 not the leader, 503 no answer) it is transient, e.g.
+      // during a leadership change, so keep showing the last known members
+      return
+    }
+    return response.json().then((cluster) => {
+      if (!Array.isArray(cluster.members)) {
+        section.hidden = true
+        updateFollowersVisibility()
+        return
+      }
+      section.hidden = false
+      updateFollowersVisibility()
+      pollCluster(CLUSTER_POLL_MS)
+      document.getElementById('cluster-summary').textContent = clusterSummary(cluster)
+      clusterDataSource.update(cluster.members)
+    })
+  }).catch(() => {})
+}
+
+document.getElementById('transferLeadership').addEventListener('click', () => {
+  if (!window.confirm('Hand over leadership to another in-sync voter? The current leader stops serving and continues as a follower.')) return
+  clusterRequest('POST', 'api/cluster/transfer-leadership', {})
+    .then((r) => DOM.toast(r && r.target ? `Handing over leadership to ${r.target}` : 'Handing over leadership'))
+    .catch(() => {})
+})
+
+document.getElementById('addClusterMember').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const address = new window.FormData(this).get('address').trim()
+  clusterRequest('POST', 'api/cluster/members', { address })
+    .then(() => {
+      DOM.toast(`Added ${address} as learner`)
+      this.reset()
+    }).catch(() => {})
+})
+
+updateCluster()
+pollCluster(CLUSTER_POLL_MS)
 
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {
@@ -327,7 +491,11 @@ function updateCharts (response) {
     }
     Chart.update(queueChurnChart, queueChurnStats)
   }
-  followersDataSource.update(response[0].followers)
+  const followers = response[0].followers || []
+  followersById = Object.fromEntries(followers.map((f) => [f.id, f]))
+  journalLsn = response[0].journal_lsn == null ? null : response[0].journal_lsn
+  followersDataSource.update(followers)
+  updateFollowersVisibility()
 }
 
 function humanizeBytes (bytes, si = false, dp = 1) {

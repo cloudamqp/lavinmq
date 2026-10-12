@@ -48,6 +48,13 @@ shovel-test: bin/shovel-test
 stress: bin/stress
 	$<
 
+bin/chaos-test: extras/chaos_test.cr lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+.PHONY: chaos-test
+chaos-test: bin/lavinmq bin/chaos-test
+	bin/chaos-test
+
 .PHONY: benchmark
 benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
 	$<

@@ -7,54 +7,54 @@ require "./controller/prometheus"
 
 module LavinMQ
   module HTTP
-    # Serves the Prometheus metrics endpoints. One instance lives for the whole
-    # process: what it reports follows the node's role, so it never has to be
-    # closed and rebound when a follower is promoted to leader. It reports as a
-    # follower until a server is set with #leader=.
+    # Serves Prometheus metrics for the whole life of the process. What it
+    # reports follows the node's role: a follower's replication client while
+    # following, the broker once it's serving (see #amqp_server=), and the
+    # raft node's state throughout, also while there's no leader.
     class MetricsServer
       Log = LavinMQ::Log.for "metrics.server"
 
-      # Passes requests to the leader's controller once there is a leader,
-      # otherwise to the follower's.
-      private class RoleHandler
+      # Hands requests to the broker's controller once there is one
+      private class Source
         include ::HTTP::Handler
-
         property leader : PrometheusController?
-        property follower : FollowerPrometheusController
+        getter follower : FollowerPrometheusController
 
         def initialize(@follower)
         end
 
         def call(context)
-          if leader = @leader
-            leader.call(context)
-          else
-            @follower.call(context)
-          end
+          (@leader || @follower).call(context)
         end
       end
 
-      def initialize(amqp_server : LavinMQ::Server? = nil, clustering_client : LavinMQ::Clustering::Client? = nil)
+      def initialize(amqp_server : LavinMQ::Server? = nil, clustering_client : LavinMQ::Clustering::Client? = nil,
+                     @raft : LavinMQ::Clustering::Raft::Node? = nil)
         @closed = false
-        @role = role = RoleHandler.new(FollowerPrometheusController.new(clustering_client))
+        @source = Source.new(FollowerPrometheusController.new(clustering_client, @raft))
         handlers = [
           ApiErrorHandler.new,
           ApiDefaultsHandler.new,
-          role,
+          @source,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
-        self.leader = amqp_server if amqp_server
+        amqp_server.try { |s| self.amqp_server = s }
       end
 
-      # Report as leader, with the full set of metrics from the server
-      def leader=(server : LavinMQ::Server) : Nil
-        @role.leader = PrometheusController.new(server, require_authentication: false)
+      # Reports the broker's metrics from now on
+      def amqp_server=(server : LavinMQ::Server) : Nil
+        @source.leader = PrometheusController.new(server, require_authentication: false, raft: @raft)
       end
 
-      # Report as a follower of the leader that the client replicates from
-      def follower=(client : LavinMQ::Clustering::Client?) : Nil
-        @role.follower = FollowerPrometheusController.new(client)
+      # Back to reporting as a follower, once this node stopped serving
+      def stop_reporting_broker : Nil
+        @source.leader = nil
+      end
+
+      # The replication client to report on while following, nil when not
+      def clustering_client=(client : LavinMQ::Clustering::Client?) : Nil
+        @source.follower.clustering_client = client
       end
 
       def bind_tcp(address, port)

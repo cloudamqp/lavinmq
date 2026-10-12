@@ -1,68 +1,54 @@
-require "../http/metrics_server"
-require "../etcd"
+require "systemd"
 require "./client"
-require "./etcd_coordinator"
+require "./coordinator"
+require "../http/metrics_server"
+require "../runner"
 
-class LavinMQ::Clustering::Controller
+# Elects the leader and makes the other nodes follow it. The leader election
+# and ISR storage are done by an etcd cluster (EtcdController) or by the nodes
+# themselves with Raft (RaftController), chosen by `[clustering] backend`.
+abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   Log = LavinMQ::Log.for "clustering.controller"
+
+  def self.create(config : Config) : Controller
+    case config.clustering_backend
+    in .etcd? then EtcdController.new(config)
+    in .raft? then RaftController.new(config)
+    end
+  end
 
   getter id : Int32
 
   @repli_client : Client? = nil
+  # Reports the replication client's metrics while following, see Launcher
+  property metrics_server : HTTP::MetricsServer? = nil
+  @stopped = false
+  @stopping = false
 
-  def self.new(config : Config)
-    etcd = Etcd.new(config.clustering_etcd_endpoints)
-    new(config, etcd, EtcdCoordinator.new(config, etcd))
+  def initialize(@config : Config)
+    @id = clustering_id
+    @advertised_uri = @config.clustering_advertised_uri_or_default
   end
 
-  # The metrics server, if any, is pointed at each follower client, so it keeps
-  # serving on the same socket across leader changes
-  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator,
-                 @metrics_server : HTTP::MetricsServer? = nil)
-    @id = clustering_id
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
-    @elected_leader = BoolChannel.new(false)
+  abstract def coordinator : Coordinator
+
+  def new_replicator : Server?
+    Server.new(@config, coordinator, @id)
   end
 
   # This method is called by the Launcher#run.
   # The block will be yielded when the controller's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
+  abstract def run(&)
 
-  def run(&)
-    lease = @lease = @etcd.lease_grant(id: @id)
-    spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync(lease)
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
-    @elected_leader.set(true)
-    ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.try &.close
-    yield
-    loop do
-      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
-    end
-  rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopped
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
-    end
-  rescue Etcd::LeaseAlreadyExists
-    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
-    exit 3
-  rescue Etcd::LeaseNotFound
-    Log.fatal { "Lease not found, etcd may have been reset" }
-    exit 3
-  end
+  abstract def stop
 
-  @stopped = false
-
-  def stop
-    @stopped = true
-    @repli_client.try &.close
-    @lease.try &.release
+  # Called when a graceful shutdown starts, before client connections are
+  # closed. Peers may be shutting down at the same time, so losing leadership
+  # from here on is expected and not a reason to exit with an error.
+  def stopping : Nil
+    @stopping = true
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
@@ -79,46 +65,9 @@ class LavinMQ::Clustering::Controller
     id
   end
 
-  # Replicate from the leader
-  # Listens for leader change events
+  # Replicate from the leader until this node becomes the leader itself.
   private def follow_leader
-    @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
-      if repli_client = @repli_client # is currently following a leader
-        if repli_client.follows? uri
-          next # if lost connection to etcd we continue follow the leader as is
-        else
-          repli_client.close
-        end
-      end
-      if uri.nil? # no leader yet
-        Log.warn { "No leader available" }
-        next
-      end
-      if uri == @advertised_uri # if this instance has become leader
-        select
-        when @elected_leader.when_true.receive
-          Log.debug { "Elected leader, don't replicate from self" }
-          @elected_leader.close
-          return
-        when timeout(1.second)
-          raise Error.new("Another node in the cluster is advertising the same URI")
-        end
-      end
-      Log.info { "Leader: #{uri}" }
-      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-      secret = @etcd.get(key)
-      until secret # the leader might not have had time to set the secret yet
-        Log.debug { "Clustering secret is missing, watching for it" }
-        @etcd.watch(key) do |value|
-          secret = value
-          break
-        end
-      end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
-      @metrics_server.try &.follower = r
-      spawn r.follow(uri), name: "Clustering client #{uri}"
-      SystemD.notify_ready
-    end
+    follow_leader_changes
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
@@ -130,56 +79,10 @@ class LavinMQ::Clustering::Controller
     exit 36 # 36 for CF (Cluster Follower)
   end
 
-  # A queued election candidacy can outlive ISR membership: this node may have
-  # been dropped from the ISR (lagging or disconnected replication) after it
-  # campaigned, and etcd's election doesn't consult the ISR key. Serving as
-  # leader while missing confirmed messages would lose them cluster-wide — the
-  # in-sync nodes would full_sync from us and delete them. Exit instead: that
-  # releases the lease, withdraws the candidacy and lets an in-sync candidate
-  # win; on restart wait_to_be_insync blocks until this node is re-synced.
-  private def ensure_in_isr! : Nil
-    isr = @coordinator.isr
-    return if isr.nil? # no ISR recorded yet (fresh cluster)
-    return if isr.includes?(@id)
-    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
-    # Release the lease explicitly: the election key is bound to it, so this
-    # revokes the just-won leadership at once instead of leaving the cluster
-    # leaderless until the lease TTL expires.
-    begin
-      @lease.try &.release
-    rescue ex
-      Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
-    end
-    exit 3
-  end
+  private abstract def follow_leader_changes
 
-  def wait_to_be_insync(lease)
-    if isr = @coordinator.isr
-      unless isr.includes?(@id)
-        Log.info { "ISR: #{isr.to_a}" }
-        Log.info { "Not in sync, waiting for a leader" }
-        in_sync = Channel(Nil).new
-        spawn do
-          @coordinator.watch_isr do |members|
-            if members.try &.includes?(@id)
-              in_sync.close
-              break
-            end
-          end
-        end
-        select
-        when err = lease.expired.receive?
-          if err
-            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
-          else
-            Log.fatal { "Lease expired while waiting to be in sync" }
-          end
-          exit 3
-        when in_sync.receive?
-          Log.info { "In sync with leader" }
-        end
-      end
-    end
+  private def report_metrics_of(client : Client?) : Nil
+    @metrics_server.try &.clustering_client = client
   end
 
   private def execute_shell_command(command : String, event : String)
@@ -201,3 +104,6 @@ class LavinMQ::Clustering::Controller
 
   class Error < Exception; end
 end
+
+require "./etcd_controller"
+require "./raft_controller"

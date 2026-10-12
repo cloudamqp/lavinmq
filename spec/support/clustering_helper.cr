@@ -1,7 +1,14 @@
 require "lz4"
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
+
+# A TCP port that was free a moment ago
+def free_port : Int32
+  s = TCPServer.new("127.0.0.1", 0)
+  s.local_address.port
+ensure
+  s.try &.close
+end
 
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper
@@ -102,10 +109,11 @@ module ClusteringSpecHelper
 
   # `version` is the replication protocol the client streams with; the v2
   # wire-format specs predate v3 and drive stream_changes directly.
-  def make_client(data_dir : String, sync = true, version = 2) : TestClient
+  def make_client(data_dir : String, sync = true, version = 2, backend = LavinMQ::ClusteringBackend::Etcd) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync
+    config.clustering_backend = backend
     config.metrics_http_port = -1
     TestClient.new(config, 1, "password", proxy: false).tap &.protocol_version = version
   end

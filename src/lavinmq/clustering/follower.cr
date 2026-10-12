@@ -80,7 +80,11 @@ module LavinMQ
       def negotiate!(password) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
-        authenticate!(password)
+        if @protocol_version < 2
+          authenticate_v1!(password)
+        else
+          authenticate_v2!(password)
+        end
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
@@ -301,23 +305,31 @@ module LavinMQ
         when 1, 2, 3 then @protocol_version = version
         else
           # Answer with the newest header we speak, so a newer follower can
-          # downgrade. Drain the password it sends right after its header
-          # first: closing with unread data resets the connection, which can
-          # discard the reply before the follower reads it.
-          begin
-            len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
-            @socket.skip(len)
-          rescue IO::Error
-          end
+          # downgrade
           @socket.write(StartV3)
           raise InvalidStartHeaderError.new(slice)
         end
       end
 
-      private def authenticate!(password) : Nil
+      private def authenticate_v1!(password) : Nil
         len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         client_password = @socket.read_string(len)
-        if Crypto::Subtle.constant_time_compare(password, client_password)
+        authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
+      end
+
+      # Versions 2 and 3: echo the follower's header, then a challenge it
+      # answers with an HMAC over both, so the secret never crosses the wire
+      private def authenticate_v2!(password) : Nil
+        header = @protocol_version >= 3 ? StartV3 : StartV2
+        challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        @socket.write(header + challenge)
+        response = Bytes.new(32)
+        @socket.read_fully(response)
+        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge, header)))
+      end
+
+      private def authenticated!(ok : Bool) : Nil
+        if ok
           @socket.write_byte 0u8
         else
           @socket.write_byte 1u8

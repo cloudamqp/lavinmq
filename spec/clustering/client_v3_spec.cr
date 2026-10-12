@@ -80,8 +80,12 @@ module ClientV3Spec
     header = Bytes.new(8)
     leader_io.read_fully(header)
     header.should eq LavinMQ::Clustering::StartV3
-    len = leader_io.read_bytes UInt8, IO::ByteFormat::LittleEndian
-    leader_io.skip(len)
+    # Echo the header and challenge the follower, which answers with an HMAC
+    challenge = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+    leader_io.write LavinMQ::Clustering::StartV3 + challenge
+    response = Bytes.new(32)
+    leader_io.read_fully(response)
+    response.should eq LavinMQ::Clustering.challenge_response("password", challenge, LavinMQ::Clustering::StartV3)
     leader_io.write_byte 0u8
     leader_io.read_bytes Int32, IO::ByteFormat::LittleEndian # the follower id
     request = WireV3.read_resume_request(leader_io)

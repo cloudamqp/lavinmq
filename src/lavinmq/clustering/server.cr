@@ -33,6 +33,8 @@ module LavinMQ
 
       # Guards @followers and @dirty_isr
       @lock = Mutex.new(:unchecked)
+      @fenced = Atomic(Bool).new(false)
+      @broker_closing = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       getter journal = Journal.new
@@ -48,12 +50,26 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
+      # Registered with the coordinator while this server is open
+      @member_removed : Int32 ->
+
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
+        @member_removed = ->drop_follower(Int32)
+        @coordinator.add_member_removed_listener(@member_removed)
+      end
+
+      # Disconnects a follower that was removed from the cluster. It stays out
+      # of the ISR and is refused when it reconnects.
+      private def drop_follower(id : Int32) : Nil
+        follower = @lock.synchronize { @followers.find { |f| f.id == id } }
+        return unless follower
+        Log.warn { "Disconnecting follower id=#{id.to_s(36)}, it was removed from the cluster" }
+        follower.close
       end
 
       def clear
@@ -367,6 +383,10 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
+        unless @coordinator.member?(follower.id)
+          Log.warn { "Refusing follower id=#{follower.id.to_s(36)}, it is not a member of the cluster" }
+          return
+        end
         resume_from = negotiate_resume(follower)
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
@@ -389,6 +409,8 @@ module LavinMQ
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
+      rescue Coordinator::StaleLeadership
+        Log.info { "Not the leader anymore, disconnecting the follower" }
       ensure
         follower.try &.close
       end
@@ -473,7 +495,7 @@ module LavinMQ
           if follower.synced?
             # If the follower was behind (unacked replicated data) when it
             # dropped, it may be missing data that's about to be confirmed via
-            # the surviving followers, so it must leave the etcd ISR now rather
+            # the surviving followers, so it must leave the ISR now rather
             # than lazily — otherwise it could be promoted on failover lacking
             # already-confirmed data. A caught-up follower (no lag) still has
             # everything confirmed so far, so we leave it in the ISR as a valid
@@ -486,6 +508,8 @@ module LavinMQ
             if behind
               begin
                 update_isr # @dirty_isr stays set, so the lazy path retries on failure
+              rescue Coordinator::StaleLeadership
+                Log.debug { "Not the leader anymore, ISR not updated after follower id=#{follower.id.to_s(36)} disconnected" }
               rescue ex
                 Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
               end
@@ -500,12 +524,24 @@ module LavinMQ
           # A dead follower may linger in @followers until its handler fiber
           # runs its cleanup; it must not re-enter the ISR meanwhile (flush_isr
           # races that cleanup when a confirm is pending).
-          ids.add(f.id) if f.synced? && !f.dead?
+          ids.add(f.id) if f.synced? && !f.dead? && @coordinator.member?(f.id)
         end
         ids.add(@id)
+        # Closed, its followers were disconnected: they mustn't leave the ISR
+        # for that, e.g. the target of a leadership handover
+        raise_if_fenced
         Log.info { "In-sync replicas: #{ids.to_a}" }
-        @coordinator.update_isr(ids)
+        begin
+          @coordinator.update_isr(ids)
+        rescue ex : Coordinator::StaleLeadership
+          @fenced.set(true)
+          raise ex
+        end
         @dirty_isr = false
+      end
+
+      private def raise_if_fenced : Nil
+        raise Coordinator::StaleLeadership.new("Replication is fenced, nothing can be acknowledged") if fenced?
       end
 
       # True when the ISR last written to the coordinator may be stale (a
@@ -515,7 +551,9 @@ module LavinMQ
         @lock.synchronize { @dirty_isr }
       end
 
-      # Commit the current ISR to the coordinator, retrying until it succeeds.
+      # Commit the current ISR to the coordinator, retrying until it succeeds
+      # or this node is no longer the leader (Coordinator::StaleLeadership is
+      # raised then, the operation can't be acknowledged anymore).
       # Called before any durable operation is acknowledged when a synced
       # follower has disconnected — by dispatched after journaling a
       # replicated change, and by the Persister before sending publish
@@ -529,6 +567,8 @@ module LavinMQ
         loop do
           @lock.synchronize { update_isr }
           return
+        rescue ex : Coordinator::StaleLeadership
+          raise ex
         rescue ex
           Log.warn(exception: ex) { "Failed to update ISR, retrying" }
           sleep 0.5.seconds
@@ -547,23 +587,57 @@ module LavinMQ
         @journal.fsync("")
       end
 
+      def fenced? : Bool
+        @fenced.get
+      end
+
+      def broker_closing : Nil
+        @broker_closing.set(true)
+      end
+
       # Block until every in-sync follower has acked everything journaled so
       # far, so a durable operation may be acknowledged to a client: once
-      # this returns, every node etcd lists as a failover candidate has the
+      # this returns, every node the ISR lists as a failover candidate has the
       # operation durably on disk. Wait for all followers (no short-circuit)
       # — wait_for blocks until the follower acks or disconnects. A follower
       # that disconnected (wait_for == false, or it dropped earlier and left
       # the ISR dirty) may lack data that's about to be acknowledged, so its
       # removal must be committed to the coordinator before this returns (see
-      # flush_isr).
+      # flush_isr). Once this node isn't the leader anymore it raises
+      # Coordinator::StaleLeadership instead, so the operation fails rather
+      # than being acknowledged.
       def wait_for_followers : Nil
+        raise_if_fenced
         lsn = @journal.last_lsn
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for(lsn) }
         flush_isr if !all_acked || isr_dirty?
+        # Closed while waiting: what the followers didn't ack isn't replicated
+        raise_if_fenced
+      end
+
+      def wait_for_acks(timeout : Time::Span) : Bool
+        return false if fenced?
+        acked = Channel(Nil).new(1)
+        waiting = followers
+        lsn = @journal.last_lsn
+        spawn(name: "Wait for follower acks") do
+          waiting.each &.wait_for(lsn) # until acked or disconnected
+          acked.send nil
+        end
+        select
+        when acked.receive
+          true
+        when timeout(timeout)
+          false
+        end
       end
 
       def close
+        @fenced.set(true)
+        # A node makes a new server for each term it leads, the coordinator
+        # outlives them
+        @coordinator.remove_member_removed_listener(@member_removed)
         @listeners.each &.close
         @lock.synchronize do
           @followers.each &.close
@@ -577,14 +651,28 @@ module LavinMQ
       # returning: every durable operation journals its change before
       # acknowledging it (definitions writes, JSON file replaces, segment
       # deletes, publishes), so flushing here guarantees no operation is
-      # acknowledged while etcd still lists a follower that disconnected
+      # acknowledged while the ISR still lists a follower that disconnected
       # before this change was journaled — a leader crash right after the
       # acknowledgment could otherwise elect that follower without the
       # acknowledged change. flush_isr retries instead of raising into the
       # publish path — the operation stalls, and if the coordinator stays
-      # unreachable the leader's lease expires and the process exits.
+      # unreachable the leader's lease expires. Once this node isn't the
+      # leader anymore it raises Coordinator::StaleLeadership, so the
+      # operation fails instead of being acknowledged, unless the broker is
+      # closing, see #broker_closing.
       private def dispatched : Nil
-        flush_isr if isr_dirty?
+        # Nothing it replicates can be acknowledged, and the ISR may not be
+        # ours to change anymore, e.g. the broker closing after leadership
+        # was lost
+        return if fenced?
+        return unless isr_dirty?
+        begin
+          flush_isr
+        rescue ex : Coordinator::StaleLeadership
+          # Fenced now, so nothing more is replicated or acknowledged
+          raise ex unless @broker_closing.get
+          Log.info { "Not the leader anymore, the rest of the broker's close isn't replicated" }
+        end
       end
 
       private def strip_datadir(path : String) : String

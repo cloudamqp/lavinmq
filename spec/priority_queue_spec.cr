@@ -20,8 +20,7 @@ end
 
 describe LavinMQ::AMQP::PriorityQueue do
   describe "PriorityMessageStore" do
-    describe "clustering", tags: %w[etcd slow] do
-      add_etcd_around_each
+    describe "clustering", tags: "slow" do
       it "is replicated correctly" do
         with_clustering do |cluster|
           with_amqp_server(replicator: cluster.replicator) do |s|
