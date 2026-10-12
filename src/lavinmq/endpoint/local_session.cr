@@ -209,15 +209,22 @@ module LavinMQ
           end
         @consumers[tag] = consumer
         q.add_consumer(consumer)
+        generation = self.generation
         begin
           consumer.run(&blk)
         ensure
-          if @consumers.delete(tag)
+          # Once the session is closed (and maybe reopened, with a consumer
+          # under the same tag) this one is no longer in @consumers: #close
+          # cancelled and removed it already
+          if @consumers[tag]?.same?(consumer)
+            @consumers.delete(tag)
             consumer.cancel
             q.rm_consumer(consumer)
           end
         end
-        raise ClosedError.new("Session #{@name} closed") if @closed
+        if @closed || generation != self.generation
+          raise ClosedError.new("Session #{@name} closed")
+        end
       end
 
       def cancel(tag : String) : Nil

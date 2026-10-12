@@ -233,6 +233,53 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "keeps the consumer of a reopened session when an earlier consume ends late" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_late", true, false)
+        q = vhost.queue("ls_late")
+        ShovelSpecHelpers.publish(vhost, "ls_late", "m")
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10
+        gate = Channel(Nil).new
+        delivered = Channel(Nil).new(2)
+        old_done = Channel(Exception?).new(1)
+        spawn do
+          # Held in its block, like a shovel waiting on its destination
+          session.consume("ls_late", "T", false, false, AMQ::Protocol::Table.new) do
+            delivered.send nil
+            gate.receive?
+          end
+          old_done.send nil
+        rescue ex
+          old_done.send ex
+        end
+        delivered.receive
+        session.close
+        session.open # a resumed shovel reuses its session and tag
+        new_done = Channel(Nil).new(1)
+        spawn do
+          session.consume("ls_late", "T", false, false, AMQ::Protocol::Table.new) { delivered.send nil }
+        rescue
+        ensure
+          new_done.send nil
+        end
+        delivered.receive # the message the close requeued
+        gate.close        # the earlier consume ends now
+        old_done.receive.should be_a(LavinMQ::Endpoint::ClosedError)
+        q.consumers.size.should eq 1
+        session.cancel("T")
+        select
+        when new_done.receive
+        when timeout(5.seconds)
+          fail "cancel didn't reach the new consumer"
+        end
+        should_eventually(eq 0) { q.consumers.size }
+        session.close
+      end
+    end
+
     it "registers its consumer on the queue and requeues unacked deliveries on close" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
