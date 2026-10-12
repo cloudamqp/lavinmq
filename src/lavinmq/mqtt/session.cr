@@ -104,6 +104,8 @@ module LavinMQ
       # Set once a wait fails while open: only a shutdown stops the persister
       @persister_stopped = false
       @deliver_loop_started = false
+      # The username in the .metadata file, see #persist_username
+      @metadata_username : String? = nil
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -120,7 +122,6 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        FileSystem.mkdir_p(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         @packet_id_log = durable? ? PacketIdLog.new(File.join(data_dir, "packet_ids.log"), @replicator, @vhost.persister) : nil
@@ -130,7 +131,7 @@ module LavinMQ
         username = nil
         if File.exists?(@metadata_file)
           @replicator.try &.register_file(@metadata_file)
-          username = read_metadata_file
+          username = @metadata_username = read_metadata_file
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
         restore_publish_sent
@@ -164,6 +165,13 @@ module LavinMQ
           end
         end
         refresh_capacity
+      end
+
+      # A session that never got a message keeps empty stats logs rather than
+      # filling 14 of them with zeros: most are publish-only clients'.
+      def update_rates : Nil
+        return if @publish_log.empty? && @publish_count.get(:relaxed).zero? && @msg_store.empty?
+        previous_def
       end
 
       def consumer_count : UInt32
@@ -343,8 +351,8 @@ module LavinMQ
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
-          write_metadata_file(username) if durable?
         end
+        persist_username if client
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
@@ -362,6 +370,19 @@ module LavinMQ
       rescue ex : JSON::ParseException | IO::Error
         @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
         nil
+      end
+
+      # The username decides which messages a session gets while no client is
+      # attached, after a restart too. Only a session that subscribed gets
+      # messages, so it is kept from the first SUBSCRIBE on, which also
+      # created the session's segment: a publish-only client's session
+      # writes no file.
+      private def persist_username : Nil
+        return unless durable? && @msg_store.has_segments?
+        username = @permission_context.username || return
+        return if username == @metadata_username
+        write_metadata_file(username)
+        @metadata_username = username
       end
 
       # Written to a temporary file and renamed into place, so a crash
@@ -382,6 +403,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.open_first_segment unless @msg_store.closed
         end
+        persist_username
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments

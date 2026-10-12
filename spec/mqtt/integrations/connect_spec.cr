@@ -422,9 +422,12 @@ module MqttSpecs
   end
 
   describe "a session's resources" do
+    session_dir = ->(server : LavinMQ::Server, client_id : String) do
+      server.vhosts["/"].session("mqtt.#{client_id}").@msg_store.@msg_dir
+    end
     session_files = ->(server : LavinMQ::Server, client_id : String) do
-      dir = server.vhosts["/"].session("mqtt.#{client_id}").@msg_store.@msg_dir
-      Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+      dir = session_dir.call(server, client_id)
+      Dir.exists?(dir) ? Dir.children(dir).select(&.starts_with?("msgs.")).sort! : Array(String).new
     end
     deliver_loop_started = ->(server : LavinMQ::Server, client_id : String) do
       server.vhosts["/"].session("mqtt.#{client_id}").@deliver_loop_started
@@ -445,7 +448,7 @@ module MqttSpecs
             publish(io, topic: "a/b", qos: 1u8, packet_id: 1u16)
             publish(io, topic: "a/b", qos: 0u8)
             pingpong(io)
-            session_files.call(server, "pub").should be_empty
+            Dir.exists?(session_dir.call(server, "pub")).should be_false
             server.vhosts["/"].session("mqtt.pub").@msg_store.@segments.should be_empty
             deliver_loop_started.call(server, "pub").should be_false
             live_deliver_loops.call.should eq loops
@@ -527,7 +530,7 @@ module MqttSpecs
           end
         end
         with_server do |server|
-          session_files.call(server, "sub").should be_empty
+          Dir.exists?(session_dir.call(server, "sub")).should be_false
           deliver_loop_started.call(server, "sub").should be_false
           with_client_io(server) do |sub|
             connect(sub, client_id: "sub").as(MQTT::Protocol::Connack).session_present?.should be_true

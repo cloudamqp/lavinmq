@@ -349,7 +349,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
           # In the way of the file the first record creates
-          Dir.mkdir(server.vhosts["/"].session("mqtt.pub").@packet_id_log.not_nil!.@path)
+          Dir.mkdir_p(server.vhosts["/"].session("mqtt.pub").@packet_id_log.not_nil!.@path)
           publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
           io.should be_closed
         end

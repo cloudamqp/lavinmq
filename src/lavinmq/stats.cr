@@ -6,13 +6,14 @@ module LavinMQ
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
         @{{ name.id }}_count_prev = 0_u64
         @{{ name.id }}_rate = 0_f64
-        @{{ name.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
+        # Grows as update_rates fills it, so an object that never logs costs nothing
+        @{{ name.id }}_log = Deque(Float64).new
         def {{ name.id }}_count
           @{{ name.id }}_count.get(:relaxed)
         end
       {% end %}
       {% for name in log_keys %}
-        @{{ name.id }}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+        @{{ name.id }}_log = Deque(UInt32).new
         getter {{ name.id }}_log
       {% end %}
 

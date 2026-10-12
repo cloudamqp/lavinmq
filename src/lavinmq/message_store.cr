@@ -77,6 +77,10 @@ module LavinMQ
       open_new_segment if @segments.empty?
     end
 
+    def has_segments? : Bool
+      !@segments.empty?
+    end
+
     def push(msg) : SegmentPosition
       raise ClosedError.new if @closed
       sp = write_to_disk(msg)
@@ -464,6 +468,9 @@ module LavinMQ
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      if @segments.empty? # see #lazy_first_segment?
+        @durable ? FileSystem.mkdir_p(@msg_dir) : Dir.mkdir_p(@msg_dir)
+      end
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
@@ -571,6 +578,10 @@ module LavinMQ
         end
       end
       ids.sort!
+    rescue ex : File::NotFoundError
+      # A lazy store's directory is created with its first segment
+      raise ex unless lazy_first_segment?
+      Array(UInt32).new
     end
 
     private def load_segments_from_disk : Nil
