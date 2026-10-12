@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "amq-protocol"
 require "../argument"
 require "../argument_validator/string_validator.cr"
@@ -25,11 +26,20 @@ module LavinMQ::AMQP
         def dequeue? : Task?
           @pending_tasks.shift?
         end
+
+        def empty? : Bool
+          @pending_tasks.empty?
+        end
       end
 
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+
+        # Tasks of drained chains, for the next chains to reuse. A chain holds
+        # its tasks until drained, so chains running at once get one each.
+        @free_tasks = Sync::Exclusive(Array(Tasks)).new(Array(Tasks).new, :unchecked)
+        MAX_FREE_TASKS = 16
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -93,7 +103,7 @@ module LavinMQ::AMQP
           # nested ones (from overflow in a destination queue) add theirs
           # to the chain's
           first_in_chain = dlx_tasks.nil?
-          ctx = dlx_tasks || Tasks.new
+          ctx = dlx_tasks || take_tasks
 
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
@@ -109,7 +119,18 @@ module LavinMQ::AMQP
           end
           ctx.enqueue(routed)
 
-          drain_context(ctx) if first_in_chain
+          drain_chain(ctx) if first_in_chain
+        end
+
+        private def take_tasks : Tasks
+          @free_tasks.lock(&.pop?) || Tasks.new
+        end
+
+        private def drain_chain(tasks : Tasks) : Nil
+          drain_context(tasks)
+          @free_tasks.lock do |free|
+            free.push(tasks) if tasks.empty? && free.size < MAX_FREE_TASKS
+          end
         end
 
         private def drain_context(tasks : Tasks)
