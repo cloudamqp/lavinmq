@@ -42,7 +42,8 @@ module LavinMQ
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    # Set by the server's disk space monitor, read by every publishing client
+    @flow = Atomic(Bool).new(true)
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
@@ -50,13 +51,12 @@ module LavinMQ
     @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool

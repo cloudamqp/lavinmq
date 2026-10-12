@@ -125,8 +125,10 @@ module LavinMQ::AMQP
       @msg_store.as(DelayedMessageStore)
     end
 
+    # The delayed index is mutated by publishes and expire_messages under
+    # @msg_store_lock, possibly on other threads
     private def time_to_message_expiration : Time::Span?
-      delayed_msg_store.time_to_next_expiration?
+      @msg_store_lock.synchronize { delayed_msg_store.time_to_next_expiration? }
     end
 
     # Overload to not ruin DLX header
