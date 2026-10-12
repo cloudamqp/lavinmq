@@ -26,17 +26,26 @@ See [Configuration](configuration.md) for all clustering options.
 
 ## Replication
 
+### The Journal
+
+Every replicated change on the leader (an append to a segment or to the definitions log, a rewritten JSON file, a deleted file, a request to sync files to disk) is appended to an in-memory journal and gets a sequence number. Each synced follower has its own sender that reads the journal from the position the follower joined at, compresses the entries with LZ4 and writes them to the follower. A publish therefore only appends to the journal; compression and network writes never run in the publishing connection.
+
+The journal keeps a bounded number of entries (262,144, about 18 MiB of memory; message bodies are not copied into it). A follower that falls further behind than that disconnects and rejoins with a bulk sync.
+
 ### Bulk Sync
 
-When a follower first connects (or has fallen too far behind), it performs a bulk sync:
+When a follower first connects (or has fallen behind the journal), it performs a bulk sync:
 
 1. The leader sends a file index with checksums of all data files
 2. The follower requests files that are missing or have mismatching checksums
-3. While syncing, the leader queues changes
+3. The leader takes a journal position as the cut, sends a second, smaller index of what changed during step 2 (each file capped at its size at the cut), and the follower requests those files too
+4. The follower's sender starts streaming the journal from the cut
+
+Writers are never paused by a join: changes made while a follower syncs are journaled and reach it through its sender.
 
 ### Incremental Replication
 
-After bulk sync, the leader streams changes in real-time:
+After bulk sync, the leader streams the journal in real-time:
 
 - **Appends** — bytes to append to data files (message segments, definitions)
 - **Deletes** — files that have been removed

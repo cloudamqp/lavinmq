@@ -3,6 +3,23 @@ require "../../src/lavinmq/clustering/server"
 require "../../src/lavinmq/clustering/etcd_coordinator"
 require "lz4"
 
+# Keeps journal entries readable without a real follower
+private class FakeJournalSubscriber
+  include LavinMQ::Clustering::Journal::Subscriber
+  @position = Atomic(UInt64).new(0)
+
+  def wake : Nil
+  end
+
+  def journal_position : UInt64
+    @position.get
+  end
+
+  def journal_position=(lsn : UInt64)
+    @position.set(lsn)
+  end
+end
+
 # Drives the clustering handshake + the two full-sync passes (requesting no
 # files) so the follower reaches the Synced state on the leader. Returns the
 # socket and the LZ4 reader positioned at the start of the change stream.
@@ -190,35 +207,60 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 
-  describe "#each_follower broken-follower cleanup" do
-    it "removes a synced follower whose dispatch raises a socket error" do
+  describe "broken-follower cleanup" do
+    it "drops a synced follower whose socket breaks while it is sent to" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
         NullCoordinator.new,
         0)
-      fi = FakeFileIndex.new(data_dir)
-      sock, client = FakeSocket.pair
-      follower = LavinMQ::Clustering::Follower.new(sock, data_dir, fi)
-      follower.mark_synced!
-      server.@followers << follower
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "broken follower spec")
+
+      io, _lz4 = sync_fake_follower(server, tcp_server.local_address.port, 4)
+      wait_for { server.followers.any? &.id.== 4 }
 
       path = File.join(data_dir, "broken_follower_seg")
       File.write(path, "")
       server.register_file(path)
 
-      client.close # break the follower's peer socket
-
-      # Incompressible payloads large enough to force an LZ4 flush to the dead
-      # socket, raising IO::Error inside each_follower.
+      io.close # break the follower's peer socket
+      # Incompressible payloads large enough to force the sender's LZ4
+      # flushes to the dead socket, raising IO::Error in the sender.
       payload = Random::Secure.random_bytes(256 * 1024)
       10.times { server.append_bytes(path, payload, 0i64) }
 
-      server.@followers.should_not contain(follower)
+      wait_for { server.all_followers.empty? }
     ensure
-      sock.try &.close
-      client.try &.close
+      io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "#replace_file" do
+    it "copies the file's content at call time so later writes do not bleed into the stream" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      path = File.join(data_dir, "replaced")
+      File.write path, "foo"
+      server.register_file(path)
+
+      lsn = server.journal.tap(&.subscribe(FakeJournalSubscriber.new)).last_lsn + 1
+      server.replace_file(path)
+      File.write path, "appended-after-replace", mode: "a"
+
+      entry = server.journal.read(lsn).not_nil!
+      entry.op.replace?.should be_true
+      entry.path.should eq "replaced"
+      String.new(entry.bytes).should eq "foo"
+    ensure
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end
@@ -239,6 +281,64 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         server.append(path, 0, 4)
       end
     ensure
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "join" do
+    # Regression: the second full-sync pass of a joining follower used to run
+    # under the dispatch lock, pausing every replicated write (publishes,
+    # acks, declares) for as long as the pass took. With the journal the pass
+    # is capped at a log position instead, and writers go on.
+    it "does not block writers while a follower is in its second sync pass" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "join stall spec")
+      path = File.join(data_dir, "join_stall_file")
+      File.write(path, "")
+      server.register_file(path)
+
+      io = TCPSocket.new("localhost", tcp_server.local_address.port)
+      io.write LavinMQ::Clustering::Start
+      io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+      io.write server.password.to_slice
+      io.read_byte # password-accepted byte
+      io.write_bytes 6, IO::ByteFormat::LittleEndian
+      io.flush
+      lz4 = Compress::LZ4::Reader.new(io)
+      sha1_size = Digest::SHA1.new.digest_size
+      read_file_list = -> do
+        loop do
+          len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+          break if len.zero?
+          lz4.skip len
+          lz4.skip sha1_size
+        end
+      end
+      read_file_list.call
+      io.write_bytes 0i32 # first pass: request no files
+      io.flush
+      read_file_list.call # second pass: leave the leader waiting for our file requests
+
+      written = Channel(Nil).new(1)
+      spawn(name: "writer during join") do
+        server.append_bytes(path, "x".to_slice, 0i64)
+        written.send nil
+      end
+      select
+      when written.receive
+      when timeout(2.seconds)
+        fail "a joining follower's second sync pass blocked a writer"
+      end
+    ensure
+      io.try &.close
+      server.try &.close
+      tcp_server.try &.close
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end

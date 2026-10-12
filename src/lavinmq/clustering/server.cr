@@ -4,6 +4,7 @@ require "./replicator"
 require "./follower"
 require "./checksums"
 require "./coordinator"
+require "./journal"
 require "../config"
 require "../message"
 require "../mfile"
@@ -18,8 +19,10 @@ module LavinMQ
     # It sends its password (servers closes the connection if the password is wrong)
     # Server sends a list of files in its data directory and the sha1 hash of those files
     # Client requests files that is missing or has mismatching checksums of
-    # In the meantime the server queues up changes (all publishes/consumes are paused)
-    # When client doesn't request more files starts to stream changes
+    # Meanwhile writes go on; they're appended to the Journal
+    # When client doesn't request more files, a second capped pass sends what
+    # changed during the first, and the follower's sender starts streaming the
+    # journal from the cut taken for that pass
     # Server sends "appends", which include the file path and the bytes to be appended
     # It also sends which files should be deleted or has been rewritten (such as json files)
     # The follower sends back/acknowledges how many bytes it has received
@@ -28,9 +31,11 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
+      # Guards @followers and @dirty_isr
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
+      getter journal = Journal.new
       @password : String
       @dirty_isr = true
       @id : Int32
@@ -78,39 +83,45 @@ module LavinMQ
         end
       end
 
-      def replace_file(path : String) # regular files, re-read from disk
+      # Regular files, re-read from disk. The content is copied now, so a
+      # later rewrite of the same file can't change what this one sends. A
+      # file that's gone is sent as empty, which followers apply as a delete.
+      def replace_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|
           files[path] = nil
           checksums.delete(path)
         end
-        each_follower do |f|
-          f.replace(path)
-          # The whole file was just resent; a synced baseline for it (captured
-          # at this follower's join) no longer describes its content and would
-          # wrongly skip appends at offsets below the old cut (e.g. after a
-          # definitions compaction shrinks the file).
-          f.forget_baseline(path)
-        end
+        bytes = read_file(File.join(@data_dir, path))
+        @journal.replace(path, bytes)
+        dispatched
       end
 
       # Replace an mmap-backed file's entire content on all followers — used
       # after an in-place compaction (e.g. a stream's consumer_offsets file).
       # Unlike replace_file(path) the MFile stays registered, so the
       # zero-syscall append(path, pos, length) overload keeps working for later
-      # writes, and the bytes are read from the mmap capped at mfile.size
+      # writes, and the bytes are copied from the mmap capped at mfile.size
       # (File.size would be the sparse ftruncate capacity, not the data length).
       def replace_file(mfile : MFile)
         path = strip_datadir mfile.path
-        bytes = mfile.to_slice
+        bytes = mfile.to_slice.dup
         @file_index.lock do |files, checksums|
           files[path] = mfile
           checksums.delete(path)
         end
-        each_follower do |f|
-          f.replace(path, bytes)
-          f.forget_baseline(path)
+        @journal.replace(path, bytes)
+        dispatched
+      end
+
+      private def read_file(path : String) : Bytes
+        File.open(path) do |f|
+          bytes = Bytes.new(f.size)
+          f.read_fully(bytes)
+          bytes
         end
+      rescue File::NotFoundError
+        Bytes.empty
       end
 
       # Replicate `length` bytes from `path` starting at `pos`. The bytes are
@@ -124,12 +135,8 @@ module LavinMQ
           files[path]?
         end
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
-        bytes = mfile.to_slice(pos.to_i64, length.to_i64)
-        offset = pos.to_i64
-        each_follower do |f|
-          skip = f.already_synced(path, offset, bytes.size.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.size
-        end
+        @journal.append_mfile(path, mfile, pos.to_i64, length.to_i64)
+        dispatched
       end
 
       # Replicate a small in-memory integer (e.g. Schema::VERSION, ack
@@ -139,30 +146,17 @@ module LavinMQ
       def append_value(path : String, value : UInt32 | Int32, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        size = sizeof(Int32).to_i64 # value is 4 bytes on the wire (Int32 or UInt32)
-        each_follower do |f|
-          case skip = f.already_synced(path, offset, size)
-          when 0    then f.append(path, value)
-          when size then next # entirely within the follower's full_sync snapshot
-          else
-            # A 4-byte value is written in a single call, so a cut inside it
-            # shouldn't happen; stay byte-exact anyway and send the tail.
-            buf = uninitialized UInt8[4]
-            IO::ByteFormat::LittleEndian.encode(value, buf.to_slice)
-            f.append(path, buf.to_slice[skip..])
-          end
-        end
+        @journal.append_value(path, value.to_u32!, offset)
+        dispatched
       end
 
-      # Replicate an in-memory byte buffer. Caller owns the buffer. See
+      # Replicate an in-memory byte buffer. The buffer is copied; see
       # append_value for `offset`.
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower do |f|
-          skip = f.already_synced(path, offset, bytes.bytesize.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.bytesize
-        end
+        @journal.append_bytes(path, bytes.dup, offset)
+        dispatched
       end
 
       def delete_file(path : String)
@@ -171,10 +165,8 @@ module LavinMQ
           files.delete(path)
           checksums.delete(path)
         end
-        each_follower do |f|
-          f.delete(path)
-          f.forget_baseline(path) # path may be reused by a future file
-        end
+        @journal.delete(path)
+        dispatched
       end
 
       def delete_dir(path : String)
@@ -187,12 +179,8 @@ module LavinMQ
           end
           paths
         end
-        each_follower do |f|
-          deleted.each do |p|
-            f.delete(p)
-            f.forget_baseline(p)
-          end
-        end
+        deleted.each { |p| @journal.delete(p) }
+        dispatched
       end
 
       def nr_of_files
@@ -278,11 +266,12 @@ module LavinMQ
 
       # Snapshot the current logical size of every indexed file, using the same
       # size rule as full_sync (mfile.size for sparse MFiles, else File.size).
-      # Captured at mark_synced to record the per-file cut a joining follower
-      # received via full_sync. A live size may land *inside* a record that a
-      # writer has written locally but not yet dispatched — that's fine: the
+      # Taken right after the journal cut of a joining follower, so it covers
+      # every byte of the entries before the cut (a write lands in its file
+      # before it is journaled). A live size may land *inside* a record that a
+      # writer has written locally but not yet journaled — that's fine: the
       # snapshot delivers the head bytes and Follower#already_synced makes the
-      # later append stream only the tail. Callers hold @lock.
+      # later append stream only the tail.
       private def snapshot_sizes : Hash(String, Int64)
         sizes = Hash(String, Int64).new
         @file_index.shared do |files, _checksums|
@@ -368,7 +357,10 @@ module LavinMQ
       end
 
       # Full-sync an already-registered follower into the Synced state, then
-      # serve its ack loop until it disconnects or is closed.
+      # serve its ack loop until it disconnects or is closed. Writers are
+      # never blocked by a join: the second pass is capped at a journal cut,
+      # and everything journaled after the cut reaches the follower through
+      # its sender.
       private def sync_and_serve(follower : Follower) : Nil
         # Only allow one follower to do full sync at a time
         # The bandwidth between nodes should be very high, so
@@ -376,27 +368,33 @@ module LavinMQ
         # @sync_lock is always acquired before @lock to avoid deadlock
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
+          # From here on the journal keeps the entries for this follower
+          @journal.subscribe(follower)
+          cut_lsn = @journal.head
+          # Capture the per-file cut AFTER the journal cut and cap the last
+          # sync to it, so what full_sync sends equals the baseline exactly
+          # and covers every entry before cut_lsn. A larger mfile.size from an
+          # in-flight write (local write done, journal append still pending)
+          # is delivered via the stream instead of being duplicated — wholly,
+          # or just the record's tail if the cut landed mid-record
+          # (Follower#already_synced).
+          sizes = snapshot_sizes
+          follower.full_sync(sizes) # sync the last, capped at the cut
+          follower.capture_synced_baseline(sizes)
           @lock.synchronize do
-            # Capture the per-file cut BEFORE the last sync and cap the sync to
-            # it, so what full_sync sends equals the baseline exactly. A larger
-            # mfile.size from an in-flight write (local write done, replication
-            # dispatch still pending) is excluded here and delivered via the
-            # stream instead of being duplicated — wholly, or just the record's
-            # tail if the cut landed mid-record (Follower#already_synced).
-            cut = snapshot_sizes
-            follower.full_sync(cut) # sync the last, capped at the cut
-            follower.capture_synced_baseline(cut)
             follower.mark_synced! # Change state to Synced
             update_isr
           end
+          follower.start_sender(@journal, cut_lsn)
         end
         # Wait for follower to disconnect or be closed
         follower.ack_loop
       ensure
+        @journal.unsubscribe(follower)
         # Covers everything after registration, including a full_sync that
         # raised or an update_isr that failed right after mark_synced! — a
         # follower left in @followers as Synced with no ack_loop running
-        # would hang every wait_for_confirm forever.
+        # would hang every wait_for forever.
         @lock.synchronize do
           @followers.delete(follower)
           if follower.synced?
@@ -407,10 +405,10 @@ module LavinMQ
             # already-confirmed data. A caught-up follower (no lag) still has
             # everything confirmed so far, so we leave it in the ISR as a valid
             # failover candidate; the dirty ISR is flushed before the next
-            # replicated durable operation returns (each_follower) and before
+            # replicated durable operation returns (dispatched) and before
             # the next publish confirm (Persister), so nothing it lacks is
             # ever acknowledged while it remains listed.
-            behind = follower.lag_in_bytes > 0
+            behind = follower.lag_in_bytes > 0 || follower.journal_position < @journal.head
             @dirty_isr = true
             if behind
               begin
@@ -446,7 +444,7 @@ module LavinMQ
 
       # Commit the current ISR to the coordinator, retrying until it succeeds.
       # Called before any durable operation is acknowledged when a synced
-      # follower has disconnected — by each_follower after dispatching a
+      # follower has disconnected — by dispatched after journaling a
       # replicated change, and by the Persister before sending publish
       # confirms: the acknowledgment may only go out once the follower's
       # removal from the ISR is durable, otherwise a leader crash right after
@@ -464,28 +462,31 @@ module LavinMQ
         end
       end
 
-      # Block until every in-sync follower has acked everything replicated so
-      # far, so a durable operation may be acknowledged to a client: once
-      # this returns, every node etcd lists as a failover candidate has the
-      # operation durably on disk. Wait for all followers (no short-circuit)
-      # — wait_for_confirm blocks until the follower acks or disconnects. A
-      # follower that disconnected (wait_for_confirm == false, or it dropped
-      # earlier and left the ISR dirty) may lack data that's about to be
-      # acknowledged, so its removal must be committed to the coordinator
-      # before this returns (see flush_isr).
+      # Ask the followers to fsync these paths before acking past this point
+      # in the stream. Journaled, so the request is ordered after the writes
+      # it covers; only the journal mutex is taken, never a socket, so the
+      # Persister's isolated thread can call it.
       def request_fsync(paths : Enumerable(String)) : Nil
-        return if paths.empty?
-        relative = paths.map { |p| strip_datadir p }
-        followers.each &.request_fsync(relative)
+        paths.each { |p| @journal.fsync(strip_datadir p) }
       end
 
       def request_syncfs : Nil
-        followers.each &.request_syncfs
+        @journal.fsync("")
       end
 
+      # Block until every in-sync follower has acked everything journaled so
+      # far, so a durable operation may be acknowledged to a client: once
+      # this returns, every node etcd lists as a failover candidate has the
+      # operation durably on disk. Wait for all followers (no short-circuit)
+      # — wait_for blocks until the follower acks or disconnects. A follower
+      # that disconnected (wait_for == false, or it dropped earlier and left
+      # the ISR dirty) may lack data that's about to be acknowledged, so its
+      # removal must be committed to the coordinator before this returns (see
+      # flush_isr).
       def wait_for_followers : Nil
+        lsn = @journal.last_lsn
         all_acked = true
-        followers.each { |f| all_acked &= f.wait_for_confirm }
+        followers.each { |f| all_acked &= f.wait_for(lsn) }
         flush_isr if !all_acked || isr_dirty?
       end
 
@@ -499,41 +500,18 @@ module LavinMQ
         @file_index.lock { |_files, checksums| checksums.store }
       end
 
-      # Dispatch a replicated change to all synced followers, then commit a
-      # dirty ISR before returning. Every durable operation replicates its
-      # change before acknowledging it (definitions writes, JSON file
-      # replaces, segment deletes, publishes), so flushing here guarantees no
-      # operation is acknowledged while etcd still lists a follower that
-      # disconnected before this change was dispatched — a leader crash right
-      # after the acknowledgment could otherwise elect that follower without
-      # the acknowledged change. The etcd write happens after the dispatch
-      # loop, so a coordinator failure can't abort a dispatch halfway and
-      # leave a hole in every follower's file, and flush_isr retries instead
-      # of raising into the publish path — the operation stalls, and if the
-      # coordinator stays unreachable the leader's lease expires and the
-      # process exits.
-      private def each_follower(& : Follower -> Nil) : Nil
-        dirty = false
-        @lock.synchronize do
-          broken = nil
-          @followers.each do |f|
-            next if f.syncing? # Performing a full sync
-            yield f
-          rescue IO::Error | Socket::Error
-            Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
-            # Remove the dead follower inline: the lock is already held and
-            # @lock guards every @followers mutation, so a Fiber.yield here
-            # can't hand off to a removal path. The follower's handler fiber
-            # ensure remains the safety net (its @followers.delete becomes a
-            # no-op). A synced follower leaving dirties the ISR so it's
-            # committed before this operation is acknowledged.
-            (broken ||= Array(Follower).new) << f
-            @dirty_isr = true if f.synced?
-          end
-          broken.try &.each { |f| @followers.delete(f) }
-          dirty = @dirty_isr
-        end
-        flush_isr if dirty
+      # Called after a change is journaled. Commits a dirty ISR before
+      # returning: every durable operation journals its change before
+      # acknowledging it (definitions writes, JSON file replaces, segment
+      # deletes, publishes), so flushing here guarantees no operation is
+      # acknowledged while etcd still lists a follower that disconnected
+      # before this change was journaled — a leader crash right after the
+      # acknowledgment could otherwise elect that follower without the
+      # acknowledged change. flush_isr retries instead of raising into the
+      # publish path — the operation stalls, and if the coordinator stays
+      # unreachable the leader's lease expires and the process exits.
+      private def dispatched : Nil
+        flush_isr if isr_dirty?
       end
 
       private def strip_datadir(path : String) : String

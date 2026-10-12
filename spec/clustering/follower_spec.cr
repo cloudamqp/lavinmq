@@ -10,6 +10,33 @@ private def read_data_size(io) : Int64
   io.read_bytes Int64, IO::ByteFormat::LittleEndian
 end
 
+# A journal with the follower tailing it from the head, so entries appended to
+# it come out on the follower's socket (the sender flushes whenever it has
+# drained the journal).
+private def start_streaming(follower) : LavinMQ::Clustering::Journal
+  journal = LavinMQ::Clustering::Journal.new(1024)
+  journal.subscribe(follower)
+  follower.start_sender(journal, journal.head)
+  journal
+end
+
+# Drain the client side so the sender never blocks on a full socket. Stops at
+# EOF: a read at the peer's close returns 0 instead of raising, and looping on
+# it would spin the fiber.
+private def drain(client_socket) : Nil
+  spawn do
+    buf = uninitialized UInt8[4096]
+    until client_socket.read(buf.to_slice).zero?
+    end
+  rescue IO::Error
+    # socket closed at spec end
+  end
+end
+
+private def record_size(path : String, payload : Int) : Int64
+  (sizeof(Int32) + path.bytesize + sizeof(Int64) + payload).to_i64
+end
+
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
   client_socket.write header
@@ -185,29 +212,19 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
-
-        # Fiber to drain client socket so follower doesn't block on write/flush
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop do
-            client_socket.read(buf.to_slice)
-          end
-        rescue IO::Error
-          # socket closed
-        end
+        drain(client_socket)
 
         spawn { follower.ack_loop }
-        10.times do
-          follower.append("#{data_dir}/file", "hello world".to_slice)
-        end
-        target = follower.lag_in_bytes
+        journal = start_streaming(follower)
+        10.times { journal.append_bytes("file", "hello world".to_slice, 0i64) }
+        target = record_size("file", "hello world".bytesize) * 10
+        wait_for { follower.lag_in_bytes == target }
 
         # Ack the outstanding bytes and wait until the follower has registered
-        # them, so the lag-0 assertion is deterministic (close no longer flushes
-        # or waits for acks itself).
+        # them, so the lag-0 assertion is deterministic.
         client_socket.write_bytes target, IO::ByteFormat::LittleEndian
         confirmed = Channel(Bool).new
-        spawn { confirmed.send follower.wait_for_confirm }
+        spawn { confirmed.send follower.wait_for(journal.last_lsn) }
         select
         when confirmed.receive
         when timeout(2.seconds)
@@ -223,22 +240,40 @@ module FollowerSpec
         client_socket.try &.close
       end
     end
+
+    it "disconnects a follower that falls behind the journal" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
+        spawn { follower.ack_loop }
+
+        journal = LavinMQ::Clustering::Journal.new(4)
+        journal.subscribe(follower)
+        from = journal.head
+        8.times { journal.delete("f") } # evicts the first four before the sender starts
+        follower.start_sender(journal, from)
+
+        wait_for { follower.dead? }
+        follower_socket.closed?.should be_true
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
   end
 
-  describe "#replace" do
-    it "writes filename, file size, and file contents to the LZ4 stream" do
+  describe "replace entries" do
+    it "write filename, file size, and file contents to the LZ4 stream" do
       with_datadir do |data_dir|
-        File.write File.join(data_dir, "file1"), "foo"
-
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        # close no longer flushes buffered data, so drive the flush via ack_loop
-        # + request_flush (see the #request_flush test) to read it off the wire.
         spawn { follower.ack_loop }
-        lag = follower.replace("file1")
-        follower.request_flush
+        journal = start_streaming(follower)
+        journal.replace("file1", "foo".to_slice)
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
@@ -248,32 +283,7 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
-      ensure
-        follower_socket.try &.close
-        client_socket.try &.close
-      end
-    end
-
-    it "captures the file size at call time so later appends do not bleed into the stream" do
-      with_datadir do |data_dir|
-        File.write File.join(data_dir, "file1"), "foo"
-
-        follower_socket, client_socket = FakeSocket.pair
-        file_index = FakeFileIndex.new(data_dir)
-        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
-
-        # Drain the client side so the synchronous replace doesn't block on LZ4 writes
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        lag = follower.replace("file1")
-        File.write File.join(data_dir, "file1"), "appended-after-replace", mode: "a"
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
-        follower.close
+        follower.sent_bytes.should eq record_size("file1", 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -281,16 +291,16 @@ module FollowerSpec
     end
   end
 
-  describe "#append" do
-    it "writes filename and Bytes payload with a negative size header" do
+  describe "append entries" do
+    it "write filename and Bytes payload with a negative size header" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         spawn { follower.ack_loop }
-        lag = follower.append("bar", "foo".to_slice)
-        follower.request_flush
+        journal = start_streaming(follower)
+        journal.append_bytes("bar", "foo".to_slice, 0i64)
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "bar"
@@ -300,51 +310,81 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag.should eq(sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 3)
+        follower.sent_bytes.should eq record_size("bar", 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
       end
     end
 
-    it "writes Int32 value little-endian with a -4 size header" do
+    it "write a value little-endian with a -4 size header" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         spawn { follower.ack_loop }
-        lag = follower.append("file1", 123i32)
-        follower.request_flush
-
-        client_lz4 = Compress::LZ4::Reader.new(client_socket)
-        read_filename(client_lz4).should eq "file1"
-        read_data_size(client_lz4).should eq(-4i64)
-        client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 123i32
-
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(Int32))
-      ensure
-        follower_socket.try &.close
-        client_socket.try &.close
-      end
-    end
-
-    it "writes UInt32 value little-endian with a -4 size header" do
-      with_datadir do |data_dir|
-        follower_socket, client_socket = FakeSocket.pair
-        file_index = FakeFileIndex.new(data_dir)
-        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
-
-        spawn { follower.ack_loop }
-        lag = follower.append("file1", 123u32)
-        follower.request_flush
+        journal = start_streaming(follower)
+        journal.append_value("file1", 123u32, 0i64)
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq(-4i64)
         client_lz4.read_bytes(UInt32, IO::ByteFormat::LittleEndian).should eq 123u32
 
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(UInt32))
+        follower.sent_bytes.should eq record_size("file1", sizeof(UInt32))
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "read the payload of an mfile entry from its mmap" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        mfile = MFile.new(File.join(data_dir, "seg"), 64)
+        mfile.print "head"
+        mfile.print "tail"
+
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        journal.append_mfile("seg", mfile, 4i64, 4i64)
+        mfile.close # rolled over before it was sent: the lease keeps the mmap
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "seg"
+        read_data_size(client_lz4).should eq(-4i64)
+        client_lz4.read_string(4).should eq "tail"
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "skip what the follower's join cut already covers" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        follower.capture_synced_baseline({"seg" => 6i64})
+
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        journal.append_bytes("seg", "head".to_slice, 0i64)  # entirely in the snapshot
+        journal.append_bytes("seg", "part".to_slice, 4i64)  # straddles the cut
+        journal.append_bytes("seg", "more".to_slice, 8i64)  # past the cut
+        journal.append_bytes("other", "all".to_slice, 0i64) # not in the baseline
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "seg"
+        read_data_size(client_lz4).should eq(-2i64)
+        client_lz4.read_string(2).should eq "rt"
+        read_filename(client_lz4).should eq "seg"
+        read_data_size(client_lz4).should eq(-4i64)
+        client_lz4.read_string(4).should eq "more"
+        read_filename(client_lz4).should eq "other"
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -352,47 +392,79 @@ module FollowerSpec
     end
   end
 
-  describe "#wait_for_confirm" do
-    it "blocks until the follower has acked the bytes sent so far" do
+  describe "#wait_for" do
+    it "blocks until the follower has acked the entry" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
 
-        # Drain the client side so synchronous appends don't block on LZ4 writes
-        client_lz4 = Compress::LZ4::Reader.new(client_socket)
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_lz4.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        follower.append("#{data_dir}/file", "hello world".to_slice)
-        target = follower.lag_in_bytes
         spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        target = record_size("file", "hello world".bytesize)
+        wait_for { follower.lag_in_bytes == target }
 
         confirmed = Channel(Nil).new
         spawn do
-          follower.wait_for_confirm
+          follower.wait_for(lsn)
           confirmed.send nil
         end
 
         # Should not return before the follower has acked the target bytes
         select
         when confirmed.receive
-          fail "wait_for_confirm returned before follower acked"
+          fail "wait_for returned before follower acked"
         when timeout(50.milliseconds)
         end
 
-        # Ack the bytes; wait_for_confirm should now return
+        # Ack the bytes; wait_for should now return
         client_socket.write_bytes target, IO::ByteFormat::LittleEndian
         select
         when confirmed.receive
         when timeout(2.seconds)
-          fail "wait_for_confirm did not return after ack"
+          fail "wait_for did not return after ack"
         end
 
         follower.lag_in_bytes.should eq 0
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "waits for an entry the sender hasn't written yet" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
+        spawn { follower.ack_loop }
+
+        # Journaled before the sender starts: nothing sent yet, so what has
+        # been acked (nothing) must not satisfy the wait.
+        journal = LavinMQ::Clustering::Journal.new(1024)
+        journal.subscribe(follower)
+        from = journal.head
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for(lsn) }
+        select
+        when confirmed.receive
+          fail "wait_for returned before the entry was even sent"
+        when timeout(50.milliseconds)
+        end
+
+        follower.start_sender(journal, from)
+        wait_for { follower.lag_in_bytes > 0 }
+        client_socket.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+        select
+        when result = confirmed.receive
+          result.should be_true
+        when timeout(2.seconds)
+          fail "wait_for did not return after ack"
+        end
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -404,23 +476,19 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
 
-        # Drain the client side so synchronous appends don't block on LZ4 writes
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        follower.append("#{data_dir}/file", "hello world".to_slice)
-        target = follower.lag_in_bytes
         spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        target = record_size("file", "hello world".bytesize)
+        wait_for { follower.lag_in_bytes == target }
 
         # The publish confirm loop and definition fences can wait
         # concurrently; a single ack must unblock every waiter whose target
         # it reaches, not just one.
         confirmed = Channel(Bool).new
-        3.times { spawn { confirmed.send follower.wait_for_confirm } }
+        3.times { spawn { confirmed.send follower.wait_for(lsn) } }
         sleep 100.milliseconds # let all waiters block on the ack notification
 
         client_socket.write_bytes target, IO::ByteFormat::LittleEndian
@@ -429,7 +497,7 @@ module FollowerSpec
           when result = confirmed.receive
             result.should be_true
           when timeout(2.seconds)
-            fail "a concurrent wait_for_confirm waiter never unblocked"
+            fail "a concurrent wait_for waiter never unblocked"
           end
         end
       ensure
@@ -443,27 +511,22 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket) # but never ack
 
-        # Drain the client side so the flush doesn't block, but never send an ack
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        follower.append("#{data_dir}/file", "hello world".to_slice)
         # Short ack deadline: the follower stays connected but never acks, so
         # ack_loop should give up and disconnect, closing @ack_notify.
         spawn { follower.ack_loop(50.milliseconds) }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
 
         confirmed = Channel(Bool).new
-        spawn { confirmed.send follower.wait_for_confirm }
+        spawn { confirmed.send follower.wait_for(lsn) }
 
         select
         when result = confirmed.receive
           result.should be_false # follower was disconnected before acking
         when timeout(2.seconds)
-          fail "wait_for_confirm did not return after follower was dropped"
+          fail "wait_for did not return after follower was dropped"
         end
       ensure
         follower_socket.try &.close
@@ -476,30 +539,27 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
-
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
+        drain(client_socket)
 
         # Stay idle (no outstanding data) for well over the ack deadline: the
         # deadline must not start ticking until data is actually outstanding.
         spawn { follower.ack_loop(50.milliseconds) }
+        journal = start_streaming(follower)
         sleep 200.milliseconds
 
         # Now publish; a healthy follower acking promptly must NOT be dropped.
-        follower.append("#{data_dir}/file", "hello world".to_slice)
-        target = follower.lag_in_bytes
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        target = record_size("file", "hello world".bytesize)
+        wait_for { follower.lag_in_bytes == target }
         confirmed = Channel(Bool).new
-        spawn { confirmed.send follower.wait_for_confirm }
+        spawn { confirmed.send follower.wait_for(lsn) }
         client_socket.write_bytes target, IO::ByteFormat::LittleEndian
 
         select
         when result = confirmed.receive
           result.should be_true # follower stayed connected and acked
         when timeout(2.seconds)
-          fail "wait_for_confirm did not return"
+          fail "wait_for did not return"
         end
       ensure
         follower_socket.try &.close
@@ -509,24 +569,24 @@ module FollowerSpec
 
     # Regression: the publish-confirm loop runs on an isolated execution
     # context, but the follower socket's fd belongs to the default context's
-    # event loop (ack_loop keeps a read pending on it). wait_for_confirm used
-    # to flush the socket from the calling fiber; when the flush blocked, the
-    # cross-context fd handover raised RuntimeError, killing the confirm loop
-    # and hanging every publish confirm forever. The flush must instead be
-    # delegated to a follower-owned fiber on the default context.
+    # event loop (ack_loop keeps a read pending on it). The old
+    # wait_for_confirm flushed the socket from the calling fiber; when the
+    # flush blocked, the cross-context fd handover raised RuntimeError,
+    # killing the confirm loop and hanging every publish confirm forever.
+    # Socket writes belong to the follower's sender fiber on the default
+    # context; a waiter only touches channels and counters.
     it "never writes the socket from the calling fiber, so an isolated execution context can wait safely" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        # Outstanding data pending inside the LZ4 writer (well below its
-        # block size, so the append itself doesn't touch the socket); any
-        # flush must now write to the socket.
-        follower.append("#{data_dir}/file", Bytes.new(1024))
+        # ack_loop on the default context keeps a read pending on the fd.
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
 
         # Fill the socket buffers (the client side never reads), then stop at
-        # the first blocked write, so a later flush of the pending LZ4 data
+        # the first blocked write, so the sender's flush of the entry below
         # must block on the event loop.
         filled = Channel(Nil).new(1)
         spawn(name: "socket filler") do
@@ -543,27 +603,23 @@ module FollowerSpec
           fail "socket buffers never filled"
         end
 
-        # ack_loop on the default context keeps a read pending on the fd.
-        spawn { follower.ack_loop }
-        sleep 20.milliseconds
+        lsn = journal.append_bytes("file", Bytes.new(1024), 0i64)
 
         result = Channel(Bool | Exception).new(1)
         Fiber::ExecutionContext::Isolated.new("confirm from isolated EC") do
-          result.send follower.wait_for_confirm
+          result.send follower.wait_for(lsn)
         rescue ex
           result.send ex
         end
 
-        # The follower never acks; eventually ack_loop gives up (its own
-        # blocked flush times out) and unblocks the waiter with false. The
-        # old direct flush instead raised RuntimeError here: the blocked
-        # write tried to move the fd to the isolated context's event loop
-        # while ack_loop's read was pending on the default one.
+        # The follower never acks and never reads; the sender's blocked flush
+        # times out and drops the follower, which unblocks the waiter with
+        # false. No cross-context IO error may be raised here.
         select
         when r = result.receive
-          r.should be_false # never acked — and no cross-context IO error raised
+          r.should be_false
         when timeout(10.seconds)
-          fail "wait_for_confirm never returned from the isolated execution context"
+          fail "wait_for never returned from the isolated execution context"
         end
       ensure
         follower_socket.try &.close
@@ -576,19 +632,15 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
 
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        follower.append("#{data_dir}/file", "hello world".to_slice)
         spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
 
         confirmed = Channel(Nil).new
         spawn do
-          follower.wait_for_confirm # never acked
+          follower.wait_for(lsn) # never acked
           confirmed.send nil
         end
 
@@ -597,7 +649,7 @@ module FollowerSpec
         select
         when confirmed.receive
         when timeout(2.seconds)
-          fail "wait_for_confirm did not return after follower disconnected"
+          fail "wait_for did not return after follower disconnected"
         end
       ensure
         follower_socket.try &.close
@@ -606,22 +658,15 @@ module FollowerSpec
     end
   end
 
-  describe "#request_flush" do
-    # Regression: @flush_requested was a Channel(Nil), and receive? returns
-    # nil both for a delivered message and for a closed channel, so
-    # flush_loop exited on the first request without ever flushing — every
-    # confirm then waited for ack_loop's 100ms fallback flush instead.
-    it "pushes buffered bytes to the follower without waiting for the ack-loop fallback flush" do
+  describe "the sender" do
+    it "flushes an entry to the follower as soon as the journal is drained" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         spawn { follower.ack_loop }
-
-        # A small append stays in the LZ4 writer's buffer (auto_flush is
-        # off); only a flush moves it to the socket.
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        journal = start_streaming(follower)
 
         received = Channel(String).new(1)
         spawn do
@@ -635,13 +680,14 @@ module FollowerSpec
           # socket closed at spec end
         end
 
-        follower.request_flush
-        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
+        # A small append stays in the LZ4 writer's buffer (auto_flush is
+        # off); the sender flushes it since nothing else is queued.
+        journal.append_bytes("file", "hello world".to_slice, 0i64)
         select
         when payload = received.receive
           payload.should eq "hello world"
         when timeout(50.milliseconds)
-          fail "request_flush did not flush buffered bytes to the follower"
+          fail "the sender did not flush the entry to the follower"
         end
       ensure
         follower_socket.try &.close
@@ -660,18 +706,13 @@ module FollowerSpec
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        drain(client_socket)
 
-        # Drain the client side so close's final flush doesn't block
-        spawn do
-          buf = uninitialized UInt8[4096]
-          loop { client_socket.read(buf.to_slice) }
-        rescue IO::Error
-        end
-
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
 
         confirmed = Channel(Bool).new(1)
-        spawn { confirmed.send follower.wait_for_confirm }
+        spawn { confirmed.send follower.wait_for(lsn) }
         sleep 50.milliseconds # let the waiter block on the ack notification
 
         follower.close
@@ -679,7 +720,7 @@ module FollowerSpec
         when result = confirmed.receive
           result.should be_false
         when timeout(2.seconds)
-          fail "wait_for_confirm was not unblocked by close"
+          fail "wait_for was not unblocked by close"
         end
         follower.dead?.should be_true
       ensure
@@ -702,9 +743,6 @@ module FollowerSpec
         # Fail a blocked write fast instead of after the production timeout.
         follower_socket.write_timeout = 200.milliseconds
 
-        # Buffered data that a (now removed) flush-on-close would try to send.
-        follower.append("#{data_dir}/file", "hello world".to_slice)
-
         # Fill the socket send buffer; the client never reads, so any further
         # write blocks until the write timeout.
         junk = Bytes.new(65536)
@@ -712,6 +750,9 @@ module FollowerSpec
           loop { follower_socket.write junk }
         rescue IO::TimeoutError
         end
+        # Journaled data the sender will try (and fail) to flush
+        journal = start_streaming(follower)
+        journal.append_bytes("file", "hello world".to_slice, 0i64)
 
         follower.close
         follower_socket.closed?.should be_true
@@ -840,20 +881,18 @@ module FollowerSpec
     end
   end
 
-  describe "#request_fsync" do
-    it "writes fsync request records, counted as sent bytes" do
+  describe "fsync entries" do
+    it "are written as fsync request records, counted as sent bytes" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
         negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
         spawn { follower.ack_loop }
+        journal = start_streaming(follower)
 
-        follower.request_fsync({"vhost/queue/msgs.0000000001", "vhost/queue"})
-        follower.request_syncfs
-        follower.sent_bytes.should eq(
-          (sizeof(Int32) + 1 + "vhost/queue/msgs.0000000001".bytesize + sizeof(Int64)) +
-          (sizeof(Int32) + 1 + "vhost/queue".bytesize + sizeof(Int64)) +
-          (sizeof(Int32) + 1 + sizeof(Int64)))
+        journal.fsync("vhost/queue/msgs.0000000001")
+        journal.fsync("vhost/queue")
+        journal.fsync("") # syncfs
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "$vhost/queue/msgs.0000000001"
@@ -862,25 +901,33 @@ module FollowerSpec
         read_data_size(client_lz4).should eq 0i64
         read_filename(client_lz4).should eq "$"
         read_data_size(client_lz4).should eq 0i64
+        follower.sent_bytes.should eq(
+          (sizeof(Int32) + 1 + "vhost/queue/msgs.0000000001".bytesize + sizeof(Int64)) +
+          (sizeof(Int32) + 1 + "vhost/queue".bytesize + sizeof(Int64)) +
+          (sizeof(Int32) + 1 + sizeof(Int64)))
       ensure
         follower_socket.try &.close
         client_socket.try &.close
       end
     end
 
-    # The follower acks cumulative byte counts, so a request counted as sent
-    # before an append must also be written before it; otherwise the append's
-    # ack could satisfy a confirm waiting for the unprocessed request.
-    it "writes a pending request ahead of records sent after it" do
+    # The follower acks cumulative byte counts, so a request journaled before
+    # an append is also written before it; otherwise the append's ack could
+    # satisfy a confirm waiting for the unprocessed request.
+    it "are written ahead of records journaled after them" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
         negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
-
-        follower.request_fsync({"file"})
-        follower.append("other", "data".to_slice)
         spawn { follower.ack_loop }
-        follower.request_flush
+
+        # Both journaled before the sender starts, so they're in one batch
+        journal = LavinMQ::Clustering::Journal.new(1024)
+        journal.subscribe(follower)
+        from = journal.head
+        journal.fsync("file")
+        journal.append_bytes("other", "data".to_slice, 0i64)
+        follower.start_sender(journal, from)
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "$file"
@@ -892,21 +939,21 @@ module FollowerSpec
       end
     end
 
-    it "sends nothing to a version 1 follower, which syncs before every ack" do
+    it "send nothing to a version 1 follower, which syncs before every ack" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
         negotiate(follower, client_socket, LavinMQ::Clustering::Start)
-
-        follower.request_fsync({"file"})
-        follower.request_syncfs
-        follower.sent_bytes.should eq 0
-        follower.delete("other")
         spawn { follower.ack_loop }
-        follower.request_flush
+        journal = start_streaming(follower)
+
+        journal.fsync("file")
+        journal.fsync("")
+        journal.delete("other")
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "other"
+        follower.sent_bytes.should eq record_size("other", 0)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -914,22 +961,22 @@ module FollowerSpec
     end
   end
 
-  describe "#delete" do
-    it "writes filename and a zero size marker" do
+  describe "delete entries" do
+    it "write filename and a zero size marker" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         spawn { follower.ack_loop }
-        lag = follower.delete("file1")
-        follower.request_flush
+        journal = start_streaming(follower)
+        journal.delete("file1")
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq 0i64
 
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64))
+        follower.sent_bytes.should eq record_size("file1", 0)
       ensure
         follower_socket.try &.close
         client_socket.try &.close

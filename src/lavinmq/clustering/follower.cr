@@ -1,4 +1,5 @@
 require "./file_index"
+require "./journal"
 require "../config"
 require "../rate_limiter"
 require "socket"
@@ -6,7 +7,13 @@ require "wait_group"
 
 module LavinMQ
   module Clustering
+    # The leader's side of a follower connection. After the full sync a
+    # sender fiber tails the Journal from the follower's cut and writes the
+    # entries to the socket in the v1/v2 wire format; ack_loop reads the
+    # follower's cumulative byte acks.
     class Follower
+      include Journal::Subscriber
+
       enum State
         Syncing
         Synced
@@ -34,10 +41,12 @@ module LavinMQ
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
-      # Wakes flush_loop; capacity 1 so a burst of requests coalesces into one
-      # flush. Closed when ack_loop ends, stopping flush_loop. Carries Bool
-      # (not Nil) so receive? distinguishes a request (true) from close (nil).
-      @flush_requested = ::Channel(Bool).new(1)
+      # Wakes the sender; capacity 1 so a burst of appends coalesces into one
+      # wakeup. Closed by #close, which ends the sender.
+      @wake = ::Channel(Nil).new(1)
+      # Next journal lsn the sender reads; entries before it are on the wire
+      # (flushed). Written by the sender, read by waiters and the Journal.
+      @position = Atomic(UInt64).new(0)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -45,8 +54,10 @@ module LavinMQ
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
       @synced_baseline = Hash(String, Int64).new
-      # Fsync requests not yet written to the stream, guarded by @write_lock
-      @pending_fsyncs = Array(String).new
+      # Flush after this many entries even if the journal isn't drained, so
+      # a waiter isn't held up behind a long burst
+      BATCH_ENTRIES = 1024
+
       getter id = -1
       getter protocol_version = 1
       getter remote_address
@@ -88,11 +99,10 @@ module LavinMQ
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
-        @running.spawn(name: "Clustering follower flush loop") { flush_loop }
         # Tighten the write timeout for the streaming phase; full_sync relaxed it
         # to SYNC_WRITE_TIMEOUT for the bulk transfer.
         @socket.write_timeout = ACK_TIMEOUT
-        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
+        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, then check the ack deadline
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
         # deadline measures time-since-data-became-outstanding, not since the
@@ -104,10 +114,6 @@ module LavinMQ
           unacked_since = nil       # progress; restart the deadline
           @ack_notify.try_send(nil) # wake any publish-confirm waiter
         rescue IO::TimeoutError
-          @write_lock.synchronize do
-            write_pending_fsyncs
-            @lz4.flush
-          end
           # A connected follower that stops acking while data is outstanding
           # (blocked on its own sync, GC pause, half-open socket) would
           # otherwise stall publish confirms indefinitely. Drop it from the
@@ -128,8 +134,8 @@ module LavinMQ
       rescue IO::EOFError | Socket::Error | IO::Error
         # socket closed
       ensure
-        @ack_notify.close      # unblock any waiter; this follower is gone
-        @flush_requested.close # stop flush_loop
+        @ack_notify.close # unblock any waiter; this follower is gone
+        @wake.close       # stop the sender
         @running.done
       end
 
@@ -142,55 +148,93 @@ module LavinMQ
         @ack_notify.closed?
       end
 
-      # Flush the LZ4 buffer so pending bytes reach the follower without
-      # waiting for the ack_loop's 100ms flush timeout. Write errors are
-      # swallowed: a broken socket is detected by ack_loop, which closes
-      # @ack_notify so a wait_for_confirm waiter still unblocks.
-      private def flush : Nil
-        @write_lock.synchronize do
-          write_pending_fsyncs
-          @lz4.flush
+      # Tail the journal from `from` (the lsn the follower was marked synced
+      # at) and stream the entries to the follower. Runs in a fiber on the
+      # default execution context: the socket's fd belongs to its event loop
+      # (ack_loop keeps a read pending on it), so no other context may write
+      # it — the Persister's isolated thread only appends to the journal.
+      def start_sender(journal : Journal, from : UInt64) : Nil
+        @position.set(from)
+        @running.spawn(name: "Clustering follower sender") { send_loop(journal) }
+      end
+
+      private def send_loop(journal : Journal) : Nil
+        pos = @position.get
+        loop do
+          batched = 0
+          while entry = journal.read(pos)
+            begin
+              encode(entry)
+            ensure
+              entry.mfile.try &.release_lease
+            end
+            pos += 1
+            batched += 1
+            break if batched >= BATCH_ENTRIES
+          end
+          if batched.zero? && journal.behind?(pos)
+            Log.warn { "Follower id=#{@id.to_s(36)} fell behind the journal, disconnecting" }
+            break
+          end
+          if batched > 0
+            @write_lock.synchronize { @lz4.flush }
+            @position.set(pos)
+            journal.release_unneeded
+            @ack_notify.try_send(nil) # waiters re-check what's been sent
+            next                      # keep draining before blocking
+          end
+          @wake.receive
         end
+      rescue ::Channel::ClosedError
+        # closed: the follower is being dropped
       rescue IO::Error | Socket::Error
+        # ack_loop sees the closed socket and marks the follower dead
+      ensure
+        journal.unsubscribe(self)
+        @socket.close rescue nil
       end
 
-      # Flushes on behalf of request_flush callers. Runs in its own fiber,
-      # spawned by ack_loop on the default execution context: the publish
-      # confirm loop runs on an isolated thread and must not write the socket
-      # itself — the socket's fd belongs to the default context's event loop
-      # (ack_loop keeps a read pending on it), and a write that blocks from
-      # another context raises instead of waiting.
-      private def flush_loop
-        while @flush_requested.receive?
-          flush
-        end
-      end
-
-      # Ask flush_loop to push buffered bytes to the follower. Never blocks
-      # and never touches the socket, so it's safe to call from any execution
-      # context (see flush_loop).
-      def request_flush : Nil
-        @flush_requested.try_send(true)
+      # Journal::Subscriber
+      def wake : Nil
+        @wake.try_send(nil)
       rescue ::Channel::ClosedError
       end
 
-      # Block until the follower has acked at least the bytes already sent at
-      # call time. Requests a flush first so the pending bytes reach the
-      # follower without waiting for the ack_loop's 100ms flush timeout.
-      # Returns true if the bytes were acked, false if the follower
-      # disconnected. A follower that stops acking is disconnected by
-      # ack_loop, which closes @ack_notify and unblocks us here.
-      def wait_for_confirm : Bool
-        target = @sent_bytes.get
+      def journal_position : UInt64
+        @position.get
+      end
+
+      def journal_position=(lsn : UInt64)
+        @position.set(lsn)
+      end
+
+      # Push buffered bytes to the follower now rather than at the sender's
+      # next drain. Never blocks and never touches the socket, so it's safe
+      # to call from any execution context.
+      def request_flush : Nil
+        wake
+      end
+
+      # Block until the follower has acked the journal entry `lsn` (and
+      # everything sent before it). Returns true if acked, false if the
+      # follower disconnected. A follower that stops acking is disconnected
+      # by ack_loop, which closes @ack_notify and unblocks us here.
+      def wait_for(lsn : UInt64) : Bool
         request_flush
+        # Until the sender has passed lsn, what's been sent doesn't cover it
+        until @position.get > lsn
+          @ack_notify.receive
+        end
+        target = @sent_bytes.get
         until @acked_bytes.get >= target
           @ack_notify.receive
         end
         # Several fibers can wait concurrently (the publish confirm loop and
-        # definition fences) but each ack wakes only one; pass the wakeup on
-        # so every waiter whose target was reached gets to re-check. A waiter
-        # still short of its target swallows the relayed wakeup harmlessly —
-        # its missing bytes guarantee another ack (or eviction) follows.
+        # definition fences) but each notification wakes only one; pass the
+        # wakeup on so every waiter whose target was reached gets to re-check.
+        # A waiter still short of its target swallows the relayed wakeup
+        # harmlessly — its missing bytes guarantee another ack (or eviction)
+        # follows.
         @ack_notify.try_send(nil)
         true
       rescue ::Channel::ClosedError | IO::Error | Socket::Error
@@ -293,112 +337,87 @@ module LavinMQ
         end
       end
 
-      def replace(path) : Int64
+      # Write one journal entry in the wire format. Appends below this
+      # follower's join cut are skipped or tail-sliced (see #already_synced).
+      # Takes @write_lock so close can't pull the socket from under a record.
+      private def encode(entry : Journal::Entry) : Nil
         @write_lock.synchronize do
-          File.open(File.join(@data_dir, path)) do |file|
-            file_size = file.size
-            lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
-            @sent_bytes.add(lag_size)
-            send_filename(path)
-            @lz4.write_bytes file_size.to_i64, IO::ByteFormat::LittleEndian
-            IO.copy(file, @lz4, file_size) == file_size || raise IO::EOFError.new
-            lag_size
+          case entry.op
+          in .append?, .append_bytes?
+            bytes = entry.payload
+            skip = already_synced(entry.path, entry.offset, bytes.bytesize.to_i64)
+            write_append(entry.path, bytes[skip..]) if skip < bytes.bytesize
+          in .append_value?
+            case skip = already_synced(entry.path, entry.offset, entry.len)
+            when 0         then write_append(entry.path, entry.value)
+            when entry.len then nil # entirely within the follower's full_sync snapshot
+            else
+              # A 4-byte value is written in a single call, so a cut inside it
+              # shouldn't happen; stay byte-exact anyway and send the tail.
+              buf = uninitialized UInt8[4]
+              IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
+              write_append(entry.path, buf.to_slice[skip..])
+            end
+          in .replace?
+            write_replace(entry.path, entry.bytes)
+            # The whole file was just resent; a synced baseline for it
+            # (captured at this follower's join) no longer describes its
+            # content and would wrongly skip appends at offsets below the old
+            # cut (e.g. after a definitions compaction shrinks the file).
+            forget_baseline(entry.path)
+          in .delete?
+            write_delete(entry.path)
+            forget_baseline(entry.path) # path may be reused by a future file
+          in .fsync?
+            # Version 1 followers sync before every ack and don't understand
+            # fsync requests
+            write_fsync(entry.path) if @protocol_version >= 2
           end
         end
       end
 
-      # Replace a file's whole content from an in-memory slice (the leader's
-      # mmap, read capped at mfile.size). A positive length on the wire marks a
+      # Replace a file's whole content. A positive length on the wire marks a
       # replace; the follower streams it to <path>.tmp then renames atomically.
       # An empty slice writes a 0 length, which the follower applies as a delete
       # (an emptied file carries no data to restore anyway).
-      def replace(path : String, bytes : Bytes) : Int64
-        @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
-          @sent_bytes.add(lag_size)
-          send_filename(path)
-          @lz4.write_bytes bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          @lz4.write bytes
-          lag_size
-        end
+      private def write_replace(path : String, bytes : Bytes) : Nil
+        @sent_bytes.add(sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize)
+        send_filename(path)
+        @lz4.write_bytes bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
+        @lz4.write bytes
       end
 
-      def append(path : String, bytes : Bytes) : Int64
-        @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
-          @sent_bytes.add(lag_size)
-          send_filename(path)
-          @lz4.write_bytes -bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          @lz4.write bytes
-          lag_size
-        end
+      private def write_append(path : String, bytes : Bytes) : Nil
+        @sent_bytes.add(sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize)
+        send_filename(path)
+        @lz4.write_bytes -bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
+        @lz4.write bytes
       end
 
-      def append(path : String, value : UInt32 | Int32) : Int64
-        @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
-          @sent_bytes.add(lag_size)
-          send_filename(path)
-          @lz4.write_bytes -4i64, IO::ByteFormat::LittleEndian
-          @lz4.write_bytes value, IO::ByteFormat::LittleEndian
-          lag_size
-        end
+      private def write_append(path : String, value : UInt32) : Nil
+        @sent_bytes.add(sizeof(Int32) + path.bytesize + sizeof(Int64) + 4)
+        send_filename(path)
+        @lz4.write_bytes -4i64, IO::ByteFormat::LittleEndian
+        @lz4.write_bytes value, IO::ByteFormat::LittleEndian
       end
 
-      def delete(path) : Int64
-        @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
-          @sent_bytes.add(lag_size)
-          send_filename(path)
-          @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
-          lag_size
-        end
+      private def write_delete(path : String) : Nil
+        @sent_bytes.add(sizeof(Int32) + path.bytesize + sizeof(Int64))
+        send_filename(path)
+        @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
       end
 
-      # Ask the follower to fsync `paths` (relative to the data dir) before it
-      # acks past this point in the stream. The bytes are counted as sent right
-      # away, so a later wait_for_confirm covers them, and they're written
-      # before anything sent after them (see #write_pending_fsyncs). Only
-      # buffers, never touches the socket, so it's safe to call from the
-      # isolated publish confirm loop. Version 1 followers sync before every
-      # ack and don't understand fsync requests.
-      def request_fsync(paths : Enumerable(String)) : Nil
-        return if @protocol_version < 2
-        @write_lock.synchronize do
-          paths.each do |path|
-            @sent_bytes.add(fsync_record_size(path))
-            @pending_fsyncs << path
-          end
-        end
-        request_flush
-      end
-
-      # Ask the follower to sync its whole data dir, an fsync request without a path
-      def request_syncfs : Nil
-        request_fsync({""})
-      end
-
-      private def fsync_record_size(path) : Int64
-        (sizeof(Int32) + 1 + path.bytesize + sizeof(Int64)).to_i64
-      end
-
-      # Caller must hold @write_lock. Written ahead of every other record, so
-      # stream order matches the order in which bytes were counted as sent,
-      # and the follower's cumulative ack can't pass a fsync request's bytes
-      # before it has handled it.
-      private def write_pending_fsyncs : Nil
-        return if @pending_fsyncs.empty?
-        @pending_fsyncs.each do |path|
-          @lz4.write_bytes (path.bytesize + 1).to_i32, IO::ByteFormat::LittleEndian
-          @lz4.write_byte FSYNC_PREFIX.ord.to_u8
-          @lz4.write path.to_slice
-          @lz4.write_bytes 0i64
-        end
-        @pending_fsyncs.clear
+      # Ask the follower to fsync `path` (relative to the data dir, "" for
+      # the whole data dir) before it acks past this point in the stream.
+      private def write_fsync(path : String) : Nil
+        @sent_bytes.add(sizeof(Int32) + 1 + path.bytesize + sizeof(Int64))
+        @lz4.write_bytes (path.bytesize + 1).to_i32, IO::ByteFormat::LittleEndian
+        @lz4.write_byte FSYNC_PREFIX.ord.to_u8
+        @lz4.write path.to_slice
+        @lz4.write_bytes 0i64
       end
 
       private def send_filename(path)
-        write_pending_fsyncs
         @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         @lz4.write path.to_slice
       end
@@ -421,13 +440,13 @@ module LavinMQ
         rescue IO::Error
           # ignore connection errors while closing
         end
+        @wake.close # stop the sender; a sender blocked on a write is released by the socket close above
         @running.wait
         # Normally ack_loop's ensure has closed these by now, but a follower
         # whose ack_loop never ran (e.g. its join failed after mark_synced!)
-        # must still read as dead and unblock any wait_for_confirm waiter,
-        # or a publish confirm could hang on it forever.
+        # must still read as dead and unblock any wait_for waiter, or a
+        # publish confirm could hang on it forever.
         @ack_notify.close
-        @flush_requested.close
       end
 
       def to_json(json : JSON::Builder)
