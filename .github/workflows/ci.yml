@@ -73,7 +73,7 @@ jobs:
         run: make lint-openapi
 
   spec:
-    name: Spec ${{ matrix.arch }}
+    name: Spec ${{ matrix.arch }} ${{ matrix.tag }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 10
@@ -87,6 +87,14 @@ jobs:
           - arch: arm64
             runner: ubuntu-26.04-arm
             container: 84codes/crystal:latest-ubuntu-26.04
+          - arch: amd64
+            tag: x-1.21.1-on-26.04
+            runner: ubuntu-26.04
+            container: 84codes/crystal:1.21.1-ubuntu-26.04
+          - arch: amd64
+            tag: x-1.22.0-on-24.04
+            runner: ubuntu-24.04
+            container: 84codes/crystal:1.22.0-ubuntu-24.04
     steps:
       - name: Print Crystal version
         run: crystal -v
