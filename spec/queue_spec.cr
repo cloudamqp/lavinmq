@@ -12,6 +12,14 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# A queue whose teardown takes a while, to restart it while it's torn down
+class SlowTearDownQueue < LavinMQ::AMQP::DurableQueue
+  private def tear_down(msg_store, deliver_loop_wg) : Bool
+    sleep 200.milliseconds
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -518,6 +526,10 @@ describe LavinMQ::AMQP::Queue do
           q.subscribe(tag: "tag", no_ack: false, &.ack)
           should_eventually(be_true) { queue.state.closed? }
 
+          # The close isn't left waiting for the deliver loop that ran into
+          # the error, which is the loop it waits for
+          should_eventually(be_true) { queue.@torn_down.value }
+
           # Delete corrupted segment file
           File.delete(mfile.path)
 
@@ -605,6 +617,22 @@ describe LavinMQ::AMQP::Queue do
           # Try to restart without closing
           queue.restart!.should be_false
         end
+      end
+    end
+
+    it "should wait for a teardown in progress before restarting" do
+      with_amqp_server do |s|
+        queue = SlowTearDownQueue.create(s.vhosts["/"], "slow-teardown")
+        spawn { queue.close }
+        wait_for { queue.state.closed? }
+        queue.restart!.should be_true
+        sleep 300.milliseconds # a teardown still running would be done by now
+        queue.state.running?.should be_true
+        queue.@message_ttl_change.closed?.should be_false
+        queue.@msg_store.closed.should be_false
+        queue.publish(LavinMQ::Message.new("", "slow-teardown", "m")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+      ensure
+        queue.try &.delete
       end
     end
 

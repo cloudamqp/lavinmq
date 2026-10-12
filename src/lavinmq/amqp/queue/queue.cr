@@ -32,6 +32,9 @@ module LavinMQ::AMQP
     VALIDATOR_STRING    = ArgumentValidator::StringValidator.new
     VALIDATOR_BOOL      = ArgumentValidator::BoolValidator.new
 
+    # How long restart! waits for a teardown in progress to finish
+    RESTART_TEARDOWN_TIMEOUT = 10.seconds
+
     DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
     DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
 
@@ -253,6 +256,9 @@ module LavinMQ::AMQP
     # different threads at once, but atomic so that it's read without the lock
     @state = Atomic(QueueState).new(QueueState::Running)
     @state_lock = Mutex.new
+    # False from when close/delete decide to tear the queue down (under
+    # @state_lock) until tear_down has finished, see restart!
+    @torn_down = BoolChannel.new(true)
 
     def closed? : Bool
       s = state
@@ -314,11 +320,18 @@ module LavinMQ::AMQP
     end
 
     def restart! : Bool
+      return false unless state.closed?
+      # Not before tear_down has finished: it closes the channels, consumers
+      # and message store, and the new store reopens the same files
+      select
+      when @torn_down.when_true.receive
+      when timeout RESTART_TEARDOWN_TIMEOUT
+        return false
+      end
       # Under @state_lock and from Closed only, so that a concurrent delete
-      # isn't undone. A tear_down still in progress works on the store and
-      # deliver loops it took when the queue was closed, not these new ones.
+      # isn't undone, nor a new close missed
       @state_lock.synchronize do
-        return false unless state.closed?
+        return false unless state.closed? && @torn_down.value
         @msg_store = init_msg_store(@data_dir)
         @empty = @msg_store.empty
         reset_queue_state
@@ -740,13 +753,13 @@ module LavinMQ::AMQP
       msg_store, deliver_loop_wg = @state_lock.synchronize do
         return false if closed?
         @state.set(QueueState::Closed, :release)
+        @torn_down.set(false)
         {@msg_store, @deliver_loop_wg}
       end
       tear_down(msg_store, deliver_loop_wg)
     end
 
-    # Takes the store and deliver loops as they were when the queue was
-    # closed, as a restart! may replace them meanwhile
+    # Takes the store and deliver loops as they were when the queue was closed
     private def tear_down(msg_store, deliver_loop_wg) : Bool
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
@@ -772,6 +785,7 @@ module LavinMQ::AMQP
       delete if !durable? || @exclusive
       @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
       Fiber.yield
+      @torn_down.set(true)
       @log.debug { "Closed" }
       true
     end
@@ -781,6 +795,7 @@ module LavinMQ::AMQP
         s = state
         return false if s.deleted?
         @state.set(QueueState::Deleted, :release)
+        @torn_down.set(false) unless s.closed?
         {s.closed?, @msg_store, @deliver_loop_wg}
       end
       @retry_queue_lock.synchronize do
@@ -1145,7 +1160,9 @@ module LavinMQ::AMQP
       false
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
-      close
+      # Not on this fiber: on a consumer's deliver loop, tear_down would wait
+      # for this very loop to exit
+      spawn(name: "Queue#close #{@vhost.name}/#{@name}") { close }
       raise ClosedError.new(cause: ex)
     end
 
