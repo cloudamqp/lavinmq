@@ -64,6 +64,18 @@ describe LavinMQ::Server do
     end
   end
 
+  it "doesn't hold the TCP read buffer of idle TLS connections" do
+    with_amqp_server(tls: true) do |s|
+      with_channel(s, tls: true, verify_mode: OpenSSL::SSL::VerifyMode::NONE) do |ch|
+        ch.queue # a roundtrip, so the connection is idle afterwards
+        client = s.connections.first.as(LavinMQ::AMQP::Client)
+        tcp = client.@socket.as(OpenSSL::SSL::Socket).@bio.to_reference.io.as(TCPSocket)
+        tcp.buffer_pool.should_not be_nil
+        wait_for { tcp.@in_buffer.null? }
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
