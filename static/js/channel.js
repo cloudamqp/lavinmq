@@ -92,8 +92,8 @@ const prefetchHandler = () => {
 
 const prefetch = prefetchHandler()
 document.getElementById('ch-prefetch').appendChild(prefetch.el)
-function updateChannel () {
-  return HTTP.request('GET', channelUrl).then(item => {
+function updateChannel (signal) {
+  return HTTP.request('GET', channelUrl, { signal }).then(item => {
     Chart.update(chart, item.message_stats)
     vhost = item.vhost
     const stateEl = document.getElementById('ch-state')

@@ -168,4 +168,126 @@ test.describe('refresh control', _ => {
     await page.goto('/logs')
     await expect(page.locator('#refresh-control')).toBeHidden()
   })
+
+  test('steps through reconnecting to stale while the server fails, and recovers', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    const control = page.locator('#refresh-control')
+    await expect(control).toHaveAttribute('data-state', 'live')
+
+    await page.route('**/api/overview', route => route.fulfill({ status: 503, json: { reason: 'Server is starting' } }))
+    const pillBorder = () => page.locator('.refresh-pill').evaluate(pill => getComputedStyle(pill).borderColor)
+    const pulse = () => page.locator('.refresh-ring').evaluate(ring => getComputedStyle(ring).animationName)
+    const liveBorder = await pillBorder()
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    expect(await pulse()).toBe('refresh-pulse')
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'stale')
+    await expect(control).toHaveAttribute('title', /\nLast error: Server is starting/)
+    expect(await pulse()).toBe('refresh-pulse')
+    expect(await pillBorder()).toBe(liveBorder)
+
+    await page.unroute('**/api/overview')
+    await advance(page, 5000)
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
+
+  for (const status of [404, 500]) {
+    test(`counts a ${status} as reachable`, async ({ page }) => {
+      await page.clock.install()
+      await loadOverview(page)
+      await page.route('**/api/overview', route => route.fulfill({ status, json: { reason: 'Nope' } }))
+      await advance(page, 10000)
+      await expect(page.locator('#refresh-control')).toHaveAttribute('data-state', 'live')
+    })
+  }
+
+  test('a refresh slower than the interval shows as slow, not as connection trouble', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.route('**/api/overview', () => {})
+    await advance(page, 10000)
+    const control = page.locator('#refresh-control')
+    await expect(control).toHaveAttribute('data-state', 'slow')
+    await expect(control).toHaveAttribute('title', /^Waiting for a slow response/)
+  })
+
+  test('a request that never answers is given up on after 30 seconds and retried', async ({ page }) => {
+    await page.clock.install()
+    await loadOverview(page)
+    await page.route('**/api/overview', () => {})
+    const overview = countRequests(page, '/api/overview')
+    const failed = page.waitForEvent('requestfailed', request => new URL(request.url()).pathname === '/api/overview')
+    await advance(page, 35000)
+    await failed
+    const control = page.locator('#refresh-control')
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(control).toHaveAttribute('title', /Last error: No response after 30s/)
+    await advance(page, 5000)
+    expect(overview.count).toBe(2)
+  })
+
+  test('shows going offline at once and refreshes when back online', async ({ page, context }) => {
+    await page.clock.install()
+    const overview = countRequests(page, '/api/overview')
+    await loadOverview(page)
+    const control = page.locator('#refresh-control')
+
+    await context.setOffline(true)
+    await expect(control).toHaveAttribute('data-state', 'reconnecting')
+    await expect(control).toHaveAttribute('title', /Browser is offline/)
+
+    await context.setOffline(false)
+    await expect.poll(() => overview.count).toBe(2)
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
+
+  test('a hung refresh stays a problem while other refreshes succeed', async ({ page }) => {
+    await page.clock.install()
+    const responseFor = path => page.waitForResponse(response => new URL(response.url()).pathname === path)
+    const exchangePath = '/api/exchanges/%2F/amq.topic'
+    const bindingsPath = '/api/exchanges/%2F/amq.topic/bindings/source'
+    const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
+    await page.goto('/exchange#vhost=%2F&name=amq.topic')
+    await loaded
+    await page.route(`**${exchangePath}`, () => {})
+    const control = page.locator('#refresh-control')
+    const states = []
+    for (let i = 0; i < 10; i++) {
+      const bindings = responseFor(bindingsPath)
+      await page.clock.runFor(5000)
+      await bindings
+      states.push(await control.getAttribute('data-state'))
+    }
+    const firstProblem = states.findIndex(state => state !== 'live')
+    expect(firstProblem).toBeGreaterThan(-1)
+    expect(states.slice(firstProblem)).not.toContain('live')
+    expect(states.at(-1)).toBe('stale')
+  })
+
+  test('a slow refresh that answers in the end counts as a success', async ({ page }) => {
+    await page.clock.install()
+    const responseFor = path => page.waitForResponse(response => new URL(response.url()).pathname === path)
+    const exchangePath = '/api/exchanges/%2F/amq.topic'
+    const bindingsPath = '/api/exchanges/%2F/amq.topic/bindings/source'
+    const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
+    await page.goto('/exchange#vhost=%2F&name=amq.topic')
+    await loaded
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    await page.route(`**${exchangePath}`, async route => { await gate; await route.fallback() })
+    const control = page.locator('#refresh-control')
+    for (let i = 0; i < 2; i++) {
+      const bindings = responseFor(bindingsPath)
+      await page.clock.runFor(5000)
+      await bindings
+    }
+    await expect(control).toHaveAttribute('data-state', 'slow')
+
+    const answered = responseFor(exchangePath)
+    release()
+    await answered
+    await expect(control).toHaveAttribute('data-state', 'live')
+  })
 })

@@ -1,9 +1,11 @@
 const RATES = [5000, 10000, 30000, 60000]
 const RATE_KEY = 'lmq.refreshInterval'
 const PAUSED_KEY = 'lmq.refreshPaused'
+const REQUEST_TIMEOUT = 30000
 
 const fns = new Set()
-const inFlight = new Set()
+const inFlight = new Map()
+const timedOut = new Set()
 const events = new EventTarget()
 let timer = null
 let lastTickAt = 0
@@ -16,11 +18,22 @@ function emit () {
 
 function run (fn) {
   if (inFlight.has(fn)) return
-  inFlight.add(fn)
-  Promise.resolve()
+  const controller = new window.AbortController()
+  const timeout = Math.max(REQUEST_TIMEOUT, 3 * rate)
+  const timer = window.setTimeout(() => {
+    controller.abort(new Error(`No response after ${timeout / 1000}s`))
+  }, timeout)
+  inFlight.set(fn, Date.now())
+  Promise.resolve(controller.signal)
     .then(fn)
     .catch(console.error)
-    .finally(() => inFlight.delete(fn))
+    .finally(() => {
+      window.clearTimeout(timer)
+      if (controller.signal.aborted) timedOut.add(fn)
+      else timedOut.delete(fn)
+      inFlight.delete(fn)
+      events.dispatchEvent(new Event('settled'))
+    })
 }
 
 function schedule (delay = rate) {
@@ -32,8 +45,23 @@ function schedule (delay = rate) {
   events.dispatchEvent(new window.CustomEvent('schedule', { detail: timer === null ? null : { rate, delay } }))
 }
 
+function pendingFor () {
+  return inFlight.size === 0 ? 0 : Date.now() - Math.min(...inFlight.values())
+}
+
+function isStalled () {
+  return timedOut.size > 0 || pendingFor() >= rate
+}
+
+function reportStalled () {
+  if (isStalled()) {
+    events.dispatchEvent(new window.CustomEvent('stalled', { detail: pendingFor() }))
+  }
+}
+
 function tick () {
   lastTickAt = Date.now()
+  reportStalled()
   fns.forEach(run)
   schedule()
 }
@@ -84,6 +112,10 @@ function setRate (ms) {
   emit()
 }
 
+window.addEventListener('online', () => {
+  if (!document.hidden && !paused) tick()
+})
+
 document.addEventListener('visibilitychange', () => {
   const remaining = lastTickAt + rate - Date.now()
   if (document.hidden || paused) schedule()
@@ -91,4 +123,4 @@ document.addEventListener('visibilitychange', () => {
   else tick()
 })
 
-export { RATES, start, isActive, isPaused, pause, resume, getRate, setRate, events }
+export { RATES, start, isActive, isStalled, isPaused, pause, resume, getRate, setRate, events }
