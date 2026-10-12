@@ -228,7 +228,7 @@ module LavinMQ
       begin
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
-        @replicator.try &.append_value(afile.path, sp.position, ack_offset)
+        @replicator.try &.append_value(afile, sp.position, ack_offset)
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -406,7 +406,7 @@ module LavinMQ
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
-      @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      @replicator.try &.append(wfile, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
       if msg.needs_sync? && (persister = @persister)

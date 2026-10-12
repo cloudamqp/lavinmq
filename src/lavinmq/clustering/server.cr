@@ -75,12 +75,20 @@ module LavinMQ
         register_file file.path
       end
 
-      def register_file(mfile : MFile)
+      def register_file(mfile : MFile) : String
         path = strip_datadir mfile.path
+        mfile.replication_path = path
         @file_index.lock do |files, checksums|
           files[path] = mfile
           checksums.delete(path)
         end
+        path
+      end
+
+      # Whether the file is in the replicated set, i.e. would reach a follower
+      def registered?(path : String) : Bool
+        path = strip_datadir path
+        @file_index.shared { |files, _checksums| files.has_key?(path) }
       end
 
       # Regular files, re-read from disk. The content is copied now, so a
@@ -108,6 +116,7 @@ module LavinMQ
       # (File.size would be the sparse ftruncate capacity, not the data length).
       def replace_file(mfile : MFile)
         path = strip_datadir mfile.path
+        mfile.replication_path = path
         bytes = mfile.to_slice.dup
         @file_index.lock do |files, checksums|
           files[path] = mfile
@@ -139,6 +148,22 @@ module LavinMQ
         end
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         @journal.append_mfile(path, mfile, pos.to_i64, length.to_i64)
+        dispatched
+      end
+
+      # Replicate `length` bytes written at `pos` in a registered MFile. No
+      # allocation: the relative path is cached on the file.
+      def append(mfile : MFile, pos : Int, length : Int)
+        path = mfile.replication_path || register_file(mfile)
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        @journal.append_mfile(path, mfile, pos.to_i64, length.to_i64)
+        dispatched
+      end
+
+      def append_value(mfile : MFile, value : UInt32 | Int32, offset : Int64)
+        path = mfile.replication_path || register_file(mfile)
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        @journal.append_value(path, value.to_u32!, offset)
         dispatched
       end
 

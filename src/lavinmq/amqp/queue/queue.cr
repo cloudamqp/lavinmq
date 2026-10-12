@@ -292,6 +292,7 @@ module LavinMQ::AMQP
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused
           @paused.set(true)
+          @vhost.replicator.try &.register_file(File.join(@data_dir, "paused")) if durable?
         end
         handle_arguments
         ensure_queue_expire_fiber
@@ -702,7 +703,9 @@ module LavinMQ::AMQP
       @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
-      File.touch(File.join(@data_dir, "paused"))
+      path = File.join(@data_dir, "paused")
+      File.touch(path)
+      @vhost.replicator.try &.replace_file(path) if durable?
     end
 
     def resume!
@@ -710,7 +713,9 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused.set(false)
-      File.delete(File.join(@data_dir, "paused"))
+      path = File.join(@data_dir, "paused")
+      File.delete(path)
+      @vhost.replicator.try &.delete_file(path) if durable?
     end
 
     def close : Bool

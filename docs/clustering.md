@@ -73,7 +73,7 @@ Synchronization is enabled by default. Setting `sync=false` in `[main]` (or usin
 
 - Definitions (exchanges, queues, bindings, users, permissions, policies, parameters)
 - Message data (segments, acknowledgment files)
-- All persistent vhost data
+- All persistent vhost data, including the paused state of queues and shovels
 
 ### ISR (In-Sync Replicas)
 

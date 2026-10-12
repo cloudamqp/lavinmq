@@ -37,6 +37,9 @@ class MFile < IO
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
+  # The path the replicator knows this file by (relative to the data dir),
+  # set when it's registered, so a replicated write doesn't build it
+  property replication_path : String?
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)

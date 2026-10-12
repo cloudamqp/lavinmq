@@ -34,6 +34,12 @@ class SpyReplicator
   def append(path : String, pos : Int, length : Int)
   end
 
+  def append(mfile : MFile, pos : Int, length : Int)
+  end
+
+  def append_value(mfile : MFile, value : UInt32 | Int32, offset : Int64)
+  end
+
   def append_value(path : String, value : UInt32 | Int32, offset : Int64)
   end
 

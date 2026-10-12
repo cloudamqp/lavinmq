@@ -9,6 +9,10 @@ module LavinMQ
       abstract def replace_file(path : String) # regular files, re-read from disk
       abstract def replace_file(mfile : MFile) # mmap-backed files, read from the mmap (capped at mfile.size)
       abstract def append(path : String, pos : Int, length : Int)
+      # The hot-path overloads: the file's replication path is cached on the
+      # MFile, so nothing is allocated or looked up per message
+      abstract def append(mfile : MFile, pos : Int, length : Int)
+      abstract def append_value(mfile : MFile, value : UInt32 | Int32, offset : Int64)
       # `offset` is the absolute byte position the value/bytes are written at on
       # the leader; used to skip appends a just-joined follower already received
       # via full_sync (see Server#append). Distinct names avoid colliding with
