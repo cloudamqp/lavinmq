@@ -303,14 +303,20 @@ module LavinMQ::AMQP
 
     private def start : Bool
       if @msg_store.closed
-        !close
+        close # unless a concurrent close/delete already did
+        false
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
           FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
-          @state.set(QueueState::Paused, :release)
-          @paused.set(true)
+          # Only from Running, as a close or delete may have run since restart!
+          @state_lock.synchronize do
+            if state.running?
+              @state.set(QueueState::Paused, :release)
+              @paused.set(true)
+            end
+          end
         end
         handle_arguments
         ensure_queue_expire_fiber

@@ -130,7 +130,8 @@ module LavinMQ::AMQP
 
     private def start : Bool
       if @msg_store.closed
-        !close
+        close # unless a concurrent close/delete already did
+        false
       else
         handle_arguments
         true

@@ -20,6 +20,16 @@ class SlowTearDownQueue < LavinMQ::AMQP::DurableQueue
   end
 end
 
+# A queue that can be closed right as restart! starts it again
+class CloseOnStartQueue < LavinMQ::AMQP::DurableQueue
+  property? close_on_start = false
+
+  private def start : Bool
+    close if close_on_start?
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -631,6 +641,19 @@ describe LavinMQ::AMQP::Queue do
         queue.@message_ttl_change.closed?.should be_false
         queue.@msg_store.closed.should be_false
         queue.publish(LavinMQ::Message.new("", "slow-teardown", "m")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+      ensure
+        queue.try &.delete
+      end
+    end
+
+    it "should not report a restart that a concurrent close undid" do
+      with_amqp_server do |s|
+        queue = CloseOnStartQueue.create(s.vhosts["/"], "close-on-start")
+        queue.pause!
+        queue.close
+        queue.close_on_start = true
+        queue.restart!.should be_false
+        queue.state.closed?.should be_true
       ensure
         queue.try &.delete
       end
