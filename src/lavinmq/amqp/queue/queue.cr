@@ -314,10 +314,15 @@ module LavinMQ::AMQP
     end
 
     def restart! : Bool
-      return false unless closed?
-      reset_queue_state
-      @msg_store = init_msg_store(@data_dir)
-      @empty = @msg_store.empty
+      # Under @state_lock and from Closed only, so that a concurrent delete
+      # isn't undone. A tear_down still in progress works on the store and
+      # deliver loops it took when the queue was closed, not these new ones.
+      @state_lock.synchronize do
+        return false unless state.closed?
+        @msg_store = init_msg_store(@data_dir)
+        @empty = @msg_store.empty
+        reset_queue_state
+      end
       start.tap do |started|
         reapply_policy if started
       end
@@ -400,7 +405,6 @@ module LavinMQ::AMQP
     end
 
     private def reset_queue_state
-      @state.set(QueueState::Running, :release)
       @message_expire_fiber_active.set(false, :release)
 
       # Recreate channels that were closed
@@ -411,6 +415,7 @@ module LavinMQ::AMQP
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
       @deliver_loop_wg = WaitGroup.new
       reset_queue_stats
+      @state.set(QueueState::Running, :release)
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -732,14 +737,17 @@ module LavinMQ::AMQP
     def close : Bool
       # Under @state_lock so that a pause!/resume! in progress finishes its
       # side effects before the queue is torn down
-      @state_lock.synchronize do
+      msg_store, deliver_loop_wg = @state_lock.synchronize do
         return false if closed?
         @state.set(QueueState::Closed, :release)
+        {@msg_store, @deliver_loop_wg}
       end
-      tear_down
+      tear_down(msg_store, deliver_loop_wg)
     end
 
-    private def tear_down : Bool
+    # Takes the store and deliver loops as they were when the queue was
+    # closed, as a restart! may replace them meanwhile
+    private def tear_down(msg_store, deliver_loop_wg) : Bool
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
@@ -752,10 +760,10 @@ module LavinMQ::AMQP
         @exclusive_consumer = false
         @has_priority_consumers = false
       end
-      Fiber.yield           # Let deliver_loop fibers start and react to closed channels
-      @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
+      Fiber.yield          # Let deliver_loop fibers start and react to closed channels
+      deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
-        @msg_store.close
+        msg_store.close
         @deliveries.clear
       end
       @basic_get_unacked.clear
@@ -769,11 +777,11 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      was_closed = @state_lock.synchronize do
+      was_closed, msg_store, deliver_loop_wg = @state_lock.synchronize do
         s = state
         return false if s.deleted?
         @state.set(QueueState::Deleted, :release)
-        s.closed?
+        {s.closed?, @msg_store, @deliver_loop_wg}
       end
       @retry_queue_lock.synchronize do
         if retry_queue = @delayed_retry_queue
@@ -781,7 +789,7 @@ module LavinMQ::AMQP
           retry_queue.delete
         end
       end
-      tear_down unless was_closed
+      tear_down(msg_store, deliver_loop_wg) unless was_closed
       @msg_store_lock.synchronize do
         @msg_store.delete
       end

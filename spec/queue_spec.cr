@@ -608,6 +608,18 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "should not restart a deleted queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          queue.delete
+          queue.restart!.should be_false
+          queue.state.deleted?.should be_true
+        end
+      end
+    end
+
     it "should clear exclusive consumer flag after restart" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
