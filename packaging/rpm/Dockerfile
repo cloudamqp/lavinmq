@@ -1,4 +1,5 @@
 ARG build_image=84codes/crystal:latest-fedora-43
+ARG test_image=fedora:43
 
 FROM $build_image AS builder
 # Enable CRB repository for el-9 to access help2man
@@ -24,12 +25,13 @@ ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
-FROM fedora:43 AS test
+FROM $test_image AS test
 COPY --from=builder /root/rpmbuild/RPMS /tmp/RPMS
 RUN find /tmp/RPMS -type f -exec dnf install -y {} \;
 RUN lavinmq --version
 RUN getent passwd lavinmq
 
-# Copy the deb package to a scratch image, that then can be exported
+# Export from the test stage, otherwise BuildKit skips the install test
 FROM scratch
-COPY --from=builder /root/rpmbuild/RPMS /root/rpmbuild/SRPMS .
+COPY --from=test /tmp/RPMS .
+COPY --from=builder /root/rpmbuild/SRPMS .
