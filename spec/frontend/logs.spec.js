@@ -117,7 +117,7 @@ test.describe('logs', _ => {
     await expect(page.locator('#refresh-live')).toHaveText('Live')
     await expect(page.locator('.refresh-ring')).toBeHidden()
     await stream.fail()
-    await expect(page.locator('#refresh-control')).toHaveAttribute('data-state', 'reconnecting')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'reconnecting')
     await expect(page.locator('.refresh-ring')).toBeHidden()
   })
 
@@ -166,7 +166,7 @@ test.describe('logs', _ => {
     await page.goto('/logs')
     await stream.open()
     await stream.fail({ closed: true })
-    await expect(page.locator('#refresh-control')).toHaveAttribute('data-state', 'live')
+    await expect(page.locator('html')).toHaveAttribute('data-reachability', 'live')
   })
 
   test('keeps following the log while taller rows are trimmed', async ({ page }) => {
