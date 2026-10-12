@@ -88,12 +88,14 @@ module ClusteringSpecHelper
     end
   end
 
-  def make_client(data_dir : String, sync = true) : TestClient
+  # `version` is the replication protocol the client streams with; the v2
+  # wire-format specs predate v3 and drive stream_changes directly.
+  def make_client(data_dir : String, sync = true, version = 2) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync
     config.metrics_http_port = -1
-    TestClient.new(config, 1, "password", proxy: false)
+    TestClient.new(config, 1, "password", proxy: false).tap &.protocol_version = version
   end
 
   # Serve `rounds` passes of the file sync protocol (full_sync runs two).

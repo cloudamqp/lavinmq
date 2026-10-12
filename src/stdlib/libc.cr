@@ -7,6 +7,8 @@ lib LibC
 
   fun sync : Void
   fun getpagesize : Int32
+  # The stdlib binds pread but not pwrite
+  fun pwrite(fd : Int, buf : Void*, n : SizeT, offset : OffT) : SSizeT
 
   {% if flag?(:darwin) %}
     SC_PHYS_PAGES = 200

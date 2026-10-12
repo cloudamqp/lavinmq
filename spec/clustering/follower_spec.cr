@@ -47,6 +47,18 @@ private def negotiate(follower, client_socket, header) : Nil
   client_socket.read_byte.should eq 0u8
 end
 
+private alias WireV3 = LavinMQ::Clustering::WireV3
+
+private def v3_follower(data_dir, follower_socket, client_socket)
+  follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+  negotiate(follower, client_socket, LavinMQ::Clustering::StartV3)
+  follower
+end
+
+private def ack(client_socket, lsn : UInt64, bytes : Int64)
+  WireV3.write_ack(client_socket, lsn, bytes)
+end
+
 module FollowerSpec
   # FakeFileIndex and FakeSocket live in spec/support/fake_follower.cr so the
   # clustering server spec can reuse them.
@@ -839,6 +851,18 @@ module FollowerSpec
   end
 
   describe "protocol version" do
+    it "negotiates version 3 from a version 3 header" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::StartV3)
+        follower.protocol_version.should eq 3
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "negotiates version 2 from a version 2 header" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
@@ -867,13 +891,15 @@ module FollowerSpec
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
+        client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 4, 0, 0]
+        client_socket.write_bytes 3u8, IO::ByteFormat::LittleEndian # the password that follows a header
+        client_socket.write "foo".to_slice
         expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
           follower.negotiate!("foo")
         end
         header = Bytes.new(8)
         client_socket.read_fully(header)
-        header.should eq LavinMQ::Clustering::StartV2
+        header.should eq LavinMQ::Clustering::StartV3
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -977,6 +1003,171 @@ module FollowerSpec
         read_data_size(client_lz4).should eq 0i64
 
         follower.sent_bytes.should eq record_size("file1", 0)
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+  # Version 3 records carry the journal lsn and an append's offset, and acks
+  # carry the applied lsn (see WireV3)
+  describe "protocol version 3" do
+    it "sends appends with their lsn and offset, ignoring the join cut baseline" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = v3_follower(data_dir, follower_socket, client_socket)
+        follower.capture_synced_baseline({"seg" => 6i64}) # v2 would skip "head" and send "rt"
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        first = journal.append_bytes("seg", "head".to_slice, 0i64)
+        journal.append_bytes("seg", "part".to_slice, 4i64)
+        journal.append_value("seg", 7u32, 8i64)
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        header = WireV3.read_header(client_lz4)
+        header.lsn.should eq first
+        header.op.append?.should be_true
+        header.path.should eq "seg"
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 0i64 # offset
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64 # length
+        client_lz4.read_string(4).should eq "head"
+
+        header = WireV3.read_header(client_lz4)
+        header.lsn.should eq first + 1
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64
+        client_lz4.read_string(4).should eq "part"
+
+        header = WireV3.read_header(client_lz4)
+        header.lsn.should eq first + 2
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 8i64
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 4i64
+        client_lz4.read_bytes(UInt32, IO::ByteFormat::LittleEndian).should eq 7u32
+
+        follower.sent_bytes.should eq(
+          WireV3.record_size(WireV3::Op::Append, "seg", 4) * 3)
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "sends replace, delete and fsync records" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = v3_follower(data_dir, follower_socket, client_socket)
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        first = journal.replace("file1", "foo".to_slice)
+        journal.delete("file2")
+        journal.fsync("vhost/queue")
+        journal.fsync("")
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        header = WireV3.read_header(client_lz4)
+        {header.lsn, header.op, header.path}.should eq({first, WireV3::Op::Replace, "file1"})
+        client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 3i64
+        client_lz4.read_string(3).should eq "foo"
+        header = WireV3.read_header(client_lz4)
+        {header.lsn, header.op, header.path}.should eq({first + 1, WireV3::Op::Delete, "file2"})
+        header = WireV3.read_header(client_lz4)
+        {header.lsn, header.op, header.path}.should eq({first + 2, WireV3::Op::Fsync, "vhost/queue"})
+        header = WireV3.read_header(client_lz4)
+        {header.lsn, header.op, header.path}.should eq({first + 3, WireV3::Op::Fsync, ""})
+
+        follower.sent_bytes.should eq(
+          WireV3.record_size(WireV3::Op::Replace, "file1", 3) +
+          WireV3.record_size(WireV3::Op::Delete, "file2") +
+          WireV3.record_size(WireV3::Op::Fsync, "vhost/queue") +
+          WireV3.record_size(WireV3::Op::Fsync, ""))
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "is satisfied by the applied lsn, not by received bytes" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = v3_follower(data_dir, follower_socket, client_socket)
+        drain(client_socket)
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        size = WireV3.record_size(WireV3::Op::Append, "file", 11)
+        wait_for { follower.lag_in_bytes == size }
+
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for(lsn) }
+
+        # Everything received, but not applied yet: a progress ack
+        ack(client_socket, lsn - 1, size)
+        wait_for { follower.acked_bytes == size }
+        follower.lag_in_bytes.should eq 0
+        select
+        when confirmed.receive
+          fail "wait_for returned on received bytes without the entry being applied"
+        when timeout(100.milliseconds)
+        end
+
+        ack(client_socket, lsn, size)
+        select
+        when result = confirmed.receive
+          result.should be_true
+        when timeout(2.seconds)
+          fail "wait_for did not return after the applied ack"
+        end
+        follower.applied_lsn.should eq lsn
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "returns at once from a wait for an entry before the join cut" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = v3_follower(data_dir, follower_socket, client_socket)
+        spawn { follower.ack_loop }
+        journal = LavinMQ::Clustering::Journal.new(1024)
+        before = journal.delete("old") # delivered by the full sync, never streamed
+        journal.subscribe(follower)
+        follower.start_sender(journal, journal.head)
+
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for(before) }
+        select
+        when result = confirmed.receive
+          result.should be_true
+        when timeout(1.second)
+          fail "wait_for an entry below the cut blocked on an ack that can't come"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "reads an ack that arrives in two pieces" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = v3_follower(data_dir, follower_socket, client_socket)
+        drain(client_socket)
+        spawn { follower.ack_loop }
+        journal = start_streaming(follower)
+        lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
+        size = WireV3.record_size(WireV3::Op::Append, "file", 11)
+        wait_for { follower.lag_in_bytes == size }
+
+        buf = Bytes.new(WireV3::ACK_SIZE)
+        IO::ByteFormat::LittleEndian.encode(lsn.to_i64, buf[0, 8])
+        IO::ByteFormat::LittleEndian.encode(size, buf[8, 8])
+        client_socket.write buf[0, 5]
+        sleep 250.milliseconds # longer than the ack loop's read timeout
+        client_socket.write buf[5..]
+
+        wait_for { follower.applied_lsn == lsn }
+        follower.lag_in_bytes.should eq 0
       ensure
         follower_socket.try &.close
         client_socket.try &.close

@@ -85,15 +85,18 @@ module LavinMQ
 
       # Regular files, re-read from disk. The content is copied now, so a
       # later rewrite of the same file can't change what this one sends. A
-      # file that's gone is sent as empty, which followers apply as a delete.
+      # file that's gone is journaled as a delete.
       def replace_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|
           files[path] = nil
           checksums.delete(path)
         end
-        bytes = read_file(File.join(@data_dir, path))
-        @journal.replace(path, bytes)
+        if bytes = read_file(File.join(@data_dir, path))
+          @journal.replace(path, bytes)
+        else
+          @journal.delete(path)
+        end
         dispatched
       end
 
@@ -114,14 +117,14 @@ module LavinMQ
         dispatched
       end
 
-      private def read_file(path : String) : Bytes
+      private def read_file(path : String) : Bytes?
         File.open(path) do |f|
           bytes = Bytes.new(f.size)
           f.read_fully(bytes)
           bytes
         end
       rescue File::NotFoundError
-        Bytes.empty
+        nil
       end
 
       # Replicate `length` bytes from `path` starting at `pos`. The bytes are

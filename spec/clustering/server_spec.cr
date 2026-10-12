@@ -23,9 +23,9 @@ end
 # Drives the clustering handshake + the two full-sync passes (requesting no
 # files) so the follower reaches the Synced state on the leader. Returns the
 # socket and the LZ4 reader positioned at the start of the change stream.
-private def sync_fake_follower(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
+private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clustering::Start) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
-  io.write LavinMQ::Clustering::Start
+  io.write header
   io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
   io.write server.password.to_slice
   io.read_byte # password-accepted byte
@@ -397,6 +397,80 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       mfile.try &.close
       server.try &.close
       tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "join baseline, protocol version 3" do
+    it "streams every append with its offset, so the follower rewrites the head it already has" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "repli server spec v3")
+
+      path = File.join(data_dir, "baseline_seg_v3")
+      mfile = MFile.new(path, 1024)
+      mfile.print "head"
+      server.register_file(mfile)
+      mfile.print "part" # mid-record at the cut, as in the v1 twin above
+
+      io, lz4 = sync_fake_follower(server, tcp_server.local_address.port, 7, LavinMQ::Clustering::StartV3)
+      wait_for { server.followers.any? &.id.== 7 }
+
+      mfile.print "more"
+      server.append(path, 0, 4) # within the baseline: still sent, the follower rewrites it in place
+      server.append(path, 4, 8) # straddles the cut: sent whole, with its offset
+
+      received = Channel({Int64, String}).new(2)
+      spawn do
+        2.times do
+          header = LavinMQ::Clustering::WireV3.read_header(lz4)
+          header.op.append?.should be_true
+          header.path.should eq "baseline_seg_v3"
+          offset = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          received.send({offset, lz4.read_string(len)})
+        end
+      rescue IO::Error
+      end
+
+      2.times do |i|
+        select
+        when msg = received.receive
+          msg.should eq(i.zero? ? {0i64, "head"} : {4i64, "partmore"})
+        when timeout(3.seconds)
+          fail "append #{i} was never streamed to the joined follower"
+        end
+      end
+    ensure
+      io.try &.close
+      mfile.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "#replace_file" do
+    it "journals a delete for a file that is gone" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      path = File.join(data_dir, "vanished")
+      server.register_file(path)
+      lsn = server.journal.tap(&.subscribe(FakeJournalSubscriber.new)).last_lsn + 1
+      server.replace_file(path)
+      entry = server.journal.read(lsn).not_nil!
+      entry.op.delete?.should be_true
+      entry.path.should eq "vanished"
+    ensure
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end

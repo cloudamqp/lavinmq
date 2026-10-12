@@ -61,6 +61,7 @@ describe "clustering join-during-publish race", tags: "etcd" do
       publishers.wait
 
       wait_for { replicator.followers.first?.try { |f| f.synced? && f.lag_in_bytes == 0 } }
+      repli.reconnects.should eq 0 # a resync would mask a duplicated or lost record
       sleep 0.2.seconds
 
       # Oracle: hash every leader file using the leader's own logical-size
@@ -118,6 +119,7 @@ describe "clustering join-during-publish race", tags: "etcd" do
       end
 
       wait_for { replicator.followers.first?.try { |f| f.synced? && f.lag_in_bytes == 0 } }
+      repli.reconnects.should eq 0 # a resync would mask a duplicated or lost record
       sleep 0.2.seconds
       replicator.files_with_hash do |path, hash|
         leader_hashes[path] = hash.hexstring

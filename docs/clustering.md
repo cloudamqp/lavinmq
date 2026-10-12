@@ -59,7 +59,9 @@ For AMQP publisher confirms and MQTT QoS 1 PUBACKs, the leader requests synchron
 
 Replication protocol version 2 carries these synchronization requests, allowing followers to sync only the requested files instead of flushing the whole filesystem before every acknowledgment. A whole-filesystem sync is requested for transaction commits, and a follower also falls back to it when the number of requested files exceeds its own `syncfs_threshold` setting in `[main]` (default `64`).
 
-Version 1 peers remain compatible. Version 1 connections use the previous behavior: the follower syncs the whole filesystem before each acknowledgment. The protocol version is negotiated automatically.
+Replication protocol version 3 names every record by its journal sequence number and gives every append its offset in the file. A follower writes appends at that offset, so a record it already has (for example the tail of the file it received when joining) is rewritten with the same bytes instead of appended twice, and a repeated or missing sequence number is detected. Followers acknowledge the sequence number of the last record they applied, together with the number of bytes received so far, so the leader waits for exactly the entries a confirm depends on and still sees progress while a large message is being transferred.
+
+Version 1 and 2 peers remain compatible, so a cluster can be upgraded one node at a time. Version 1 connections use the previous behavior: the follower syncs the whole filesystem before each acknowledgment. The protocol version is negotiated automatically; a follower that connects with a newer version than the leader speaks reconnects with the leader's.
 
 Synchronization is enabled by default. Setting `sync=false` in `[main]` (or using `--no-sync`) on a node disables its disk synchronization; replication acknowledgments from that node then do not guarantee disk durability. The leader and each follower use their own configuration. See [Publisher Confirms](publisher-confirms.md#durability-and-synchronization) for the leader's synchronization behavior.
 

@@ -1,5 +1,6 @@
 require "./file_index"
 require "./journal"
+require "./wire_v3"
 require "../config"
 require "../rate_limiter"
 require "socket"
@@ -9,8 +10,9 @@ module LavinMQ
   module Clustering
     # The leader's side of a follower connection. After the full sync a
     # sender fiber tails the Journal from the follower's cut and writes the
-    # entries to the socket in the v1/v2 wire format; ack_loop reads the
-    # follower's cumulative byte acks.
+    # entries to the socket in the negotiated wire format; ack_loop reads the
+    # follower's acks: cumulative byte counts for v1/v2, the applied lsn and
+    # received bytes for v3 (see WireV3).
     class Follower
       include Journal::Subscriber
 
@@ -37,6 +39,10 @@ module LavinMQ
 
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
+      # Highest journal entry the follower reports as applied (v3). Seeded
+      # with the entry before its join cut: everything older came with the
+      # full sync, so a wait for it must not depend on an ack.
+      @applied_lsn = Atomic(UInt64).new(0)
       # Wakes the publish-confirm waiter on each ack; closed (never replaced)
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
@@ -108,9 +114,24 @@ module LavinMQ
         # deadline measures time-since-data-became-outstanding, not since the
         # last ack (which would be stale after an idle period).
         unacked_since : Time::Instant? = nil
+        # A v3 ack is read piecewise: the read timeout below can split it, and
+        # dropping a half-read ack would desync the stream.
+        ack = uninitialized UInt8[WireV3::ACK_SIZE]
+        filled = 0
         loop do
-          len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-          @acked_bytes.add(len)
+          if @protocol_version >= 3
+            n = @socket.read(ack.to_slice[filled..])
+            raise IO::EOFError.new if n.zero?
+            filled += n
+            next if filled < WireV3::ACK_SIZE
+            filled = 0
+            lsn, bytes = WireV3.decode_ack(ack.to_slice)
+            @applied_lsn.set(lsn) if lsn > @applied_lsn.get
+            @acked_bytes.set(bytes) if bytes > @acked_bytes.get
+          else
+            len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            @acked_bytes.add(len)
+          end
           unacked_since = nil       # progress; restart the deadline
           @ack_notify.try_send(nil) # wake any publish-confirm waiter
         rescue IO::TimeoutError
@@ -154,7 +175,7 @@ module LavinMQ
       # (ack_loop keeps a read pending on it), so no other context may write
       # it — the Persister's isolated thread only appends to the journal.
       def start_sender(journal : Journal, from : UInt64) : Nil
-        @position.set(from)
+        self.journal_position = from
         @running.spawn(name: "Clustering follower sender") { send_loop(journal) }
       end
 
@@ -206,6 +227,11 @@ module LavinMQ
 
       def journal_position=(lsn : UInt64)
         @position.set(lsn)
+        @applied_lsn.set(lsn - 1) if lsn - 1 > @applied_lsn.get
+      end
+
+      def applied_lsn : UInt64
+        @applied_lsn.get
       end
 
       # Push buffered bytes to the follower now rather than at the sender's
@@ -225,9 +251,16 @@ module LavinMQ
         until @position.get > lsn
           @ack_notify.receive
         end
-        target = @sent_bytes.get
-        until @acked_bytes.get >= target
-          @ack_notify.receive
+        if @protocol_version >= 3
+          until @applied_lsn.get >= lsn
+            @ack_notify.receive
+          end
+        else
+          # Byte acks: wait for everything sent so far, which covers lsn
+          target = @sent_bytes.get
+          until @acked_bytes.get >= target
+            @ack_notify.receive
+          end
         end
         # Several fibers can wait concurrently (the publish confirm loop and
         # definition fences) but each notification wakes only one; pass the
@@ -246,11 +279,19 @@ module LavinMQ
         buf = uninitialized UInt8[8]
         slice = buf.to_slice
         @socket.read_fully(slice)
-        case slice
-        when StartV2 then @protocol_version = 2
-        when Start   then @protocol_version = 1
+        case version = Clustering.header_version(slice)
+        when 1, 2, 3 then @protocol_version = version
         else
-          @socket.write(StartV2)
+          # Answer with the newest header we speak, so a newer follower can
+          # downgrade. Drain the password it sends right after its header
+          # first: closing with unread data resets the connection, which can
+          # discard the reply before the follower reads it.
+          begin
+            len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
+            @socket.skip(len)
+          rescue IO::Error
+          end
+          @socket.write(StartV3)
           raise InvalidStartHeaderError.new(slice)
         end
       end
@@ -337,42 +378,72 @@ module LavinMQ
         end
       end
 
-      # Write one journal entry in the wire format. Appends below this
-      # follower's join cut are skipped or tail-sliced (see #already_synced).
-      # Takes @write_lock so close can't pull the socket from under a record.
+      # Write one journal entry in the negotiated wire format. Takes
+      # @write_lock so close can't pull the socket from under a record.
       private def encode(entry : Journal::Entry) : Nil
         @write_lock.synchronize do
-          case entry.op
-          in .append?, .append_bytes?
-            bytes = entry.payload
-            skip = already_synced(entry.path, entry.offset, bytes.bytesize.to_i64)
-            write_append(entry.path, bytes[skip..]) if skip < bytes.bytesize
-          in .append_value?
-            case skip = already_synced(entry.path, entry.offset, entry.len)
-            when 0         then write_append(entry.path, entry.value)
-            when entry.len then nil # entirely within the follower's full_sync snapshot
-            else
-              # A 4-byte value is written in a single call, so a cut inside it
-              # shouldn't happen; stay byte-exact anyway and send the tail.
-              buf = uninitialized UInt8[4]
-              IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
-              write_append(entry.path, buf.to_slice[skip..])
-            end
-          in .replace?
-            write_replace(entry.path, entry.bytes)
-            # The whole file was just resent; a synced baseline for it
-            # (captured at this follower's join) no longer describes its
-            # content and would wrongly skip appends at offsets below the old
-            # cut (e.g. after a definitions compaction shrinks the file).
-            forget_baseline(entry.path)
-          in .delete?
-            write_delete(entry.path)
-            forget_baseline(entry.path) # path may be reused by a future file
-          in .fsync?
-            # Version 1 followers sync before every ack and don't understand
-            # fsync requests
-            write_fsync(entry.path) if @protocol_version >= 2
+          if @protocol_version >= 3
+            encode_v3(entry)
+          else
+            encode_v2(entry)
           end
+        end
+      end
+
+      # Every record carries its lsn and an append its offset, so the follower
+      # applies it idempotently: nothing is skipped against the join cut, the
+      # bytes it already has are simply rewritten with the same content.
+      private def encode_v3(entry : Journal::Entry) : Nil
+        size = case entry.op
+               in .append?, .append_bytes?
+                 WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, entry.payload)
+               in .append_value?
+                 buf = uninitialized UInt8[4]
+                 IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
+                 WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, buf.to_slice)
+               in .replace?
+                 WireV3.write_replace(@lz4, entry.lsn, entry.path, entry.bytes)
+               in .delete?
+                 WireV3.write_delete(@lz4, entry.lsn, entry.path)
+               in .fsync?
+                 WireV3.write_fsync(@lz4, entry.lsn, entry.path)
+               end
+        @sent_bytes.add(size)
+      end
+
+      # Appends carry no offset in v1/v2, so the ones below this follower's
+      # join cut are skipped or tail-sliced (see #already_synced).
+      private def encode_v2(entry : Journal::Entry) : Nil
+        case entry.op
+        in .append?, .append_bytes?
+          bytes = entry.payload
+          skip = already_synced(entry.path, entry.offset, bytes.bytesize.to_i64)
+          write_append(entry.path, bytes[skip..]) if skip < bytes.bytesize
+        in .append_value?
+          case skip = already_synced(entry.path, entry.offset, entry.len)
+          when 0         then write_append(entry.path, entry.value)
+          when entry.len then nil # entirely within the follower's full_sync snapshot
+          else
+            # A 4-byte value is written in a single call, so a cut inside it
+            # shouldn't happen; stay byte-exact anyway and send the tail.
+            buf = uninitialized UInt8[4]
+            IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
+            write_append(entry.path, buf.to_slice[skip..])
+          end
+        in .replace?
+          write_replace(entry.path, entry.bytes)
+          # The whole file was just resent; a synced baseline for it
+          # (captured at this follower's join) no longer describes its
+          # content and would wrongly skip appends at offsets below the old
+          # cut (e.g. after a definitions compaction shrinks the file).
+          forget_baseline(entry.path)
+        in .delete?
+          write_delete(entry.path)
+          forget_baseline(entry.path) # path may be reused by a future file
+        in .fsync?
+          # Version 1 followers sync before every ack and don't understand
+          # fsync requests
+          write_fsync(entry.path) if @protocol_version >= 2
         end
       end
 

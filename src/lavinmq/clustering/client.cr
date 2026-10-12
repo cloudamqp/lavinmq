@@ -3,6 +3,7 @@ require "../rate_limiter"
 require "../filesystem"
 require "./checksums"
 require "./proxy"
+require "./wire_v3"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -26,6 +27,27 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
+      # A v3 ack in the making: the applied lsn and the absolute received
+      # byte count to report
+      record Progress, lsn : UInt64, bytes : Int64
+      # What the stream-reading fiber hands the ack-sending fiber: v1/v2 byte
+      # counts (deltas), v3 progress, and fsync requests (paths, "" for the
+      # whole data dir)
+      alias Ack = Int64 | String | Progress
+
+      # A file the v3 stream writes to at explicit offsets
+      private class OpenFile
+        getter fd : Int32
+        property size : Int64
+
+        def initialize(@fd : Int32, @size : Int64)
+        end
+
+        def close : Nil
+          LibC.close(@fd)
+        end
+      end
+
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
@@ -41,20 +63,34 @@ module LavinMQ
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
       @follower_done = Channel(Nil).new
-      # Buffers acks (byte counts) and fsync requests (paths, "" for the whole
-      # data dir) from the stream-reading fiber to the ack-sending fiber.
-      # Replaced with a fresh channel on each (re)connect in #stream_changes.
-      @acks = Channel(Int64 | String).new
+      # Buffers acks and fsync requests from the stream-reading fiber to the
+      # ack-sending fiber. Replaced with a fresh channel on each (re)connect
+      # in #stream_changes.
+      @acks = Channel(Ack).new
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
-      # Replication protocol version to connect with. Leaders that only speak
-      # version 1 don't send fsync requests, so we sync before every ack then.
-      @protocol_version = 2
+      # Replication protocol version to connect with; lowered to the leader's
+      # when it answers with an older header (see #authenticate). Leaders that
+      # only speak version 1 don't send fsync requests, so we sync before
+      # every ack then.
+      @protocol_version = PROTOCOL_VERSION
+      # Set by a downgrade, so the next attempt keeps the lowered version;
+      # otherwise every reconnect starts over at ours, which picks up a leader
+      # upgraded in place
+      @downgraded = false
       # Files this client created whose directory entry isn't fsynced yet,
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
+      # Files the v3 stream has open, by data-dir relative path
+      @open_files = Hash(String, OpenFile).new
+      # Lsn of the last record fully applied on this connection (v3)
+      @applied_lsn = 0u64
+      # Stream bytes received on this connection (v3 acks are absolute)
+      @received_bytes = 0i64
+      # Connections lost since start, not counting the first connect
+      getter reconnects = 0
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -119,6 +155,11 @@ module LavinMQ
         loop do
           hash_local_files
           return if @closed
+          if @downgraded
+            @downgraded = false
+          else
+            @protocol_version = PROTOCOL_VERSION
+          end
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
@@ -131,6 +172,7 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          @reconnects += 1
           sleep 1.seconds
         end
       ensure
@@ -195,6 +237,8 @@ module LavinMQ
         finalize_digests
         @files.each_value &.close
         @files.clear
+        @open_files.each_value &.close
+        @open_files.clear
         @created_files.clear
       end
 
@@ -429,12 +473,215 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = @acks = Channel(Int64 | String).new(ACK_BUFFER_CAPACITY)
+        acks = @acks = Channel(Ack).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         # Stops the logging fiber when this stream ends, so a reconnect doesn't
         # leave one behind per connection (they all report the same counter).
         log_loop_done = Channel(Nil).new
         spawn log_streamed_bytes_loop(log_loop_done), name: "Log streamed bytes loop"
+        if @protocol_version >= 3
+          stream_changes_v3(lz4)
+        else
+          stream_changes_v2(lz4)
+        end
+      ensure
+        @acks.close
+        log_loop_done.try &.close
+      end
+
+      # Version 3: every record names its journal entry and an append its
+      # offset (see WireV3). Records are applied in place, so a retransmitted
+      # one is harmless, and acked by lsn once applied.
+      private def stream_changes_v3(lz4)
+        @applied_lsn = 0u64
+        @received_bytes = 0i64
+        expected = nil.as(UInt64?)
+        loop do
+          header = WireV3.read_header(lz4)
+          if expected && header.lsn != expected
+            raise ProtocolError.new("Expected journal entry #{expected}, got #{header.lsn}")
+          end
+          expected = header.lsn + 1
+          case header.op
+          in .append?  then apply_append(header, lz4)
+          in .replace? then apply_replace(header, lz4)
+          in .delete?
+            delete(header.path)
+            applied(header.lsn, WireV3.record_size(header.op, header.path))
+          in .fsync?
+            fsync_request(header.path)
+            # Reported after the fsync: the ack loop syncs the paths queued
+            # before it sends this progress
+            applied(header.lsn, WireV3.record_size(header.op, header.path))
+          end
+        end
+      end
+
+      # Count `bytes` of a record as received and report them with the lsn
+      # of the last record fully applied, so the leader sees progress inside
+      # a large record without taking it as applied
+      private def received(bytes : Int) : Nil
+        @received_bytes += bytes
+        @streamed_bytes &+= bytes
+        @acks.send Progress.new(@applied_lsn, @received_bytes)
+      end
+
+      # The record `lsn` is applied, along with its last `bytes`
+      private def applied(lsn : UInt64, bytes : Int) : Nil
+        @applied_lsn = lsn
+        received(bytes)
+      end
+
+      private def apply_append(header : WireV3::Header, lz4 : IO) : Nil
+        offset = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        raise ProtocolError.new("Invalid append offset #{offset} length #{length}") if offset < 0 || length < 0
+        filename = header.path
+        Log.debug { "Appending #{length} bytes to #{filename} at #{offset}" }
+        file = open_file(filename)
+        if offset > file.size
+          raise ProtocolError.new("#{filename}: append at #{offset} beyond its #{file.size} bytes (journal entry #{header.lsn})")
+        end
+        received(WireV3.record_size(header.op, filename)) # the framing
+        mismatch = write_at(file, lz4, offset, length, digest_for(filename, file.size), header.lsn)
+        applied(header.lsn, 0) if length.zero?
+        if mismatch
+          Log.warn { "#{filename}: #{length} bytes at #{offset} differ from the #{file.size} already on disk (journal entry #{header.lsn}), dropping its checksum" }
+          @checksums.delete(filename)
+          @file_digests[filename] = nil
+        end
+      end
+
+      # Stream `length` bytes from lz4 into the file at `offset`, reporting
+      # progress per chunk and the record as applied with the last one.
+      # Returns whether bytes already on disk differed from the stream.
+      private def write_at(file : OpenFile, lz4 : IO, offset : Int64, length : Int64, digest : Digest::SHA1?, lsn : UInt64) : Bool
+        buffer = uninitialized UInt8[BUFFER_SIZE]
+        existing = uninitialized UInt8[BUFFER_SIZE]
+        pos = offset
+        remaining = length
+        mismatch = false
+        while remaining > 0
+          len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, remaining)])
+          raise IO::EOFError.new if len.zero?
+          chunk = buffer.to_slice[0, len]
+          # Bytes below the file's size were already received (the join cut's
+          # tail, or a file a compaction shrank after the leader snapshotted
+          # its size); they're expected to be identical
+          overlap = Math.min(file.size - pos, len.to_i64).to_i32
+          if overlap > 0
+            pread_all(file.fd, existing.to_slice[0, overlap], pos)
+            mismatch = true unless chunk[0, overlap] == existing.to_slice[0, overlap]
+          end
+          pwrite_all(file.fd, chunk, pos)
+          # The digest already covers the overlapping bytes
+          digest.try &.update(chunk[overlap..]) if !mismatch && len > overlap
+          pos += len
+          remaining -= len
+          file.size = pos if pos > file.size
+          remaining.zero? ? applied(lsn, len) : received(len)
+        end
+        mismatch
+      end
+
+      private def apply_replace(header : WireV3::Header, lz4 : IO) : Nil
+        length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        raise ProtocolError.new("Invalid replace length #{length}") if length < 0
+        filename = header.path
+        Log.debug { "Replacing file #{filename} (#{length} bytes)" }
+        @files.delete(filename).try &.close
+        @open_files.delete(filename).try &.close
+        received(WireV3.record_size(header.op, filename)) # the framing
+
+        # A replace rewrites the file from byte 0, so the digest below covers its
+        # whole content — but only once the rename installs it. Until then the old
+        # file is on disk, so leave it with a checksum matching it and start
+        # tracking the new digest only after the rename.
+        adopt_digest(filename, @file_digests.delete(filename))
+        sha1 = Digest::SHA1.new
+
+        path = File.join(@data_dir, "#{filename}.tmp")
+        FileSystem.mkdir_p File.dirname(path)
+        @created_files.delete(filename)
+        File.open(path, "w") do |f|
+          f.sync = true
+          buffer = uninitialized UInt8[BUFFER_SIZE]
+          remaining = length
+          last = 0
+          while remaining > 0
+            len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, remaining)])
+            raise IO::EOFError.new if len.zero?
+            bytes = buffer.to_slice[0, len]
+            f.write(bytes)
+            sha1.update(bytes)
+            remaining -= len
+            # The last chunk is reported once the rename has installed the
+            # file, so the record's ack means it's applied
+            remaining.zero? ? (last = len) : received(len)
+          end
+          # Fsync the content before the rename, so that a crash can't leave
+          # a partially written file under the final name
+          f.fsync if @config.sync?
+          f.rename f.path[0..-5]
+          @file_digests[filename] = sha1
+          @acks.send File.dirname(f.path)
+          applied(header.lsn, last)
+        end
+      end
+
+      # Opens (creating if missing) a file the v3 stream writes at offsets.
+      # O_RDWR rather than append mode: pwrite ignores the offset on an
+      # O_APPEND descriptor.
+      private def open_file(filename : String) : OpenFile
+        @open_files[filename] ||= begin
+          path = File.join(@data_dir, filename).check_no_null_byte
+          FileSystem.mkdir_p File.dirname(path)
+          perms = 0o644
+          fd = LibC.open(path, LibC::O_RDWR | LibC::O_CREAT | LibC::O_EXCL, perms)
+          if fd >= 0
+            @created_files << filename
+          elsif Errno.value == Errno::EEXIST
+            fd = LibC.open(path, LibC::O_RDWR | LibC::O_CREAT, perms)
+          end
+          raise File::Error.from_errno("Error opening file", file: path) if fd < 0
+          if LibC.fstat(fd, out stat) < 0
+            err = File::Error.from_errno("Unable to get info", file: path)
+            LibC.close(fd)
+            raise err
+          end
+          OpenFile.new(fd, stat.st_size.to_i64)
+        end
+      end
+
+      private def pwrite_all(fd : Int32, bytes : Bytes, offset : Int64) : Nil
+        until bytes.empty?
+          n = LibC.pwrite(fd, bytes.to_unsafe.as(Void*), bytes.size, offset)
+          if n < 0
+            next if Errno.value == Errno::EINTR
+            raise IO::Error.from_errno("pwrite")
+          end
+          bytes += n
+          offset += n
+        end
+      end
+
+      private def pread_all(fd : Int32, bytes : Bytes, offset : Int64) : Nil
+        until bytes.empty?
+          n = LibC.pread(fd, bytes.to_unsafe.as(Void*), bytes.size, offset)
+          if n < 0
+            next if Errno.value == Errno::EINTR
+            raise IO::Error.from_errno("pread")
+          end
+          raise IO::EOFError.new if n.zero?
+          bytes += n
+          offset += n
+        end
+      end
+
+      # Versions 1 and 2: a record is [i32 path_len][path][i64 len][payload];
+      # a negative len appends (at the end, no offset), zero deletes (or is an
+      # fsync request when the path starts with '$'), positive replaces.
+      private def stream_changes_v2(lz4)
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -466,9 +713,6 @@ module LavinMQ
             replace(filename, len, lz4)
           end
         end
-      ensure
-        @acks.close
-        log_loop_done.try &.close
       end
 
       private def append(filename, len, lz4)
@@ -484,9 +728,13 @@ module LavinMQ
       # hold goes stale with this append and is dropped, making the next sync
       # re-hash the file from disk.
       private def digest_for(filename : String, file : File) : Digest::SHA1?
+        digest_for(filename, file.size)
+      end
+
+      private def digest_for(filename : String, size : Int) : Digest::SHA1?
         # #fetch, not #[]?, to tell an absent entry from an untracked file
         @file_digests.fetch(filename) do
-          if file.size.zero?
+          if size.zero?
             @file_digests[filename] = Digest::SHA1.new
           else
             Log.debug { "Not checksumming #{filename}, appending to existing content" }
@@ -513,6 +761,7 @@ module LavinMQ
         Log.debug { "Deleting #{filename}" }
         @created_files.delete(filename)
         @files.delete(filename).try &.close
+        @open_files.delete(filename).try &.close
         File.delete? File.join(@data_dir, filename)
         @checksums.delete(filename)
         @file_digests.delete(filename)
@@ -622,12 +871,14 @@ module LavinMQ
         socket.tcp_nodelay = true
         fsync_paths = Set(String).new
         while item = acks.receive?
-          ack_bytes = 0i64
+          ack_bytes = 0i64 # v1/v2: bytes to ack, a delta
+          progress = nil.as(Progress?)
           syncfs = @protocol_version < 2
           loop do
             case item
-            in Int64  then ack_bytes += item
-            in String then item.empty? ? (syncfs = true) : fsync_paths << item
+            in Int64    then ack_bytes += item
+            in Progress then progress = item # absolute, the latest wins
+            in String   then item.empty? ? (syncfs = true) : fsync_paths << item
             end
             item = acks.try_receive? || break
           end
@@ -637,7 +888,11 @@ module LavinMQ
             fsync_to_disk(fsync_paths)
           end
           fsync_paths.clear
-          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian if ack_bytes > 0
+          if progress
+            WireV3.write_ack(socket, progress.lsn, progress.bytes)
+          elsif ack_bytes > 0
+            socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian
+          end
         end
       rescue Channel::ClosedError
       rescue IO::Error
@@ -689,7 +944,7 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write(@protocol_version < 2 ? Start : StartV2)
+        socket.write(start_header)
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
         case byte = socket.read_byte
@@ -697,20 +952,30 @@ module LavinMQ
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
         when Start[0]
-          # The leader rejected our header and replied with its own
+          # The leader rejected our header and replied with the newest it speaks
           header = Bytes.new(Start.size)
           header[0] = byte
           socket.read_fully(header[1..])
-          if header == Start && @protocol_version > 1
-            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
-            @protocol_version = 1
+          theirs = Clustering.header_version(header)
+          if 1 <= theirs < @protocol_version
+            Log.warn { "Leader only supports replication protocol version #{theirs}, reconnecting with it" }
+            @protocol_version = theirs
+            @downgraded = true
             raise IO::Error.new("Replication protocol version mismatch")
           end
-          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
+          raise ProtocolError.new("Unsupported replication protocol: #{String.new(header).inspect}")
         else
-          raise Error.new("Unknown response from authentication")
+          raise ProtocolError.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
+      end
+
+      private def start_header : Bytes
+        case @protocol_version
+        when 1 then Start
+        when 2 then StartV2
+        else        StartV3
+        end
       end
 
       def close
@@ -724,6 +989,7 @@ module LavinMQ
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
         @files.each_value &.close
+        @open_files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)
         select
