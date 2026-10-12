@@ -2487,8 +2487,8 @@ pre.arguments .inactive-argument:before {
 
 #refresh-toggle[aria-pressed="true"] {
   border-color: var(--refresh-attention);
-  color: light-dark(#8a6d03, #e3b40f);
-  background: light-dark(rgb(210 161 6 / 12%), rgb(210 161 6 / 18%));
+  color: #fff;
+  background: var(--refresh-attention);
 }
 
 .refresh-ring {
@@ -2556,9 +2556,44 @@ pre.arguments .inactive-argument:before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .refresh-ring {
+  .refresh-ring,
+  .refresh-live::after {
     animation: none !important;
   }
+}
+
+.refresh-live {
+  display: none;
+  align-items: center;
+  height: 20px;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 0.45rem;
+  font-size: 0.7rem;
+  color: var(--color-text-primary);
+}
+
+#refresh-control[data-mode="stream"] .refresh-ring,
+#refresh-control[data-mode="stream"] #refresh-rate {
+  display: none;
+}
+
+#refresh-control[data-mode="stream"] .refresh-live {
+  display: inline-flex;
+}
+
+.refresh-live::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+  animation: refresh-pulse 1s ease-in-out infinite alternate;
+}
+
+#refresh-toggle[aria-pressed="true"] ~ .refresh-live::after {
+  animation: none;
+  background: var(--refresh-attention);
 }
 
 /* === UTILITIES === */

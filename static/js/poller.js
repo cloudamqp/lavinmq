@@ -9,6 +9,7 @@ const timedOut = new Set()
 const events = new EventTarget()
 let timer = null
 let lastTickAt = 0
+let streaming = false
 let paused = window.sessionStorage.getItem(PAUSED_KEY) === 'true'
 let rate = RATES.find(ms => ms === Number(window.localStorage.getItem(RATE_KEY))) ?? RATES[0]
 
@@ -76,8 +77,17 @@ function start (fn) {
   if (fns.size === 1) emit()
 }
 
+function stream () {
+  streaming = true
+  emit()
+}
+
 function isActive () {
-  return fns.size > 0
+  return fns.size > 0 || streaming
+}
+
+function isStreaming () {
+  return streaming && fns.size === 0
 }
 
 function isPaused () {
@@ -123,4 +133,4 @@ document.addEventListener('visibilitychange', () => {
   else tick()
 })
 
-export { RATES, start, isActive, isStalled, isPaused, pause, resume, getRate, setRate, events }
+export { RATES, start, stream, isActive, isStalled, isStreaming, isPaused, pause, resume, getRate, setRate, events }

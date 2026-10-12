@@ -123,6 +123,7 @@ test.describe('refresh control', _ => {
   test('refreshes at the selected rate and remembers it', async ({ page }) => {
     await page.clock.install()
     await loadOverview(page)
+    await expect(page.locator('#refresh-live')).toBeHidden()
     await page.locator('#refresh-rate').selectOption('30000')
 
     const overview = countRequests(page, '/api/overview')
@@ -162,11 +163,6 @@ test.describe('refresh control', _ => {
     await expect(toggle).toHaveAttribute('aria-label', 'Pause auto-refresh')
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-label', 'Resume auto-refresh')
-  })
-
-  test('is hidden on a page that does not refresh', async ({ page }) => {
-    await page.goto('/logs')
-    await expect(page.locator('#refresh-control')).toBeHidden()
   })
 
   test('steps through reconnecting to stale while the server fails, and recovers', async ({ page }) => {
