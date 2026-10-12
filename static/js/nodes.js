@@ -13,8 +13,8 @@ if (vhost && vhost !== '_all') {
   url += HTTP.url`?vhost=${vhost}`
 }
 
-function update (cb) {
-  return HTTP.request('GET', url).then((response) => {
+function update (cb, signal) {
+  return HTTP.request('GET', url, { signal }).then((response) => {
     render(response)
     if (cb) {
       cb(response)
@@ -31,7 +31,7 @@ function render (data) {
 }
 
 function start (cb) {
-  Poller.start(() => update(cb))
+  Poller.start(signal => update(cb, signal))
 }
 
 const gcStatsFields = [
