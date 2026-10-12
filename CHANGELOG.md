@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Client connections share per-thread pools of socket read and write buffers. Write buffers are returned after each flush, and idle connections no longer hold a read buffer while waiting for data (TLS connections still hold the TLS socket's read buffer, but no longer the underlying TCP socket's), lowering memory usage with many connections. Pool stats are exposed as `socket_buffer_pool_*` Prometheus metrics, and `SIGUSR1` debug output includes them and fiber stack usage [#2343](https://github.com/cloudamqp/lavinmq/pull/2343)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
