@@ -223,9 +223,8 @@ end
 
 # Serves *controller*'s metrics as the Launcher sets it up, yields a scrape
 private def with_metrics_of(controller : LavinMQ::Clustering::RaftController, &)
-  metrics = LavinMQ::HTTP::MetricsServer.new(raft: controller.node)
+  metrics = LavinMQ::HTTP::MetricsServer.new(metrics: ->controller.write_metrics(LavinMQ::HTTP::PrometheusWriter))
   addr = metrics.bind_tcp("127.0.0.1", 0)
-  controller.metrics_server = metrics
   spawn metrics.listen
   yield -> { HTTP::Client.get("http://#{addr}/metrics").body rescue "" }
 ensure

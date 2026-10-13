@@ -5,12 +5,12 @@ module LavinMQ
   module HTTP
     class ControlSocketInUseError < Exception; end
 
-    # The internal UNIX socket used by lavinmqctl. A raft node binds it once
-    # and keeps it through its role changes: while it serves as the leader,
-    # requests go to the broker's HTTP API (#api=). Otherwise they get a 503
-    # saying it's a follower, or with *cluster_status*, GET /api/cluster gets
-    # this node's view of the cluster, so it can be inspected also when
-    # there's no leader to proxy to.
+    # The internal UNIX socket used by lavinmqctl. The Launcher binds it once
+    # for the process and keeps it through the node's role changes: while the
+    # node serves, requests go to the broker's HTTP API (#api=). Otherwise
+    # they get a 503 saying it's a follower, or with *cluster_status*,
+    # GET /api/cluster gets this node's view of the cluster, so it can be
+    # inspected also when there's no leader to proxy to.
     class ControlSocket
       Log = LavinMQ::Log.for "http.control_socket"
 
@@ -36,19 +36,6 @@ module LavinMQ
         end
       end
 
-      # Binds *http* to the socket at *path*, after .prepare, and lets only
-      # the owner and its group connect
-      def self.bind(http : ::HTTP::Server, path : String) : Socket::UNIXAddress
-        prepare(path)
-        addr = http.bind_unix(path)
-        File.chmod(path, 0o660)
-        Log.info { "Bound to #{addr}" }
-        addr
-      rescue ex
-        File.delete?(path) if addr # rather than left open to anyone
-        raise ex
-      end
-
       getter path : String
       @api : ::HTTP::Handler? = nil
       @api_lock = Mutex.new
@@ -58,17 +45,31 @@ module LavinMQ
         @http = ::HTTP::Server.new { |context| handle(context) }
       end
 
-      # Binds and listens. False, with a warning, if it can't, e.g. because
-      # another node on this machine serves the socket.
-      def bind : Bool
-        return true if @bound
-        ControlSocket.bind(@http, @path)
+      # Binds and listens, only for the owner and its group. Raises if it
+      # can't, e.g. when another process on this machine serves the socket.
+      def bind! : Nil
+        return if @bound
+        ControlSocket.prepare(@path)
+        addr = @http.bind_unix(@path)
+        begin
+          File.chmod(@path, 0o660)
+        rescue ex
+          File.delete?(@path) # rather than left open to anyone
+          raise ex
+        end
         @bound = true
+        Log.info { "Bound to #{addr}" }
         spawn(name: "Control socket listener") do
           @http.listen
         rescue ex
           raise ex unless @http.closed? # closed before listen started
         end
+      end
+
+      # Like #bind!, but false with a warning when it can't: a clustered node
+      # may share the machine with another node serving the socket
+      def bind : Bool
+        bind!
         true
       rescue ex
         Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
@@ -81,7 +82,7 @@ module LavinMQ
       end
 
       def close : Nil
-        @http.close
+        @http.close unless @http.closed?
         File.delete?(@path) if @bound
         @bound = false
       end

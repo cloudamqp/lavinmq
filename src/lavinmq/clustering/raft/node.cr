@@ -72,7 +72,49 @@ module LavinMQ::Clustering::Raft
   # per bucket of Node::SAVE_BUCKETS (not cumulative), plus one for slower saves.
   record Metrics, leader : Int32?, is_leader : Bool, term : Int64, leader_changes : UInt64,
     leader_contact : Time::Span?, proposals_pending : Int64, peers : Hash(Int32, Bool),
-    isr_size : Int32?, save_buckets : Array(UInt64), save_count : UInt64, save_sum : Float64
+    isr_size : Int32?, save_buckets : Array(UInt64), save_count : UInt64, save_sum : Float64 do
+    # To a HTTP::PrometheusWriter
+    def write(writer) : Nil
+      writer.write({name: "raft_has_leader", value: leader ? 1 : 0, type: "gauge",
+                    help: "Whether this node knows of a leader"})
+      writer.write({name: "raft_is_leader", value: is_leader ? 1 : 0, type: "gauge",
+                    help: "Whether this node is the raft leader"})
+      writer.write({name: "raft_leader_changes_seen_total", value: leader_changes, type: "counter",
+                    help: "Number of leader changes this node has seen"})
+      writer.write({name: "raft_term", value: term, type: "gauge",
+                    help: "Current raft term"})
+      if contact = leader_contact
+        writer.write({name: "raft_leader_last_contact_seconds", value: contact.total_seconds, type: "gauge",
+                      help: "Time since this node last heard from the leader, 0 on the leader"})
+      end
+      writer.write({name: "raft_proposals_pending", value: proposals_pending, type: "gauge",
+                    help: "ISR and membership changes proposed by this leader and not yet committed"})
+      if size = isr_size
+        writer.write({name: "raft_isr_size", value: size, type: "gauge",
+                      help: "Number of nodes in the committed in-sync replica set"})
+      end
+      unless peers.empty?
+        writer.write_header("raft_peer_connected", "gauge", "Whether this node is connected to a cluster member")
+        peers.each do |id, connected|
+          writer.write_value("raft_peer_connected", connected ? 1 : 0, {"peer" => id.to_s(36)})
+        end
+      end
+      write_save_histogram(writer)
+    end
+
+    private def write_save_histogram(writer) : Nil
+      name = "raft_storage_save_duration_seconds"
+      writer.write_header(name, "histogram", "Time to persist raft state (term, vote and log) to disk")
+      cumulative = 0_u64
+      Node::SAVE_BUCKETS.each_with_index do |le, i|
+        cumulative += save_buckets[i]
+        writer.write_value("#{name}_bucket", cumulative, {"le" => le.to_s})
+      end
+      writer.write_value("#{name}_bucket", save_count, {"le" => "+Inf"})
+      writer.write({name: "#{name}_sum", value: save_sum})
+      writer.write({name: "#{name}_count", value: save_count})
+    end
+  end
 
   # Runs a Core in a single fiber: every message and request goes through
   # @events, and the Core is ticked after each and at its next deadline, so

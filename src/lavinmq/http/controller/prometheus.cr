@@ -2,8 +2,6 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
-require "../../clustering/client"
-require "../../clustering/raft/node"
 
 module LavinMQ
   module HTTP
@@ -111,49 +109,6 @@ module LavinMQ
                       help:  "Memory used for metrics collections in bytes"})
       end
 
-      # Leader election state of a raft clustering node, nothing for other backends
-      def raft_metrics(writer, node : Clustering::Raft::Node?)
-        m = node.try(&.metrics) || return
-        writer.write({name: "raft_has_leader", value: m.leader ? 1 : 0, type: "gauge",
-                      help: "Whether this node knows of a leader"})
-        writer.write({name: "raft_is_leader", value: m.is_leader ? 1 : 0, type: "gauge",
-                      help: "Whether this node is the raft leader"})
-        writer.write({name: "raft_leader_changes_seen_total", value: m.leader_changes, type: "counter",
-                      help: "Number of leader changes this node has seen"})
-        writer.write({name: "raft_term", value: m.term, type: "gauge",
-                      help: "Current raft term"})
-        if contact = m.leader_contact
-          writer.write({name: "raft_leader_last_contact_seconds", value: contact.total_seconds, type: "gauge",
-                        help: "Time since this node last heard from the leader, 0 on the leader"})
-        end
-        writer.write({name: "raft_proposals_pending", value: m.proposals_pending, type: "gauge",
-                      help: "ISR and membership changes proposed by this leader and not yet committed"})
-        if isr_size = m.isr_size
-          writer.write({name: "raft_isr_size", value: isr_size, type: "gauge",
-                        help: "Number of nodes in the committed in-sync replica set"})
-        end
-        unless m.peers.empty?
-          writer.write_header("raft_peer_connected", "gauge", "Whether this node is connected to a cluster member")
-          m.peers.each do |id, connected|
-            writer.write_value("raft_peer_connected", connected ? 1 : 0, {"peer" => id.to_s(36)})
-          end
-        end
-        raft_save_histogram(writer, m)
-      end
-
-      private def raft_save_histogram(writer, m : Clustering::Raft::Metrics)
-        name = "raft_storage_save_duration_seconds"
-        writer.write_header(name, "histogram", "Time to persist raft state (term, vote and log) to disk")
-        cumulative = 0_u64
-        Clustering::Raft::Node::SAVE_BUCKETS.each_with_index do |le, i|
-          cumulative += m.save_buckets[i]
-          writer.write_value("#{name}_bucket", cumulative, {"le" => le.to_s})
-        end
-        writer.write_value("#{name}_bucket", m.save_count, {"le" => "+Inf"})
-        writer.write({name: "#{name}_sum", value: m.save_sum})
-        writer.write({name: "#{name}_count", value: m.save_count})
-      end
-
       def gc_metrics(writer)
         gc_stats = GC.prof_stats
 
@@ -213,10 +168,8 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      property clustering_client : LavinMQ::Clustering::Client?
-
-      def initialize(@clustering_client : LavinMQ::Clustering::Client? = nil,
-                     @raft : LavinMQ::Clustering::Raft::Node? = nil)
+      # *metrics* writes the runner's own metrics, see Runner#write_metrics
+      def initialize(@metrics : Proc(PrometheusWriter, Nil)? = nil)
         register_routes
       end
 
@@ -233,8 +186,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
-            cluster_metrics(writer)
-            raft_metrics(writer, @raft)
+            @metrics.try &.call(writer)
           end
           context
         end
@@ -247,22 +199,13 @@ module LavinMQ
           context
         end
       end
-
-      private def cluster_metrics(writer)
-        client = @clustering_client
-        return unless client
-        writer.write({name:  "cluster_received_bytes_total",
-                      value: client.streamed_bytes,
-                      type:  "counter",
-                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
-      end
     end
 
     class PrometheusController < Controller
       include Prometheus
 
       def initialize(amqp_server : LavinMQ::Server, @require_authentication : Bool,
-                     @raft : LavinMQ::Clustering::Raft::Node? = nil)
+                     @metrics : Proc(PrometheusWriter, Nil)? = nil)
         super(amqp_server)
       end
 
@@ -292,7 +235,7 @@ module LavinMQ
             custom_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
-            raft_metrics(writer, @raft)
+            @metrics.try &.call(writer)
           end
           context
         end

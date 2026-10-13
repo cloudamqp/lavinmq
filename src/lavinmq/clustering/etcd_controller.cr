@@ -59,7 +59,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
           next # if lost connection to etcd we continue follow the leader as is
         else
           repli_client.close
-          report_metrics_of nil
+          @repli_client = nil
         end
       end
       if uri.nil? # no leader yet
@@ -87,7 +87,6 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         end
       end
       @repli_client = r = Clustering::Client.new(@config, @id, secret)
-      report_metrics_of r
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end

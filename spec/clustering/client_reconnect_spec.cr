@@ -155,7 +155,6 @@ module ClientReconnectSpec
     it "reconnects to a leader that refuses it only when it's a member again" do
       with_datadir do |data_dir|
         client = make_client(data_dir, sync: false)
-        client.serve_control_socket = false
         member = false
         client.member_check = -> { member }
         leader = TCPServer.new("127.0.0.1", 0)

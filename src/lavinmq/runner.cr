@@ -1,5 +1,3 @@
-require "http/server/handler"
-
 module LavinMQ
   # Decides when this node serves clients: StandaloneRunner right away, a
   # clustering controller (Clustering::Controller) whenever it leads. The
@@ -24,23 +22,19 @@ module LavinMQ
     def new_replicator : Clustering::Server?
     end
 
-    # The raft cluster, for its HTTP API and metrics
+    # The raft cluster, for its HTTP API
     def raft : Clustering::RaftController?
     end
 
-    # Serves the broker's HTTP API, or nothing when nil, on a lavinmqctl
-    # socket it owns for the process. False when it owns none, the broker's
-    # HTTP server binds the socket itself then.
-    def serve_control_api(handler : ::HTTP::Handler?) : Bool
-      false
+    # This node's view of the cluster, which the lavinmqctl socket answers
+    # GET /api/cluster with while this node doesn't serve, see
+    # HTTP::ControlSocket. Nil to answer as a follower.
+    def cluster_status : String?
     end
 
-    # The path of the lavinmqctl socket it owns
-    def control_path : String?
-    end
-
-    # Where clustering metrics are reported, see HTTP::MetricsServer
-    def metrics_server=(server : HTTP::MetricsServer?)
+    # Writes the runner's own metrics to every Prometheus scrape, whatever the
+    # node's role, see HTTP::MetricsServer
+    def write_metrics(writer) : Nil
     end
   end
 end
