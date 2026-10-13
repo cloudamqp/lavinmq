@@ -6,7 +6,6 @@ require "./proxy"
 require "./wire_v3"
 require "lz4"
 require "http/server"
-require "../http/control_socket"
 require "wait_group"
 
 module LavinMQ
@@ -58,10 +57,6 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
-      @internal_http_server : HTTP::ControlSocket?
-      # Whether to serve the lavinmqctl socket while following, unless the
-      # controller already does
-      property? serve_control_socket = true
       getter streamed_bytes = 0_u64
       # Whether the leader's replication server has let this node in. A
       # leader binds that listener after its client listeners, so it's
@@ -160,9 +155,6 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        if @serve_control_socket && !local_leader_host?(host)
-          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server(path: @config.control_unix_path)
-        end
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -256,16 +248,6 @@ module LavinMQ
 
       def follows?(host : String, port : Int32) : Bool
         @host == host && @port == port
-      end
-
-      private def local_leader_host?(host : String) : Bool
-        host = host.downcase
-        return true if host == System.hostname.downcase
-        host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
-
-        Socket::Addrinfo.tcp(host, 0).any?(&.ip_address.loopback?)
-      rescue Socket::Error
-        false
       end
 
       private def sync(socket, lz4)
@@ -1130,7 +1112,6 @@ module LavinMQ
         return if @closed
         @closed = true
         @closing.close
-        @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close

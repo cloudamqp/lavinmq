@@ -14,9 +14,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   record Transfer, target : Int32, address : String, term : Int64
 
   @transport : Raft::TCPTransport? = nil
-  # The lavinmqctl socket, bound once for the process: the broker's API
-  # while serving (see #control_api=), this node's own view otherwise
-  @control_socket : HTTP::ControlSocket? = nil
   # Stops serving as the leader, see #on_demote
   @demote : (Proc(Nil)? ->)? = nil
   @step_down_requested = Channel(Transfer).new(1)
@@ -130,14 +127,13 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     return if @stopped
     @stopped = @stopping = true
     @repli_client.try &.close
-    @control_socket.try &.close
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
     @stop_signal.close
     @node.close
   end
 
-  private def local_status : String?
+  def cluster_status : String?
     status = @node.status || return
     # Replicating from it, which it lets this node do once it serves
     serving = @repli_client.try { |c| c.connected? && c.follows?(current_leader_uri) } || false
@@ -146,21 +142,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def raft : RaftController?
     self
-  end
-
-  # Where lavinmqctl requests go while this node serves, nil once it stops.
-  # The socket is bound if it couldn't be when the node started, e.g. while
-  # another node on this machine had it.
-  def serve_control_api(handler : ::HTTP::Handler?) : Bool
-    socket = @control_socket || return false
-    socket.bind if handler
-    socket.api = handler
-    true
-  end
-
-  # The path the lavinmqctl socket was bound at, which a config reload can't change
-  def control_path : String?
-    @control_socket.try(&.path)
   end
 
   # Follows the leader until this node is a serving leader. False if the
@@ -304,7 +285,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       ->@node.deliver(Raft::TransportEvent), execution_context: raft_context)
     raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
-    @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, ->local_status).tap(&.bind)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
   end
@@ -363,7 +343,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
     report_metrics_of r
     r.member_check = -> { @node.self_member? }
-    r.serve_control_socket = false
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil

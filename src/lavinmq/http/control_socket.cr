@@ -8,12 +8,12 @@ module LavinMQ
 
     class ControlSocketInUseError < ControlSocketError; end
 
-    # The internal UNIX socket used by lavinmqctl. A raft node binds it once
-    # and keeps it through its role changes: while it serves as the leader,
-    # requests go to the broker's HTTP API (#api=). Otherwise they get a 503
-    # saying it's a follower, or with *cluster_status*, GET /api/cluster gets
-    # this node's view of the cluster, so it can be inspected also when
-    # there's no leader to proxy to.
+    # The internal UNIX socket used by lavinmqctl. The Launcher binds it once
+    # for the process and keeps it through the node's role changes: while it
+    # serves as the leader, requests go to the broker's HTTP API (#api=).
+    # Otherwise they get a 503 saying it's a follower, or with
+    # *cluster_status*, GET /api/cluster gets this node's view of the
+    # cluster, so it can be inspected also when there's no leader to proxy to.
     class ControlSocket
       Log = LavinMQ::Log.for "http.control_socket"
 
@@ -61,10 +61,11 @@ module LavinMQ
         @http = ::HTTP::Server.new { |context| handle(context) }
       end
 
-      # Binds and listens. False, with a warning, if it can't, e.g. because
-      # another node on this machine serves the socket.
-      def bind : Bool
-        return true if @bound
+      # Binds and listens, once. Raises ControlSocketError or
+      # Socket::BindError when it can't, e.g. because another node on this
+      # machine serves the socket.
+      def bind : Nil
+        return if @bound
         ControlSocket.bind(@http, @path)
         @bound = true
         spawn(name: "Control socket listener") do
@@ -72,10 +73,10 @@ module LavinMQ
         rescue ex
           raise ex unless @http.closed? # closed before listen started
         end
-        true
-      rescue ex
-        Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-        false
+      end
+
+      def bound? : Bool
+        @bound
       end
 
       # Where requests go while this node serves, nil when it doesn't
@@ -83,9 +84,9 @@ module LavinMQ
         @api_lock.synchronize { @api = handler }
       end
 
+      # The listener deletes the path it bound
       def close : Nil
         @http.close
-        File.delete?(@path) if @bound
         @bound = false
       end
 

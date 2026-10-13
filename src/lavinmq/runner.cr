@@ -28,15 +28,9 @@ module LavinMQ
     def raft : Clustering::RaftController?
     end
 
-    # Serves the broker's HTTP API, or nothing when nil, on a lavinmqctl
-    # socket it owns for the process. False when it owns none, the broker's
-    # HTTP server binds the socket itself then.
-    def serve_control_api(handler : ::HTTP::Handler?) : Bool
-      false
-    end
-
-    # The path of the lavinmqctl socket it owns
-    def control_path : String?
+    # This node's view of the cluster as JSON, for lavinmqctl while the node
+    # isn't serving, nil when there's none
+    def cluster_status : String?
     end
 
     # Where clustering metrics are reported, see HTTP::MetricsServer

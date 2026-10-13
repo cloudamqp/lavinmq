@@ -20,17 +20,14 @@ module LavinMQ
     class Server
       Log = LavinMQ::Log.for "http.server"
 
-      # Resolved once and reused for this server's lifetime so a later config
-      # reload (SIGHUP) can't make us delete or authenticate against a path
-      # different from the one we actually bound.
-      @internal_unix_socket_path : String
-      @internal_bound = false
-      # The whole API, also served over a raft node's ControlSocket
+      # The whole API, also served over the Launcher's ControlSocket, whose
+      # path (resolved once, a config reload can't change it) the AuthHandler
+      # trusts
       getter handler : ::HTTP::Handler
 
       def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
                      cluster : Clustering::RaftController? = nil,
-                     @internal_unix_socket_path = Config.instance.control_unix_path)
+                     control_socket_path = Config.instance.control_unix_path)
         oauth_authenticator =
           case auth = @server.authenticator
           when Auth::Chain
@@ -45,7 +42,7 @@ module LavinMQ
           ViewsController.new,
           StaticController.new,
           oauth_authenticator && OAuthController.new(oauth_authenticator),
-          AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
+          AuthHandler.new(@server.authenticator, @server.users.direct_user, control_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
           PrometheusController.new(@server, require_authentication: true, raft: cluster.try(&.node)),
@@ -93,12 +90,6 @@ module LavinMQ
         addr
       end
 
-      def bind_internal_unix
-        addr = ControlSocket.bind(@http, @internal_unix_socket_path)
-        @internal_bound = true
-        addr
-      end
-
       def listen
         @http.listen
       end
@@ -109,16 +100,6 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(@internal_unix_socket_path) if @internal_bound
-      end
-
-      # A ControlSocket answering as a follower, see there. If another node on
-      # the same machine already serves the socket it's skipped and nil is
-      # returned, it's only a convenience for lavinmqctl users.
-      def self.follower_internal_socket_http_server(cluster_status : Proc(String?)? = nil,
-                                                    path = Config.instance.control_unix_path) : ControlSocket?
-        socket = ControlSocket.new(path, cluster_status)
-        socket if socket.bind
       end
     end
   end

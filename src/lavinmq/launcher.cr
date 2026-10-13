@@ -28,6 +28,8 @@ module LavinMQ
     @closed = false
     @replicator : Clustering::Server?
     @runner : Runner
+    # The lavinmqctl socket, one for the process whatever the node's role
+    @control_socket : HTTP::ControlSocket
     # Serializes stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new
     @server : LavinMQ::Server?
@@ -49,6 +51,7 @@ module LavinMQ
 
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
       @runner.on_demote { |hand_over| demote(hand_over) }
+      @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, ->@runner.cluster_status)
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
@@ -71,8 +74,10 @@ module LavinMQ
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
-        @runner.control_path || @config.control_unix_path)
+        @control_socket.path)
       start_listeners(amqp_server, mqtt_server, http_server)
+      bind_control_socket
+      @control_socket.api = http_server.handler
       @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
@@ -89,6 +94,7 @@ module LavinMQ
       rescue ex : Socket::BindError
         abort "Error: #{ex.message}"
       end
+      bind_control_socket if @config.clustering? # answers lavinmqctl while following too
       @runner.run do
         start
       end
@@ -128,7 +134,7 @@ module LavinMQ
     end
 
     private def close_listeners : Nil
-      @runner.serve_control_api(nil)
+      @control_socket.api = nil
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
@@ -149,6 +155,7 @@ module LavinMQ
         close_listeners
         @server.try &.close rescue nil
         @metrics_server.try &.close rescue nil
+        @control_socket.close rescue nil
       end
       @runner.stop
     end
@@ -259,8 +266,6 @@ module LavinMQ
       bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
       bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
       bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
-      http_server.bind_internal_unix unless @runner.serve_control_api(http_server.handler)
-
       unless amqp_server.listeners.empty?
         spawn(name: "AMQP listener") do
           amqp_server.listen
@@ -282,6 +287,16 @@ module LavinMQ
           http_server.listen
         end
       end
+    end
+
+    # A standalone node can't start without its lavinmqctl socket. A
+    # clustered one may be sharing the machine with the node that has it, and
+    # tries again whenever it starts serving.
+    private def bind_control_socket : Nil
+      @control_socket.bind
+    rescue ex : Socket::BindError | HTTP::ControlSocketError
+      abort "Error: #{ex.message}" unless @config.clustering?
+      Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
     end
 
     private def bind_clustering_listener(bind, port)
