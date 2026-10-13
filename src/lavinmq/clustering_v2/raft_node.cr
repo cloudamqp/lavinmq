@@ -23,6 +23,7 @@ module LavinMQ
       getter log : RaftLog
       getter node_id : UInt64
       getter secret : String
+      getter execution_context : Fiber::ExecutionContext
       getter role : Role = Role::Follower
       getter leader_id : UInt64 = 0_u64
       getter last_applied : UInt64 = 0_u64
@@ -65,8 +66,10 @@ module LavinMQ
                      @peer_uri : String = "",
                      @amqp_uri : String = "",
                      @http_uri : String = "",
-                     initial_role : MemberRole = MemberRole::Voter)
+                     initial_role : MemberRole = MemberRole::Voter,
+                     execution_context : Fiber::ExecutionContext? = nil)
         @node_id = @log.node_id
+        @execution_context = execution_context || Fiber::ExecutionContext::Concurrent.new("ClusteringV2-Raft-#{@node_id}")
         @role = initial_role.learner? ? Role::Learner : Role::Follower
         @current_election_timeout = random_election_timeout
         if @log.members.empty? && !@peer_uri.empty?
@@ -144,8 +147,8 @@ module LavinMQ
           @last_leader_contact = Time.instant
         end
 
-        spawn(name: "ClusteringV2 listener #{@node_id}") { accept_loop(server) }
-        spawn(name: "ClusteringV2 ticker #{@node_id}") { tick_loop }
+        @execution_context.spawn(name: "ClusteringV2 listener #{@node_id}") { accept_loop(server) }
+        @execution_context.spawn(name: "ClusteringV2 ticker #{@node_id}") { tick_loop }
       end
 
       def configure_cluster(members : Array(MemberInfo)) : Nil
@@ -312,7 +315,7 @@ module LavinMQ
           sock = server.accept? || break
           sock.tcp_nodelay = true
           sock.sync = false
-          spawn(name: "ClusteringV2 inbound handshake") do
+          @execution_context.spawn(name: "ClusteringV2 inbound handshake") do
             remote_id, remote_uri = Protocol.server_handshake!(sock, @node_id, @secret)
             if @isolated
               sock.close rescue nil
@@ -323,7 +326,7 @@ module LavinMQ
               if s
                 s.peer_uri = remote_uri unless remote_uri.empty?
               else
-                s = PeerSession.new(@node_id, @peer_uri, remote_id, remote_uri, @secret) do |pid, ftype, io|
+                s = PeerSession.new(@node_id, @peer_uri, remote_id, remote_uri, @secret, @execution_context) do |pid, ftype, io|
                   handle_peer_frame(pid, ftype, io)
                 end
                 @peers[remote_id] = s
@@ -409,37 +412,41 @@ module LavinMQ
       private def start_pre_vote : Nil
         req : VoteRequest? = nil
         peers_to_send = Array(PeerSession).new
+        won_single_node = false
 
         @lock.synchronize do
           return if @closed || @role.leader? || @role.learner? || @isolated
           if voting_single_node_cluster_unsafe?
             become_candidate_and_win_single_node_unsafe
-            return
+            won_single_node = true
+          else
+            @role = Role::PreCandidate
+            @last_leader_contact = Time.instant
+            @current_election_timeout = random_election_timeout
+            @pre_votes_granted.clear
+            @pre_votes_granted.add(@node_id)
+
+            next_term = @log.current_term + 1
+            req = VoteRequest.new(
+              pre_vote: true,
+              term: next_term,
+              candidate_id: @node_id,
+              last_log_lsn: @log.last_lsn,
+              last_log_term: @log.last_log_term
+            )
+            sync_peer_sessions_unsafe
+            peers_to_send = @peers.values
           end
-
-          @role = Role::PreCandidate
-          @last_leader_contact = Time.instant
-          @current_election_timeout = random_election_timeout
-          @pre_votes_granted.clear
-          @pre_votes_granted.add(@node_id)
-
-          next_term = @log.current_term + 1
-          req = VoteRequest.new(
-            pre_vote: true,
-            term: next_term,
-            candidate_id: @node_id,
-            last_log_lsn: @log.last_lsn,
-            last_log_term: @log.last_log_term
-          )
-          sync_peer_sessions_unsafe
-          peers_to_send = @peers.values
         end
 
         drain_committed_callbacks
+        return if won_single_node
 
         if vote_req = req
           peers_to_send.each do |peer|
-            spawn { peer.send_vote_request(vote_req) }
+            @execution_context.spawn(name: "ClusteringV2 pre-vote #{@node_id}->#{peer.peer_id}") do
+              peer.send_vote_request(vote_req)
+            end
           end
         end
       end
@@ -615,7 +622,9 @@ module LavinMQ
         @on_step_down.try &.call(stepped_down_term) if stepped_down
         if req = real_vote_req
           peers_to_send.each do |peer|
-            spawn { peer.send_vote_request(req) }
+            @execution_context.spawn(name: "ClusteringV2 vote #{@node_id}->#{peer.peer_id}") do
+              peer.send_vote_request(req)
+            end
           end
         end
         if became_leader
@@ -849,9 +858,13 @@ module LavinMQ
 
         if p = peer
           if sreq = snap_req
-            spawn { p.send_install_snapshot(sreq) }
+            @execution_context.spawn(name: "ClusteringV2 snapshot #{@node_id}->#{peer_id}") do
+              p.send_install_snapshot(sreq)
+            end
           elsif areq = append_req
-            spawn { p.send_append_entries(areq) }
+            @execution_context.spawn(name: "ClusteringV2 append #{@node_id}->#{peer_id}") do
+              p.send_append_entries(areq)
+            end
           end
         end
       end
@@ -872,8 +885,29 @@ module LavinMQ
         end
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def drain_committed_callbacks : Nil
+        if Fiber::ExecutionContext.current == @execution_context
+          drain_committed_callbacks_now
+          return
+        end
+
+        has_pending = @lock.synchronize do
+          @last_applied < @log.commit_index ||
+            (@log.commit_index > 0 && @commit_waiters.any? { |w| w.target_lsn <= @log.commit_index })
+        end
+        return unless has_pending
+
+        done = ::Channel(Nil).new(1)
+        @execution_context.spawn(name: "ClusteringV2 drain committed #{@node_id}") do
+          drain_committed_callbacks_now
+        ensure
+          done.send(nil) rescue nil
+        end
+        done.receive?
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def drain_committed_callbacks_now : Nil
         to_apply = Array(LogEntryRecord).new
         promote_term : UInt64? = nil
         woken_waiters = Array(CommitWaiter).new
@@ -952,7 +986,7 @@ module LavinMQ
           if existing = @peers[m.node_id]?
             existing.peer_uri = m.peer_uri unless m.peer_uri.empty?
           else
-            @peers[m.node_id] = PeerSession.new(@node_id, @peer_uri, m.node_id, m.peer_uri, @secret) do |pid, ftype, io|
+            @peers[m.node_id] = PeerSession.new(@node_id, @peer_uri, m.node_id, m.peer_uri, @secret, @execution_context) do |pid, ftype, io|
               handle_peer_frame(pid, ftype, io)
             end
           end

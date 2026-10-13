@@ -183,6 +183,7 @@ module LavinMQ
       end
 
       getter node : RaftNode
+      getter execution_context : Fiber::ExecutionContext
       getter server : LavinMQ::Server
       getter amqp_server : LavinMQ::AMQP::Server
       getter mqtt_server : LavinMQ::MQTT::Server
@@ -200,7 +201,9 @@ module LavinMQ
       def initialize(@node : RaftNode,
                      @replicator : LogicalReplicator,
                      @server : LavinMQ::Server,
-                     config : Config = Config.instance)
+                     config : Config = Config.instance,
+                     execution_context : Fiber::ExecutionContext? = nil)
+        @execution_context = execution_context || @node.execution_context
         @amqp_server = LavinMQ::AMQP::Server.new(@server, config)
         @mqtt_server = LavinMQ::MQTT::Server.new(@server, config)
         @http_router = FollowerHttpRouterHandler.new(@node)
@@ -232,12 +235,12 @@ module LavinMQ
 
       def start : Nil
         if amqp_l = @amqp_listener
-          spawn(name: "ClusteringV2 AMQP permanent listener #{@node.node_id}") do
+          @execution_context.spawn(name: "ClusteringV2 AMQP permanent listener #{@node.node_id}") do
             accept_amqp_loop(amqp_l)
           end
         end
         if @http_addr
-          spawn(name: "ClusteringV2 HTTP permanent listener #{@node.node_id}") do
+          @execution_context.spawn(name: "ClusteringV2 HTTP permanent listener #{@node.node_id}") do
             @http_server.listen
           rescue ex
             Log.debug { "HTTP listener stopped: #{ex.message}" } unless @closed
@@ -268,7 +271,7 @@ module LavinMQ
             break
           end
           client.tcp_nodelay = true
-          spawn(name: "ClusteringV2 AMQP connection handler") do
+          @execution_context.spawn(name: "ClusteringV2 AMQP connection handler") do
             handle_amqp_socket(client)
           end
         end
@@ -307,7 +310,7 @@ module LavinMQ
         @splice_lock.synchronize { @splices << splice }
 
         done = ::Channel(Nil).new(2)
-        spawn(name: "ClusteringV2 splice upstream->client") do
+        @execution_context.spawn(name: "ClusteringV2 splice upstream->client") do
           IO.copy(upstream, client)
         rescue IO::Error
         ensure
@@ -344,6 +347,7 @@ module LavinMQ
     class ClusterNode
       getter config : Config
       getter data_dir : String
+      getter execution_context : Fiber::ExecutionContext
       getter log : RaftLog
       getter raft : RaftNode
       getter replicator : LogicalReplicator
@@ -355,17 +359,19 @@ module LavinMQ
                      secret : String = "test_cluster_secret_32_bytes_min!",
                      initial_role : MemberRole = MemberRole::Voter,
                      commit_gated_delivery : Bool = true,
-                     ring_capacity : UInt64 = 4096_u64)
+                     ring_capacity : UInt64 = 4096_u64,
+                     execution_context : Fiber::ExecutionContext? = nil)
         FileUtils.mkdir_p(@data_dir)
+        @execution_context = execution_context || Fiber::ExecutionContext::Concurrent.new("ClusteringV2-Node-#{node_id}")
         @config = Config.new.tap do |cfg|
           cfg.data_dir = @data_dir
         end
         @log = RaftLog.new(@data_dir, capacity: ring_capacity, node_id: node_id)
-        @raft = RaftNode.new(@log, secret: secret, initial_role: initial_role)
+        @raft = RaftNode.new(@log, secret: secret, initial_role: initial_role, execution_context: @execution_context)
         @replicator = LogicalReplicator.new(@data_dir, @raft, commit_gated_delivery: commit_gated_delivery)
         @server = LavinMQ::Server.new(@config, @replicator)
         @replicator.attach(@server)
-        @router = IngressRouter.new(@raft, @replicator, @server, @config)
+        @router = IngressRouter.new(@raft, @replicator, @server, @config, @execution_context)
       end
 
       def bind(host : String = "127.0.0.1",

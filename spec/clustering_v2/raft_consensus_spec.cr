@@ -80,14 +80,18 @@ describe LavinMQ::ClusteringV2::RaftNode do
   it "elects a single leader in a 3-node cluster and replicates majority-quorum entries" do
     cluster = ClusteringV2ConsensusSpec::TestCluster.new(3)
     begin
+      cluster.nodes.each do |node|
+        node.execution_context.should_not eq(Fiber::ExecutionContext.default)
+      end
+
       cluster.start_all
       leader = cluster.wait_for_leader
 
-      applied = Channel({UInt64, Bytes}).new(30)
+      applied = Channel({UInt64, Bytes, Fiber::ExecutionContext}).new(30)
       cluster.nodes.each do |node|
         node.on_apply do |rec|
           if rec.entry.cmd_type == LavinMQ::ClusteringV2::LogCommandType::QueueDeclare.value
-            applied.send({node.node_id, rec.payload.dup})
+            applied.send({node.node_id, rec.payload.dup, Fiber::ExecutionContext.current})
           end
         end
       end
@@ -102,8 +106,12 @@ describe LavinMQ::ClusteringV2::RaftNode do
       3.times do
         select
         when msg = applied.receive
-          msg[1].should eq("orders.created".to_slice)
-          received.add(msg[0])
+          node_id, payload, ctx = msg
+          payload.should eq("orders.created".to_slice)
+          node = cluster.nodes.find! { |n| n.node_id == node_id }
+          ctx.should eq(node.execution_context)
+          ctx.should_not eq(Fiber::ExecutionContext.default)
+          received.add(node_id)
         when timeout(2.seconds)
           fail "Timed out waiting for nodes to apply entry"
         end

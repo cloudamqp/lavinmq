@@ -10,6 +10,7 @@ module LavinMQ
       getter local_node_id : UInt64
       getter local_peer_uri : String
       getter peer_id : UInt64
+      getter execution_context : Fiber::ExecutionContext
       property peer_uri : String
       property? paused : Bool = false
 
@@ -24,6 +25,7 @@ module LavinMQ
                      @peer_id : UInt64,
                      @peer_uri : String,
                      @secret : String,
+                     @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext::Concurrent.new("ClusteringV2-Peer-#{local_node_id}-#{peer_id}"),
                      &@on_frame : (UInt64, FrameType, IO) -> Nil)
       end
 
@@ -64,7 +66,7 @@ module LavinMQ
           @socket.try &.close rescue nil
           @socket = socket
         end
-        spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(socket) }
+        @execution_context.spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(socket) }
       end
 
       def disconnect! : Nil
@@ -111,7 +113,7 @@ module LavinMQ
         sock.sync = false
         Protocol.client_handshake!(sock, @local_node_id, @secret, @local_peer_uri)
         @socket = sock
-        spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(sock) }
+        @execution_context.spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(sock) }
         sock
       rescue
         sock.try &.close rescue nil
