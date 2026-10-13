@@ -5,18 +5,17 @@ require "openssl/hmac"
 
 module LavinMQ
   module Clustering
+    # Version 1 followers send the password in clear text, get appends
+    # without offsets, ack cumulative byte counts and sync to disk before
+    # every ack.
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
-    # Version 2 followers don't sync to disk before every ack; they fsync the
-    # files named by fsync request records (a `$` prefixed path and a zero
-    # length), and syncfs on a bare `$`. Instead of sending the password they
-    # answer a challenge from the leader, see `challenge_response`.
-    StartV2 = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
-    # Version 3 records carry a log sequence number and the offset of every
-    # append, so the follower applies them idempotently, and acks carry the
-    # applied lsn (see WireV3).
+    # Version 3 followers answer a challenge from the leader instead of
+    # sending the password (see `challenge_response`), get records that carry
+    # a log sequence number and the offset of every append, so they apply
+    # them idempotently, ack the applied lsn and fsync only what the leader
+    # asks for (see WireV3).
     StartV3          = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
-    PROTOCOL_VERSION = 3
-    FSYNC_PREFIX     = '$'
+    PROTOCOL_VERSION =  3
     CHALLENGE_SIZE   = 32
 
     # This node's own files in the data dir, never replicated nor restored:
@@ -35,7 +34,7 @@ module LavinMQ
     # The start header the connection was opened with is part of the MAC so
     # a response can't be replayed against the raft port, which uses the
     # same password but MACs its challenge bare, nor across protocol versions.
-    def self.challenge_response(password : String, challenge : Bytes, header : Bytes = StartV2) : Bytes
+    def self.challenge_response(password : String, challenge : Bytes, header : Bytes = StartV3) : Bytes
       OpenSSL::HMAC.digest(:sha256, password, header + challenge)
     end
 

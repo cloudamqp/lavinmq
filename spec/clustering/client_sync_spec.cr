@@ -13,12 +13,6 @@ module ClientSyncSpec
     lz4.write payload.to_slice
   end
 
-  def self.write_fsync_request(lz4 : IO, filename : String) : Nil
-    lz4.write_bytes filename.bytesize + 1, IO::ByteFormat::LittleEndian
-    lz4.write "$#{filename}".to_slice
-    lz4.write_bytes 0i64, IO::ByteFormat::LittleEndian
-  end
-
   def self.record_size(filename : String, payload_size = 0) : Int64
     (sizeof(Int32) + filename.bytesize + sizeof(Int64) + payload_size).to_i64
   end
@@ -975,154 +969,7 @@ module ClientSyncSpec
       end
     end
 
-    describe "fsync requests" do
-      it "fsyncs a requested file, and the dir of a file it created, before acking the request" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          filename = "vhost/queue/msgs.0000000001"
-          payload = "data"
-          write_append(lz4_writer, filename, payload)
-          write_fsync_request(lz4_writer, filename)
-          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
-          read_acks(leader_io, expected).should eq expected
-          client.fsynced_paths.should eq [File.join(data_dir, filename), File.join(data_dir, "vhost/queue")]
-          client.syncs_started.should eq 0
-
-          # The dir entry is durable now, only the file needs fsyncs from here
-          write_append(lz4_writer, filename, payload)
-          write_fsync_request(lz4_writer, filename)
-          read_acks(leader_io, expected).should eq expected
-          client.fsynced_paths.last(1).should eq [File.join(data_dir, filename)]
-          client.fsynced_paths.size.should eq 3
-          File.read(File.join(data_dir, filename)).should eq payload * 2
-          client_socket.close
-        end
-      end
-
-      it "doesn't sync streamed bytes that no fsync request covers" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          write_append(lz4_writer, "acks.0000000001", "ack!")
-          expected = record_size("acks.0000000001", 4)
-          read_acks(leader_io, expected).should eq expected
-          client.syncs_started.should eq 0
-          client.fsynced_paths.should be_empty
-          client_socket.close
-        end
-      end
-
-      it "acks a request for a missing file without creating it" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          write_fsync_request(lz4_writer, "missing_file")
-          expected = record_size("$missing_file")
-          read_acks(leader_io, expected).should eq expected
-          File.exists?(File.join(data_dir, "missing_file")).should be_false
-          client_socket.close
-        end
-      end
-
-      it "syncs the data dir on a request without a path" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          write_append(lz4_writer, "file", "data")
-          write_fsync_request(lz4_writer, "")
-          expected = record_size("file", 4) + record_size("$")
-          read_acks(leader_io, expected).should eq expected
-          client.syncs_started.should eq 1
-          client.fsynced_paths.should be_empty
-          client_socket.close
-        end
-      end
-
-      it "syncs the data dir instead when more files than the threshold are requested" do
-        with_datadir do |data_dir|
-          LavinMQ::Config.instance.syncfs_threshold = 4
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
-          filenames = (0..LavinMQ::Config.instance.syncfs_threshold).map { |i| "file#{i}" }
-          filenames.each { |f| File.write(File.join(data_dir, f), "") }
-          # All requests in one LZ4 block, so the ack loop gets them in one batch
-          filenames.each { |f| write_fsync_request(lz4_writer, f) }
-          lz4_writer.flush
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          expected = filenames.sum { |f| record_size("$#{f}") }
-          read_acks(leader_io, expected).should eq expected
-          client.syncs_started.should be > 0
-          client.fsynced_paths.size.should be <= LavinMQ::Config.instance.syncfs_threshold
-          client_socket.close
-        end
-      end
-
-      it "fsyncs the directory of a replaced file before acking the replace" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = FakeSocket.pair
-          lz4_reader = Compress::LZ4::Reader.new(client_socket)
-          lz4_writer = Compress::LZ4::Writer.new(leader_io,
-            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-          spawn(name: "client stream_changes") do
-            client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
-          end
-
-          filename = "vhost/users.json"
-          payload = "{}"
-          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          lz4_writer.write filename.to_slice
-          lz4_writer.write_bytes payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          lz4_writer.write payload.to_slice
-          expected = record_size(filename, payload.bytesize)
-          read_acks(leader_io, expected).should eq expected
-          client.fsynced_paths.should eq [File.join(data_dir, "vhost")]
-          File.read(File.join(data_dir, filename)).should eq payload
-          client_socket.close
-        end
-      end
-
+    describe "protocol version" do
       it "falls back to protocol version 1 when the leader rejects version 3" do
         with_datadir do |data_dir|
           client = make_client(data_dir, version: 3)
@@ -1141,43 +988,20 @@ module ClientSyncSpec
         end
       end
 
-      it "answers the leader's challenge without sending the password" do
-        with_datadir do |data_dir|
-          client = make_client(data_dir)
-          client_socket, leader_io = UNIXSocket.pair
-          challenge = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
-          received = Bytes.new(8 + 32)
-          spawn(name: "version 2 leader") do
-            leader_io.write LavinMQ::Clustering::StartV2
-            leader_io.write challenge
-            leader_io.read_fully(received)
-            leader_io.write_byte 0u8
-          end
-          client.authenticate_public(client_socket)
-          leader_io.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 1
-          received[0, 8].should eq LavinMQ::Clustering::StartV2
-          received[8, 32].should eq LavinMQ::Clustering.challenge_response("password", challenge)
-          client.protocol_version.should eq 2
-        ensure
-          client_socket.try &.close
-          leader_io.try &.close
-        end
-      end
-
       it "doesn't fall back to protocol version 1 with the raft backend" do
         with_datadir do |data_dir|
-          client = make_client(data_dir, backend: LavinMQ::ClusteringBackend::Raft)
+          client = make_client(data_dir, version: 3, backend: LavinMQ::ClusteringBackend::Raft)
           client_socket, leader_io = UNIXSocket.pair
           leader_io.write LavinMQ::Clustering::Start
           expect_raises(IO::Error, /version mismatch/) do
             client.authenticate_public(client_socket)
           end
-          client.protocol_version.should eq 2
+          client.protocol_version.should eq 3
           client_socket.close
           leader_io.read_timeout = 1.second
           header = Bytes.new(8)
           leader_io.read_fully(header)
-          header.should eq LavinMQ::Clustering::StartV2
+          header.should eq LavinMQ::Clustering::StartV3
           leader_io.gets_to_end.should be_empty
         ensure
           client_socket.try &.close

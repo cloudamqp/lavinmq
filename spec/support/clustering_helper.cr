@@ -10,7 +10,7 @@ ensure
   s.try &.close
 end
 
-# The follower's side of a version 2 or 3 replication handshake: the start
+# The follower's side of a version 3 replication handshake: the start
 # header, the leader's echoed header and challenge, our HMAC, the leader's
 # accept byte and the follower id
 def clustering_handshake(io : IO, password : String, header : Bytes, id : Int32) : Nil
@@ -123,9 +123,9 @@ module ClusteringSpecHelper
     end
   end
 
-  # `version` is the replication protocol the client streams with; the v2
+  # `version` is the replication protocol the client streams with; the v1
   # wire-format specs predate v3 and drive stream_changes directly.
-  def make_client(data_dir : String, sync = true, version = 2, backend = LavinMQ::ClusteringBackend::Etcd) : TestClient
+  def make_client(data_dir : String, sync = true, version = 1, backend = LavinMQ::ClusteringBackend::Etcd) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync

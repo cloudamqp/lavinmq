@@ -372,20 +372,20 @@ module ClientV3Spec
     end
 
     describe "version negotiation" do
-      it "falls back to the version an older leader answers with" do
+      it "falls back to version 1 when the leader answers with it" do
         with_datadir do |data_dir|
           client = make_client(data_dir, version: 3)
           client_socket, leader_io = UNIXSocket.pair
-          spawn(name: "version 2 leader") do
+          spawn(name: "version 1 leader") do
             header = Bytes.new(8)
             leader_io.read_fully(header)
             header.should eq LavinMQ::Clustering::StartV3
-            leader_io.write LavinMQ::Clustering::StartV2
+            leader_io.write LavinMQ::Clustering::Start
           end
           expect_raises(IO::Error, /version mismatch/) do
             client.authenticate_public(client_socket)
           end
-          client.protocol_version.should eq 2
+          client.protocol_version.should eq 1
           client_socket.close
         end
       end

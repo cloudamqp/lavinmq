@@ -30,7 +30,7 @@ module LavinMQ
       # A v3 ack in the making: the applied lsn and the absolute received
       # byte count to report
       record Progress, lsn : UInt64, bytes : Int64
-      # What the stream-reading fiber hands the ack-sending fiber: v1/v2 byte
+      # What the stream-reading fiber hands the ack-sending fiber: v1 byte
       # counts (deltas), v3 progress, and fsync requests (paths, "" for the
       # whole data dir)
       alias Ack = Int64 | String | Progress
@@ -570,10 +570,10 @@ module LavinMQ
         # leave one behind per connection (they all report the same counter).
         log_loop_done = Channel(Nil).new
         spawn log_streamed_bytes_loop(log_loop_done), name: "Log streamed bytes loop"
-        if @protocol_version >= 3
+        if @protocol_version == 3
           stream_changes_v3(lz4)
         else
-          stream_changes_v2(lz4)
+          stream_changes_v1(lz4)
         end
       ensure
         @acks.close
@@ -774,7 +774,7 @@ module LavinMQ
       # Versions 1 and 2: a record is [i32 path_len][path][i64 len][payload];
       # a negative len appends (at the end, no offset), zero deletes (or is an
       # fsync request when the path starts with '$'), positive replaces.
-      private def stream_changes_v2(lz4)
+      private def stream_changes_v1(lz4)
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -789,11 +789,6 @@ module LavinMQ
           # it tells the leader the deletion is durable — so it's only acked
           # once the deletion has been applied.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
-          if len.zero? && filename.starts_with?(FSYNC_PREFIX)
-            fsync_request(filename[1..])
-            ack(framing)
-            next
-          end
           case len
           when .negative? # append bytes to file
             ack(framing)
@@ -964,9 +959,9 @@ module LavinMQ
         socket.tcp_nodelay = true
         fsync_paths = Set(String).new
         while item = acks.receive?
-          ack_bytes = 0i64 # v1/v2: bytes to ack, a delta
+          ack_bytes = 0i64 # v1: bytes to ack, a delta
           progress = nil.as(Progress?)
-          syncfs = @protocol_version < 2
+          syncfs = @protocol_version == 1 # v1 followers sync before every ack
           loop do
             case item
             in Int64    then ack_bytes += item
@@ -1058,7 +1053,7 @@ module LavinMQ
       private def authenticate(socket)
         header = start_header
         socket.write header
-        if @protocol_version < 2
+        if @protocol_version == 1
           socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
           socket.write @password.to_slice
         else
@@ -1074,11 +1069,7 @@ module LavinMQ
       end
 
       private def start_header : Bytes
-        case @protocol_version
-        when 1 then Start
-        when 2 then StartV2
-        else        StartV3
-        end
+        @protocol_version == 1 ? Start : StartV3
       end
 
       # A leader that speaks our version echoes the header followed by the
@@ -1095,9 +1086,9 @@ module LavinMQ
             Log.error { "Leader only supports replication protocol version 1, refusing to send it the password" }
             raise IO::Error.new("Replication protocol version mismatch")
           end
-          if 1 <= theirs < @protocol_version
-            Log.warn { "Leader only supports replication protocol version #{theirs}, reconnecting with it" }
-            @protocol_version = theirs
+          if theirs == 1
+            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
+            @protocol_version = 1
             @downgraded = true
             raise IO::Error.new("Replication protocol version mismatch")
           end

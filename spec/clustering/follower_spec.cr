@@ -40,7 +40,7 @@ end
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
   client_socket.write header
-  if LavinMQ::Clustering.header_version(header) >= 2
+  if LavinMQ::Clustering.header_version(header) == 3
     spawn(name: "answer challenge") { answer_challenge(client_socket, password, header) }
   else
     client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
@@ -63,9 +63,9 @@ private def ack(client_socket, lsn : UInt64, bytes : Int64)
   WireV3.write_ack(client_socket, lsn, bytes)
 end
 
-# Answers a version 2 or 3 leader's challenge: it echoes our header, then
-# sends the challenge
-private def answer_challenge(client_socket, password, header = LavinMQ::Clustering::StartV2, id = 1) : Nil
+# Answers a version 3 leader's challenge: it echoes our header, then sends
+# the challenge
+private def answer_challenge(client_socket, password, header = LavinMQ::Clustering::StartV3, id = 1) : Nil
   echo = Bytes.new(8)
   client_socket.read_fully(echo)
   echo.should eq header
@@ -879,23 +879,11 @@ module FollowerSpec
       end
     end
 
-    it "negotiates version 2 from a version 2 header" do
+    it "rejects a challenge response made with another password" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
-        follower.protocol_version.should eq 2
-      ensure
-        follower_socket.try &.close
-        client_socket.try &.close
-      end
-    end
-
-    it "rejects a version 2 challenge response made with another password" do
-      with_datadir do |data_dir|
-        follower_socket, client_socket = FakeSocket.pair
-        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        client_socket.write LavinMQ::Clustering::StartV2
+        client_socket.write LavinMQ::Clustering::StartV3
         spawn(name: "answer challenge") { answer_challenge(client_socket, "bar") }
         expect_raises(LavinMQ::Clustering::AuthenticationError) do
           follower.negotiate!("foo")
@@ -938,63 +926,6 @@ module FollowerSpec
   end
 
   describe "fsync entries" do
-    it "are written as fsync request records, counted as sent bytes" do
-      with_datadir do |data_dir|
-        follower_socket, client_socket = FakeSocket.pair
-        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
-        spawn { follower.ack_loop }
-        journal = start_streaming(follower)
-
-        journal.fsync("vhost/queue/msgs.0000000001")
-        journal.fsync("vhost/queue")
-        journal.fsync("") # syncfs
-
-        client_lz4 = Compress::LZ4::Reader.new(client_socket)
-        read_filename(client_lz4).should eq "$vhost/queue/msgs.0000000001"
-        read_data_size(client_lz4).should eq 0i64
-        read_filename(client_lz4).should eq "$vhost/queue"
-        read_data_size(client_lz4).should eq 0i64
-        read_filename(client_lz4).should eq "$"
-        read_data_size(client_lz4).should eq 0i64
-        follower.sent_bytes.should eq(
-          (sizeof(Int32) + 1 + "vhost/queue/msgs.0000000001".bytesize + sizeof(Int64)) +
-          (sizeof(Int32) + 1 + "vhost/queue".bytesize + sizeof(Int64)) +
-          (sizeof(Int32) + 1 + sizeof(Int64)))
-      ensure
-        follower_socket.try &.close
-        client_socket.try &.close
-      end
-    end
-
-    # The follower acks cumulative byte counts, so a request journaled before
-    # an append is also written before it; otherwise the append's ack could
-    # satisfy a confirm waiting for the unprocessed request.
-    it "are written ahead of records journaled after them" do
-      with_datadir do |data_dir|
-        follower_socket, client_socket = FakeSocket.pair
-        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
-        spawn { follower.ack_loop }
-
-        # Both journaled before the sender starts, so they're in one batch
-        journal = LavinMQ::Clustering::Journal.new(1024)
-        journal.subscribe(follower)
-        from = journal.head
-        journal.fsync("file")
-        journal.append_bytes("other", "data".to_slice, 0i64)
-        follower.start_sender(journal, from)
-
-        client_lz4 = Compress::LZ4::Reader.new(client_socket)
-        read_filename(client_lz4).should eq "$file"
-        read_data_size(client_lz4).should eq 0i64
-        read_filename(client_lz4).should eq "other"
-      ensure
-        follower_socket.try &.close
-        client_socket.try &.close
-      end
-    end
-
     it "send nothing to a version 1 follower, which syncs before every ack" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair

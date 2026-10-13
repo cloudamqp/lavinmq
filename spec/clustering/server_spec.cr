@@ -33,7 +33,7 @@ end
 private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clustering::Start) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
   v3 = LavinMQ::Clustering.header_version(header) >= 3
-  if LavinMQ::Clustering.header_version(header) >= 2
+  if LavinMQ::Clustering.header_version(header) == 3
     clustering_handshake(io, server.password, header, id)
   else
     io.write header

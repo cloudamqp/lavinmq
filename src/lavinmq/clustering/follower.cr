@@ -11,7 +11,7 @@ module LavinMQ
     # The leader's side of a follower connection. After the full sync a
     # sender fiber tails the Journal from the follower's cut and writes the
     # entries to the socket in the negotiated wire format; ack_loop reads the
-    # follower's acks: cumulative byte counts for v1/v2, the applied lsn and
+    # follower's acks: cumulative byte counts for v1, the applied lsn and
     # received bytes for v3 (see WireV3).
     class Follower
       include Journal::Subscriber
@@ -80,10 +80,10 @@ module LavinMQ
       def negotiate!(password) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
-        if @protocol_version < 2
+        if @protocol_version == 1
           authenticate_v1!(password)
         else
-          authenticate_v2!(password)
+          authenticate_v3!(password)
         end
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         if keepalive = Config.instance.tcp_keepalive
@@ -302,7 +302,7 @@ module LavinMQ
         slice = buf.to_slice
         @socket.read_fully(slice)
         case version = Clustering.header_version(slice)
-        when 1, 2, 3 then @protocol_version = version
+        when 1, 3 then @protocol_version = version
         else
           # Answer with the newest header we speak, so a newer follower can
           # downgrade
@@ -317,15 +317,14 @@ module LavinMQ
         authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
       end
 
-      # Versions 2 and 3: echo the follower's header, then a challenge it
-      # answers with an HMAC over both, so the secret never crosses the wire
-      private def authenticate_v2!(password) : Nil
-        header = @protocol_version >= 3 ? StartV3 : StartV2
+      # Echo the follower's header, then a challenge it answers with an HMAC
+      # over both, so the secret never crosses the wire
+      private def authenticate_v3!(password) : Nil
         challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
-        @socket.write(header + challenge)
+        @socket.write(StartV3 + challenge)
         response = Bytes.new(32)
         @socket.read_fully(response)
-        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge, header)))
+        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge)))
       end
 
       private def authenticated!(ok : Bool) : Nil
@@ -412,10 +411,10 @@ module LavinMQ
       # @write_lock so close can't pull the socket from under a record.
       private def encode(entry : Journal::Entry) : Nil
         @write_lock.synchronize do
-          if @protocol_version >= 3
+          if @protocol_version == 3
             encode_v3(entry)
           else
-            encode_v2(entry)
+            encode_v1(entry)
           end
         end
       end
@@ -464,9 +463,9 @@ module LavinMQ
         @sent_bytes.add(size)
       end
 
-      # Appends carry no offset in v1/v2, so the ones below this follower's
+      # Appends carry no offset in v1, so the ones below this follower's
       # join cut are skipped or tail-sliced (see #already_synced).
-      private def encode_v2(entry : Journal::Entry) : Nil
+      private def encode_v1(entry : Journal::Entry) : Nil
         case entry.op
         in .append?, .append_bytes?
           if bytes = append_payload(entry)
@@ -498,9 +497,7 @@ module LavinMQ
           write_delete(entry.path)
           forget_baseline(entry.path) # path may be reused by a future file
         in .fsync?
-          # Version 1 followers sync before every ack and don't understand
-          # fsync requests
-          write_fsync(entry.path) if @protocol_version >= 2
+          # Version 1 followers sync before every ack
         end
       end
 
@@ -533,16 +530,6 @@ module LavinMQ
         @sent_bytes.add(sizeof(Int32) + path.bytesize + sizeof(Int64))
         send_filename(path)
         @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
-      end
-
-      # Ask the follower to fsync `path` (relative to the data dir, "" for
-      # the whole data dir) before it acks past this point in the stream.
-      private def write_fsync(path : String) : Nil
-        @sent_bytes.add(sizeof(Int32) + 1 + path.bytesize + sizeof(Int64))
-        @lz4.write_bytes (path.bytesize + 1).to_i32, IO::ByteFormat::LittleEndian
-        @lz4.write_byte FSYNC_PREFIX.ord.to_u8
-        @lz4.write path.to_slice
-        @lz4.write_bytes 0i64
       end
 
       private def send_filename(path)
