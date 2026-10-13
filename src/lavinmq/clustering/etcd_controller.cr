@@ -51,46 +51,37 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @lease.try &.release
   end
 
-  # Listens for leader change events
+  # Listens for leader change events, until this node is elected
   private def follow_leader_changes
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
-      if repli_client = @repli_client # is currently following a leader
-        if repli_client.follows? uri
-          next # if lost connection to etcd we continue follow the leader as is
-        else
-          repli_client.close
-          report_metrics_of nil
-        end
-      end
-      if uri.nil? # no leader yet
-        Log.warn { "No leader available" }
-        next
-      end
-      if uri == @advertised_uri # if this instance has become leader
-        select
-        when @elected_leader.when_true.receive
-          Log.debug { "Elected leader, don't replicate from self" }
-          @elected_leader.close
-          return
-        when timeout(1.second)
-          raise Error.new("Another node in the cluster is advertising the same URI")
-        end
-      end
-      Log.info { "Leader: #{uri}" }
-      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-      secret = @etcd.get(key)
-      until secret # the leader might not have had time to set the secret yet
-        Log.debug { "Clustering secret is missing, watching for it" }
-        @etcd.watch(key) do |value|
-          secret = value
-          break
-        end
-      end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
-      report_metrics_of r
-      spawn r.follow(uri), name: "Clustering client #{uri}"
-      SystemD.notify_ready
+      follow(uri) { clustering_secret }
+      return if uri == @advertised_uri # elected, see #elected?
     end
+  end
+
+  # The election gives this node a moment to notice it won
+  private def elected? : Bool
+    select
+    when @elected_leader.when_true.receive
+      Log.debug { "Elected leader, don't replicate from self" }
+      @elected_leader.close
+      true
+    when timeout(1.second)
+      false
+    end
+  end
+
+  private def clustering_secret : String
+    key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+    secret = @etcd.get(key)
+    until secret # the leader might not have had time to set the secret yet
+      Log.debug { "Clustering secret is missing, watching for it" }
+      @etcd.watch(key) do |value|
+        secret = value
+        break
+      end
+    end
+    secret
   end
 
   # A queued election candidacy can outlive ISR membership: this node may have
@@ -101,19 +92,14 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   # releases the lease, withdraws the candidacy and lets an in-sync candidate
   # win; on restart wait_to_be_insync blocks until this node is re-synced.
   private def ensure_in_isr! : Nil
-    isr = @coordinator.isr
-    return if isr.nil? # no ISR recorded yet (fresh cluster)
-    return if isr.includes?(@id)
-    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
-    # Release the lease explicitly: the election key is bound to it, so this
-    # revokes the just-won leadership at once instead of leaving the cluster
-    # leaderless until the lease TTL expires.
-    begin
+    ensure_in_isr!(@coordinator.isr) do
+      # Release the lease explicitly: the election key is bound to it, so this
+      # revokes the just-won leadership at once instead of leaving the cluster
+      # leaderless until the lease TTL expires.
       @lease.try &.release
     rescue ex
       Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
     end
-    exit 3
   end
 
   def wait_to_be_insync(lease)

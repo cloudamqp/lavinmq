@@ -81,6 +81,53 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 
   private abstract def follow_leader_changes
 
+  # Replicates from the leader at `uri`: stops the client following another
+  # one and starts one with the password the block gives, asked once there
+  # is a leader to follow. Nothing to do for the leader already followed,
+  # or when there is none. For this node's own URI, #elected? tells whether
+  # it won the election; otherwise another node advertises the same URI,
+  # which is fatal. `member_check` is given to the client, see there.
+  private def follow(uri : String?, member_check : Proc(Bool)? = nil, & : -> String) : Nil
+    if repli_client = @repli_client # is currently following a leader
+      return if repli_client.follows? uri
+      stop_following
+    end
+    if uri.nil?
+      Log.warn { "No leader available" }
+      return
+    end
+    if uri == @advertised_uri
+      return if elected?
+      raise Error.new("Another node in the cluster is advertising the same URI")
+    end
+    Log.info { "Leader: #{uri}" }
+    @repli_client = client = Client.new(@config, @id, yield)
+    client.member_check = member_check
+    report_metrics_of client
+    spawn client.follow(uri), name: "Clustering client #{uri}"
+    SystemD.notify_ready
+  end
+
+  # Whether this node is the leader its own URI names
+  private abstract def elected? : Bool
+
+  private def stop_following : Nil
+    @repli_client.try &.close
+    @repli_client = nil
+    report_metrics_of nil
+  end
+
+  # Serving as leader while missing confirmed messages would lose them
+  # cluster-wide: the in-sync nodes would full_sync from this node and
+  # delete them. Exit instead, after the block has withdrawn the leadership,
+  # so an in-sync candidate wins.
+  private def ensure_in_isr!(isr : Set(Int32)?, &) : Nil
+    return if isr.nil? || isr.includes?(@id) # no ISR recorded yet (fresh cluster), or in it
+    Log.fatal { "Elected leader but not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
+    yield
+    exit 3
+  end
+
   private def report_metrics_of(client : Client?) : Nil
     @metrics_server.try &.clustering_client = client
   end

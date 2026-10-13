@@ -346,7 +346,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # back to following whoever leads next.
   private def follow_leader_changes
     loop do
-      if follow(current_leader_uri) == :elected
+      uri = current_leader_uri
+      follow(uri, ->@node.self_member?) { @coordinator.password }
+      if uri == @advertised_uri # elected, see #elected?
         select
         when serving.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
@@ -370,32 +372,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node.serving
   end
 
-  private def follow(uri : String?) : Symbol?
-    if repli_client = @repli_client # is currently following a leader
-      return if repli_client.follows? uri
-      stop_following
-    end
-    if uri.nil?
-      Log.warn { "No leader available" }
-      return
-    end
-    if uri == @advertised_uri
-      return :elected if leader?
-      raise Error.new("Another node in the cluster is advertising the same URI")
-    end
-    Log.info { "Leader: #{uri}" }
-    @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
-    report_metrics_of r
-    r.member_check = -> { @node.self_member? }
-    spawn r.follow(uri), name: "Clustering client #{uri}"
-    SystemD.notify_ready
-    nil
-  end
-
-  private def stop_following : Nil
-    @repli_client.try &.close
-    @repli_client = nil
-    report_metrics_of nil
+  private def elected? : Bool
+    leader?
   end
 
   private def current_leader_uri : String?
@@ -407,12 +385,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   # Votes are only granted to ISR members, so this can't trip unless the
-  # raft state was tampered with. Serving without confirmed messages would
-  # lose them cluster-wide, so refuse.
+  # raft state was tampered with
   private def ensure_in_isr! : Nil
-    isr = @node.committed_isr
-    return if isr.nil? || isr.includes?(@id)
-    Log.fatal { "Elected leader but not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
-    exit 3
+    ensure_in_isr!(@node.committed_isr) { }
   end
 end
