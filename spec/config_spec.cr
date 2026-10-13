@@ -12,6 +12,12 @@ class LavinMQ::Launcher
   end
 end
 
+private def fiber_count
+  count = 0
+  Fiber.each { count += 1 }
+  count
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -92,6 +98,29 @@ describe LavinMQ::Config do
     ensure
       File.delete(config_file.path) if File.exists?(config_file.path)
       # Reset log level to default for other specs
+      Log.setup(:fatal)
+    end
+  end
+
+  it "closes the previous log backend on reload" do
+    config_file = File.tempfile("lavinmq-config", ".ini")
+    log_file = File.tempfile("lavinmq-reload", ".log")
+    begin
+      File.write(config_file.path, <<-CONFIG
+        [main]
+        log_level = fatal
+        log_file = #{log_file.path}
+        CONFIG
+      )
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      fibers_before = fiber_count
+      3.times { config.reload }
+      # The old backends' dispatcher fibers exit once they get to run
+      wait_for { fiber_count == fibers_before }
+    ensure
+      File.delete(config_file.path) if File.exists?(config_file.path)
+      log_file.delete
       Log.setup(:fatal)
     end
   end
@@ -1200,5 +1229,31 @@ describe LavinMQ::Launcher do
         end
       end
     end
+  end
+end
+
+describe LavinMQ::LogBackend do
+  it "drops entries from fibers blocked in logging when closed" do
+    reader, writer = IO.pipe
+    backend = LavinMQ::LogBackend.new(io: writer)
+    entry = ::Log::Entry.new("lmq.spec", :info, "entry", ::Log::Metadata.empty, nil)
+    error = nil
+    done = false
+    spawn do
+      # The pipe fills and the dispatcher blocks, then its buffer fills and this fiber blocks in send
+      6000.times { backend.dispatch(entry) }
+    rescue ex
+      error = ex
+    ensure
+      done = true
+    end
+    Fiber.yield
+    done.should be_false
+    spawn { reader.each_line { }; reader.close }
+    backend.close
+    wait_for { done }
+    error.should be_nil
+  ensure
+    writer.try &.close
   end
 end

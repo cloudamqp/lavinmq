@@ -64,6 +64,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Fixed
 
+- Every config reload (SIGHUP) leaked the previous log backend: its dispatcher fiber, a 2048-entry channel and, with `log_file` set, the open file [#2442](https://github.com/cloudamqp/lavinmq/pull/2442)
 - An HTTP re-PUT of an existing internal exchange, such as any `x-mqtt-topic` exchange, answered 400 "Not allowed to publish to internal exchange". An identical redeclare now answers 204, like an AMQP redeclare [#2541](https://github.com/cloudamqp/lavinmq/pull/2541)
 - A confirmed publish that created a new segment file, like the first publish to a queue or a segment rollover, while the process was out of file descriptors stopped the broker: the persister exited when it couldn't open the directory it had to fsync, and a follower did the same for the leader's fsync requests. Both now sync the whole data dir through the already open data dir descriptor instead, and the broker stays up, as the accept loops already do since [#2422](https://github.com/cloudamqp/lavinmq/pull/2422) [#2542](https://github.com/cloudamqp/lavinmq/pull/2542)
 - Removing an entry with overridden settings from a `federation-upstream-set` left its federation queue and exchange on the upstream broker, where the queue kept collecting messages. The resources are now deleted when no entry in the updated set reuses them [#2531](https://github.com/cloudamqp/lavinmq/pull/2531)

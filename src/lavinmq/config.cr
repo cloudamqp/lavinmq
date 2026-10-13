@@ -4,6 +4,7 @@ require "option_parser"
 require "ini"
 require "./version"
 require "./log_formatter"
+require "./log_backend"
 require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
@@ -20,6 +21,7 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -404,9 +406,9 @@ module LavinMQ
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if journald_stream?
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                  LogBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  LogBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
 
       broadcast_backend.append(backend, @log_level)
@@ -422,8 +424,18 @@ module LavinMQ
       # federation/shovel layers (lmq.*), so keep the library's redundant
       # connection log out of the broker log.
       ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
+      close_log_backend
+      @log_backend = backend
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+    end
+
+    # The backend of the previous setup, with its dispatcher fiber and log file,
+    # closed once the new one is bound so no entry in flight is lost
+    private def close_log_backend
+      return unless old = @log_backend
+      old.close
+      old.io.close unless old.io.same?(STDOUT)
     end
 
     def journald_stream? : Bool
