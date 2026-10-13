@@ -32,6 +32,16 @@ ensure
   done.try &.receive
 end
 
+{% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+  describe OpenSSL::SSL::Context do
+    it "doesn't enable kTLS by default" do
+      ktls = OpenSSL::SSL::Options::ENABLE_KTLS
+      OpenSSL::SSL::Context::Server.new.options.includes?(ktls).should be_false
+      OpenSSL::SSL::Context::Client.new.options.includes?(ktls).should be_false
+    end
+  end
+{% end %}
+
 describe OpenSSL::SSL::Socket do
   describe "kTLS status" do
     it "reports no kTLS when ENABLE_KTLS option is not set" do

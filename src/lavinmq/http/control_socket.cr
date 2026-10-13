@@ -3,7 +3,10 @@ require "../logger"
 
 module LavinMQ
   module HTTP
-    class ControlSocketInUseError < Exception; end
+    # The control socket can't be bound, so the broker can't start as leader
+    class ControlSocketError < Exception; end
+
+    class ControlSocketInUseError < ControlSocketError; end
 
     # The internal UNIX socket used by lavinmqctl. A raft node binds it once
     # and keeps it through its role changes: while it serves as the leader,
@@ -21,7 +24,7 @@ module LavinMQ
         return unless info = File.info?(path, follow_symlinks: false)
 
         unless info.type.socket?
-          raise "Control socket #{path} exists and is not a socket"
+          raise ControlSocketError.new("Control socket #{path} exists and is not a socket")
         end
 
         begin
@@ -32,7 +35,7 @@ module LavinMQ
           File.delete(path)
         rescue ex : Socket::Error
           # EACCES or anything ambiguous: fail closed, don't delete.
-          raise "Cannot verify stale control socket #{path}: #{ex.message}"
+          raise ControlSocketError.new("Cannot verify stale control socket #{path}: #{ex.message}")
         end
       end
 
