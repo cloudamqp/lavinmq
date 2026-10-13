@@ -143,11 +143,7 @@ module LavinMQ
       end
 
       private def read_file(path : String) : Bytes?
-        File.open(path) do |f|
-          bytes = Bytes.new(f.size)
-          f.read_fully(bytes)
-          bytes
-        end
+        File.open(path, &.getb_to_end)
       rescue File::NotFoundError
         nil
       end
@@ -440,7 +436,7 @@ module LavinMQ
           follower.mark_synced!
           update_isr
         end
-        follower.start_sender(@journal, from)
+        follower.start_sender(@journal)
         follower.ack_loop
       ensure
         cleanup(follower)
@@ -476,7 +472,7 @@ module LavinMQ
             follower.mark_synced! # Change state to Synced
             update_isr
           end
-          follower.start_sender(@journal, cut_lsn)
+          follower.start_sender(@journal)
         end
         # Wait for follower to disconnect or be closed
         follower.ack_loop

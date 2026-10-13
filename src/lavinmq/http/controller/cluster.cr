@@ -12,7 +12,6 @@ module LavinMQ
 
       private def register_routes
         get "/api/cluster" do |context, _params|
-          refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           status = require_status(context, cluster)
           JSON.build(context.response) do |json|
@@ -22,7 +21,6 @@ module LavinMQ
         end
 
         post "/api/cluster/members" do |context, _params|
-          refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           body = parse_body(context)
           address = body["address"]?.try(&.as_s?).presence || bad_request(context, "Field 'address' is required")
@@ -30,7 +28,6 @@ module LavinMQ
         end
 
         post "/api/cluster/members/:member/promote" do |context, params|
-          refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           member = params["member"]
           id = require_member(context, cluster, member)
@@ -38,7 +35,6 @@ module LavinMQ
         end
 
         delete "/api/cluster/members/:member" do |context, params|
-          refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           member = params["member"]
           id = require_member(context, cluster, member)
@@ -46,7 +42,6 @@ module LavinMQ
         end
 
         post "/api/cluster/transfer-leadership" do |context, _params|
-          refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           body = parse_body(context)
           # Absent or null is any caught up voter, anything else must name one
@@ -74,7 +69,9 @@ module LavinMQ
         end
       end
 
+      # Every route is for administrators, on a raft node
       private def require_cluster(context) : Clustering::RaftController
+        refuse_unless_administrator(context, user(context))
         if cluster = @cluster
           return cluster
         end

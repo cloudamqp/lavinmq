@@ -147,8 +147,10 @@ module LavinMQ::Clustering::Raft
     end
 
     private def connect(peer : String) : TCPSocket
-      host, _, port = peer.rpartition(':')
-      socket = TCPSocket.new(URI.unwrap_ipv6(host), port.to_i, connect_timeout: @connect_timeout)
+      uri = URI.parse("tcp://#{peer}")
+      host, port = uri.hostname, uri.port
+      raise ArgumentError.new("Invalid raft address #{peer}, expected host:port") unless host && port
+      socket = TCPSocket.new(host, port, connect_timeout: @connect_timeout)
       socket.sync = false
       socket.tcp_nodelay = true
       enable_keepalive(socket)

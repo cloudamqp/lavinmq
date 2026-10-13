@@ -112,36 +112,37 @@ module LavinMQ
       end
 
       def append_mfile(path : String, mfile : MFile, offset : Int64, len : Int64) : UInt64
-        append Entry.new(0u64, Op::Append, path, offset, len, mfile: mfile)
+        append Op::Append, path, offset, len, mfile: mfile
       end
 
       def append_value(path : String, value : UInt32, offset : Int64) : UInt64
-        append Entry.new(0u64, Op::AppendValue, path, offset, sizeof(UInt32).to_i64, value: value)
+        append Op::AppendValue, path, offset, sizeof(UInt32).to_i64, value: value
       end
 
       def append_bytes(path : String, bytes : Bytes, offset : Int64) : UInt64
-        append Entry.new(0u64, Op::AppendBytes, path, offset, bytes.bytesize.to_i64, bytes: bytes)
+        append Op::AppendBytes, path, offset, bytes.bytesize.to_i64, bytes: bytes
       end
 
       def replace(path : String, bytes : Bytes) : UInt64
-        append Entry.new(0u64, Op::Replace, path, len: bytes.bytesize.to_i64, bytes: bytes)
+        append Op::Replace, path, len: bytes.bytesize.to_i64, bytes: bytes
       end
 
       def delete(path : String) : UInt64
-        append Entry.new(0u64, Op::Delete, path)
+        append Op::Delete, path
       end
 
       def fsync(path : String) : UInt64
-        append Entry.new(0u64, Op::Fsync, path)
+        append Op::Fsync, path
       end
 
-      # Assigns the entry its lsn and wakes the subscribers. Never blocks.
-      private def append(entry : Entry) : UInt64
+      # Appends the entry with the next lsn and wakes the subscribers. Never
+      # blocks.
+      private def append(op : Op, path : String, offset = 0i64, len = 0i64,
+                         mfile : MFile? = nil, bytes = Bytes.empty, value = 0u32) : UInt64
         @lock.synchronize do
           lsn = @head
           evict_oldest if @head - @tail == @capacity
-          @ring[(lsn % @capacity).to_i32] = Entry.new(lsn, entry.op, entry.path, entry.offset, entry.len,
-            entry.mfile, entry.bytes, entry.value)
+          @ring[(lsn % @capacity).to_i32] = Entry.new(lsn, op, path, offset, len, mfile, bytes, value)
           @head = lsn + 1
           if @subscribers.empty?
             # Nobody will read it (a joining follower starts at the head), so
@@ -149,7 +150,7 @@ module LavinMQ
             # entries were released when the last subscriber left.
             @released = @head
           else
-            entry.mfile.try &.lease
+            mfile.try &.lease
             @subscribers.each &.wake
           end
           lsn

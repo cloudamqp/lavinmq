@@ -438,7 +438,7 @@ describe LavinMQ::Clustering::RaftController do
   # The coordinator raises its subclass when an ISR write fails, a fenced
   # replicator and the Persister the base class
   {
-    {"a lost ISR write", -> { LavinMQ::Clustering::RaftCoordinator::StaleLeadership.new.as(Exception) }},
+    {"a lost ISR write", -> { LavinMQ::Clustering::Coordinator::StaleLeadership.new("lost").as(Exception) }},
     {"a fenced replicator", -> { LavinMQ::Clustering::Coordinator::StaleLeadership.new("Replication is fenced (spec)").as(Exception) }},
   }.each do |what, error|
     it "stops serving when a startup that writes the ISR fails on #{what}", tags: "slow" do

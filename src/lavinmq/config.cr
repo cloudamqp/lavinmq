@@ -120,18 +120,7 @@ module LavinMQ
         raise Error.new("clustering seeds is required with the raft backend: the raft addresses of the nodes to form " \
                         "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
       end
-      clustering_seed_addresses.each { |seed| validate_seed!(seed) }
-    end
-
-    private def validate_seed!(seed : String) : Nil
-      host, sep, port = seed.rpartition(':')
-      if sep.empty? || host.empty? || port.to_u16?.nil?
-        raise Error.new("clustering seed '#{seed}' must be host:port")
-      end
-      # "::1" would be taken for host ":" and port 1
-      if host.includes?(':') && !(host.starts_with?('[') && host.ends_with?(']'))
-        raise Error.new("clustering seed '#{seed}' looks like an IPv6 address, put it in brackets, e.g. [::1] or [::1]:5680")
-      end
+      clustering_seed_addresses # raises on an invalid seed
     end
 
     private def load_clustering_password_file : Nil
@@ -185,15 +174,20 @@ module LavinMQ
     # Required with the raft backend, see validate_raft_clustering!.
     # Omitted ports default to 5680, independently of this node's raft_port.
     def clustering_seed_addresses : Array(String)
-      seeds = @clustering_seeds.split(',').map(&.strip).reject(&.empty?)
-      seeds.map! do |seed|
-        if !seed.includes?(':') || seed.ends_with?(']')
-          "#{seed}:#{DEFAULT_CLUSTERING_RAFT_PORT}"
-        else
-          seed
-        end
-      end
+      seeds = @clustering_seeds.split(',').map(&.strip).reject(&.empty?).map { |seed| seed_address(seed) }
       seeds.empty? ? [clustering_raft_address] : seeds.uniq
+    end
+
+    # A seed as host:port, parsed as a URI authority so an IPv6 host keeps its
+    # brackets and nothing else is taken for one
+    private def seed_address(seed : String) : String
+      uri = URI.parse("tcp://#{seed}")
+      host = uri.host.presence
+      port = uri.port || DEFAULT_CLUSTERING_RAFT_PORT
+      raise URI::Error.new unless host && uri.path.empty? && 0 < port < 65536
+      "#{host}:#{port}"
+    rescue URI::Error
+      raise Error.new("clustering seed '#{seed}' must be host:port, with an IPv6 address in brackets, e.g. [::1]:5680")
     end
 
     private def parse_config_from_cli(argv)

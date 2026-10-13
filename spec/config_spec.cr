@@ -546,7 +546,7 @@ describe LavinMQ::Config do
     end
 
     it "rejects an invalid explicit seed port" do
-      {"node1:", "node1:abc", "node1:65536", "[::1]:"}.each do |seed|
+      {"node1:abc", "node1:65536", "node1:0", "[::1]:x"}.each do |seed|
         config = LavinMQ::Config.new(IO::Memory.new)
         expect_raises(LavinMQ::Config::Error, /must be host:port/) do
           config.parse(["--clustering", "--clustering-password=secret", "--clustering-seeds=#{seed}"])
@@ -557,7 +557,7 @@ describe LavinMQ::Config do
     it "rejects an IPv6 seed without brackets" do
       {"::1", "fe80::1", "fe80::1:5680", "node1:5680,::1"}.each do |seeds|
         config = LavinMQ::Config.new(IO::Memory.new)
-        expect_raises(LavinMQ::Config::Error, /put it in brackets/) do
+        expect_raises(LavinMQ::Config::Error, /in brackets/) do
           config.parse(["--clustering", "--clustering-password=secret", "--clustering-seeds=#{seeds}"])
         end
       end

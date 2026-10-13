@@ -192,8 +192,8 @@ module LavinMQ
       # default execution context: the socket's fd belongs to its event loop
       # (ack_loop keeps a read pending on it), so no other context may write
       # it — the Persister's isolated thread only appends to the journal.
-      def start_sender(journal : Journal, from : UInt64) : Nil
-        self.journal_position = from
+      # Streams the journal from the position the subscription gave
+      def start_sender(journal : Journal) : Nil
         @running.spawn(name: "Clustering follower sender") { send_loop(journal) }
       end
 
@@ -201,22 +201,25 @@ module LavinMQ
         pos = @position.get
         loop do
           batched = 0
-          while entry = journal.read(pos)
-            begin
-              encode(entry)
-            ensure
-              entry.mfile.try &.release_lease
+          # Under @write_lock so close can't pull the socket from under a batch
+          @write_lock.synchronize do
+            while entry = journal.read(pos)
+              begin
+                encode(entry)
+              ensure
+                entry.mfile.try &.release_lease
+              end
+              pos += 1
+              batched += 1
+              break if batched >= BATCH_ENTRIES
             end
-            pos += 1
-            batched += 1
-            break if batched >= BATCH_ENTRIES
+            @lz4.flush if batched > 0
           end
           if batched.zero? && journal.behind?(pos)
             Log.warn { "Follower id=#{@id.to_s(36)} fell behind the journal, disconnecting" }
             break
           end
           if batched > 0
-            @write_lock.synchronize { @lz4.flush }
             @position.set(pos)
             journal.release_unneeded
             @ack_notify.try_send(nil) # waiters re-check what's been sent
@@ -229,8 +232,7 @@ module LavinMQ
       rescue IO::Error | Socket::Error
         # ack_loop sees the closed socket and marks the follower dead
       ensure
-        journal.unsubscribe(self)
-        @socket.close rescue nil
+        @socket.close rescue nil # Server#cleanup unsubscribes
       end
 
       # Journal::Subscriber
@@ -403,15 +405,12 @@ module LavinMQ
         end
       end
 
-      # Write one journal entry in the negotiated wire format. Takes
-      # @write_lock so close can't pull the socket from under a record.
+      # Write one journal entry in the negotiated wire format
       private def encode(entry : Journal::Entry) : Nil
-        @write_lock.synchronize do
-          if @protocol_version == 3
-            encode_v3(entry)
-          else
-            encode_v1(entry)
-          end
+        if @protocol_version == 3
+          encode_v3(entry)
+        else
+          encode_v1(entry)
         end
       end
 

@@ -237,22 +237,11 @@ module LavinMQ
         end
       end
 
-      def follows?(_nil : Nil) : Bool
-        false
-      end
-
-      def follows?(uri : String) : Bool
-        follows? URI.parse(uri)
-      end
-
-      def follows?(uri : URI) : Bool
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follows?(host, port)
-      end
-
-      def follows?(host : String, port : Int32) : Bool
-        @host == host && @port == port
+      # Whether this client replicates from the leader at `uri`
+      def follows?(uri : String?) : Bool
+        return false unless uri
+        uri = URI.parse(uri)
+        @host == uri.hostname.not_nil!("Host missing in follow URI") && @port == (uri.port || 5679)
       end
 
       private def sync(socket, lz4)
@@ -306,10 +295,7 @@ module LavinMQ
       private def persist_position(lsn : UInt64) : Nil
         @persisted_lsn = lsn
         @last_persist = Time.instant
-        path = File.join(@data_dir, POSITION_FILE)
-        tmp = "#{path}.tmp"
-        File.write(tmp, "#{@journal_id} #{lsn}\n")
-        FileSystem.durable_rename(tmp, path)
+        FileSystem.replace(File.join(@data_dir, POSITION_FILE)) { |f| f.puts "#{@journal_id} #{lsn}" }
       end
 
       private def forget_position : Nil

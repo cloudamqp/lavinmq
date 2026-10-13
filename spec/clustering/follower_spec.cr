@@ -16,7 +16,7 @@ end
 private def start_streaming(follower) : LavinMQ::Clustering::Journal
   journal = LavinMQ::Clustering::Journal.new(1024)
   journal.subscribe(follower)
-  follower.start_sender(journal, journal.head)
+  follower.start_sender(journal)
   journal
 end
 
@@ -268,9 +268,8 @@ module FollowerSpec
 
         journal = LavinMQ::Clustering::Journal.new(4)
         journal.subscribe(follower)
-        from = journal.head
         8.times { journal.delete("f") } # evicts the first four before the sender starts
-        follower.start_sender(journal, from)
+        follower.start_sender(journal)
 
         wait_for { follower.dead? }
         follower_socket.closed?.should be_true
@@ -463,7 +462,6 @@ module FollowerSpec
         # been acked (nothing) must not satisfy the wait.
         journal = LavinMQ::Clustering::Journal.new(1024)
         journal.subscribe(follower)
-        from = journal.head
         lsn = journal.append_bytes("file", "hello world".to_slice, 0i64)
         confirmed = Channel(Bool).new
         spawn { confirmed.send follower.wait_for(lsn) }
@@ -473,7 +471,7 @@ module FollowerSpec
         when timeout(50.milliseconds)
         end
 
-        follower.start_sender(journal, from)
+        follower.start_sender(journal)
         wait_for { follower.lag_in_bytes > 0 }
         client_socket.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
         select
@@ -1081,7 +1079,7 @@ module FollowerSpec
         journal = LavinMQ::Clustering::Journal.new(1024)
         before = journal.delete("old") # delivered by the full sync, never streamed
         journal.subscribe(follower)
-        follower.start_sender(journal, journal.head)
+        follower.start_sender(journal)
 
         confirmed = Channel(Bool).new
         spawn { confirmed.send follower.wait_for(before) }
