@@ -94,7 +94,7 @@ module LavinMQ
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
     # Raises Clustering::Coordinator::StaleLeadership if it can't be made
-    # durable on the followers, see Clustering::Replicator#fenced?
+    # durable on the followers, see Clustering::Replicator#wait_for_followers
     def sync : Nil
       # Gets true once synced, or is closed when it wasn't
       waiter = ::Channel(Bool).new(1)
@@ -102,21 +102,12 @@ module LavinMQ
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
-        raise_if_fenced
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive? || raise stale_leadership
-    end
-
-    private def raise_if_fenced : Nil
-      raise stale_leadership if @replicator.try &.fenced?
-    end
-
-    private def stale_leadership : Clustering::Coordinator::StaleLeadership
-      Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
+      waiter.receive? || raise Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
     end
 
     def close : Nil
@@ -150,12 +141,6 @@ module LavinMQ
       end
       return unless batch
       replicator = @replicator
-      if replicator.try &.fenced?
-        # Never confirmed, the waiters raise
-        batch.waiters.each &.close
-        return
-      end
-
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
       batch.files.each &.clear_needs_msync!
