@@ -203,7 +203,7 @@ describe LavinMQ::HTTP::Server do
             q1.publish_confirm("m")
           end
           5.times do
-            q1.get(false).not_nil!
+            q1.get(false).should_not be_nil
           end
         end
 
@@ -227,7 +227,7 @@ describe LavinMQ::HTTP::Server do
           q1.publish_confirm("m")
         end
         5.times do
-          q1.get.not_nil!
+          q1.get.should_not be_nil
         end
       end
 

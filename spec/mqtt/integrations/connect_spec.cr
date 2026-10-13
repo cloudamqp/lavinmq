@@ -63,7 +63,7 @@ module MqttSpecs
               new_client = wait_for do
                 c = broker.@clients[client_id]?
                 c if c && !c.same?(old_client)
-              end.not_nil!
+              end
 
               io.should be_closed
               wait_for { vhost.connections.none?(&.same?(old_client)) }

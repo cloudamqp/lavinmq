@@ -14,8 +14,8 @@ describe "Alternate Exchange" do
 
         # When we publish to topic_ex without bindings, the message should go thought the alternate exchange
         topic_ex.publish("m1", "rk")
-        msg = unroutables_q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("m1")
+        msg = unroutables_q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("m1")
 
         # When we publish to topic_ex with queue bindings and exchange bindings with alternate-exchange,
         # and that exchange does not have any queues bound to it,
@@ -26,10 +26,10 @@ describe "Alternate Exchange" do
         target_q = ch.queue("q")
         target_q.bind(topic_ex.name, "*")
         topic_ex.publish("m3", "rk3")
-        msg = target_q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("m3")
-        msg = unroutables_q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("m3")
+        msg = target_q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("m3")
+        msg = unroutables_q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("m3")
       end
     end
   end
