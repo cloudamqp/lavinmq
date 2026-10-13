@@ -44,37 +44,20 @@ module LavinMQ
         end
       end
 
-      def self.write_header(io : IO, lsn : UInt64, op : Op, path : String) : Nil
+      # Writes one record: an Append with its offset and payload, a Replace
+      # with its payload, a Delete or Fsync with neither. Returns the
+      # record's size on the wire.
+      def self.write_record(io : IO, lsn : UInt64, op : Op, path : String, offset : Int64? = nil, payload : Bytes? = nil) : Int64
         io.write_bytes lsn, IO::ByteFormat::LittleEndian
         io.write_byte op.value
         io.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         io.write path.to_slice
-      end
-
-      # Returns the record's size on the wire
-      def self.write_append(io : IO, lsn : UInt64, path : String, offset : Int64, bytes : Bytes) : Int64
-        write_header(io, lsn, Op::Append, path)
-        io.write_bytes offset, IO::ByteFormat::LittleEndian
-        io.write_bytes bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
-        io.write bytes
-        record_size(Op::Append, path, bytes.bytesize)
-      end
-
-      def self.write_replace(io : IO, lsn : UInt64, path : String, bytes : Bytes) : Int64
-        write_header(io, lsn, Op::Replace, path)
-        io.write_bytes bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
-        io.write bytes
-        record_size(Op::Replace, path, bytes.bytesize)
-      end
-
-      def self.write_delete(io : IO, lsn : UInt64, path : String) : Int64
-        write_header(io, lsn, Op::Delete, path)
-        record_size(Op::Delete, path)
-      end
-
-      def self.write_fsync(io : IO, lsn : UInt64, path : String) : Int64
-        write_header(io, lsn, Op::Fsync, path)
-        record_size(Op::Fsync, path)
+        io.write_bytes offset, IO::ByteFormat::LittleEndian if offset
+        if payload
+          io.write_bytes payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          io.write payload
+        end
+        record_size(op, path, payload ? payload.bytesize : 0)
       end
 
       # After authenticating, a follower tells the leader where it is: the id
@@ -87,37 +70,26 @@ module LavinMQ
       RESUME_STREAM    = 1u8
 
       def self.write_resume_request(io : IO, journal_id : UInt64, applied_lsn : UInt64) : Nil
-        buf = uninitialized UInt8[16]
-        slice = buf.to_slice
-        IO::ByteFormat::LittleEndian.encode(journal_id, slice[0, 8])
-        IO::ByteFormat::LittleEndian.encode(applied_lsn, slice[8, 8])
-        io.write slice
+        io.write_bytes journal_id, IO::ByteFormat::LittleEndian
+        io.write_bytes applied_lsn, IO::ByteFormat::LittleEndian
       end
 
       def self.read_resume_request(io : IO) : {UInt64, UInt64}
-        buf = uninitialized UInt8[16]
-        io.read_fully(buf.to_slice)
-        {IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[0, 8]),
-         IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[8, 8])}
+        {io.read_bytes(UInt64, IO::ByteFormat::LittleEndian), io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)}
       end
 
       def self.write_resume_reply(io : IO, resume : Bool, journal_id : UInt64) : Nil
-        buf = uninitialized UInt8[9]
-        slice = buf.to_slice
-        slice[0] = resume ? RESUME_STREAM : RESUME_FULL_SYNC
-        IO::ByteFormat::LittleEndian.encode(journal_id, slice[1, 8])
-        io.write slice
+        io.write_byte(resume ? RESUME_STREAM : RESUME_FULL_SYNC)
+        io.write_bytes journal_id, IO::ByteFormat::LittleEndian
       end
 
       def self.read_resume_reply(io : IO) : {Bool, UInt64}
-        buf = uninitialized UInt8[9]
-        io.read_fully(buf.to_slice)
-        resume = case buf[0]
+        resume = case mode = io.read_byte
                  when RESUME_STREAM    then true
                  when RESUME_FULL_SYNC then false
-                 else                       raise ProtocolError.new("Unknown resume reply #{buf[0]}")
+                 else                       raise ProtocolError.new("Unknown resume reply #{mode.inspect}")
                  end
-        {resume, IO::ByteFormat::LittleEndian.decode(UInt64, buf.to_slice[1, 8])}
+        {resume, io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)}
       end
 
       def self.write_cut(io : IO, lsn : UInt64) : Nil

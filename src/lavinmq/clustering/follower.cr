@@ -130,13 +130,12 @@ module LavinMQ
         # Tighten the write timeout for the streaming phase; full_sync relaxed it
         # to SYNC_WRITE_TIMEOUT for the bulk transfer.
         @socket.write_timeout = ACK_TIMEOUT
-        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, then check the ack deadline
-        # When data is outstanding and unacked, the time we first noticed it.
-        # Reset to nil on any ack (progress) or when fully caught up, so the
-        # deadline measures time-since-data-became-outstanding, not since the
-        # last ack (which would be stale after an idle period).
+        @socket.read_timeout = ack_timeout # then check how long data has been outstanding
+        # Since when data is outstanding and unacked, nil while caught up:
+        # the deadline counts from the data, not from the last ack, which
+        # would be stale after an idle period
         unacked_since : Time::Instant? = nil
-        # A v3 ack is read piecewise: the read timeout below can split it, and
+        # A v3 ack is read piecewise: the read timeout can split it, and
         # dropping a half-read ack would desync the stream.
         ack = uninitialized UInt8[WireV3::ACK_SIZE]
         filled = 0
@@ -162,16 +161,13 @@ module LavinMQ
           # otherwise stall publish confirms indefinitely. Drop it from the
           # replica set like the write_timeout path does for blocked writes;
           # it will re-sync on reconnect. Healthy-but-behind followers keep
-          # acking, so unacked_since keeps resetting and they're never dropped.
-          if lag_in_bytes > 0
-            now = Time.instant
-            unacked_since ||= now
-            if now - unacked_since > ack_timeout
-              Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
-              break
-            end
-          else
+          # acking (progress acks within large records too), so they're
+          # never dropped.
+          if lag_in_bytes.zero?
             unacked_since = nil
+          elsif Time.instant - (unacked_since ||= Time.instant) > ack_timeout
+            Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
+            break
           end
         end
       rescue IO::EOFError | Socket::Error | IO::Error
@@ -445,20 +441,20 @@ module LavinMQ
         size = case entry.op
                in .append?, .append_bytes?
                  if bytes = append_payload(entry)
-                   WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, bytes)
+                   WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Append, entry.path, entry.offset, bytes)
                  else
-                   WireV3.write_delete(@lz4, entry.lsn, entry.path)
+                   WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Delete, entry.path)
                  end
                in .append_value?
                  buf = uninitialized UInt8[4]
                  IO::ByteFormat::LittleEndian.encode(entry.value, buf.to_slice)
-                 WireV3.write_append(@lz4, entry.lsn, entry.path, entry.offset, buf.to_slice)
+                 WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Append, entry.path, entry.offset, buf.to_slice)
                in .replace?
-                 WireV3.write_replace(@lz4, entry.lsn, entry.path, entry.bytes)
+                 WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Replace, entry.path, payload: entry.bytes)
                in .delete?
-                 WireV3.write_delete(@lz4, entry.lsn, entry.path)
+                 WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Delete, entry.path)
                in .fsync?
-                 WireV3.write_fsync(@lz4, entry.lsn, entry.path)
+                 WireV3.write_record(@lz4, entry.lsn, WireV3::Op::Fsync, entry.path)
                end
         @sent_bytes.add(size)
       end

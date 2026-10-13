@@ -52,7 +52,7 @@ module ClientV3Spec
   end
 
   def self.append(s : Stream, lsn, path, offset, payload : String) : Int64
-    size = WireV3.write_append(s.lz4, lsn.to_u64, path, offset.to_i64, payload.to_slice)
+    size = WireV3.write_record(s.lz4, lsn.to_u64, Op::Append, path, offset.to_i64, payload.to_slice)
     s.lz4.flush
     size
   end
@@ -187,7 +187,11 @@ module ClientV3Spec
           wait_applied(s.leader_io, 1u64)
           chunk = LavinMQ::Clustering::Client::BUFFER_SIZE
           payload = Bytes.new(chunk * 3, 0xAB_u8)
-          WireV3.write_header(s.lz4, 2u64, Op::Append, "big")
+          # The record's header promises the whole payload, only a chunk follows
+          s.lz4.write_bytes 2u64, IO::ByteFormat::LittleEndian
+          s.lz4.write_byte Op::Append.value
+          s.lz4.write_bytes "big".bytesize, IO::ByteFormat::LittleEndian
+          s.lz4.write "big".to_slice
           s.lz4.write_bytes 1i64, IO::ByteFormat::LittleEndian
           s.lz4.write_bytes payload.size.to_i64, IO::ByteFormat::LittleEndian
           s.lz4.write payload[0, chunk]
@@ -216,7 +220,7 @@ module ClientV3Spec
         with_datadir do |data_dir|
           s = start(data_dir)
           File.write File.join(data_dir, "replaced"), "old content"
-          size = WireV3.write_replace(s.lz4, 1u64, "replaced", "new content".to_slice)
+          size = WireV3.write_record(s.lz4, 1u64, Op::Replace, "replaced", payload: "new content".to_slice)
           s.lz4.flush
           wait_applied(s.leader_io, 1u64).should eq size
           File.read(File.join(data_dir, "replaced")).should eq "new content"
@@ -228,7 +232,7 @@ module ClientV3Spec
       it "creates an empty file for an empty replace" do
         with_datadir do |data_dir|
           s = start(data_dir)
-          WireV3.write_replace(s.lz4, 1u64, "empty", Bytes.empty)
+          WireV3.write_record(s.lz4, 1u64, Op::Replace, "empty", payload: Bytes.empty)
           s.lz4.flush
           wait_applied(s.leader_io, 1u64)
           File.exists?(File.join(data_dir, "empty")).should be_true
@@ -242,7 +246,7 @@ module ClientV3Spec
           s = start(data_dir)
           append(s, 1, "doomed", 0, "data")
           wait_applied(s.leader_io, 1u64)
-          size = WireV3.write_delete(s.lz4, 2u64, "doomed")
+          size = WireV3.write_record(s.lz4, 2u64, Op::Delete, "doomed")
           s.lz4.flush
           wait_applied(s.leader_io, 2u64).should eq WireV3.record_size(Op::Append, "doomed", 4) + size
           File.exists?(File.join(data_dir, "doomed")).should be_false
@@ -255,13 +259,13 @@ module ClientV3Spec
           s = start(data_dir)
           filename = "vhost/queue/msgs.0000000001"
           append(s, 1, filename, 0, "data")
-          WireV3.write_fsync(s.lz4, 2u64, filename)
+          WireV3.write_record(s.lz4, 2u64, Op::Fsync, filename)
           s.lz4.flush
           wait_applied(s.leader_io, 2u64)
           s.client.fsynced_paths.should eq [File.join(data_dir, filename), File.join(data_dir, "vhost/queue")]
           s.client.syncs_started.should eq 0
 
-          WireV3.write_fsync(s.lz4, 3u64, "")
+          WireV3.write_record(s.lz4, 3u64, Op::Fsync, "")
           s.lz4.flush
           wait_applied(s.leader_io, 3u64)
           s.client.syncs_started.should eq 1
