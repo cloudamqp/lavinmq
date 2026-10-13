@@ -39,16 +39,17 @@ end
 
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
-  client_socket.write header
   if LavinMQ::Clustering.header_version(header) == 3
-    spawn(name: "answer challenge") { answer_challenge(client_socket, password, header) }
+    spawn(name: "handshake") { clustering_handshake(client_socket, password, header, 1) }
+    follower.negotiate!(password)
   else
+    client_socket.write header
     client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
     client_socket.write password.to_slice
     client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+    follower.negotiate!(password)
+    client_socket.read_byte.should eq 0u8
   end
-  follower.negotiate!(password)
-  client_socket.read_byte.should eq 0u8
 end
 
 private alias WireV3 = LavinMQ::Clustering::WireV3
@@ -61,18 +62,6 @@ end
 
 private def ack(client_socket, lsn : UInt64, bytes : Int64)
   WireV3.write_ack(client_socket, lsn, bytes)
-end
-
-# Answers a version 3 leader's challenge: it echoes our header, then sends
-# the challenge
-private def answer_challenge(client_socket, password, header = LavinMQ::Clustering::StartV3, id = 1) : Nil
-  echo = Bytes.new(8)
-  client_socket.read_fully(echo)
-  echo.should eq header
-  challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
-  client_socket.read_fully(challenge)
-  client_socket.write LavinMQ::Clustering.challenge_response(password, challenge, header)
-  client_socket.write_bytes id, IO::ByteFormat::LittleEndian
 end
 
 module FollowerSpec
@@ -883,8 +872,7 @@ module FollowerSpec
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        client_socket.write LavinMQ::Clustering::StartV3
-        spawn(name: "answer challenge") { answer_challenge(client_socket, "bar") }
+        spawn(name: "handshake") { clustering_handshake(client_socket, "bar", LavinMQ::Clustering::StartV3, 1, accepted: false) }
         expect_raises(LavinMQ::Clustering::AuthenticationError) do
           follower.negotiate!("foo")
         end

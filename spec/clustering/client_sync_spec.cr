@@ -75,23 +75,6 @@ module ClientSyncSpec
     acked.should eq target
   end
 
-  # follow() was never called in this harness, so satisfy close's follower-done
-  # handshake ourselves.
-  def self.close_client(client : TestClient)
-    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
-    client.close
-  end
-
-  def self.persisted_checksums(data_dir : String) : Hash(String, {String, String})
-    path = File.join(data_dir, "checksums.sha1")
-    return Hash(String, {String, String}).new unless File.exists?(path)
-    File.read_lines(path).to_h do |line|
-      hash, _, rest = line.partition(" ")
-      size, _, filename = rest.partition(" *")
-      {filename, {hash, size}} # a later line wins, as in Checksums#restore
-    end
-  end
-
   # Every line in checksums.sha1 must be the hash and size of what's on disk
   # right now: one that isn't makes the next sync throw the file away and
   # re-fetch it from the leader. Returns the hashes for further assertions.

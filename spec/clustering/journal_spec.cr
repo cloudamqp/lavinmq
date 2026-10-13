@@ -1,30 +1,10 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/journal"
 
-# A sender stand-in: records wakeups and holds a journal position
-private class FakeSubscriber
-  include LavinMQ::Clustering::Journal::Subscriber
-
-  getter wakeups = 0
-  @position = Atomic(UInt64).new(0)
-
-  def wake : Nil
-    @wakeups += 1
-  end
-
-  def journal_position : UInt64
-    @position.get
-  end
-
-  def journal_position=(lsn : UInt64)
-    @position.set(lsn)
-  end
-end
-
 describe LavinMQ::Clustering::Journal do
   it "assigns contiguous lsns starting at 1" do
     journal = LavinMQ::Clustering::Journal.new(8)
-    journal.subscribe(FakeSubscriber.new) # entries are only readable while someone tails them
+    journal.subscribe(FakeJournalSubscriber.new) # entries are only readable while someone tails them
     journal.last_lsn.should eq 0
     journal.delete("a").should eq 1
     journal.append_bytes("b", "x".to_slice, 0i64).should eq 2
@@ -39,7 +19,7 @@ describe LavinMQ::Clustering::Journal do
 
   it "evicts the oldest entries when full, so a reader there is behind" do
     journal = LavinMQ::Clustering::Journal.new(4)
-    sub = FakeSubscriber.new
+    sub = FakeJournalSubscriber.new
     journal.subscribe(sub)
     6.times { |i| journal.delete("f#{i}") } # lsns 1..6, capacity 4
     journal.tail.should eq 3
@@ -53,7 +33,7 @@ describe LavinMQ::Clustering::Journal do
   it "wakes subscribers on append and starts them at the head" do
     journal = LavinMQ::Clustering::Journal.new(8)
     journal.delete("before")
-    sub = FakeSubscriber.new
+    sub = FakeJournalSubscriber.new
     journal.subscribe(sub)
     sub.journal_position.should eq journal.head
     journal.delete("after")
@@ -69,7 +49,7 @@ describe LavinMQ::Clustering::Journal do
         mfile = MFile.new(File.join(data_dir, "seg"), 64)
         mfile.print "hello"
         journal = LavinMQ::Clustering::Journal.new(8)
-        sub = FakeSubscriber.new
+        sub = FakeJournalSubscriber.new
         journal.subscribe(sub)
         lsn = journal.append_mfile("seg", mfile, 0i64, 5i64)
 
@@ -103,7 +83,7 @@ describe LavinMQ::Clustering::Journal do
         mfile = MFile.new(File.join(data_dir, "seg"), 64)
         mfile.print "hello"
         journal = LavinMQ::Clustering::Journal.new(2)
-        sub = FakeSubscriber.new
+        sub = FakeJournalSubscriber.new
         journal.subscribe(sub)
         journal.append_mfile("seg", mfile, 0i64, 5i64)
         mfile.close
@@ -128,7 +108,7 @@ describe LavinMQ::Clustering::Journal do
         mfile = MFile.new(File.join(data_dir, "seg"), 64)
         mfile.print "hello"
         journal = LavinMQ::Clustering::Journal.new(8)
-        sub = FakeSubscriber.new
+        sub = FakeJournalSubscriber.new
         journal.subscribe(sub)
         lsn = journal.append_mfile("seg", mfile, 0i64, 5i64)
         sub.journal_position = lsn + 1
@@ -159,7 +139,7 @@ describe LavinMQ::Clustering::Journal do
     it "lets a late subscriber start below the released mark" do
       journal = LavinMQ::Clustering::Journal.new(8)
       3.times { journal.delete("f") }
-      late = FakeSubscriber.new
+      late = FakeJournalSubscriber.new
       journal.subscribe(late, 2u64)
       late.journal_position.should eq 2
       journal.read(2).not_nil!.lsn.should eq 2

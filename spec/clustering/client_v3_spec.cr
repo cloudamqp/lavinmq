@@ -57,24 +57,6 @@ module ClientV3Spec
     size
   end
 
-  # follow() was never called in this harness, so satisfy close's follower-done
-  # handshake ourselves.
-  def self.close_client(client : TestClient)
-    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
-    client.close
-  end
-
-  def self.persisted_checksum(data_dir, filename) : String?
-    path = File.join(data_dir, "checksums.sha1")
-    return unless File.exists?(path)
-    File.read_lines(path).each do |line|
-      hash, _, rest = line.partition(" ")
-      _size, _, name = rest.partition(" *")
-      return hash if name == filename
-    end
-    nil
-  end
-
   # The leader's side of a v3 connection up to the resume reply
   def self.accept(leader_io : IO, journal_id : UInt64, resume : Bool) : {UInt64, UInt64}
     header = Bytes.new(8)

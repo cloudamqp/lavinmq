@@ -19,14 +19,7 @@ end
 # voter needed for a quorum when there are two
 private def raft_launcher_configs(dirs : Enumerable(String)) : Array(LavinMQ::Config)
   configs = dirs.map do |dir|
-    config = clustering_config(dir)
-    config.clustering_backend = LavinMQ::ClusteringBackend::Raft
-    config.clustering_election_timeout = 300
-    config.clustering_heartbeat_interval = 50
-    config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
-    config.amqp_port = config.http_port = config.mqtt_port = 0
-    config.amqps_port = config.https_port = config.mqtts_port = -1
-    config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+    config = raft_spec_config(dir)
     config.control_unix_path = File.join(dir, "control.sock")
     config.metrics_http_bind = "127.0.0.1"
     config.metrics_http_port = free_port
@@ -89,16 +82,8 @@ describe LavinMQ::Clustering::Controller do
 
   it "runs a single node raft cluster from the launcher", tags: "slow" do
     with_datadir do |data_dir|
-      config = clustering_config(data_dir)
-      config.clustering_backend = LavinMQ::ClusteringBackend::Raft
-      config.clustering_election_timeout = 300
-      config.clustering_heartbeat_interval = 50
-      config.amqp_bind = "127.0.0.1"
+      config = raft_spec_config(data_dir)
       config.amqp_port = free_port
-      config.amqps_port = config.https_port = config.mqtts_port = -1
-      config.http_port = config.mqtt_port = 0
-      config.metrics_http_port = -1
-      config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
       config.control_unix_path = File.join(data_dir, "control.sock")
       launcher = LavinMQ::Launcher.new(config)
       stopped = Channel(Nil).new
@@ -128,14 +113,7 @@ describe LavinMQ::Clustering::Controller do
     with_datadir do |leader_dir|
       with_datadir do |follower_dir|
         configs = {leader_dir, follower_dir}.map do |dir|
-          config = clustering_config(dir)
-          config.clustering_backend = LavinMQ::ClusteringBackend::Raft
-          config.clustering_election_timeout = 300
-          config.clustering_heartbeat_interval = 50
-          config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
-          config.amqp_port = config.http_port = config.mqtt_port = 0
-          config.amqps_port = config.https_port = config.mqtts_port = -1
-          config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+          config = raft_spec_config(dir)
           config.control_unix_path = File.join(dir, "control.sock")
           config.metrics_http_bind = "127.0.0.1"
           config.metrics_http_port = free_port

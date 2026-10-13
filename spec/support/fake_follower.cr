@@ -1,8 +1,30 @@
 require "socket"
 require "digest/sha1"
 require "../../src/lavinmq/clustering/file_index"
+require "../../src/lavinmq/clustering/journal"
 
 # Shared test doubles for clustering follower specs.
+
+# A sender stand-in: records wakeups and holds a journal position, keeping
+# the journal's entries readable without a real follower
+class FakeJournalSubscriber
+  include LavinMQ::Clustering::Journal::Subscriber
+
+  getter wakeups = 0
+  @position = Atomic(UInt64).new(0)
+
+  def wake : Nil
+    @wakeups += 1
+  end
+
+  def journal_position : UInt64
+    @position.get
+  end
+
+  def journal_position=(lsn : UInt64)
+    @position.set(lsn)
+  end
+end
 
 class FakeFileIndex
   include LavinMQ::Clustering::FileIndex

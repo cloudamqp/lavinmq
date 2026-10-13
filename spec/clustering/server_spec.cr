@@ -2,65 +2,12 @@ require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
 require "lz4"
 
-# Keeps journal entries readable without a real follower
-private class FakeJournalSubscriber
-  include LavinMQ::Clustering::Journal::Subscriber
-  @position = Atomic(UInt64).new(0)
-
-  def wake : Nil
-  end
-
-  def journal_position : UInt64
-    @position.get
-  end
-
-  def journal_position=(lsn : UInt64)
-    @position.set(lsn)
-  end
-end
-
 # A version 3 handshake up to the resume request; returns the socket and the
 # lz4 reader
 private def connect_v3(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
   clustering_handshake(io, server.password, LavinMQ::Clustering::StartV3, id)
   {io, Compress::LZ4::Reader.new(io)}
-end
-
-# Drives the clustering handshake + the two full-sync passes (requesting no
-# files) so the follower reaches the Synced state on the leader. Returns the
-# socket and the LZ4 reader positioned at the start of the change stream.
-private def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clustering::Start) : {TCPSocket, Compress::LZ4::Reader}
-  io = TCPSocket.new("localhost", port)
-  v3 = LavinMQ::Clustering.header_version(header) >= 3
-  if LavinMQ::Clustering.header_version(header) == 3
-    clustering_handshake(io, server.password, header, id)
-  else
-    io.write header
-    io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-    io.write server.password.to_slice
-    io.read_byte # password-accepted byte
-    io.write_bytes id, IO::ByteFormat::LittleEndian
-    io.flush
-  end
-  if v3 # offer no position: a full sync follows
-    LavinMQ::Clustering::WireV3.write_resume_request(io, 0u64, 0u64)
-    LavinMQ::Clustering::WireV3.read_resume_reply(io)[0].should be_false
-  end
-  lz4 = Compress::LZ4::Reader.new(io)
-  sha1_size = Digest::SHA1.new.digest_size
-  2.times do
-    loop do
-      len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
-      break if len.zero?
-      lz4.skip len
-      lz4.skip sha1_size
-    end
-    io.write_bytes 0i32 # request no files
-    io.flush
-  end
-  LavinMQ::Clustering::WireV3.read_cut(lz4) if v3
-  {io, lz4}
 end
 
 describe LavinMQ::Clustering::Server do

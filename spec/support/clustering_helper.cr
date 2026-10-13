@@ -12,8 +12,9 @@ end
 
 # The follower's side of a version 3 replication handshake: the start
 # header, the leader's echoed header and challenge, our HMAC, the leader's
-# accept byte and the follower id
-def clustering_handshake(io : IO, password : String, header : Bytes, id : Int32) : Nil
+# accept byte and the follower id. Without `accepted` it stops after the
+# HMAC, for the caller to read the leader's refusal.
+def clustering_handshake(io : IO, password : String, header : Bytes, id : Int32, accepted = true) : Nil
   io.write header
   echo = Bytes.new(8)
   io.read_fully(echo)
@@ -21,9 +22,74 @@ def clustering_handshake(io : IO, password : String, header : Bytes, id : Int32)
   challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
   io.read_fully(challenge)
   io.write LavinMQ::Clustering.challenge_response(password, challenge, header)
+  io.flush
+  return unless accepted
   io.read_byte.should eq 0u8
   io.write_bytes id, IO::ByteFormat::LittleEndian
   io.flush
+end
+
+# Drives the clustering handshake (version 1 or 3 by `header`) and the two
+# full-sync passes (requesting no files) so the follower reaches the Synced
+# state on the leader. Returns the socket and the LZ4 reader positioned at
+# the start of the change stream.
+def sync_fake_follower(server, port, id : Int32, header = LavinMQ::Clustering::Start) : {TCPSocket, Compress::LZ4::Reader}
+  io = TCPSocket.new("localhost", port)
+  v3 = LavinMQ::Clustering.header_version(header) == 3
+  if v3
+    clustering_handshake(io, server.password, header, id)
+    # offer no position: a full sync follows
+    LavinMQ::Clustering::WireV3.write_resume_request(io, 0u64, 0u64)
+    LavinMQ::Clustering::WireV3.read_resume_reply(io)[0].should be_false
+  else
+    io.write header
+    io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    io.write server.password.to_slice
+    io.read_byte # password-accepted byte
+    io.write_bytes id, IO::ByteFormat::LittleEndian
+    io.flush
+  end
+  lz4 = Compress::LZ4::Reader.new(io)
+  sha1_size = Digest::SHA1.new.digest_size
+  2.times do
+    loop do
+      len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+      break if len.zero?
+      lz4.skip len
+      lz4.skip sha1_size
+    end
+    io.write_bytes 0i32 # request no files
+    io.flush
+  end
+  LavinMQ::Clustering::WireV3.read_cut(lz4) if v3
+  {io, lz4}
+end
+
+# A node of a raft cluster of this process: its own raft and replication
+# ports on localhost, a short election timeout, every client listener on a
+# free port and nothing else bound. Alone in the cluster unless given seeds.
+def raft_spec_config(data_dir : String, raft_port = free_port, seeds = "127.0.0.1:#{raft_port}",
+                     bootstrap = false, election_timeout = 300) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_backend = LavinMQ::ClusteringBackend::Raft
+  config.clustering_bind = "127.0.0.1"
+  config.clustering_raft_port = raft_port
+  config.clustering_raft_advertised_address = "127.0.0.1:#{raft_port}"
+  config.clustering_seeds = seeds
+  config.clustering_bootstrap = bootstrap
+  config.clustering_secret = "raft-spec"
+  config.clustering_election_timeout = election_timeout
+  config.clustering_heartbeat_interval = election_timeout // 6
+  config.clustering_port = free_port
+  config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
+  config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+  config.amqp_port = config.http_port = config.mqtt_port = 0
+  config.amqps_port = config.https_port = config.mqtts_port = -1
+  config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+  config.metrics_http_port = -1
+  config
 end
 
 # Shared by the clustering client specs; `extend` it in the spec module.
@@ -121,6 +187,28 @@ module ClusteringSpecHelper
       end
       super
     end
+  end
+
+  # follow() was never called in this harness, so satisfy close's follower-done
+  # handshake ourselves.
+  def close_client(client : TestClient)
+    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+    client.close
+  end
+
+  # What checksums.sha1 holds: filename => {hash, size}
+  def persisted_checksums(data_dir : String) : Hash(String, {String, String})
+    path = File.join(data_dir, "checksums.sha1")
+    return Hash(String, {String, String}).new unless File.exists?(path)
+    File.read_lines(path).to_h do |line|
+      hash, _, rest = line.partition(" ")
+      size, _, filename = rest.partition(" *")
+      {filename, {hash, size}} # a later line wins, as in Checksums#restore
+    end
+  end
+
+  def persisted_checksum(data_dir : String, filename : String) : String?
+    persisted_checksums(data_dir)[filename]?.try &.first
   end
 
   # `version` is the replication protocol the client streams with; the v1
