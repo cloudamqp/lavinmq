@@ -661,12 +661,9 @@ describe Raft::Codec do
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
   end
 
-  it "rejects an implausible member count" do
-    membership = Raft::Membership.new(Set{1}, Set(Int32).new, {1 => "a"})
-    bytes = Raft::Codec.encode(Raft::InstallSnapshot.new(1, 3, "u", 8, 2, nil, membership))
-    # the address count is followed by the one address: id, length and "a"
-    offset = bytes.size - (4 + 4 + 4 + 1)
-    bytes[offset, 4].copy_from(Bytes[0xff, 0xff, 0xff, 0x7f])
-    expect_raises(IO::Error) { Raft::Codec.decode(bytes) }
+  it "rejects a malformed message as an IO error, so the connection is dropped" do
+    bytes = Raft::Codec.encode(Raft::TimeoutNow.new(1, 3))
+    expect_raises(IO::Error) { Raft::Codec.decode(bytes[0, bytes.size - 1]) }
+    expect_raises(IO::Error) { Raft::Codec.decode(Bytes[9u8, '{'.ord.to_u8, '}'.ord.to_u8]) }
   end
 end

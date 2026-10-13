@@ -31,22 +31,22 @@ module LavinMQ
     end
 
     # Renames the open file in place, so the caller can keep using it under
-    # its new path
-    def self.durable_rename(source : File | MFile, destination : String) : Nil
+    # its new path. `sync` forces the fsyncs whatever the `sync` setting.
+    def self.durable_rename(source : File | MFile, destination : String, sync = Config.instance.sync?) : Nil
       source.flush if source.is_a?(File)
-      source.fsync if Config.instance.sync?
+      source.fsync if sync
       source_path = source.path
       source.rename(destination)
-      fsync_rename_dirs(source_path, destination)
+      fsync_rename_dirs(source_path, destination, sync)
     end
 
     # Atomically replaces `path` with what the block writes, via a tmp file
-    def self.replace(path : String, & : File ->) : Nil
+    def self.replace(path : String, sync = Config.instance.sync?, & : File ->) : Nil
       tmp_path = "#{path}.tmp"
       begin
         File.open(tmp_path, "w") do |file|
           yield file
-          durable_rename(file, path)
+          durable_rename(file, path, sync)
         end
       ensure
         File.delete?(tmp_path)
@@ -65,12 +65,12 @@ module LavinMQ
       fsync_dir(File.dirname(path))
     end
 
-    private def self.fsync_rename_dirs(source : String, destination : String) : Nil
-      return unless Config.instance.sync?
+    private def self.fsync_rename_dirs(source : String, destination : String, sync = Config.instance.sync?) : Nil
+      return unless sync
       source_dir = File.dirname(source)
       destination_dir = File.dirname(destination)
-      fsync_dir(destination_dir)
-      fsync_dir(source_dir) unless source_dir == destination_dir
+      File.open(destination_dir, &.fsync)
+      File.open(source_dir, &.fsync) unless source_dir == destination_dir
     end
   end
 end

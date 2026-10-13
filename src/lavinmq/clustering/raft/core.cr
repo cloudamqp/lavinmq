@@ -10,7 +10,9 @@ module LavinMQ::Clustering::Raft
   # What must be on disk before any message produced alongside it is sent.
   record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry), snapshot_membership : Membership? = nil
+    entries : Array(Entry), snapshot_membership : Membership? = nil do
+    include JSON::Serializable
+  end
 
   enum TransferResult
     # TimeoutNow was sent to the target
