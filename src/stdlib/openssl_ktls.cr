@@ -27,3 +27,15 @@ abstract class OpenSSL::SSL::Socket < IO
     end
   end
 end
+
+# Crystal's `Options::ALL` (0x80000BFF) includes bit 3, which is
+# SSL_OP_ENABLE_KTLS in OpenSSL 3. Crystal 1.21 cleared it again after adding
+# `ALL`, 1.22 doesn't, so every context had kTLS enabled. Keep kTLS opt-in.
+{% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+  abstract class OpenSSL::SSL::Context
+    protected def initialize(method : LibSSL::SSLMethod)
+      previous_def
+      remove_options(OpenSSL::SSL::Options::ENABLE_KTLS)
+    end
+  end
+{% end %}

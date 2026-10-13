@@ -4,6 +4,7 @@ require "./amqp/channel"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "sync/exclusive"
+require "../stdlib/isolated_wait_for"
 
 module LavinMQ
   # Owns the filesystem fd used for syncfs(2) and the publish-confirm

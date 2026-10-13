@@ -1,3 +1,5 @@
+require "../../stdlib/isolated_wait_for"
+
 module LavinMQ
   class Etcd
     # Represents holding a Lease

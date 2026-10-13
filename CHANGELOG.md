@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
 - Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)
+- Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 
 ## [2.10.2] - 2026-10-07
 
