@@ -73,8 +73,7 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
-        @control_socket.path)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner, @control_socket.path)
       start_listeners(amqp_server, mqtt_server, http_server)
       bind_control_socket
       @control_socket.api = http_server.handler
@@ -254,7 +253,7 @@ module LavinMQ
     # node knows its role, so followers and nodes without a leader are
     # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: @runner.raft.try(&.node))
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(runner: @runner)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       @runner.metrics_server = metrics_server
       spawn(name: "HTTP metrics listener") do

@@ -29,9 +29,9 @@ module LavinMQ
       end
 
       def initialize(amqp_server : LavinMQ::Server? = nil, clustering_client : LavinMQ::Clustering::Client? = nil,
-                     @raft : LavinMQ::Clustering::Raft::Node? = nil)
+                     @runner : LavinMQ::Runner? = nil)
         @closed = false
-        @source = Source.new(FollowerPrometheusController.new(clustering_client, @raft))
+        @source = Source.new(FollowerPrometheusController.new(clustering_client, @runner))
         handlers = [
           ApiErrorHandler.new,
           ApiDefaultsHandler.new,
@@ -44,7 +44,7 @@ module LavinMQ
 
       # Reports the broker's metrics from now on
       def amqp_server=(server : LavinMQ::Server) : Nil
-        @source.leader = PrometheusController.new(server, require_authentication: false, raft: @raft)
+        @source.leader = PrometheusController.new(server, require_authentication: false, runner: @runner)
       end
 
       # Back to reporting as a follower, once this node stopped serving

@@ -26,8 +26,7 @@ module LavinMQ
       getter handler : ::HTTP::Handler
 
       def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
-                     cluster : Clustering::RaftController? = nil,
-                     control_socket_path = Config.instance.control_unix_path)
+                     runner : Runner? = nil, control_socket_path = Config.instance.control_unix_path)
         oauth_authenticator =
           case auth = @server.authenticator
           when Auth::Chain
@@ -45,7 +44,7 @@ module LavinMQ
           AuthHandler.new(@server.authenticator, @server.users.direct_user, control_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
-          PrometheusController.new(@server, require_authentication: true, raft: cluster.try(&.node)),
+          PrometheusController.new(@server, require_authentication: true, runner: runner),
           ApiDefaultsHandler.new,
           MainController.new(@server, @amqp_server, @mqtt_server),
           DefinitionsController.new(@server),
@@ -63,7 +62,7 @@ module LavinMQ
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
-          ClusterController.new(@server, cluster),
+          ClusterController.new(@server, runner.try(&.raft)),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @handler = ::HTTP::Server.build_middleware(handlers)

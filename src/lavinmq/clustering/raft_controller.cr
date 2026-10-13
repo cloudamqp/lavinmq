@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "../http/controller/prometheus"
 require "../../stdlib/channel"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
@@ -142,6 +143,49 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def raft : RaftController?
     self
+  end
+
+  # Leader election state, nothing while the node doesn't answer
+  def write_metrics(writer : HTTP::PrometheusWriter) : Nil
+    m = @node.metrics || return
+    writer.write({name: "raft_has_leader", value: m.leader ? 1 : 0, type: "gauge",
+                  help: "Whether this node knows of a leader"})
+    writer.write({name: "raft_is_leader", value: m.is_leader ? 1 : 0, type: "gauge",
+                  help: "Whether this node is the raft leader"})
+    writer.write({name: "raft_leader_changes_seen_total", value: m.leader_changes, type: "counter",
+                  help: "Number of leader changes this node has seen"})
+    writer.write({name: "raft_term", value: m.term, type: "gauge",
+                  help: "Current raft term"})
+    if contact = m.leader_contact
+      writer.write({name: "raft_leader_last_contact_seconds", value: contact.total_seconds, type: "gauge",
+                    help: "Time since this node last heard from the leader, 0 on the leader"})
+    end
+    writer.write({name: "raft_proposals_pending", value: m.proposals_pending, type: "gauge",
+                  help: "ISR and membership changes proposed by this leader and not yet committed"})
+    if isr_size = m.isr_size
+      writer.write({name: "raft_isr_size", value: isr_size, type: "gauge",
+                    help: "Number of nodes in the committed in-sync replica set"})
+    end
+    unless m.peers.empty?
+      writer.write_header("raft_peer_connected", "gauge", "Whether this node is connected to a cluster member")
+      m.peers.each do |id, connected|
+        writer.write_value("raft_peer_connected", connected ? 1 : 0, {"peer" => id.to_s(36)})
+      end
+    end
+    write_save_histogram(writer, m)
+  end
+
+  private def write_save_histogram(writer, m : Raft::Metrics) : Nil
+    name = "raft_storage_save_duration_seconds"
+    writer.write_header(name, "histogram", "Time to persist raft state (term, vote and log) to disk")
+    cumulative = 0_u64
+    Raft::Node::SAVE_BUCKETS.each_with_index do |le, i|
+      cumulative += m.save_buckets[i]
+      writer.write_value("#{name}_bucket", cumulative, {"le" => le.to_s})
+    end
+    writer.write_value("#{name}_bucket", m.save_count, {"le" => "+Inf"})
+    writer.write({name: "#{name}_sum", value: m.save_sum})
+    writer.write({name: "#{name}_count", value: m.save_count})
   end
 
   # Follows the leader until this node is a serving leader. False if the

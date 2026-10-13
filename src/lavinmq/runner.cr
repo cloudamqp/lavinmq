@@ -36,5 +36,9 @@ module LavinMQ
     # Where clustering metrics are reported, see HTTP::MetricsServer
     def metrics_server=(server : HTTP::MetricsServer?)
     end
+
+    # Clustering metrics for every Prometheus scrape, whatever the role
+    def write_metrics(writer : HTTP::PrometheusWriter) : Nil
+    end
   end
 end
