@@ -19,6 +19,13 @@ module LavinMQ
     FSYNC_PREFIX     = '$'
     CHALLENGE_SIZE   = 32
 
+    # This node's own files in the data dir, never replicated nor restored:
+    # the data dir lock, the clustering identity, the raft state and the
+    # replication position. Losing or rolling back .raft_state could let the
+    # node vote twice in a term.
+    NODE_LOCAL_FILES = {".lock", ".clustering_id", ".raft_state", ".raft_state.tmp",
+                        ".replication_position", ".replication_position.tmp"}
+
     # Byte 5 of a start header, 0 if it isn't one
     def self.header_version(header : Bytes) : Int32
       return 0 unless header.size == 8 && header[0, 5] == Start[0, 5] && header[6] == 0 && header[7] == 0

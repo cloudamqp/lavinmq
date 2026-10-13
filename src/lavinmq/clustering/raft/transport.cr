@@ -2,8 +2,10 @@ require "socket"
 require "crypto/subtle"
 require "openssl/hmac"
 require "random/secure"
+require "uri"
 require "./messages"
 require "../../logger"
+require "../../../stdlib/channel"
 
 module LavinMQ::Clustering::Raft
   # A peer connected to us, advertising `address` as where to reach it
@@ -116,11 +118,7 @@ module LavinMQ::Clustering::Raft
 
     def send(to : String, msg : Message) : Nil
       ch = @lock.synchronize { @outbound[to]? } || return
-      select
-      when ch.send(msg)
-      else
-        Log.debug { "Outbound queue to #{to} full, dropping #{msg.class}" }
-      end
+      Log.debug { "Outbound queue to #{to} full, dropping #{msg.class}" } unless ch.try_send(msg)
     rescue Channel::ClosedError
       # the peer was removed meanwhile
     end
@@ -150,8 +148,7 @@ module LavinMQ::Clustering::Raft
 
     private def connect(peer : String) : TCPSocket
       host, _, port = peer.rpartition(':')
-      host = host[1...-1] if host.starts_with?('[') && host.ends_with?(']') # IPv6
-      socket = TCPSocket.new(host, port.to_i, connect_timeout: @connect_timeout)
+      socket = TCPSocket.new(URI.unwrap_ipv6(host), port.to_i, connect_timeout: @connect_timeout)
       socket.sync = false
       socket.tcp_nodelay = true
       enable_keepalive(socket)
@@ -219,13 +216,7 @@ module LavinMQ::Clustering::Raft
     # Messages queued while disconnected are stale by the time a connection
     # is up again; raft resends what still matters.
     private def drain(ch : Channel(Message)) : Nil
-      loop do
-        select
-        when msg = ch.receive?
-          return unless msg
-        else
-          return
-        end
+      while ch.try_receive?
       end
     end
 

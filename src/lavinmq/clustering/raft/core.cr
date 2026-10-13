@@ -850,12 +850,8 @@ module LavinMQ::Clustering::Raft
 
     private def leader_recent?(now : Time::Instant) : Bool
       return true if @role.leader?
-      return false unless @leader
-      if heard = @last_heard_leader
-        now - heard < @election_timeout
-      else
-        false
-      end
+      heard = @last_heard_leader
+      !@leader.nil? && !heard.nil? && now - heard < @election_timeout
     end
 
     # Leader housekeeping that is itself a membership change, so one at a
@@ -904,7 +900,7 @@ module LavinMQ::Clustering::Raft
       addresses[@id] = @address if m.includes?(@id)
       @live.each { |id, address| addresses[id] = address if m.includes?(id) }
       return if addresses == m.addresses
-      Membership.new(m.voters, m.learners, addresses, m.relocated)
+      m.copy_with(addresses: addresses)
     end
 
     private def append_membership(membership : Membership) : Nil

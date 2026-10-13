@@ -4,14 +4,15 @@ require "./storage"
 require "./transport"
 require "../../bool_channel"
 require "../../logger"
+require "../../../stdlib/channel"
 
 module LavinMQ::Clustering::Raft
   # A snapshot of the cluster as this node sees it, see Node#status. Only
-  # the leader knows `match_index`, `caught_up` and `responsive`.
+  # the leader knows `match_index` and `caught_up`.
   record Status, id : Int32, address : String, role : Role, term : Int64,
     leader : Int32?, membership : Membership?,
     match_index : Hash(Int32, Int64), last_index : Int64, caught_up : Set(Int32),
-    responsive : Set(Int32), committed_isr : Set(Int32)?, leader_heard_ago : Time::Span? = nil do
+    committed_isr : Set(Int32)?, leader_heard_ago : Time::Span? = nil do
     # The member a clustering id (base 36, as shown) or a raft address refers to
     def resolve(ref : String) : Int32?
       members = membership.try(&.addresses) || {@id => @address}
@@ -392,17 +393,15 @@ module LavinMQ::Clustering::Raft
     private def build_status : Status
       match_index = Hash(Int32, Int64).new
       caught_up = Set(Int32).new
-      responsive = Set(Int32).new
       if @core.role.leader?
         @core.peers.each do |p|
           match_index[p] = @core.match_index(p)
           caught_up << p if @core.caught_up?(p)
-          responsive << p if @core.responsive?(p)
         end
       end
       Status.new(@id, @address, @core.role, @core.term, @core.leader,
         @core.latest_membership, match_index,
-        @core.last_index, caught_up, responsive, @core.committed_isr, @core.leader_heard_ago(Time.instant))
+        @core.last_index, caught_up, @core.committed_isr, @core.leader_heard_ago(Time.instant))
     end
 
     private def build_metrics : Metrics
@@ -515,10 +514,7 @@ module LavinMQ::Clustering::Raft
       end
       if changed
         Log.info { uri ? "Leader: #{uri} (term #{@core.term})" : "No leader (term #{@core.term})" }
-        select
-        when @leader_changed.send(nil)
-        else
-        end
+        @leader_changed.try_send?(nil)
       end
       log_seeds_if_different(committed)
       log_trust_moved

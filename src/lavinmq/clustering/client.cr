@@ -540,10 +540,8 @@ module LavinMQ
             ls_r(path, &blk)
           else
             # Local-only files the leader never sends; skip them so the
-            # "delete files not on leader" sweep doesn't wipe them. Losing
-            # .raft_state would let this node vote twice in a term.
-            next if child.in?(".lock", ".clustering_id", ".raft_state", ".raft_state.tmp",
-                      "checksums.sha1", "checksums.sha1.tmp", POSITION_FILE, "#{POSITION_FILE}.tmp")
+            # "delete files not on leader" sweep doesn't wipe them
+            next if child.in?(NODE_LOCAL_FILES) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end

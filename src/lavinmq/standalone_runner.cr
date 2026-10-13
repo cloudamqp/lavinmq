@@ -8,9 +8,6 @@ module LavinMQ
       @stop_channel.receive?
     end
 
-    def stopping : Nil
-    end
-
     def stop
       @stop_channel.close
     end

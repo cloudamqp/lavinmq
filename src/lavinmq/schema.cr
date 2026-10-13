@@ -1,16 +1,11 @@
 require "../stdlib/copy_file_range"
+require "./clustering"
 
 module LavinMQ
   module Schema
     VERSION = 4
 
     Log = LavinMQ::Log.for "schema"
-
-    # Neither backed up nor restored: the data dir lock and this node's
-    # clustering identity and raft state, which the raft node may be
-    # replacing meanwhile. Restoring an older raft state could let this node
-    # vote twice in a term.
-    NODE_LOCAL = {"backups", ".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
 
     def self.migrate(data_dir, replicator) : Nil
       case v = version(data_dir)
@@ -30,10 +25,13 @@ module LavinMQ
       replicator.try &.replace_file(File.join(data_dir, "schema_version"))
     end
 
-    # Also a socket, like the lavinmqctl one when it's configured in the data
-    # dir: copying it fails, and a live one mustn't be deleted
+    # Neither backed up nor restored: the backups themselves, the node's own
+    # files (see Clustering::NODE_LOCAL_FILES), which the raft node may be
+    # replacing meanwhile, and sockets, like the lavinmqctl one when it's
+    # configured in the data dir: copying it fails, and a live one mustn't be
+    # deleted
     private def self.node_local?(data_dir, child) : Bool
-      return true if child.in?(NODE_LOCAL)
+      return true if child == "backups" || child.in?(Clustering::NODE_LOCAL_FILES)
       type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
       type.nil? || type.socket? || type.pipe?
     end
