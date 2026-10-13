@@ -14,18 +14,13 @@ require "sync/shared"
 
 module LavinMQ
   module Clustering
-    # When a follower connects:
-    # It sends a static header (wrong header disconnects the client)
-    # It sends its password (servers closes the connection if the password is wrong)
-    # Server sends a list of files in its data directory and the sha1 hash of those files
-    # Client requests files that is missing or has mismatching checksums of
-    # Meanwhile writes go on; they're appended to the Journal
-    # When client doesn't request more files, a second capped pass sends what
-    # changed during the first, and the follower's sender starts streaming the
-    # journal from the cut taken for that pass
-    # Server sends "appends", which include the file path and the bytes to be appended
-    # It also sends which files should be deleted or has been rewritten (such as json files)
-    # The follower sends back/acknowledges how many bytes it has received
+    # A connecting follower sends a start header and authenticates (see
+    # Follower#negotiate!), then syncs: the server lists its files with their
+    # SHA1 hashes and the follower requests the ones it lacks or that differ.
+    # Writes go on meanwhile, into the Journal. A second, capped pass sends
+    # what changed during the first, and the follower's sender then streams
+    # the journal (appends, replaced and deleted files, fsync requests) from
+    # the cut taken for that pass, which the follower acks.
     class Server
       include FileIndex
       include Replicator
@@ -227,13 +222,10 @@ module LavinMQ
         @file_index.shared { |files, _checksums| files.size }
       end
 
-      # When `caps` is given (the last full_sync of a joining follower), each
-      # file's hash is computed over only the first `caps[path]` bytes — the
-      # cut the follower will be marked synced at. This excludes writes whose
-      # replication dispatch hasn't happened yet (local write at
-      # message_store.cr:339 races full_sync because it doesn't hold @lock), so
-      # they are delivered incrementally instead of duplicated. Files absent
-      # from `caps` are capped at 0 (delivered entirely via the stream).
+      # With `caps` (the last full_sync of a joining follower) each file is
+      # hashed over its first `caps[path]` bytes only, the cut the follower
+      # is marked synced at, so a write journaled after the cut is streamed
+      # instead of duplicated. Files absent from `caps` are capped at 0.
       def files_with_hash(caps : Hash(String, Int64)? = nil, & : Tuple(String, Bytes) -> Nil)
         # Snapshot the index to allow safe iteration without holding the lock.
         # Files are read from disk via File handles (no MFile mmap reads), so
@@ -304,14 +296,11 @@ module LavinMQ
         end
       end
 
-      # Snapshot the current logical size of every indexed file, using the same
-      # size rule as full_sync (mfile.size for sparse MFiles, else File.size).
-      # Taken right after the journal cut of a joining follower, so it covers
-      # every byte of the entries before the cut (a write lands in its file
-      # before it is journaled). A live size may land *inside* a record that a
-      # writer has written locally but not yet journaled — that's fine: the
-      # snapshot delivers the head bytes and Follower#already_synced makes the
-      # later append stream only the tail.
+      # The current logical size of every indexed file (mfile.size for sparse
+      # MFiles, else File.size), taken right after a joining follower's
+      # journal cut, so it covers every entry before the cut: a write lands
+      # in its file before it is journaled. A size landing inside a record
+      # not yet journaled is fine, Follower#already_synced streams the tail.
       private def snapshot_sizes : Hash(String, Int64)
         sizes = Hash(String, Int64).new
         @file_index.shared do |files, _checksums|
@@ -457,13 +446,9 @@ module LavinMQ
           # From here on the journal keeps the entries for this follower
           @journal.subscribe(follower)
           cut_lsn = @journal.head
-          # Capture the per-file cut AFTER the journal cut and cap the last
-          # sync to it, so what full_sync sends equals the baseline exactly
-          # and covers every entry before cut_lsn. A larger mfile.size from an
-          # in-flight write (local write done, journal append still pending)
-          # is delivered via the stream instead of being duplicated — wholly,
-          # or just the record's tail if the cut landed mid-record
-          # (Follower#already_synced).
+          # The per-file cut is taken after the journal cut and caps the last
+          # sync, so what full_sync sends is exactly the baseline and covers
+          # every entry before cut_lsn, see #snapshot_sizes.
           sizes = snapshot_sizes
           follower.full_sync(sizes) # sync the last, capped at the cut
           follower.capture_synced_baseline(sizes)
@@ -549,16 +534,14 @@ module LavinMQ
 
       # Commit the current ISR to the coordinator, retrying until it succeeds
       # or this node is no longer the leader (Coordinator::StaleLeadership is
-      # raised then, the operation can't be acknowledged anymore).
-      # Called before any durable operation is acknowledged when a synced
-      # follower has disconnected — by dispatched after journaling a
-      # replicated change, and by the Persister before sending publish
-      # confirms: the acknowledgment may only go out once the follower's
-      # removal from the ISR is durable, otherwise a leader crash right after
-      # the acknowledgment could elect that follower even though it lacks the
-      # acknowledged data. Operations must stall rather than be acknowledged
-      # against a stale ISR — if the coordinator stays unreachable the
-      # leader's lease eventually expires and the process exits.
+      # raised then, the operation can't be acknowledged anymore). Called
+      # before any durable operation is acknowledged once a synced follower
+      # has disconnected (by #dispatched and #wait_for_followers): the
+      # acknowledgment may only go out once the follower's removal is
+      # durable, or a leader crash right after it could elect that follower
+      # without the acknowledged data. Operations stall rather than being
+      # acknowledged against a stale ISR; if the coordinator stays
+      # unreachable the leader's lease expires and the process exits.
       def flush_isr : Nil
         loop do
           @lock.synchronize { update_isr }
@@ -592,16 +575,12 @@ module LavinMQ
       end
 
       # Block until every in-sync follower has acked everything journaled so
-      # far, so a durable operation may be acknowledged to a client: once
-      # this returns, every node the ISR lists as a failover candidate has the
-      # operation durably on disk. Wait for all followers (no short-circuit)
-      # — wait_for blocks until the follower acks or disconnects. A follower
-      # that disconnected (wait_for == false, or it dropped earlier and left
-      # the ISR dirty) may lack data that's about to be acknowledged, so its
-      # removal must be committed to the coordinator before this returns (see
-      # flush_isr). Once this node isn't the leader anymore it raises
-      # Coordinator::StaleLeadership instead, so the operation fails rather
-      # than being acknowledged.
+      # far, so a durable operation may be acknowledged to a client: every
+      # node the ISR lists as a failover candidate then has it on disk. A
+      # follower that disconnected meanwhile, or earlier leaving the ISR
+      # dirty, may lack it, so its removal is committed first (#flush_isr).
+      # Raises Coordinator::StaleLeadership once this node isn't the leader
+      # anymore, so the operation fails rather than being acknowledged.
       def wait_for_followers : Nil
         raise_if_fenced
         lsn = @journal.last_lsn
@@ -643,19 +622,11 @@ module LavinMQ
         @file_index.lock { |_files, checksums| checksums.store }
       end
 
-      # Called after a change is journaled. Commits a dirty ISR before
-      # returning: every durable operation journals its change before
-      # acknowledging it (definitions writes, JSON file replaces, segment
-      # deletes, publishes), so flushing here guarantees no operation is
-      # acknowledged while the ISR still lists a follower that disconnected
-      # before this change was journaled — a leader crash right after the
-      # acknowledgment could otherwise elect that follower without the
-      # acknowledged change. flush_isr retries instead of raising into the
-      # publish path — the operation stalls, and if the coordinator stays
-      # unreachable the leader's lease expires. Once this node isn't the
-      # leader anymore it raises Coordinator::StaleLeadership, so the
-      # operation fails instead of being acknowledged, unless the broker is
-      # closing, see #broker_closing.
+      # Called after a change is journaled: commits a dirty ISR (see
+      # #flush_isr) before the change can be acknowledged, so no follower
+      # that disconnected before it was journaled is still listed. Raises
+      # Coordinator::StaleLeadership once this node isn't the leader
+      # anymore, unless the broker is closing, see #broker_closing.
       private def dispatched : Nil
         # Nothing it replicates can be acknowledged, and the ISR may not be
         # ours to change anymore, e.g. the broker closing after leadership

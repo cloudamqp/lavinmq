@@ -187,12 +187,12 @@ module LavinMQ
         @ack_notify.closed?
       end
 
-      # Tail the journal from `from` (the lsn the follower was marked synced
-      # at) and stream the entries to the follower. Runs in a fiber on the
-      # default execution context: the socket's fd belongs to its event loop
-      # (ack_loop keeps a read pending on it), so no other context may write
-      # it — the Persister's isolated thread only appends to the journal.
-      # Streams the journal from the position the subscription gave
+      # Streams the journal to the follower from the position its
+      # subscription gave (the lsn it was marked synced at). Runs in a fiber
+      # on the default execution context: the socket's fd belongs to its
+      # event loop (ack_loop keeps a read pending on it), so no other context
+      # may write it; the Persister's isolated thread only appends to the
+      # journal.
       def start_sender(journal : Journal) : Nil
         @running.spawn(name: "Clustering follower sender") { send_loop(journal) }
       end
@@ -534,16 +534,12 @@ module LavinMQ
 
       def close
         begin
-          # Don't @lz4.close here: it writes the end-of-frame and flushes to
-          # the socket, which blocks (and re-raises the write timeout) when the
-          # follower stopped reading and the send buffer is full — the exact
-          # case that drops a follower mid full_sync. That used to skip the
-          # @socket.close below, leaving the socket open so the follower never
-          # saw a disconnect and never reconnected. close always means the
-          # follower is being dropped and will reconnect + re-sync, so a clean
-          # frame-end has no value and any buffered (hence unacked, non-durable)
-          # data is safely discarded. Just close the socket; the LZ4 writer's
-          # context is freed by its finalizer.
+          # Not @lz4.close: it writes the end-of-frame and flushes, which
+          # blocks (and re-raises the write timeout) when the follower stopped
+          # reading and the send buffer is full, the very case that drops a
+          # follower. The follower reconnects and re-syncs anyway, so unacked
+          # buffered data is safely discarded; the LZ4 writer's context is
+          # freed by its finalizer.
           @write_lock.synchronize do
             @socket.close
           end
@@ -607,18 +603,11 @@ module LavinMQ
 
       # How many leading bytes of the append `[offset, offset + length)` this
       # follower already received via full_sync (0 = none, `length` = all).
-      # The baseline cut is a live file size, so it may land *inside* a record
-      # that a writer had written locally but not yet dispatched when the cut
-      # was taken; such a straddling append is healed by the caller sending
-      # only the tail the snapshot didn't cover (the follower appends raw
-      # bytes, it doesn't care about record boundaries).
-      #
-      # Appends to a given path arrive at monotonically increasing offsets, so
-      # the first one ending at or past the cut means the follower has caught
-      # up with that file and the entry can be dropped. When the last entry
-      # goes the whole baseline is reassigned to a fresh empty hash, releasing
-      # the capacity a large join held and turning later checks into a plain
-      # miss.
+      # The baseline cut is a live file size, so it may land inside a record
+      # written locally but not yet journaled when it was taken; the caller
+      # then sends only the tail (the follower appends raw bytes). Appends to
+      # a path come at increasing offsets, so the first one reaching the cut
+      # ends the path's entry, and the last entry going frees the hash.
       def already_synced(path : String, offset : Int64, length : Int64) : Int64
         baseline = @synced_baseline[path]?
         return 0i64 unless baseline
