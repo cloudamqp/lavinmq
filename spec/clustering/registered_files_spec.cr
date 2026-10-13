@@ -5,10 +5,7 @@ require "../../src/lavinmq/clustering/server"
 # replicator, or a follower promoted after a failover would lack it (the
 # full sync even deletes what the leader never listed). Files that are local
 # to a node by design are listed below; anything else is a bug.
-private LOCAL_ONLY = {
-  ".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp",
-  LavinMQ::Clustering::Server::POSITION_FILE,
-}
+private LOCAL_ONLY = LavinMQ::Clustering::NODE_LOCAL_FILES + {"checksums.sha1", "checksums.sha1.tmp"}
 
 private def data_dir_files(data_dir : String) : Array(String)
   files = Array(String).new
