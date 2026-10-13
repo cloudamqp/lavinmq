@@ -66,6 +66,16 @@ queue:
         "$ref": "../openapi.yaml#/components/schemas/policy"
     message_stats:
         "$ref": "#/message_stats"
+    messages_ready_log:
+      type: array
+      items:
+        type: integer
+      description: Ready messages, sampled every `stats_interval`, oldest first. Only for a single queue.
+    messages_unacknowledged_log:
+      type: array
+      items:
+        type: integer
+      description: Unacknowledged messages, sampled every `stats_interval`, oldest first. Only for a single queue.
     internal:
       type: boolean
       description: If the queue is internal (meaning clients can't publish directly to it).

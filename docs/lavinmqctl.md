@@ -99,9 +99,79 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 |---------|-------------|
 | `status` | Display server status |
 | `cluster_status` | Display cluster status |
+| `tui [-i seconds] [--manage]` | Start the interactive dashboard |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
+
+### Interactive Dashboard
+
+`lavinmqctl tui` shows the broker in the terminal, styled like the management UI. It
+needs a terminal of at least 40x10.
+
+It refreshes every `-i`/`--interval` seconds (default `1.0`, must be positive). When
+the broker is slow to answer it waits longer, so that at most a tenth of the broker's
+time goes to the TUI's requests, and the header shows the interval used. A resized
+terminal is redrawn right away, and the rows for its new size are fetched once it
+stops changing size.
+
+The Overview page shows message rate and queue depth graphs, node resources, network
+rates, cluster followers and the queues with the most messages. The graphs start from
+the history kept by the management API and roll forward with each refresh, and their
+titles say how far back they go.
+
+The other pages are tables that fetch as many rows as fit in the terminal, one page at
+a time. Numbers are right-aligned with thousands separators, and a number too wide for
+its column is shortened, like `1.96M`. Values that need attention are highlighted:
+ready messages in a queue without consumers, unacknowledged messages of a channel at
+its prefetch limit, a node's memory or file descriptors close to their limit, and
+shovel and federation link errors. The selection stays on its row when the rows' order
+changes, like when sorted by a count that changes, except right after changing the
+sort order or filter.
+
+`Enter` opens the selected row. A queue shows a summary, its message rate and depth
+graphs, and its consumers, bindings, unacknowledged messages (longest unacknowledged
+first) and fields. A connection shows its channels, and a channel its consumers.
+`Enter` on one of those rows opens what it refers to, like a consumer's channel or
+queue, and `Esc` goes back. A warning points out a queue with messages but no
+consumers, a paused or closed queue, a channel at its prefetch limit and a blocked
+connection. Other rows show all their fields.
+
+The Logs page shows the log entries the broker keeps in memory, newest last, with
+warnings in yellow and errors in red. `/` filters them, and `End` goes back to
+following new entries after scrolling up. Like in the management UI, the log is only
+shown to users with the `administrator` tag.
+
+Passwords in shovel and federation URIs are masked, password hashes are not shown,
+and control characters in names, like in consumer tags or MQTT client ids, are shown
+as `?`.
+
+The TUI only reads, unless it's started with `--manage`. Then `m` lists what can be
+done to the selected row, or to what's opened and its selected row: pause or resume a
+queue's consumers, restart a closed queue, close a connection or channel, cancel a
+consumer, and pause or resume a shovel. Each asks to confirm with `y`, naming what it
+changes, and the header shows `MANAGE`. Purging and deleting are left to the
+`purge_queue` and `delete_queue` commands. On the control socket the TUI can do all of
+this, as with any `lavinmqctl` command. With `--uri` the user's tags apply, so a user
+with only the `monitoring` tag can't change anything.
+
+| Key | Action |
+|-----|--------|
+| `1`-`9`, `0`, `s`, `f`, `u`, `l` | Overview, Queues, Connections, Channels, Exchanges, Consumers, Vhosts, Nodes, Parameters, Policies, Shovels, Federation, Users, Logs |
+| `Tab`, `Shift-Tab`, `←`, `→` | Next or previous page |
+| `↑`, `↓`, `j`, `k` | Move the selection |
+| `PgUp`, `PgDn` | Previous or next page of rows |
+| `Home`, `End`, `g`, `G` | First or last row |
+| `Enter`, `Esc` | Open the selected row, go back |
+| `Tab`, `Shift-Tab`, `←`, `→` on an opened row | Next or previous section, like a queue's consumers and bindings |
+| `o`, `r` | Sort by the next column, reverse the sort order |
+| `/`, `Esc` | Filter by name, clear the filter |
+| `p`, `Space` | Pause or resume refreshing |
+| `m` | With `--manage`, pause a queue, close a connection and more, see above |
+| `?` | Show the keys |
+| `q`, `Ctrl-C` | Quit |
+
+For local TUI inspection without a broker, run `extras/tui_inspect.sh`. It starts a mock management API, runs the TUI in `tmux`, captures each page to text files, and exits.
 
 ## Global Options
 

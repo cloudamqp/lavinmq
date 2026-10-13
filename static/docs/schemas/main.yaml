@@ -99,6 +99,9 @@ overview:
       "$ref": "#/float_stats_details"
     send_oct_details:
       "$ref": "#/float_stats_details"
+    stats_interval:
+      type: integer
+      description: Milliseconds between the samples in the `log` arrays, the `stats_interval` config option.
     uptime:
       type: integer
       description: Unix timestamp (seconds)

@@ -28,7 +28,7 @@ bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) |
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
-	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
