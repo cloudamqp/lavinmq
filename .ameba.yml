@@ -16,7 +16,6 @@ Lint/NotNil:
   - spec/**/*.cr
   - src/lavinmq/http/controller/exchanges.cr
   - src/lavinmq/http/controller/main.cr
-  - src/lavinmq/shovel/shovel.cr
   - src/lavinmq/amqp/client.cr
   - src/lavinmq/amqp/channel.cr
   - src/lavinmq/vhost.cr
