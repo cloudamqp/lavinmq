@@ -14,7 +14,6 @@ Lint/NotNil:
   Description: Identifies usage of `not_nil!` calls
   Excluded:
   - spec/**/*.cr
-  - src/lavinmq/amqp/channel.cr
   - src/lavinmq/vhost.cr
   - src/lavinmqperf.cr
   Enabled: true
