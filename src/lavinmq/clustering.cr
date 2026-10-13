@@ -14,6 +14,11 @@ module LavinMQ
     FSYNC_PREFIX   = '$'
     CHALLENGE_SIZE = 32
 
+    # This node's own files in the data dir, never replicated nor restored:
+    # the data dir lock, the clustering identity and the raft state. Losing
+    # or rolling back .raft_state could let the node vote twice in a term.
+    NODE_LOCAL_FILES = {".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
+
     # The header is part of the MAC so a response can't be replayed against
     # the raft port, which uses the same password but MACs its challenge bare.
     def self.challenge_response(password : String, challenge : Bytes) : Bytes

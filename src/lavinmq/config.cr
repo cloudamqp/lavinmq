@@ -185,7 +185,7 @@ module LavinMQ
     # Required with the raft backend, see validate_raft_clustering!.
     # Omitted ports default to 5680, independently of this node's raft_port.
     def clustering_seed_addresses : Array(String)
-      seeds = @clustering_seeds.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
+      seeds = @clustering_seeds.split(',').map(&.strip).reject(&.empty?)
       seeds.map! do |seed|
         if !seed.includes?(':') || seed.ends_with?(']')
           "#{seed}:#{DEFAULT_CLUSTERING_RAFT_PORT}"

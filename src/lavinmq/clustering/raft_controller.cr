@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "../../stdlib/channel"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
 class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
@@ -101,9 +102,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # Accepted in a term this node has lost since, it must neither be done
     # nor take the place of a later one
     return if stale?(target)
-    select
-    when @step_down_requested.send(target)
-    else
+    unless @step_down_requested.try_send?(target)
       Log.warn { "A step down is already pending, not handing over to #{target.address}" }
       # Don't leave the claim behind, or no later transfer could be requested
       @transfer_lock.synchronize { @transfer_target = nil if @transfer_target == target.target }
@@ -160,8 +159,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   # The path the lavinmqctl socket was bound at, which a config reload can't change
-  def control_path : String
-    @control_socket.try(&.path) || @config.control_unix_path
+  def control_path : String?
+    @control_socket.try(&.path)
   end
 
   # Follows the leader until this node is a serving leader. False if the
@@ -237,10 +236,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
     # A transfer requested as leadership was lost is void, it mustn't be done
     # in a later term or block the next one
-    select
-    when @step_down_requested.receive?
-    else
-    end
+    @step_down_requested.try_receive?
     @transfer_lock.synchronize { @transfer_target = nil }
   end
 
