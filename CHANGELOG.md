@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
 - A WebSocket connection that broke could log an unhandled exception (e.g. `SSL_write` for `wss`), from trying to send a close frame over the broken connection [#2430](https://github.com/cloudamqp/lavinmq/pull/2430)
 - A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
 - Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)
@@ -68,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sorting boolean columns through the HTTP API returned an error, including sorting the connections list by TLS in the management UI [#2248](https://github.com/cloudamqp/lavinmq/pull/2248)
 - Management UI tooltips were clipped or misplaced near viewport edges and inside scrollable containers [#2235](https://github.com/cloudamqp/lavinmq/pull/2235)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+- Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 
 ## [2.10.0] - 2026-09-25
 
