@@ -121,23 +121,26 @@ module ClientV3Spec
           append(s, 4, "seg", 0, "headpartmore") # a full retransmission
           wait_applied(s.leader_io, 4u64)
           File.read(File.join(data_dir, "seg")).should eq "headpartmore"
-          # Identical overlaps keep the running checksum valid
-          close_client(s.client)
-          persisted_checksum(data_dir, "seg").should eq Digest::SHA1.hexdigest("headpartmore")
           s.close
         end
       end
 
-      it "drops the checksum of a file whose existing bytes differ from a rewrite" do
+      it "drops the checksum of a file it rewrote part of" do
         with_datadir do |data_dir|
           s = start(data_dir)
           append(s, 1, "seg", 0, "headpart")
-          append(s, 2, "seg", 4, "XXXXmore")
-          wait_applied(s.leader_io, 2u64) # still applied and acked
-          File.read(File.join(data_dir, "seg")).should eq "headXXXXmore"
+          append(s, 2, "seg", 8, "more") # sequential: the running checksum stays valid
+          wait_applied(s.leader_io, 2u64)
           close_client(s.client)
+          persisted_checksum(data_dir, "seg").should eq Digest::SHA1.hexdigest("headpartmore")
+
+          s2 = start(data_dir) # continues at the position the close persisted
+          append(s2, 3, "seg", 4, "XXXXmore")
+          wait_applied(s2.leader_io, 3u64) # still applied and acked
+          File.read(File.join(data_dir, "seg")).should eq "headXXXXmore"
+          close_client(s2.client)
           persisted_checksum(data_dir, "seg").should be_nil
-          s.close
+          s2.close
         end
       end
 

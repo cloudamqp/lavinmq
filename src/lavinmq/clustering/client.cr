@@ -35,16 +35,21 @@ module LavinMQ
       # whole data dir)
       alias Ack = Int64 | String | Progress
 
-      # A file the v3 stream writes to at explicit offsets
+      # A file the v3 stream writes to at explicit offsets, and its size,
+      # kept here so each append doesn't have to ask the file system
       private class OpenFile
-        getter fd : Int32
+        getter file : File
         property size : Int64
 
-        def initialize(@fd : Int32, @size : Int64)
+        def initialize(@file : File, @size : Int64)
+        end
+
+        def fd : Int32
+          @file.fd
         end
 
         def close : Nil
-          LibC.close(@fd)
+          @file.close
         end
       end
 
@@ -636,45 +641,36 @@ module LavinMQ
           raise ProtocolError.new("#{filename}: append at #{offset} beyond its #{file.size} bytes (journal entry #{header.lsn})")
         end
         received(WireV3.record_size(header.op, filename)) # the framing
-        mismatch = write_at(file, lz4, offset, length, digest_for(filename, file.size), header.lsn)
-        applied(header.lsn, 0) if length.zero?
-        if mismatch
-          Log.warn { "#{filename}: #{length} bytes at #{offset} differ from the #{file.size} already on disk (journal entry #{header.lsn}), dropping its checksum" }
+        if offset < file.size
+          # Bytes below the file's size were already received (the join cut's
+          # tail, or a file a compaction shrank after the leader snapshotted
+          # its size). The running digest can't tell whether they're being
+          # rewritten with the same content, so the next sync hashes the file.
+          Log.debug { "#{filename}: rewriting from #{offset} of its #{file.size} bytes (journal entry #{header.lsn}), dropping its checksum" }
           @checksums.delete(filename)
           @file_digests[filename] = nil
         end
+        write_at(file, lz4, offset, length, digest_for(filename, file.size), header.lsn)
+        applied(header.lsn, 0) if length.zero?
       end
 
       # Stream `length` bytes from lz4 into the file at `offset`, reporting
-      # progress per chunk and the record as applied with the last one.
-      # Returns whether bytes already on disk differed from the stream.
-      private def write_at(file : OpenFile, lz4 : IO, offset : Int64, length : Int64, digest : Digest::SHA1?, lsn : UInt64) : Bool
+      # progress per chunk and the record as applied with the last one
+      private def write_at(file : OpenFile, lz4 : IO, offset : Int64, length : Int64, digest : Digest::SHA1?, lsn : UInt64) : Nil
         buffer = uninitialized UInt8[BUFFER_SIZE]
-        existing = uninitialized UInt8[BUFFER_SIZE]
         pos = offset
         remaining = length
-        mismatch = false
         while remaining > 0
           len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, remaining)])
           raise IO::EOFError.new if len.zero?
           chunk = buffer.to_slice[0, len]
-          # Bytes below the file's size were already received (the join cut's
-          # tail, or a file a compaction shrank after the leader snapshotted
-          # its size); they're expected to be identical
-          overlap = Math.min(file.size - pos, len.to_i64).to_i32
-          if overlap > 0
-            pread_all(file.fd, existing.to_slice[0, overlap], pos)
-            mismatch = true unless chunk[0, overlap] == existing.to_slice[0, overlap]
-          end
           pwrite_all(file.fd, chunk, pos)
-          # The digest already covers the overlapping bytes
-          digest.try &.update(chunk[overlap..]) if !mismatch && len > overlap
+          digest.try &.update(chunk)
           pos += len
           remaining -= len
           file.size = pos if pos > file.size
           remaining.zero? ? applied(lsn, len) : received(len)
         end
-        mismatch
       end
 
       private def apply_replace(header : WireV3::Header, lz4 : IO) : Nil
@@ -723,26 +719,18 @@ module LavinMQ
       end
 
       # Opens (creating if missing) a file the v3 stream writes at offsets.
-      # O_RDWR rather than append mode: pwrite ignores the offset on an
+      # Read-write rather than append mode: pwrite ignores the offset on an
       # O_APPEND descriptor.
       private def open_file(filename : String) : OpenFile
         @open_files[filename] ||= begin
-          path = File.join(@data_dir, filename).check_no_null_byte
+          path = File.join(@data_dir, filename)
           FileSystem.mkdir_p File.dirname(path)
-          perms = 0o644
-          fd = LibC.open(path, LibC::O_RDWR | LibC::O_CREAT | LibC::O_EXCL, perms)
-          if fd >= 0
+          unless File.exists?(path)
+            File.touch(path)
             @created_files << filename
-          elsif Errno.value == Errno::EEXIST
-            fd = LibC.open(path, LibC::O_RDWR | LibC::O_CREAT, perms)
           end
-          raise File::Error.from_errno("Error opening file", file: path) if fd < 0
-          if LibC.fstat(fd, out stat) < 0
-            err = File::Error.from_errno("Unable to get info", file: path)
-            LibC.close(fd)
-            raise err
-          end
-          OpenFile.new(fd, stat.st_size.to_i64)
+          file = File.open(path, "r+")
+          OpenFile.new(file, file.size)
         end
       end
 
@@ -753,19 +741,6 @@ module LavinMQ
             next if Errno.value == Errno::EINTR
             raise IO::Error.from_errno("pwrite")
           end
-          bytes += n
-          offset += n
-        end
-      end
-
-      private def pread_all(fd : Int32, bytes : Bytes, offset : Int64) : Nil
-        until bytes.empty?
-          n = LibC.pread(fd, bytes.to_unsafe.as(Void*), bytes.size, offset)
-          if n < 0
-            next if Errno.value == Errno::EINTR
-            raise IO::Error.from_errno("pread")
-          end
-          raise IO::EOFError.new if n.zero?
           bytes += n
           offset += n
         end
