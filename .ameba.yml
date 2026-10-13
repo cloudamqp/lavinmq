@@ -14,7 +14,6 @@ Lint/NotNil:
   Description: Identifies usage of `not_nil!` calls
   Excluded:
   - spec/**/*.cr
-  - src/lavinmq/federation/link.cr
   - src/lavinmq/http/controller/exchanges.cr
   - src/lavinmq/http/controller/main.cr
   - src/lavinmq/shovel/shovel.cr
