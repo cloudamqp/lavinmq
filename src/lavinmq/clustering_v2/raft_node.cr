@@ -35,6 +35,7 @@ module LavinMQ
       property peer_uri : String
       property amqp_uri : String
       property http_uri : String
+      property mqtt_uri : String
       property heartbeat_interval : Time::Span = 50.milliseconds
       getter election_timeout_min : Time::Span = 200.milliseconds
       getter election_timeout_max : Time::Span = 400.milliseconds
@@ -104,7 +105,8 @@ module LavinMQ
                      @amqp_uri : String = "",
                      @http_uri : String = "",
                      initial_role : MemberRole = MemberRole::Voter,
-                     execution_context : Fiber::ExecutionContext? = nil)
+                     execution_context : Fiber::ExecutionContext? = nil,
+                     @mqtt_uri : String = "")
         raise ArgumentError.new("Cluster secret must not be empty") if @secret.blank?
         @node_id = @log.node_id
         @execution_context = execution_context || Fiber::ExecutionContext::Parallel.new("ClusteringV2-Raft-#{@node_id}", 4)
@@ -132,7 +134,7 @@ module LavinMQ
         elsif !@peer_uri.empty?
           @cluster_configured = true
           if @log.members.empty?
-            @log.set_members([MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, initial_role)])
+            @log.set_members([MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, initial_role, @mqtt_uri)])
           end
         end
 
@@ -227,20 +229,28 @@ module LavinMQ
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def start(bind_host : String = "127.0.0.1", bind_port : Int32 = 0) : Nil
         server = TCPServer.new(bind_host, bind_port)
         @listener = server
         addr = server.local_address
-        @peer_uri = "tcp://#{addr.address}:#{addr.port}" if @peer_uri.empty?
+        adv_host = addr.address.in?("0.0.0.0", "::", "[::]") ? "127.0.0.1" : addr.address
+        if @peer_uri.empty?
+          @peer_uri = "tcp://#{adv_host}:#{addr.port}"
+        elsif (parsed = URI.parse(@peer_uri) rescue nil) && (parsed.port.nil? || parsed.port == 0)
+          host_part = parsed.host.presence || adv_host
+          host_part = adv_host if host_part.in?("0.0.0.0", "::", "[::]")
+          @peer_uri = "#{parsed.scheme || "tcp"}://#{host_part}:#{addr.port}"
+        end
 
         @lock.synchronize do
           @started = true
           if @cluster_configured
             if @log.members.empty? && @log.committed_members.empty?
               my_role = @role.learner? ? MemberRole::Learner : MemberRole::Voter
-              @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role))
+              @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role, @mqtt_uri))
             elsif @log.members.any? { |m| m.node_id == @node_id } || @log.committed_members.any? { |m| m.node_id == @node_id }
-              @log.update_member_uris(@node_id, @peer_uri, @amqp_uri, @http_uri)
+              @log.update_member_uris(@node_id, @peer_uri, @amqp_uri, @http_uri, @mqtt_uri)
             end
           end
           sync_peer_sessions_unsafe
@@ -257,6 +267,12 @@ module LavinMQ
       def configure_cluster(members : Array(MemberInfo)) : Nil
         @lock.synchronize do
           @cluster_configured = true
+          if me = members.find { |m| m.node_id == @node_id }
+            @peer_uri = me.peer_uri unless me.peer_uri.empty? || wildcard_peer_uri?(me.peer_uri)
+            @amqp_uri = me.amqp_uri unless me.amqp_uri.empty?
+            @http_uri = me.http_uri unless me.http_uri.empty?
+            @mqtt_uri = me.mqtt_uri unless me.mqtt_uri.empty?
+          end
           @log.set_members(members)
           if me = members.find { |m| m.node_id == @node_id }
             if me.learner? && !@role.leader?
@@ -480,7 +496,9 @@ module LavinMQ
             session = @lock.synchronize do
               s = @peers[remote_id]?
               if s
-                s.peer_uri = remote_uri unless remote_uri.empty?
+                if !remote_uri.empty? && !wildcard_peer_uri?(remote_uri)
+                  s.peer_uri = remote_uri
+                end
               else
                 s = create_peer_session_unsafe(remote_id, remote_uri)
               end
@@ -1575,11 +1593,17 @@ module LavinMQ
         (@log.committed_members + @log.members).each do |m|
           next if m.node_id == @node_id
           if existing = @peers[m.node_id]?
-            existing.peer_uri = m.peer_uri unless m.peer_uri.empty?
+            existing.local_peer_uri = @peer_uri unless @peer_uri.empty?
+            existing.peer_uri = m.peer_uri unless m.peer_uri.empty? || wildcard_peer_uri?(m.peer_uri)
           else
             create_peer_session_unsafe(m.node_id, m.peer_uri)
           end
         end
+      end
+
+      private def wildcard_peer_uri?(uri_str : String) : Bool
+        host = URI.parse(uri_str).host rescue nil
+        host.nil? || host.empty? || host.in?("0.0.0.0", "::", "[::]")
       end
 
       private def quorum_size_unsafe : Int32

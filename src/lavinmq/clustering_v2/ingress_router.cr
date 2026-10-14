@@ -289,7 +289,7 @@ module LavinMQ
 
     # Manages permanent AMQP, MQTT, and HTTP listener sockets across role transitions.
     # - On the Leader: dispatches AMQP/MQTT connections directly to the local server.
-    # - On a Follower: transparently Layer-4 splices (`IO.copy`) AMQP connections
+    # - On a Follower: transparently Layer-4 splices (`IO.copy`) AMQP and MQTT connections
     #   to the current Leader without closing or rebinding listener sockets.
     class IngressRouter
       Log = LavinMQ::Log.for "clustering_v2.ingress"
@@ -315,12 +315,17 @@ module LavinMQ
       getter http_server : LavinMQ::HTTP::Server
       getter http_router : FollowerHttpRouterHandler
       getter amqp_port : Int32 = 0
+      getter mqtt_port : Int32 = 0
       getter http_port : Int32 = 0
 
       @amqp_listener : TCPServer?
       @amqps_listener : TCPServer?
       @amqps_tls_context : OpenSSL::SSL::Context::Server?
       @amqp_unix_listener : UNIXServer?
+      @mqtt_listener : TCPServer?
+      @mqtts_listener : TCPServer?
+      @mqtts_tls_context : OpenSSL::SSL::Context::Server?
+      @mqtt_unix_listener : UNIXServer?
       @http_addr : Socket::IPAddress?
       @http_bound = false
       @splices = Array(ActiveSplice).new
@@ -347,12 +352,23 @@ module LavinMQ
         end
       end
 
+      private def advertised_address(bind_addr : String) : String
+        if bind_addr.in?("0.0.0.0", "::", "[::]")
+          if !@node.peer_uri.empty? && (peer_host = (URI.parse(@node.peer_uri).host rescue nil)) &&
+             !peer_host.in?("", "0.0.0.0", "::", "[::]")
+            return peer_host
+          end
+          return "127.0.0.1"
+        end
+        bind_addr
+      end
+
       def bind_amqp(host : String = "127.0.0.1", port : Int32 = 0) : Socket::IPAddress
         listener = TCPServer.new(host, port)
         @amqp_listener = listener
         addr = listener.local_address
         @amqp_port = addr.port
-        @node.amqp_uri = "amqp://#{addr.address}:#{addr.port}"
+        @node.amqp_uri = "amqp://#{advertised_address(addr.address)}:#{addr.port}"
         addr
       end
 
@@ -361,7 +377,7 @@ module LavinMQ
         @amqps_listener = listener
         @amqps_tls_context = ctx
         addr = listener.local_address
-        @node.amqp_uri = "amqps://#{addr.address}:#{addr.port}" if @node.amqp_uri.empty?
+        @node.amqp_uri = "amqps://#{advertised_address(addr.address)}:#{addr.port}" if @node.amqp_uri.empty?
         addr
       end
 
@@ -373,16 +389,30 @@ module LavinMQ
         listener.local_address
       end
 
-      def bind_mqtt(host : String = "127.0.0.1", port : Int32 = 0)
-        @mqtt_server.bind_tcp(host, port)
+      def bind_mqtt(host : String = "127.0.0.1", port : Int32 = 0) : Socket::IPAddress
+        listener = TCPServer.new(host, port)
+        @mqtt_listener = listener
+        addr = listener.local_address
+        @mqtt_port = addr.port
+        @node.mqtt_uri = "mqtt://#{advertised_address(addr.address)}:#{addr.port}"
+        addr
       end
 
-      def bind_mqtts(host : String, port : Int32, ctx : OpenSSL::SSL::Context::Server)
-        @mqtt_server.bind_tls(host, port, ctx)
+      def bind_mqtts(host : String, port : Int32, ctx : OpenSSL::SSL::Context::Server) : Socket::IPAddress
+        listener = TCPServer.new(host, port)
+        @mqtts_listener = listener
+        @mqtts_tls_context = ctx
+        addr = listener.local_address
+        @node.mqtt_uri = "mqtts://#{advertised_address(addr.address)}:#{addr.port}" if @node.mqtt_uri.empty?
+        addr
       end
 
-      def bind_mqtt_unix(path : String)
-        @mqtt_server.bind_unix(path)
+      def bind_mqtt_unix(path : String) : Socket::UNIXAddress
+        File.delete?(path)
+        listener = UNIXServer.new(path)
+        File.chmod(path, 0o666)
+        @mqtt_unix_listener = listener
+        listener.local_address
       end
 
       def bind_http(host : String = "127.0.0.1", port : Int32 = 0) : Socket::IPAddress
@@ -390,14 +420,14 @@ module LavinMQ
         @http_addr = addr
         @http_bound = true
         @http_port = addr.port
-        @node.http_uri = "http://#{addr.address}:#{addr.port}"
+        @node.http_uri = "http://#{advertised_address(addr.address)}:#{addr.port}"
         addr
       end
 
       def bind_https(host : String, port : Int32, ctx : OpenSSL::SSL::Context::Server) : Socket::IPAddress
         addr = @http_server.bind_tls(host, port, ctx)
         @http_bound = true
-        @node.http_uri = "https://#{addr.address}:#{addr.port}" if @node.http_uri.empty?
+        @node.http_uri = "https://#{advertised_address(addr.address)}:#{addr.port}" if @node.http_uri.empty?
         addr
       end
 
@@ -419,9 +449,9 @@ module LavinMQ
             accept_amqp_loop(amqp_l)
           end
         end
-        if (amqps_l = @amqps_listener) && (ctx = @amqps_tls_context)
+        if (amqps_l = @amqps_listener) && (amqps_ctx = @amqps_tls_context)
           @execution_context.spawn(name: "ClusteringV2 AMQPS permanent listener #{@node.node_id}") do
-            accept_amqps_loop(amqps_l, ctx)
+            accept_amqps_loop(amqps_l, amqps_ctx)
           end
         end
         if amqp_u = @amqp_unix_listener
@@ -429,11 +459,19 @@ module LavinMQ
             accept_amqp_unix_loop(amqp_u)
           end
         end
-        unless @mqtt_server.listeners.empty?
+        if mqtt_l = @mqtt_listener
           @execution_context.spawn(name: "ClusteringV2 MQTT permanent listener #{@node.node_id}") do
-            @mqtt_server.listen
-          rescue ex
-            Log.debug { "MQTT listener stopped: #{ex.message}" } unless @closed
+            accept_mqtt_loop(mqtt_l)
+          end
+        end
+        if (mqtts_l = @mqtts_listener) && (mqtts_ctx = @mqtts_tls_context)
+          @execution_context.spawn(name: "ClusteringV2 MQTTS permanent listener #{@node.node_id}") do
+            accept_mqtts_loop(mqtts_l, mqtts_ctx)
+          end
+        end
+        if mqtt_u = @mqtt_unix_listener
+          @execution_context.spawn(name: "ClusteringV2 MQTT UNIX permanent listener #{@node.node_id}") do
+            accept_mqtt_unix_loop(mqtt_u)
           end
         end
         if @http_bound
@@ -455,6 +493,9 @@ module LavinMQ
         @amqp_listener.try &.close rescue nil
         @amqps_listener.try &.close rescue nil
         @amqp_unix_listener.try &.close rescue nil
+        @mqtt_listener.try &.close rescue nil
+        @mqtts_listener.try &.close rescue nil
+        @mqtt_unix_listener.try &.close rescue nil
         close_active_splices
         @http_server.close rescue nil
         @amqp_server.close rescue nil
@@ -505,6 +546,50 @@ module LavinMQ
         end
       end
 
+      private def accept_mqtt_loop(listener : TCPServer) : Nil
+        loop do
+          break if @closed
+          client = listener.accept? || break
+          if @closed
+            client.close rescue nil
+            break
+          end
+          client.tcp_nodelay = true
+          @execution_context.spawn(name: "ClusteringV2 MQTT connection handler") do
+            handle_mqtt_socket(client)
+          end
+        end
+      end
+
+      private def accept_mqtts_loop(listener : TCPServer, ctx : OpenSSL::SSL::Context::Server) : Nil
+        loop do
+          break if @closed
+          client = listener.accept? || break
+          if @closed
+            client.close rescue nil
+            break
+          end
+          client.tcp_nodelay = true
+          @execution_context.spawn(name: "ClusteringV2 MQTTS connection handler") do
+            handle_mqtts_socket(client, ctx)
+          end
+        end
+      end
+
+      private def accept_mqtt_unix_loop(listener : UNIXServer) : Nil
+        loop do
+          break if @closed
+          client = listener.accept? || break
+          if @closed
+            client.close rescue nil
+            break
+          end
+          @execution_context.spawn(name: "ClusteringV2 MQTT UNIX connection handler") do
+            handle_mqtt_unix_socket(client)
+          end
+        end
+      end
+
       private def ensure_promoted_leader? : Bool
         return true if @node.promoted?
         return false unless @node.leader?
@@ -549,23 +634,77 @@ module LavinMQ
         client.close rescue nil
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
+      private def handle_mqtt_socket(client : TCPSocket) : Nil
+        if ensure_promoted_leader?
+          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+          @mqtt_server.handle_connection(client, conn_info)
+        else
+          splice_to_leader_mqtt(client)
+        end
+      rescue
+        client.close rescue nil
+      end
+
+      private def handle_mqtts_socket(client : TCPSocket, ctx : OpenSSL::SSL::Context::Server) : Nil
+        remote_addr = client.remote_address
+        local_addr = client.local_address
+        ssl_client = OpenSSL::SSL::Socket::Server.new(client, ctx, sync_close: true)
+        if ensure_promoted_leader?
+          conn_info = ConnectionInfo.new(remote_addr, local_addr)
+          conn_info.ssl = true
+          conn_info.ssl_version = ssl_client.tls_version
+          conn_info.ssl_cipher = ssl_client.cipher
+          @mqtt_server.handle_connection(ssl_client, conn_info)
+        else
+          splice_to_leader_mqtt(ssl_client)
+        end
+      rescue
+        client.close rescue nil
+      end
+
+      private def handle_mqtt_unix_socket(client : UNIXSocket) : Nil
+        if ensure_promoted_leader?
+          @mqtt_server.handle_connection(client, ConnectionInfo.local)
+        else
+          splice_to_leader_mqtt(client)
+        end
+      rescue
+        client.close rescue nil
+      end
+
       private def splice_to_leader_amqp(client : IO) : Nil
         leader = @node.leader_member
         if leader.nil? || leader.node_id == @node.node_id || leader.amqp_uri.empty?
           client.close rescue nil
           return
         end
+        splice_to_upstream(client, leader.amqp_uri, "amqps", 5672, 5671)
+      end
 
-        uri = URI.parse(leader.amqp_uri)
+      private def splice_to_leader_mqtt(client : IO) : Nil
+        leader = @node.leader_member
+        if leader.nil? || leader.node_id == @node.node_id || leader.mqtt_uri.empty?
+          client.close rescue nil
+          return
+        end
+        splice_to_upstream(client, leader.mqtt_uri, "mqtts", 1883, 8883)
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def splice_to_upstream(client : IO,
+                                     target_uri : String,
+                                     tls_scheme : String,
+                                     default_port : Int32,
+                                     default_tls_port : Int32) : Nil
+        uri = URI.parse(target_uri)
         host = uri.host || "127.0.0.1"
-        port = uri.port || (uri.scheme == "amqps" ? 5671 : 5672)
+        port = uri.port || (uri.scheme == tls_scheme ? default_tls_port : default_port)
 
         tcp_sock = TCPSocket.new(host, port, connect_timeout: 2.seconds)
         tcp_sock.tcp_nodelay = true
         tcp_sock.sync = true
         tcp_sock.read_buffering = false
-        upstream : IO = if uri.scheme == "amqps"
+        upstream : IO = if uri.scheme == tls_scheme
           tls_ctx = OpenSSL::SSL::Context::Client.new
           tls_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
           ssl_sock = OpenSSL::SSL::Socket::Client.new(tcp_sock, context: tls_ctx, sync_close: true, hostname: host)
@@ -637,6 +776,13 @@ module LavinMQ
         )
       end
 
+      def self.normalize_peer_uri(raw : String?) : String
+        return "" unless str = raw
+        trimmed = str.strip
+        return "" if trimmed.empty?
+        trimmed.includes?("://") ? trimmed : "tcp://#{trimmed}"
+      end
+
       def self.parse_peer_spec(spec : String) : MemberInfo
         role = MemberRole::Voter
         main_part = spec.strip
@@ -648,11 +794,11 @@ module LavinMQ
         at_idx = main_part.index('@') || raise ArgumentError.new("Invalid peer spec '#{spec}': missing '@'")
         node_id = main_part[0...at_idx].to_u64
         uris = main_part[(at_idx + 1)..].split('|')
-        raw_peer = uris[0]
-        peer_uri = raw_peer.includes?("://") ? raw_peer : "tcp://#{raw_peer}"
+        peer_uri = normalize_peer_uri(uris[0])
         amqp_uri = uris[1]? || ""
         http_uri = uris[2]? || ""
-        MemberInfo.new(node_id, peer_uri, amqp_uri, http_uri, role)
+        mqtt_uri = uris[3]? || ""
+        MemberInfo.new(node_id, peer_uri, amqp_uri, http_uri, role, mqtt_uri)
       end
 
       def initialize(@data_dir : String,
@@ -682,8 +828,12 @@ module LavinMQ
       def bind(host : String = "127.0.0.1",
                peer_port : Int32 = 0,
                amqp_port : Int32 = 0,
-               http_port : Int32 = 0) : MemberInfo
+               http_port : Int32 = 0,
+               mqtt_port : Int32? = nil) : MemberInfo
         @router.bind_amqp(host, amqp_port)
+        if mp = mqtt_port
+          @router.bind_mqtt(host, mp)
+        end
         @router.bind_http(host, http_port)
         @raft.start(host, peer_port)
         @router.start
@@ -692,7 +842,8 @@ module LavinMQ
           @raft.peer_uri,
           @raft.amqp_uri,
           @raft.http_uri,
-          @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter
+          @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter,
+          @raft.mqtt_uri
         )
       end
 
@@ -701,24 +852,43 @@ module LavinMQ
                             amqp_tls_ctx : OpenSSL::SSL::Context::Server? = nil,
                             mqtt_tls_ctx : OpenSSL::SSL::Context::Server? = nil,
                             http_tls_ctx : OpenSSL::SSL::Context::Server? = nil) : MemberInfo
+        adv_peer = ClusterNode.normalize_peer_uri(config.clustering_advertised_uri)
+        @raft.peer_uri = adv_peer unless adv_peer.empty?
+
+        self_spec_info : MemberInfo? = nil
+        config.clustering_peers.each do |peer_spec|
+          next if peer_spec.empty?
+          info = ClusterNode.parse_peer_spec(peer_spec)
+          if info.node_id == @raft.node_id
+            self_spec_info = info
+            @raft.peer_uri = info.peer_uri if @raft.peer_uri.empty? && !info.peer_uri.empty?
+          end
+        end
+
         @router.bind_amqp(config.amqp_bind, config.amqp_port) if config.amqp_port > 0
-        if config.amqps_port > 0 && (ctx = amqp_tls_ctx)
-          @router.bind_amqps(config.amqp_bind, config.amqps_port, ctx)
+        if config.amqps_port > 0 && (a_ctx = amqp_tls_ctx)
+          @router.bind_amqps(config.amqp_bind, config.amqps_port, a_ctx)
         end
         @router.bind_amqp_unix(config.unix_path) unless config.unix_path.empty?
 
         @router.bind_mqtt(config.mqtt_bind, config.mqtt_port) if config.mqtt_port > 0
-        if config.mqtts_port > 0 && (ctx = mqtt_tls_ctx)
-          @router.bind_mqtts(config.mqtt_bind, config.mqtts_port, ctx)
+        if config.mqtts_port > 0 && (m_ctx = mqtt_tls_ctx)
+          @router.bind_mqtts(config.mqtt_bind, config.mqtts_port, m_ctx)
         end
         @router.bind_mqtt_unix(config.mqtt_unix_path) unless config.mqtt_unix_path.empty?
 
         @router.bind_http(config.http_bind, config.http_port) if config.http_port > 0
-        if config.https_port > 0 && (ctx = http_tls_ctx)
-          @router.bind_https(config.http_bind, config.https_port, ctx)
+        if config.https_port > 0 && (h_ctx = http_tls_ctx)
+          @router.bind_https(config.http_bind, config.https_port, h_ctx)
         end
         @router.bind_http_unix(config.http_unix_path) unless config.http_unix_path.empty?
         @router.bind_http_internal_unix
+
+        if s_info = self_spec_info
+          @raft.amqp_uri = s_info.amqp_uri unless s_info.amqp_uri.empty?
+          @raft.http_uri = s_info.http_uri unless s_info.http_uri.empty?
+          @raft.mqtt_uri = s_info.mqtt_uri unless s_info.mqtt_uri.empty?
+        end
 
         @raft.start(config.clustering_bind, config.clustering_port)
         @router.start
@@ -727,9 +897,12 @@ module LavinMQ
           @raft.peer_uri,
           @raft.amqp_uri,
           @raft.http_uri,
-          @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter
+          @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter,
+          @raft.mqtt_uri
         )
-        unless @had_persisted_members
+        if @had_persisted_members
+          @log.update_member_uris(@raft.node_id, @raft.peer_uri, @raft.amqp_uri, @raft.http_uri, @raft.mqtt_uri)
+        else
           members_by_id = {self_info.node_id => self_info}
           config.clustering_peers.each do |peer_spec|
             next if peer_spec.empty?

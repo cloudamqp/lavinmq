@@ -186,7 +186,51 @@ describe LavinMQ::ClusteringV2::IngressRouter do
     end
   end
 
-  it "keeps AMQP listener sockets permanently open across role transitions and transparently Layer-4 proxies follower AMQP connections to the leader" do
+  it "applies clustering_advertised_uri before starting Raft when clustering_bind is a wildcard address" do
+    base_dir = File.tempname("lavinmq_cv2_adv_uri")
+    Dir.mkdir_p(base_dir)
+
+    begin
+      ports = Array(Int32).new(4) do
+        srv = TCPServer.new("127.0.0.1", 0)
+        p = srv.local_address.port
+        srv.close
+        p
+      end
+      free_port, amqp_p, mqtt_p, http_p = ports
+
+      cfg = LavinMQ::Config.new
+      cfg.data_dir = base_dir
+      cfg.amqp_bind = "0.0.0.0"
+      cfg.amqp_port = amqp_p
+      cfg.mqtt_bind = "0.0.0.0"
+      cfg.mqtt_port = mqtt_p
+      cfg.http_bind = "0.0.0.0"
+      cfg.http_port = http_p
+      cfg.clustering_bind = "0.0.0.0"
+      cfg.clustering_port = free_port
+      cfg.clustering_advertised_uri = "tcp://127.0.0.1:#{free_port}"
+      cfg.clustering_peers = [] of String
+
+      cn = LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "test-secret", config: cfg)
+      begin
+        cn.start_from_config(cfg)
+
+        cn.raft.peer_uri.should eq("tcp://127.0.0.1:#{free_port}")
+        self_member = cn.raft.members.find! { |m| m.node_id == 1_u64 }
+        self_member.peer_uri.should eq("tcp://127.0.0.1:#{free_port}")
+        self_member.amqp_uri.should eq("amqp://127.0.0.1:#{amqp_p}")
+        self_member.mqtt_uri.should eq("mqtt://127.0.0.1:#{mqtt_p}")
+        self_member.http_uri.should eq("http://127.0.0.1:#{http_p}")
+      ensure
+        cn.close
+      end
+    ensure
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "keeps AMQP and MQTT listener sockets permanently open across role transitions and transparently Layer-4 proxies follower connections to the leader" do
     base_dir = File.tempname("lavinmq_cv2_l4_proxy")
     Dir.mkdir_p(base_dir)
     nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
@@ -201,7 +245,7 @@ describe LavinMQ::ClusteringV2::IngressRouter do
         cn.raft.leader_lease_timeout = 200.milliseconds
         cn.raft.leader_stickiness_window = 50.milliseconds
         nodes << cn
-        cn.bind
+        cn.bind(mqtt_port: 0)
       end
 
       nodes.each(&.raft.configure_cluster(infos))
@@ -212,6 +256,7 @@ describe LavinMQ::ClusteringV2::IngressRouter do
       followers = nodes.reject(&.raft.leader?)
       target_follower = followers.first
       follower_amqp_port = target_follower.router.amqp_port
+      follower_mqtt_port = target_follower.router.mqtt_port
 
       # 1. Connect an AMQP client directly to the FOLLOWER's permanent AMQP port.
       #    IngressRouter splices the TCP stream at Layer-4 to the leader.
@@ -222,13 +267,41 @@ describe LavinMQ::ClusteringV2::IngressRouter do
         q.publish_confirm("replicated-via-follower-l4-splice", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
       end
 
-      # Verify the queue and message were written on the leader and replicated to all followers
+      # 1b. Connect an MQTT client directly to the FOLLOWER's permanent MQTT port.
+      #     IngressRouter splices the TCP stream at Layer-4 to the leader's MQTT listener.
+      TCPSocket.open("127.0.0.1", follower_mqtt_port) do |sock|
+        sock.read_timeout = 2.seconds
+        mqtt_io = MQTT::Protocol::IO.new(sock)
+        MQTT::Protocol::Connect.new(
+          client_id: "mqtt-l4-spliced",
+          clean_session: true,
+          keepalive: 30_u16,
+          username: "guest",
+          password: "guest".to_slice,
+          will: nil
+        ).to_io(mqtt_io)
+        pkt = MQTT::Protocol::Packet.from_io(mqtt_io)
+        pkt.should be_a(MQTT::Protocol::Connack)
+        pkt.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+
+        # Verify the MQTT client connected via target_follower is registered on the leader
+        leader.server.vhosts["/"].connections.any? do |c|
+          c.is_a?(LavinMQ::MQTT::Client) && c.client_id == "mqtt-l4-spliced"
+        end.should be_true
+        target_follower.server.vhosts["/"].connections.any?(LavinMQ::MQTT::Client).should be_false
+
+        MQTT::Protocol::Disconnect.new.to_io(mqtt_io)
+      end
+
+      # Verify the AMQP queue/message was written on the leader and replicated to all followers
       wait_until do
-        nodes.all? { |n| n.server.vhosts["/"].queue?("l4_spliced_q").try(&.message_count) == 1 }
+        nodes.all? do |n|
+          n.server.vhosts["/"].queue?("l4_spliced_q").try(&.message_count) == 1
+        end
       end.should be_true
 
       # 2. Isolate the leader and promote target_follower to Leader in-process.
-      #    Verify its AMQP listener port never changes or closes, and now serves AMQP directly!
+      #    Verify its AMQP and MQTT listener ports never change or close, and now serve directly!
       leader.raft.set_isolated(true)
       # Pause the other follower's elections so target_follower deterministically wins
       followers[1].raft.election_timeout_min = 2.seconds
@@ -238,8 +311,9 @@ describe LavinMQ::ClusteringV2::IngressRouter do
 
       wait_until { target_follower.raft.leader? }.should be_true
       target_follower.router.amqp_port.should eq(follower_amqp_port)
+      target_follower.router.mqtt_port.should eq(follower_mqtt_port)
 
-      # Connect to the exact same port on target_follower (now Leader) and consume the message
+      # Connect to the exact same AMQP port on target_follower (now Leader) and consume the message
       consumed_body : String? = nil
       AMQP::Client.start("amqp://guest:guest@127.0.0.1:#{follower_amqp_port}") do |conn|
         ch = conn.channel
@@ -250,6 +324,29 @@ describe LavinMQ::ClusteringV2::IngressRouter do
         end
       end
       consumed_body.should eq("replicated-via-follower-l4-splice")
+
+      # Connect to the exact same MQTT port on target_follower (now Leader)
+      TCPSocket.open("127.0.0.1", follower_mqtt_port) do |sock|
+        sock.read_timeout = 2.seconds
+        mqtt_io = MQTT::Protocol::IO.new(sock)
+        MQTT::Protocol::Connect.new(
+          client_id: "mqtt-l4-spliced",
+          clean_session: true,
+          keepalive: 30_u16,
+          username: "guest",
+          password: "guest".to_slice,
+          will: nil
+        ).to_io(mqtt_io)
+        pkt = MQTT::Protocol::Packet.from_io(mqtt_io)
+        pkt.should be_a(MQTT::Protocol::Connack)
+        pkt.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+
+        target_follower.server.vhosts["/"].connections.any? do |c|
+          c.is_a?(LavinMQ::MQTT::Client) && c.client_id == "mqtt-l4-spliced"
+        end.should be_true
+
+        MQTT::Protocol::Disconnect.new.to_io(mqtt_io)
+      end
     ensure
       nodes.each(&.close)
       FileUtils.rm_rf(base_dir)

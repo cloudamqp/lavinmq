@@ -104,11 +104,11 @@ module LavinMQ
         cb.try &.call(new_members)
       end
 
-      def update_member_uris(node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String) : Nil
+      def update_member_uris(node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String, mqtt_uri : String = "") : Nil
         cb, new_members = @lock.synchronize do
-          update_uris_in_list(@snapshot_members, node_id, peer_uri, amqp_uri, http_uri)
-          update_uris_in_list(@committed_members, node_id, peer_uri, amqp_uri, http_uri)
-          update_uris_in_list(@members, node_id, peer_uri, amqp_uri, http_uri)
+          update_uris_in_list(@snapshot_members, node_id, peer_uri, amqp_uri, http_uri, mqtt_uri)
+          update_uris_in_list(@committed_members, node_id, peer_uri, amqp_uri, http_uri, mqtt_uri)
+          update_uris_in_list(@members, node_id, peer_uri, amqp_uri, http_uri, mqtt_uri)
           save_meta!
           {@on_membership_change, @members.dup}
         end
@@ -871,7 +871,7 @@ module LavinMQ
         end
       end
 
-      private def update_uris_in_list(list : Array(MemberInfo), node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String) : Nil
+      private def update_uris_in_list(list : Array(MemberInfo), node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String, mqtt_uri : String = "") : Nil
         if idx = list.index { |m| m.node_id == node_id }
           existing = list[idx]
           list[idx] = MemberInfo.new(
@@ -879,7 +879,8 @@ module LavinMQ
             peer_uri.empty? ? existing.peer_uri : peer_uri,
             amqp_uri.empty? ? existing.amqp_uri : amqp_uri,
             http_uri.empty? ? existing.http_uri : http_uri,
-            existing.role
+            existing.role,
+            mqtt_uri.empty? ? existing.mqtt_uri : mqtt_uri
           )
         end
       end

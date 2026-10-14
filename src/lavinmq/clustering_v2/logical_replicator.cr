@@ -203,50 +203,70 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       def replace_file(path : String)
-        return if replication_suppressed? || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil?
         rel = relative_path(path)
         parts = rel.split('/')
+        is_mgmt_file = (parts.size == 1 && parts[0].in?("vhosts.json", "users.json", "parameters.json")) ||
+                       (parts.size == 2 && parts[1].in?("parameters.json", "policies.json", "operator_policies.json", "limits.json", "mqtt_permissions.json"))
 
-        if parts.size == 1 && parts[0] == "vhosts.json"
-          return unless File.exists?(path)
-          if srv = @server
-            srv.vhosts.each_value { |vh| @applier.index_vhost!(vh) }
+        begin
+          if parts.size == 1 && parts[0] == "vhosts.json"
+            return unless File.exists?(path)
+            unless @node.leader?
+              @applier.restore_committed_file!(rel)
+              raise Clustering::Replicator::ReplicationError.new("Node #{@node.node_id} is not the cluster leader")
+            end
+            if srv = @server
+              srv.vhosts.each_value { |vh| @applier.index_vhost!(vh) }
+            end
+            payload = File.read(path).to_slice
+            entry = @node.propose_command(LogCommandType::VHostCreate, payload)
+            @applier.record_pending_file_replace(entry.lsn, rel)
+            @last_proposed_lsn.set(entry.lsn)
+            wait_for_followers
+          elsif is_mgmt_file
+            return unless File.exists?(path)
+            unless @node.leader?
+              @applier.restore_committed_file!(rel)
+              raise Clustering::Replicator::ReplicationError.new("Node #{@node.node_id} is not the cluster leader")
+            end
+            content = File.read(path).to_slice
+            rel_bytes = rel.to_slice
+            io = IO::Memory.new(2 + rel_bytes.size + 4 + content.size)
+            io.write_bytes(rel_bytes.size.to_u16, IO::ByteFormat::LittleEndian)
+            io.write(rel_bytes)
+            io.write_bytes(content.size.to_u32, IO::ByteFormat::LittleEndian)
+            io.write(content)
+            vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u64
+            entry = @node.propose_command(LogCommandType::FileReplace, io.to_slice, vhost_id: vhost_id)
+            @applier.record_pending_file_replace(entry.lsn, rel)
+            @last_proposed_lsn.set(entry.lsn)
+            wait_for_followers
+          elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
+            return unless @node.leader? && File.exists?(path)
+            vhost_dir = parts[0]
+            vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
+            msg_file = parts[2]
+            topic = resolve_mqtt_topic(vhost_dir, msg_file) || return
+            msg_payload = File.read(path).to_slice
+
+            io = IO::Memory.new(2 + topic.bytesize + 4 + msg_payload.size)
+            io.write_bytes(topic.bytesize.to_u16, IO::ByteFormat::LittleEndian)
+            io.write(topic.to_slice)
+            io.write_bytes(msg_payload.size.to_u32, IO::ByteFormat::LittleEndian)
+            io.write(msg_payload)
+
+            topic_id = Digest::CRC32.checksum(msg_file).to_u64
+            entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id, queue_id: topic_id)
+            @last_proposed_lsn.set(entry.lsn)
           end
-          payload = File.read(path).to_slice
-          entry = @node.propose_command(LogCommandType::VHostCreate, payload)
-          @last_proposed_lsn.set(entry.lsn)
-        elsif (parts.size == 1 && parts[0].in?("users.json", "parameters.json")) ||
-              (parts.size == 2 && parts[1].in?("parameters.json", "policies.json", "operator_policies.json", "limits.json", "mqtt_permissions.json"))
-          return unless File.exists?(path)
-          content = File.read(path).to_slice
-          rel_bytes = rel.to_slice
-          io = IO::Memory.new(2 + rel_bytes.size + 4 + content.size)
-          io.write_bytes(rel_bytes.size.to_u16, IO::ByteFormat::LittleEndian)
-          io.write(rel_bytes)
-          io.write_bytes(content.size.to_u32, IO::ByteFormat::LittleEndian)
-          io.write(content)
-          vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u64
-          entry = @node.propose_command(LogCommandType::FileReplace, io.to_slice, vhost_id: vhost_id)
-          @last_proposed_lsn.set(entry.lsn)
-        elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
-          return unless File.exists?(path)
-          vhost_dir = parts[0]
-          vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
-          msg_file = parts[2]
-          topic = resolve_mqtt_topic(vhost_dir, msg_file) || return
-          msg_payload = File.read(path).to_slice
-
-          io = IO::Memory.new(2 + topic.bytesize + 4 + msg_payload.size)
-          io.write_bytes(topic.bytesize.to_u16, IO::ByteFormat::LittleEndian)
-          io.write(topic.to_slice)
-          io.write_bytes(msg_payload.size.to_u32, IO::ByteFormat::LittleEndian)
-          io.write(msg_payload)
-
-          topic_id = Digest::CRC32.checksum(msg_file).to_u64
-          entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id, queue_id: topic_id)
-          @last_proposed_lsn.set(entry.lsn)
+        rescue ex : Clustering::Replicator::ReplicationError | RaftNode::Error::NotLeaderError
+          if is_mgmt_file
+            abort_uncommitted!
+            @applier.restore_committed_file!(rel)
+            raise Clustering::Replicator::ReplicationError.new(ex.message || "Replication failed")
+          end
         end
-      rescue RaftNode::Error::NotLeaderError
       end
 
       def replace_file(mfile : MFile)

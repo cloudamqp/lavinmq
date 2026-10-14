@@ -8,7 +8,7 @@ module LavinMQ
     # authenticated via mutual HMAC-SHA256 challenge-response.
     class PeerSession
       getter local_node_id : UInt64
-      getter local_peer_uri : String
+      property local_peer_uri : String
       getter peer_id : UInt64
       getter execution_context : Fiber::ExecutionContext
       property peer_uri : String

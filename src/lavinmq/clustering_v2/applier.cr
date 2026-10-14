@@ -512,6 +512,13 @@ module LavinMQ
         end
       end
     end
+
+    class PermissionService
+      def reload_for_rollback! : Nil
+        @groups = Hash(String, PermissionGroup).new
+        load!(false)
+      end
+    end
   end
 
   module ClusteringV2
@@ -605,6 +612,9 @@ module LavinMQ
       @pending_apply_cache_ops = Deque(Tuple(QueueKey, AMQP::Queue?)).new
       @reset_apply_cache = false
       @has_pending_apply_ops = Atomic(Bool).new(false)
+      @committed_files = Hash(String, Bytes).new
+      @pending_file_replaces = Hash(UInt64, String).new
+      @file_restore_lock = Mutex.new(:reentrant)
 
       def initialize(@raft_log : RaftLog, @server : LavinMQ::Server? = nil, &suppress_callback : Bool -> Nil)
         @suppress_callback = suppress_callback
@@ -619,6 +629,8 @@ module LavinMQ
       def server=(srv : LavinMQ::Server?) : LavinMQ::Server?
         @cache_lock.synchronize do
           @server = srv
+          @committed_files.clear
+          @pending_file_replaces.clear
           rebuild_resource_cache!
         end
         srv
@@ -635,8 +647,21 @@ module LavinMQ
           @reset_apply_cache = true
           @has_pending_apply_ops.set(true, :release)
           srv = @server || return
+          if @committed_files.empty?
+            {"vhosts.json", "users.json", "parameters.json"}.each do |rel|
+              full = File.join(srv.data_dir, rel)
+              @committed_files[rel] = File.read(full).to_slice.dup if File.exists?(full)
+            end
+          end
           srv.vhosts.each_value do |vh|
             vh_id = index_vhost!(vh)
+            {"parameters.json", "policies.json", "operator_policies.json", "limits.json", "mqtt_permissions.json"}.each do |fn|
+              rel = "#{vh.dir}/#{fn}"
+              unless @committed_files.has_key?(rel)
+                full = File.join(srv.data_dir, rel)
+                @committed_files[rel] = File.read(full).to_slice.dup if File.exists?(full)
+              end
+            end
             vh.queues.each do |q|
               index_queue!(vh, vh_id, q)
             end
@@ -846,8 +871,23 @@ module LavinMQ
             remove_queue!(entry.vhost_id, entry.queue_id)
             drain_pending_apply_cache_ops
           when LogCommandType::VHostDelete
+            vhost_dir = @cache_lock.synchronize { @vhost_dir_by_id[entry.vhost_id]? } || String.new(record.payload)
+            remove_committed_vhost_files(vhost_dir)
             remove_vhost!(entry.vhost_id)
             drain_pending_apply_cache_ops
+          when LogCommandType::VHostCreate
+            @cache_lock.synchronize do
+              @pending_file_replaces.delete(entry.lsn)
+              @committed_files["vhosts.json"] = record.payload.dup
+            end
+          when LogCommandType::FileReplace
+            if parsed = parse_file_replace_payload(record.payload)
+              rel, content = parsed
+              @cache_lock.synchronize do
+                @pending_file_replaces.delete(entry.lsn)
+                @committed_files[rel] = content
+              end
+            end
           end
           return
         end
@@ -918,16 +958,138 @@ module LavinMQ
       end
 
       def rollback_uncommitted(entry : LogIndexEntry) : Nil
-        return unless entry.command == LogCommandType::Publish && entry.from_leader?
-        with_suppressed_replication do
-          if q = resolve_queue(entry.vhost_id, entry.queue_id)
-            q.rollback_uncommitted_publish(entry.segment_id, entry.position, entry.byte_size)
+        return unless entry.from_leader?
+        case entry.command
+        when LogCommandType::Publish
+          with_suppressed_replication do
+            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+              q.rollback_uncommitted_publish(entry.segment_id, entry.position, entry.byte_size)
+            end
+          end
+        when LogCommandType::VHostCreate
+          @cache_lock.synchronize { @pending_file_replaces.delete(entry.lsn) }
+          restore_committed_file!("vhosts.json")
+        when LogCommandType::FileReplace
+          if rel = @cache_lock.synchronize { @pending_file_replaces.delete(entry.lsn) }
+            restore_committed_file!(rel)
           end
         end
       end
 
+      def record_pending_file_replace(lsn : UInt64, rel : String) : Nil
+        @cache_lock.synchronize do
+          @pending_file_replaces[lsn] = rel
+        end
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      def restore_committed_file!(rel : String) : Nil
+        @file_restore_lock.synchronize do
+          srv = @server || return
+          prev = @cache_lock.synchronize { @committed_files[rel]? }
+          full_path = File.join(srv.data_dir, rel)
+          with_suppressed_replication do
+            if prev
+              FileUtils.mkdir_p(File.dirname(full_path))
+              tmp_path = "#{full_path}.tmp.rf"
+              File.write(tmp_path, prev)
+              File.rename(tmp_path, full_path)
+            else
+              File.delete?(full_path)
+            end
+
+            parts = rel.split('/')
+            if parts.size == 1
+              case parts[0]
+              when "vhosts.json"
+                reconcile_committed_vhosts!(srv, prev)
+              when "users.json"
+                srv.users.reload!
+              when "parameters.json"
+                srv.reload_parameters!
+              end
+            elsif parts.size == 2
+              vh = srv.vhosts.values.find { |v| v.dir == parts[0] }
+              if vh
+                case parts[1]
+                when "parameters.json"
+                  vh.reload_parameters!
+                when "policies.json"
+                  vh.reload_policies!
+                when "operator_policies.json"
+                  vh.reload_operator_policies!
+                when "limits.json"
+                  vh.reload_limits!
+                when "mqtt_permissions.json"
+                  vh.mqtt_permission_service.reload_for_rollback!
+                end
+              elsif prev.nil?
+                FileUtils.rm_rf(File.join(srv.data_dir, parts[0]))
+              end
+            end
+          end
+        end
+      end
+
+      private def reconcile_committed_vhosts!(srv : LavinMQ::Server, committed_bytes : Bytes?) : Nil
+        committed_names = Set(String).new
+        if bytes = committed_bytes
+          json = JSON.parse(String.new(bytes))
+          if arr = json.as_a?
+            arr.each do |vh_obj|
+              name = vh_obj["name"].as_s
+              committed_names << name
+              unless srv.vhosts[name]?
+                description = vh_obj["description"]?.try(&.as_s) || ""
+                tags = vh_obj["tags"]?.try(&.as_a.map(&.as_s)) || Array(String).new
+                vh = srv.vhosts.create(name, description: description, tags: tags)
+                index_vhost!(vh)
+              end
+            end
+          end
+        else
+          committed_names << "/"
+        end
+
+        to_delete = Array(String).new
+        srv.vhosts.each_value do |vh|
+          to_delete << vh.name unless committed_names.includes?(vh.name)
+        end
+        to_delete.each do |vh_name|
+          if vh = srv.vhosts[vh_name]?
+            vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+            remove_vhost!(vh_id)
+            drain_pending_apply_cache_ops
+          end
+          srv.vhosts.delete(vh_name)
+        end
+      end
+
+      private def remove_committed_vhost_files(vhost_dir : String) : Nil
+        return if vhost_dir.empty?
+        prefix = "#{vhost_dir}/"
+        @cache_lock.synchronize do
+          keys = @committed_files.keys.select(&.starts_with?(prefix))
+          keys.each { |k| @committed_files.delete(k) }
+        end
+      end
+
+      private def parse_file_replace_payload(payload : Bytes) : Tuple(String, Bytes)?
+        return if payload.size < 6
+        io = IO::Memory.new(payload)
+        rel_len = UInt16.from_io(io, IO::ByteFormat::LittleEndian)
+        rel = io.read_string(rel_len)
+        content_len = UInt32.from_io(io, IO::ByteFormat::LittleEndian)
+        content = Bytes.new(content_len)
+        io.read_fully(content)
+        {rel, content}
+      rescue
+        nil
+      end
+
       private def apply_vhost_create(payload : Bytes) : Nil
         srv = @server || return
+        @cache_lock.synchronize { @committed_files["vhosts.json"] = payload.dup }
         json = JSON.parse(String.new(payload))
         if arr = json.as_a?
           arr.each do |vh_obj|
@@ -936,6 +1098,13 @@ module LavinMQ
             tags = vh_obj["tags"]?.try(&.as_a.map(&.as_s)) || Array(String).new
             vh = srv.vhosts[name]? || srv.vhosts.create(name, description: description, tags: tags)
             index_vhost!(vh)
+            rel_mqtt = "#{vh.dir}/mqtt_permissions.json"
+            full_mqtt = File.join(srv.data_dir, rel_mqtt)
+            @cache_lock.synchronize do
+              if !@committed_files.has_key?(rel_mqtt) && File.exists?(full_mqtt)
+                @committed_files[rel_mqtt] = File.read(full_mqtt).to_slice.dup
+              end
+            end
           end
         end
       end
@@ -958,6 +1127,7 @@ module LavinMQ
               @raft_log.unregister_queue_segments(vh_id, q_id)
             end
           end
+          remove_committed_vhost_files(vh.dir)
           remove_vhost!(vh_id)
           drain_pending_apply_cache_ops
           srv.vhosts.delete(vh.name)
@@ -988,43 +1158,42 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def apply_file_replace(vhost_id : UInt64, payload : Bytes) : Nil
-        srv = @server || return
-        return if payload.size < 6
-        io = IO::Memory.new(payload)
-        rel_len = UInt16.from_io(io, IO::ByteFormat::LittleEndian)
-        rel = io.read_string(rel_len)
-        content_len = UInt32.from_io(io, IO::ByteFormat::LittleEndian)
-        content = Bytes.new(content_len)
-        io.read_fully(content)
+        @file_restore_lock.synchronize do
+          srv = @server || return
+          parsed = parse_file_replace_payload(payload) || return
+          rel, content = parsed
 
-        full_path = File.join(srv.data_dir, rel)
-        FileUtils.mkdir_p(File.dirname(full_path))
-        tmp_path = "#{full_path}.tmp.rf"
-        File.write(tmp_path, content)
-        File.rename(tmp_path, full_path)
+          @cache_lock.synchronize { @committed_files[rel] = content }
 
-        parts = rel.split('/')
-        if parts.size == 1
-          case parts[0]
-          when "users.json"
-            srv.users.reload!
-          when "parameters.json"
-            srv.reload_parameters!
-          end
-        elsif parts.size == 2
-          vh = srv.vhosts.values.find { |v| v.dir == parts[0] } || resolve_vhost(vhost_id)
-          if vh
-            case parts[1]
+          full_path = File.join(srv.data_dir, rel)
+          FileUtils.mkdir_p(File.dirname(full_path))
+          tmp_path = "#{full_path}.tmp.rf"
+          File.write(tmp_path, content)
+          File.rename(tmp_path, full_path)
+
+          parts = rel.split('/')
+          if parts.size == 1
+            case parts[0]
+            when "users.json"
+              srv.users.reload!
             when "parameters.json"
-              vh.reload_parameters!
-            when "policies.json"
-              vh.reload_policies!
-            when "operator_policies.json"
-              vh.reload_operator_policies!
-            when "limits.json"
-              vh.reload_limits!
-            when "mqtt_permissions.json"
-              vh.mqtt_permission_service.reload!
+              srv.reload_parameters!
+            end
+          elsif parts.size == 2
+            vh = srv.vhosts.values.find { |v| v.dir == parts[0] } || resolve_vhost(vhost_id)
+            if vh
+              case parts[1]
+              when "parameters.json"
+                vh.reload_parameters!
+              when "policies.json"
+                vh.reload_policies!
+              when "operator_policies.json"
+                vh.reload_operator_policies!
+              when "limits.json"
+                vh.reload_limits!
+              when "mqtt_permissions.json"
+                vh.mqtt_permission_service.reload!
+              end
             end
           end
         end
@@ -1063,6 +1232,10 @@ module LavinMQ
           end
 
           # Restart queues whose segments were replaced by snapshot so their MFiles map the snapshot
+          @cache_lock.synchronize do
+            @committed_files.clear
+            @pending_file_replaces.clear
+          end
           rebuild_resource_cache!
           srv.vhosts.each_value do |vh|
             vh_id = index_vhost!(vh)

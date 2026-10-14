@@ -126,13 +126,15 @@ module LavinMQ
       getter peer_uri : String
       getter amqp_uri : String
       getter http_uri : String
+      getter mqtt_uri : String
       property role : MemberRole
 
       def initialize(@node_id : UInt64,
                      @peer_uri : String,
                      @amqp_uri : String = "",
                      @http_uri : String = "",
-                     @role : MemberRole = MemberRole::Voter)
+                     @role : MemberRole = MemberRole::Voter,
+                     @mqtt_uri : String = "")
       end
 
       def voter? : Bool
@@ -149,6 +151,7 @@ module LavinMQ
         Protocol.write_string(io, @peer_uri, format)
         Protocol.write_string(io, @amqp_uri, format)
         Protocol.write_string(io, @http_uri, format)
+        Protocol.write_string(io, @mqtt_uri, format)
       end
 
       def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : self
@@ -158,7 +161,8 @@ module LavinMQ
         peer_uri = Protocol.read_string(io, format)
         amqp_uri = Protocol.read_string(io, format)
         http_uri = Protocol.read_string(io, format)
-        new(node_id, peer_uri, amqp_uri, http_uri, role)
+        mqtt_uri = Protocol.read_string(io, format)
+        new(node_id, peer_uri, amqp_uri, http_uri, role, mqtt_uri)
       end
     end
 

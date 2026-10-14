@@ -644,4 +644,53 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       FileUtils.rm_rf(base_dir)
     end
   end
+
+  it "waits for quorum on replace_file and restores committed files and in-memory state on replication failure" do
+    base_dir = File.tempname("lavinmq_cv2_replace_file_quorum")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        cn.raft.leader_lease_timeout = 180.milliseconds
+        cn.raft.leader_stickiness_window = 50.milliseconds
+        nodes << cn
+        cn.bind
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+
+      wait_until { nodes.count(&.raft.leader?) == 1 }.should be_true
+      leader = nodes.find!(&.raft.leader?)
+      followers = nodes.reject(&.raft.leader?)
+
+      # 1. Create a committed vhost while quorum is healthy
+      leader.server.vhosts.create("committed_vh")
+      wait_until do
+        nodes.all?(&.server.vhosts["committed_vh"]?)
+      end.should be_true
+
+      # 2. Isolate followers so quorum cannot be reached, then attempt to create a user and a vhost
+      followers.each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
+
+      expect_raises(LavinMQ::Clustering::Replicator::ReplicationError) do
+        leader.server.users.create("uncommitted_user", "secret", [LavinMQ::Tag::Administrator])
+      end
+
+      # Verify leader stepped down, rolled back the uncommitted FileReplace, and restored users.json + in-memory users
+      leader.raft.follower?.should be_true
+      leader.server.users["uncommitted_user"]?.should be_nil
+      File.read(File.join(leader.server.data_dir, "users.json")).should_not contain("uncommitted_user")
+      leader.server.vhosts["committed_vh"]?.should_not be_nil
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
 end
