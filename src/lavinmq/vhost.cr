@@ -321,15 +321,12 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(AMQP::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                ctx = AMQP::RoutingContext.new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
-        ex.publish(msg, immediate, found_queues, visited)
+        ex.publish(msg, immediate, ctx)
       else
         AMQP::Exchange::PublishResult::None
       end
-    ensure
-      visited.clear
-      found_queues.clear
     end
 
     def details_tuple

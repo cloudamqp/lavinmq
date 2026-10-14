@@ -85,8 +85,9 @@ module LavinMQ::AMQP
           # cycle detection and to not create a lot of faulty stats.
           # This means that no delay, consistent hash check or such is performed
           # if the dead letter exchange has any of these features enabled.
-          queues = Set(AMQP::Queue).new
-          ex.find_queues(routing_rk, routing_headers, queues)
+          routing = AMQP::RoutingContext.new
+          ex.find_queues(routing_rk, routing_headers, routing)
+          queues = routing.queues
           return routed.call if queues.empty?
 
           first_in_chain = dlx_tasks.nil?

@@ -139,7 +139,7 @@ module LavinMQ::AMQP
         msg.properties.headers = headers
       end
       @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body)), RoutingContext.new
       delete_message sp
     end
 

@@ -272,8 +272,7 @@ module LavinMQ
         @next_publish_mandatory = @next_publish_immediate = false
       end
 
-      @visited = Set(Exchange).new
-      @found_queues = Set(Queue).new
+      @routing_context = RoutingContext.new
 
       record TxMessage, message : Message, mandatory : Bool, immediate : Bool
       @tx_publishes = Array(TxMessage).new
@@ -287,7 +286,7 @@ module LavinMQ
 
         msg.needs_sync = true if @confirm
         confirm do
-          result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+          result = @client.vhost.publish msg, @next_publish_immediate, @routing_context
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
           result
         rescue e : LavinMQ::Error::PreconditionFailed
@@ -858,7 +857,7 @@ module LavinMQ
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
-          result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
+          result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @routing_context)
           basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed?
           # skip to next msg body in the next_msg_body_file
           tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)

@@ -3,10 +3,9 @@ require "./spec_helper"
 module MessageRoutingSpec
   def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Queue | LavinMQ::Exchange)
     s = Set(LavinMQ::Queue | LavinMQ::Exchange).new
-    qs = Set(LavinMQ::AMQP::Queue).new
-    es = Set(LavinMQ::AMQP::Exchange).new
-    exchange.find_queues(routing_key, headers, qs, es)
-    qs.each { |q| s << q }
+    ctx = LavinMQ::AMQP::RoutingContext.new
+    exchange.find_queues(routing_key, headers, ctx)
+    ctx.queues.each { |q| s << q }
     s
   end
 
@@ -476,7 +475,7 @@ module MessageRoutingSpec
         headers = LavinMQ::AMQP::Table.new
         headers["CC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, Set(LavinMQ::AMQP::Queue).new)
+          x.find_queues("q1", headers, LavinMQ::AMQP::RoutingContext.new)
         end
       end
     end
@@ -506,7 +505,7 @@ module MessageRoutingSpec
         headers = LavinMQ::AMQP::Table.new
         headers["BCC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, Set(LavinMQ::AMQP::Queue).new)
+          x.find_queues("q1", headers, LavinMQ::AMQP::RoutingContext.new)
         end
       end
     end

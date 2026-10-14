@@ -8,6 +8,7 @@ require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
+require "../routing_context"
 
 module LavinMQ
   module AMQP
@@ -229,9 +230,7 @@ module LavinMQ
         Rejected
       end
 
-      def publish(msg : Message, immediate : Bool,
-                  queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                  exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : PublishResult
+      def publish(msg : Message, immediate : Bool, ctx : RoutingContext) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -250,23 +249,18 @@ module LavinMQ
             return PublishResult::None
           end
         end
-        route_msg(msg, immediate, queues, exchanges)
+        route_msg(msg, immediate, ctx)
       end
 
-      def route_msg(msg : Message) : PublishResult
-        route_msg(msg, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
+      def route_msg(msg : Message, ctx : RoutingContext) : PublishResult
+        route_msg(msg, false, ctx)
       end
 
-      def route_msg(msg : Message, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
-        route_msg(msg, false, queues, exchanges)
-      ensure
-        queues.clear
-        exchanges.clear
-      end
-
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
+      # The context is reset when done, so the caller can reuse it.
+      def route_msg(msg : Message, immediate : Bool, ctx : RoutingContext) : PublishResult
         headers = msg.properties.headers
-        find_queues(msg.routing_key, headers, queues, exchanges)
+        find_queues(msg.routing_key, headers, ctx)
+        queues = ctx.queues
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
           @unroutable_count.add(1, :relaxed)
           return PublishResult::None
@@ -292,37 +286,37 @@ module LavinMQ
         result |= PublishResult::Routed if count.positive?
         result |= PublishResult::Rejected if rejected
         result
+      ensure
+        ctx.reset
       end
 
-      def find_queues(routing_key : String, headers : AMQP::Table?,
-                      queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
-        return unless exchanges.add? self
+      def find_queues(routing_key : String, headers : AMQP::Table?, ctx : RoutingContext) : Nil
+        return unless ctx.visit? self
         each_destination(routing_key, headers) do |d|
           case d
           in AMQP::Queue
             # Prevent routing to own internal delayed queue to avoid infinite loops
             unless delayed? && d == @delayed_queue
-              queues.add(d)
+              ctx.add(d)
             end
           in AMQP::Exchange
-            d.find_queues(routing_key, headers, queues, exchanges)
+            d.find_queues(routing_key, headers, ctx)
           end
         end
 
         if hdrs = headers
-          find_cc_queues(hdrs, "CC", queues)
-          find_cc_queues(hdrs, "BCC", queues)
+          find_cc_queues(hdrs, "CC", ctx)
+          find_cc_queues(hdrs, "BCC", ctx)
         end
 
-        if queues.empty? && (ae_name = alternate_exchange)
+        if ctx.queues.empty? && (ae_name = alternate_exchange)
           @vhost.exchange?(ae_name).try do |ae|
-            ae.find_queues(routing_key, headers, queues, exchanges)
+            ae.find_queues(routing_key, headers, ctx)
           end
         end
       end
 
-      private def find_cc_queues(headers, key, queues)
+      private def find_cc_queues(headers, key, ctx : RoutingContext)
         return unless cc = headers[key]?
         cc = cc.as?(Array(AMQP::Field))
 
@@ -333,7 +327,8 @@ module LavinMQ
         hdrs.delete key
         cc.each do |rk|
           if rk = rk.as?(String)
-            find_queues(rk, hdrs, queues)
+            # Same queue set, but exchanges are visited afresh for each routing key
+            find_queues(rk, hdrs, RoutingContext.new(ctx.queues))
           else
             raise LavinMQ::Error::PreconditionFailed.new("#{key} header not a string array")
           end

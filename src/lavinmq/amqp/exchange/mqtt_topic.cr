@@ -107,7 +107,7 @@ module LavinMQ
             in .dropped?            then nil
             end
           in AMQP::Exchange
-            count += 1 if destination.route_msg(message, ctx.queues, ctx.exchanges).routed?
+            count += 1 if destination.route_msg(message, ctx.routing).routed?
           end
           message.body_io.rewind
         end

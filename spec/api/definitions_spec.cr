@@ -617,19 +617,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::AMQP::Exchange).new
-        ex.find_queues("r.k2", nil, qs, es)
+        ctx = LavinMQ::AMQP::RoutingContext.new
+        ex.find_queues("r.k2", nil, ctx)
         res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
-        es.should eq res
-        qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::AMQP::Exchange).new
-        ex.find_queues("rk", nil, qs, es)
+        ctx.exchanges.should eq res
+        ctx = LavinMQ::AMQP::RoutingContext.new
+        ex.find_queues("rk", nil, ctx)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
-        qs.should eq res
+        ctx.queues.should eq res
       end
     end
 
@@ -1232,19 +1230,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::AMQP::Exchange).new
-        ex.find_queues("r.k2", nil, qs, es)
+        ctx = LavinMQ::AMQP::RoutingContext.new
+        ex.find_queues("r.k2", nil, ctx)
         res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
-        es.should eq res
-        qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::AMQP::Exchange).new
-        ex.find_queues("rk", nil, qs, es)
+        ctx.exchanges.should eq res
+        ctx = LavinMQ::AMQP::RoutingContext.new
+        ex.find_queues("rk", nil, ctx)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
-        qs.should eq res
+        ctx.queues.should eq res
       end
     end
 
