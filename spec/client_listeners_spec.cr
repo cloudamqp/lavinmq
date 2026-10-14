@@ -93,6 +93,28 @@ describe LavinMQ::ClientListeners do
     end
   end
 
+  it "lets connections wait until it serves, without listening before" do
+    with_amqp_server do |s|
+      config = listener_config
+      config.amqps_port = -1
+      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
+      listeners.bind(nil, nil, nil)
+      connected = Channel(AMQP::Client::Connection).new(1)
+      spawn { connected.send AMQP::Client.new(host: "127.0.0.1", port: config.amqp_port).connect }
+      sleep 50.milliseconds # in the listen backlog, not closed
+      listeners.serve(LavinMQ::ClientListeners::Brokers.new(s.amqp_server, s.mqtt_server, s.http_server))
+      select
+      when conn = connected.receive
+        conn.channel.queue("waited").publish_confirm("m").should be_true
+        conn.close
+      when timeout(5.seconds)
+        fail "the waiting connection wasn't served"
+      end
+    ensure
+      listeners.try &.close
+    end
+  end
+
   it "closes connections while neither serving nor knowing of a leader" do
     config = listener_config
     listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })

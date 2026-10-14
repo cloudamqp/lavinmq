@@ -36,6 +36,7 @@ module LavinMQ
     @forwarded = Set(IO).new
     @lock = Mutex.new
     @closed = false
+    @listening = Atomic(Bool).new(false)
 
     # *leader_host* is where connections are forwarded while not serving, see
     # Runner#leader_host
@@ -72,7 +73,11 @@ module LavinMQ
       @listeners << Listener.new(kind, server, tls, target_port)
     end
 
+    # Starts accepting. Until then connections wait in the listen backlog,
+    # rather than being closed while neither serving nor knowing of a
+    # leader. #serve also starts it.
     def listen : Nil
+      return if @listening.swap(true)
       @listeners.each do |l|
         spawn(name: "#{l.kind} listener #{l.server.local_address}") { accept_loop(l) }
       end
@@ -88,6 +93,7 @@ module LavinMQ
       end
       return unless brokers
       forwarded.each { |io| io.close rescue nil }
+      listen
       @listeners.each do |l|
         case l.kind
         in .amqp? then brokers.amqp.adopt(l.server)

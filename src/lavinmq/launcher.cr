@@ -110,7 +110,9 @@ module LavinMQ
       rescue ex : Socket::BindError
         abort "Error: #{ex.message}"
       end
-      @client_listeners.listen
+      # A standalone node accepts when it serves, until then connections
+      # wait. A clustered one forwards them to the leader meanwhile.
+      @client_listeners.listen if @config.clustering?
       @runner.run do
         start
       end
