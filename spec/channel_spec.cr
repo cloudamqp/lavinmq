@@ -79,7 +79,7 @@ describe LavinMQ::AMQP::Channel do
         ch.basic_nack(0_u64, multiple: true, requeue: true)
         q = ch.queue # the channel must still be usable
         q.publish "m1"
-        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+        q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m1"
       end
     end
   end

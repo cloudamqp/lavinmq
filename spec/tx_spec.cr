@@ -133,7 +133,7 @@ describe "Transactions" do
           q = ch.queue # the connection must still be usable
           q.publish "m1"
           ch.tx_commit
-          q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+          q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m1"
         end
       end
     end
