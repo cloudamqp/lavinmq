@@ -79,7 +79,9 @@ jwks_cache_ttl = 3600
 | `audience` | (none) | Expected JWT audience value. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | `3600` | How long to cache the JWKS keys (seconds) |
 
-Changes to these options take effect on a configuration reload (`SIGHUP`). When `issuer` or `jwks_cache_ttl` changes, the keys are fetched again from the new issuer, and tokens from the old issuer are rejected, also when an existing connection refreshes its token. Adding or removing `oauth` in `auth_backends` requires a restart.
+Changes to these options take effect on a configuration reload (`SIGHUP`). When `issuer` or `jwks_cache_ttl` changes, the keys are fetched again from the new issuer, and tokens from the old issuer are rejected, also when an existing connection refreshes its token.
+
+Adding or removing `oauth` in `auth_backends` also takes effect on reload. When OAuth is disabled, new OAuth logins are refused, including management UI SSO. Connections already authenticated with OAuth stay open until their token expires, but can no longer refresh it.
 
 ### Management UI SSO Login
 

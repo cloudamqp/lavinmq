@@ -40,7 +40,7 @@ module LavinMQ
       end
 
       def cleanup
-        @token_verifier.fetcher.cleanup
+        @token_verifier.disable
       end
     end
   end

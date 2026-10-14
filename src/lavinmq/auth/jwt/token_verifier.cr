@@ -35,6 +35,7 @@ module LavinMQ
         Log = LavinMQ::Log.for "oauth2"
 
         getter :fetcher
+        @disabled = false
 
         def initialize(@config : Config, @fetcher : JWKSFetcher)
           @expected_issuer = @config.oauth_issuer_url.to_s.chomp("/")
@@ -69,7 +70,15 @@ module LavinMQ
           @parser.parse(token)
         end
 
+        # Stops the JWKS fetcher and rejects all tokens from now on, e.g. token
+        # refreshes from connections authenticated before OAuth was disabled.
+        def disable : Nil
+          @disabled = true
+          @fetcher.cleanup
+        end
+
         def verify_token(token : String) : Token
+          raise JWT::VerificationError.new("OAuth authentication is disabled") if @disabled
           prevalidate_token(token)
           # After prevalidation so malformed tokens can't trigger network fetches
           fetcher = @fetcher # a reload may replace it while ensure_keys blocks
