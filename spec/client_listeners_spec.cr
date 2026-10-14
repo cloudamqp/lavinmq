@@ -74,6 +74,25 @@ describe LavinMQ::ClientListeners do
     end
   end
 
+  it "hands HTTP to the broker with the client's address" do
+    with_amqp_server do |s|
+      config = listener_config
+      config.amqp_port = config.amqps_port = -1
+      config.http_bind = "127.0.0.1"
+      config.http_port = free_port
+      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
+      listeners.bind(nil, nil, nil)
+      listeners.listen
+      listeners.serve(LavinMQ::ClientListeners::Brokers.new(s.amqp_server, s.mqtt_server, s.http_server))
+      # The default user may only log in from loopback
+      response = HTTP::Client.new("127.0.0.1", config.http_port).get("/api/whoami",
+        headers: HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("guest:guest")}"})
+      response.status_code.should eq 200
+    ensure
+      listeners.try &.close
+    end
+  end
+
   it "closes connections while neither serving nor knowing of a leader" do
     config = listener_config
     listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })

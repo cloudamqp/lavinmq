@@ -81,7 +81,13 @@ module LavinMQ
         spawn(name: "HTTP client") do
           client.sync = false
           io = tls ? OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true) : client
-          @processor.process(io, io)
+          # process(io, io) wraps the IO from Crystal 1.22, losing the remote
+          # address, e.g. for the loopback-only default user
+          {% if compare_versions(Crystal::VERSION, "1.22.0") >= 0 %}
+            @processor.process(io)
+          {% else %}
+            @processor.process(io, io)
+          {% end %}
         rescue ex : IO::Error | OpenSSL::SSL::Error
           Log.debug { "HTTP connection error: #{ex.message}" }
         ensure
