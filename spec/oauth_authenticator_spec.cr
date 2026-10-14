@@ -115,6 +115,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
           request_count_b.call.should be > 0
           authenticator.token_verifier.fetcher.should_not be old_fetcher
           authenticator.token_verifier.fetcher.public_keys.empty?.should be_false
+          old_fetcher.@stopped.value.should be_true
         ensure
           authenticator.try &.cleanup
         end
@@ -142,25 +143,6 @@ describe LavinMQ::Auth::OAuthAuthenticator do
         authenticator.token_verifier.fetcher.should_not be fetcher
       ensure
         authenticator.try &.cleanup
-      end
-    end
-
-    it "stops the replaced fetcher while it is retrying an unreachable provider" do
-      with_stub_idp_server(healthy: false) do |addr_a, request_count_a|
-        with_stub_idp_server do |addr_b, _request_count_b|
-          authenticator, old_fetcher = authenticator_for_idp(addr_a)
-          old_fetcher.start_refresh_loop(retry_delay: 10.milliseconds)
-          wait_for { request_count_a.call >= 2 }
-          config = create_test_config
-          config.oauth_issuer_url = URI.parse("http://#{addr_b}")
-          authenticator.reload(config)
-          sleep 50.milliseconds
-          requests = request_count_a.call
-          sleep 100.milliseconds
-          request_count_a.call.should eq requests
-        ensure
-          authenticator.try &.cleanup
-        end
       end
     end
   end

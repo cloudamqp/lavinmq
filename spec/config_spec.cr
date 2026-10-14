@@ -10,6 +10,10 @@ class LavinMQ::Launcher
   def reload!
     reload_server
   end
+
+  # `start` creates the server, but also binds listeners
+  def server=(@server : LavinMQ::Server)
+  end
 end
 
 describe LavinMQ::Config do
@@ -1068,6 +1072,41 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "applies auth_backends changes to the running server's auth chain" do
+      with_launcher("[main]\nauth_backends = local\n") do |launcher, config, config_file|
+        server = LavinMQ::Server.new(config)
+        launcher.server = server
+        chain = server.authenticator.as(LavinMQ::Auth::Chain)
+        chain.oauth_authenticator.should be_nil
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,oauth
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        oauth = chain.oauth_authenticator.should_not be_nil
+
+        # An invalid config is rejected as a whole, the chain is unchanged
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,ldap
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        chain.oauth_authenticator.should be oauth
+
+        File.write(config_file.path, "[main]\nauth_backends = local\n")
+        launcher.reload!
+        chain.oauth_authenticator.should be_nil
+        chain.backends.size.should eq 1
+      ensure
+        server.try &.close
       end
     end
 
