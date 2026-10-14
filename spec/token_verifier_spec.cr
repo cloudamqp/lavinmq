@@ -15,6 +15,18 @@ class MockJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
   end
 end
 
+# Mock JWKSFetcher whose fetch blocks until released
+class BlockingJWKSFetcher < MockJWKSFetcher
+  getter fetching = Channel(Nil).new
+  getter release = Channel(Nil).new
+
+  def fetch_jwks : JWKSResult
+    @fetching.send nil
+    @release.receive
+    super
+  end
+end
+
 # Helper module to build JWT tokens for testing
 module JWTTestHelper
   extend self
@@ -346,6 +358,28 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       expect_raises(LavinMQ::Auth::JWT::VerificationError, /audience does not match/) do
         verifier.test_validate_audience(payload)
       end
+    end
+  end
+
+  describe "#disable" do
+    it "rejects a token whose verification was waiting for keys" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      fetcher = BlockingJWKSFetcher.new({"k1" => "not-a-pem"})
+      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, fetcher)
+      token = JWTTestHelper.build_unsigned_token(JWTTestHelper.valid_header, JWTTestHelper.valid_payload)
+      result = Channel(Exception?).new
+      spawn do
+        verifier.verify_token(token)
+        result.send nil
+      rescue ex
+        result.send ex
+      end
+      fetcher.fetching.receive
+      verifier.disable
+      fetcher.release.send nil
+      error = result.receive.should be_a(LavinMQ::Auth::JWT::VerificationError)
+      error.message.should eq "OAuth authentication is disabled"
     end
   end
 end
