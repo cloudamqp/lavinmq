@@ -133,16 +133,17 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       end
     end
 
-    it "replaces the fetcher when only jwks_cache_ttl changes" do
+    it "keeps the fetcher and its keys when only jwks_cache_ttl changes" do
       with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
+        fetcher.ensure_keys
         config = create_test_config
         config.oauth_issuer_url = URI.parse("http://#{addr}")
         config.oauth_jwks_cache_ttl = 5.minutes
         authenticator.reload(config)
-        authenticator.token_verifier.fetcher.should_not be fetcher
-      ensure
-        authenticator.try &.cleanup
+        authenticator.token_verifier.fetcher.should be fetcher
+        fetcher.default_cache_ttl.should eq 5.minutes
+        fetcher.public_keys.empty?.should be_false
       end
     end
   end

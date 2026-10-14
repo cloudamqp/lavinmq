@@ -35,11 +35,13 @@ module LavinMQ
       class TokenVerifier
         Log = LavinMQ::Log.for "oauth2"
 
-        # Everything a verification depends on. A reload swaps in a new State
-        # as one reference, and a verification reads @state once, so each token
-        # is checked entirely against either the old or the new config, even
-        # when ensure_keys blocks while a reload runs. Config#reload overwrites
-        # the live Config in place, so each State holds a detached copy of it.
+        # Everything a verification depends on. A verification reads @state
+        # once, so each token is checked entirely against either the old or the
+        # new config, even when ensure_keys blocks while a reload runs. State is
+        # a struct: swapping it is a multi-word write, which is safe only because
+        # it doesn't yield and auth runs on the single-threaded default context.
+        # Config#reload overwrites the live Config in place, so each State holds
+        # a detached copy of it.
         private record State, config : Config, parser : TokenParser,
           fetcher : JWKSFetcher, expected_issuer : String do
           def self.new(config : Config, fetcher : JWKSFetcher, expected_issuer : String)
@@ -59,9 +61,11 @@ module LavinMQ
         end
 
         # Applies a reloaded config. Claim, scope and audience settings are read
-        # from the config on every verification, but the issuer and JWKS cache
-        # TTL are bound to the fetcher, so it's replaced when either changes.
-        # The verifier itself is kept, as OAuthUsers hold it for UpdateSecret.
+        # from the config on every verification, but the issuer is bound to the
+        # fetcher, so it's replaced when the issuer changes. A changed JWKS cache
+        # TTL is applied to the current fetcher, keeping its keys, and takes
+        # effect at the next refresh. The verifier itself is kept, as OAuthUsers
+        # hold it for UpdateSecret.
         def reload(config : Config) : Nil
           state = @state
           uri = config.oauth_issuer_url
@@ -71,11 +75,12 @@ module LavinMQ
             return
           end
           issuer = uri.to_s.chomp("/")
-          if issuer == state.fetcher.issuer_url && config.oauth_jwks_cache_ttl == state.fetcher.default_cache_ttl
+          if issuer == state.fetcher.issuer_url
+            state.fetcher.default_cache_ttl = config.oauth_jwks_cache_ttl
             @state = State.new(config, state.fetcher, state.expected_issuer)
             return
           end
-          Log.info { "OAuth issuer or jwks_cache_ttl changed, refetching JWKS from #{issuer}" }
+          Log.info { "OAuth issuer changed, refetching JWKS from #{issuer}" }
           fetcher = JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
           fetcher.start_refresh_loop
           @state = State.new(config, fetcher, issuer)
@@ -103,6 +108,8 @@ module LavinMQ
           prevalidate_token(token)
           # After prevalidation so malformed tokens can't trigger network fetches
           state.fetcher.ensure_keys
+          # ensure_keys can block on a fetch, during which OAuth may be disabled
+          raise JWT::VerificationError.new("OAuth authentication is disabled") if @disabled
           verified_token = state.fetcher.public_keys.decode(token)
           payload = verified_token.payload
           validate_issuer(payload, state.expected_issuer)
