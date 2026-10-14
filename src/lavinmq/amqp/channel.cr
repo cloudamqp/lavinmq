@@ -656,7 +656,11 @@ module LavinMQ
             end
           end
           redeliver.each do |consumer, unack|
+            next if consumer.closed?
             env = unack.queue.read(unack.sp)
+            # The channel can be closed (consumer timeout, management API) while
+            # read waits for the queue's store lock, and close has requeued the message
+            return unless @running
             consumer.redeliver(env.message, unack.tag)
           end
         end
@@ -708,9 +712,8 @@ module LavinMQ
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag.add(1, :relaxed)
-        @unacked.push UnackedStore::Unack.new(tag, queue, sp, consumer, RoughTime.instant) unless no_ack
-        tag
+        return @delivery_tag.add(1, :relaxed) if no_ack
+        @unacked.push(queue, sp, consumer) { @delivery_tag.add(1, :relaxed) }
       end
 
       # Closes the channel if any message has been unacked longer than its queue's consumer timeout

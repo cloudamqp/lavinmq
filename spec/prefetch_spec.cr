@@ -71,4 +71,47 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  describe "Channel with global prefetch" do
+    it "takes capacity away when global prefetch is lowered" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 10, true
+          q = ch.queue
+          3.times { q.publish "m" }
+          msgs = [] of AMQP::Client::DeliverMessage
+          q.subscribe(no_ack: false) { |msg| msgs << msg }
+          wait_for { msgs.size == 3 }
+          ch.prefetch 1, true
+          channel = s.vhosts["/"].connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+          channel.has_capacity?.should be_false
+          channel.has_capacity.value.should be_false
+        end
+      end
+    end
+
+    it "does not count basic.get deliveries against the window" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue
+          q.publish "get-me"
+          q.get(no_ack: false).should_not be_nil # one unacked, via basic.get
+          delivered = Channel(String).new
+          returned = Channel(String).new
+          q.subscribe(no_ack: false) { |msg| delivered.send msg.body_io.to_s }
+          ch.on_return { |msg| returned.send msg.body_io.to_s }
+          ch.basic_publish "now", "", q.name, immediate: true
+          select
+          when body = delivered.receive
+            body.should eq "now"
+          when returned.receive
+            fail "immediate publish returned though the consumer had capacity"
+          when timeout 2.seconds
+            fail "neither delivered nor returned"
+          end
+        end
+      end
+    end
+  end
 end

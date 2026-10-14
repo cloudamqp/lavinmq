@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Channel unacked bookkeeping: `basic.recover` with `requeue=false` closed the connection with a 541, and now redelivers with the original delivery tag; `basic.ack`/`basic.nack` of all (tag 0, multiple) with nothing outstanding in a transaction closed the connection with a 541, and is now a no-op; `basic.recover` with `requeue=true` dropped messages with a pending transactional ack; lowering a global `basic.qos` didn't take capacity away; `basic.get` deliveries counted against the global prefetch window for consumers; the queue's unacked API listed a delivery once per consumer on the channel; and a consumer timeout now closes the channel at the broker right away (class/method 0/0) instead of waiting for the client to reply [#2245](https://github.com/cloudamqp/lavinmq/pull/2245)
 - A WebSocket connection that broke could log an unhandled exception (e.g. `SSL_write` for `wss`), from trying to send a close frame over the broken connection [#2430](https://github.com/cloudamqp/lavinmq/pull/2430)
 - A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
 - Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)

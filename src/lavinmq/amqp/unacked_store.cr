@@ -2,6 +2,7 @@ require "../segment_position"
 require "./queue"
 require "./consumer"
 require "../bool_channel"
+require "../rough_time"
 
 module LavinMQ
   module AMQP
@@ -39,10 +40,14 @@ module LavinMQ
         update_capacity { @global_prefetch_count = value }
       end
 
-      def push(unack : Unack) : Nil
+      # Allocates the delivery tag with the block under the lock, so that
+      # concurrent pushes can't append out of order and the deque stays sorted
+      def push(queue : Queue, sp : SegmentPosition, consumer : AMQP::Consumer?, & : -> UInt64) : UInt64
         update_capacity do
-          @unacked.push unack
-          @consumer_unacked.add(1, :relaxed) if unack.consumer
+          tag = yield
+          @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
+          @consumer_unacked.add(1, :relaxed) if consumer
+          tag
         end
       end
 

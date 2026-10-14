@@ -1376,6 +1376,28 @@ describe LavinMQ::Server do
     end
   end
 
+  it "tears the channel down at the broker when a consumer times out" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new({"x-consumer-timeout": 1})
+        q = ch.queue("timeout", args: args)
+        q.publish "m"
+        q.subscribe(no_ack: false) { }
+        sq = s.vhosts["/"].queue("timeout")
+        wait_for { sq.unacked_count == 1 }
+        channel = s.vhosts["/"].connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+        delivered_at = channel.unacked.to_a.first.delivered_at
+        wait_for { RoughTime.instant - delivered_at > 1.millisecond } # RoughTime ticks every 100ms
+        channel.check_consumer_timeout
+        # torn down at the broker without waiting for the client's CloseOk
+        channel.running?.should be_false
+        sq.unacked_count.should eq 0
+        sq.message_count.should eq 1
+        channel.check_consumer_timeout # a second sweep must be a no-op
+      end
+    end
+  end
+
   it "restarts fast even with large messages", tags: "slow" do
     with_amqp_server do |s|
       data = Bytes.new 128 * 1024**2
