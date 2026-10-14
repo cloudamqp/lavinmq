@@ -594,7 +594,9 @@ module LavinMQ::Clustering::Raft
       sticky = !msg.transfer && leader_recent?(now)
       if msg.pre_vote
         granted = msg.term > @term && !sticky && eligible
-        send msg.from, VoteResponse.new(@id, msg.term, granted, pre_vote: true)
+        # A refusal carries our term, a candidate behind it adopts it rather
+        # than asking again for a term nobody grants
+        send msg.from, VoteResponse.new(@id, granted ? msg.term : @term, granted, pre_vote: true)
       else
         handle_vote(msg, eligible, sticky, now)
       end
@@ -624,6 +626,10 @@ module LavinMQ::Clustering::Raft
     # ameba:disable Metrics/CyclomaticComplexity
     private def handle_vote_response(msg : VoteResponse, now : Time::Instant) : Nil
       if msg.pre_vote
+        if !msg.granted && msg.term > @term
+          become_follower(msg.term, nil)
+          return
+        end
         return unless @pre_voting && msg.granted && msg.term == @term + 1
         return unless @voters.includes?(msg.from) && at_home?(msg.from)
         @pre_votes << msg.from
@@ -689,7 +695,13 @@ module LavinMQ::Clustering::Raft
 
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
       return if index <= @snapshot.index
-      @entries.clear
+      if index <= last_index && term_at(index) == term
+        # The entries after it stay: the leader resends its snapshot while
+        # entries past it may already be here, and acked
+        @entries = @entries[(index - @snapshot.index).to_i..]
+      else
+        @entries.clear
+      end
       @snapshot = Snapshot.new(index, term, isr, membership)
       @dirty = true
       refresh_membership

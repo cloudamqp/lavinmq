@@ -528,6 +528,45 @@ describe Raft::Core do
     new_leader.id.should_not eq old.id
   end
 
+  # The leader resends its snapshot to a follower whose next index is behind
+  # it, while entries past it may already be on their way, and acked
+  it "keeps the entries after an installed snapshot that it already has" do
+    now = Time.instant
+    core = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
+      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+    entries = (11..13).map { Raft::Entry.new(1, Set{1, 2, 3}) }
+    core.step(Raft::AppendEntries.new(1, 1, "u1", 10, 1, entries, 10), now)
+    core.last_index.should eq 13
+    core.step(Raft::InstallSnapshot.new(1, 1, "u1", 12, 1, Set{1, 2, 3}, three_voters), now)
+    core.last_index.should eq 13
+    # Not when the snapshot's last entry isn't the one it has
+    core.step(Raft::InstallSnapshot.new(1, 2, "u1", 13, 2, Set{1, 2, 3}, three_voters), now)
+    core.last_index.should eq 13
+    core.last_term.should eq 2
+  end
+
+  # A node a term behind would otherwise keep asking for pre-votes in a term
+  # nobody grants, and no node may be left that can campaign
+  it "adopts the term of a voter that refuses it a pre-vote" do
+    now = Time.instant
+    candidate = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
+      Raft::HardState.new(5, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+    voter = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
+      Raft::HardState.new(6, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+    candidate.connected(2, "n2", now)
+    voter.connected(1, "n1", now)
+    now += 1.second
+    candidate.tick(now)
+    _, request = candidate.take_outbox.find!(&.[1].is_a?(Raft::RequestVote))
+    request.as(Raft::RequestVote).pre_vote.should be_true
+    voter.step(request, now)
+    _, reply = voter.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_false
+    candidate.step(reply, now)
+    candidate.term.should eq 6
+    candidate.role.follower?.should be_true
+  end
+
   it "doesn't count pre-vote grants as votes in the current term" do
     peers = (1..5).map { |i| "n#{i}" }
     now = Time.instant
