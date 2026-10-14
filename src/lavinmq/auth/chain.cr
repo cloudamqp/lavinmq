@@ -40,6 +40,14 @@ module LavinMQ
         new(authenticators)
       end
 
+      def reload(config : Config) : Nil
+        oauth_enabled = @backends.any?(OAuthAuthenticator)
+        if config.auth_backends.includes?("oauth") != oauth_enabled
+          Log.warn { "auth_backends changed, a restart is required to #{oauth_enabled ? "disable" : "enable"} OAuth" }
+        end
+        @backends.each &.reload(config)
+      end
+
       def cleanup
         @backends.each do |backend|
           backend.cleanup

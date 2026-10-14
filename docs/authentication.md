@@ -79,6 +79,8 @@ jwks_cache_ttl = 3600
 | `audience` | (none) | Expected JWT audience value. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | `3600` | How long to cache the JWKS keys (seconds) |
 
+Changes to these options take effect on a configuration reload (`SIGHUP`). When `issuer` or `jwks_cache_ttl` changes, the keys are fetched again from the new issuer, and tokens from the old issuer are rejected, also when an existing connection refreshes its token. Adding or removing `oauth` in `auth_backends` requires a restart.
+
 ### Management UI SSO Login
 
 When `issuer`, `client_id`, and `mgmt_base_url` are all set (and `oauth` is included in `auth_backends`), the management UI login page shows a "Sign in with SSO" button. Clicking it runs an OpenID Connect Authorization Code flow with PKCE against the issuer; on success the user is logged into the management UI with the returned token, which is validated the same way as tokens used for AMQP clients (see below).

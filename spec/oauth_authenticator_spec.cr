@@ -101,6 +101,69 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
   end
 
+  describe "#reload" do
+    it "fetches keys from the new issuer after the issuer changes" do
+      with_stub_idp_server do |addr_a, _paths_a|
+        with_stub_idp_server do |addr_b, paths_b|
+          authenticator, old_fetcher = authenticator_for_idp(addr_a)
+          config = create_test_config
+          config.oauth_issuer_url = URI.parse("http://#{addr_b}")
+          authenticator.reload(config)
+          ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+          authenticator.authenticate(ctx)
+          paths_b.should contain "/.well-known/openid-configuration"
+          authenticator.token_verifier.fetcher.should_not be old_fetcher
+          authenticator.token_verifier.fetcher.public_keys.empty?.should be_false
+        ensure
+          authenticator.try &.cleanup
+        end
+      end
+    end
+
+    it "keeps the current keys when the issuer and jwks_cache_ttl are unchanged" do
+      with_stub_idp_server do |addr, _paths|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        config = create_test_config
+        config.oauth_issuer_url = URI.parse("http://#{addr}/")
+        config.oauth_scope_prefix = "mq."
+        authenticator.reload(config)
+        authenticator.token_verifier.fetcher.should be fetcher
+      end
+    end
+
+    it "replaces the fetcher when only jwks_cache_ttl changes" do
+      with_stub_idp_server do |addr, _paths|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        config = create_test_config
+        config.oauth_issuer_url = URI.parse("http://#{addr}")
+        config.oauth_jwks_cache_ttl = 5.minutes
+        authenticator.reload(config)
+        authenticator.token_verifier.fetcher.should_not be fetcher
+      ensure
+        authenticator.try &.cleanup
+      end
+    end
+
+    it "stops the replaced fetcher while it is retrying an unreachable provider" do
+      with_stub_idp_server(healthy: false) do |addr_a, paths_a|
+        with_stub_idp_server do |addr_b, _paths_b|
+          authenticator, old_fetcher = authenticator_for_idp(addr_a)
+          old_fetcher.start_refresh_loop(retry_delay: 10.milliseconds)
+          wait_for { paths_a.size >= 2 }
+          config = create_test_config
+          config.oauth_issuer_url = URI.parse("http://#{addr_b}")
+          authenticator.reload(config)
+          sleep 50.milliseconds
+          requests = paths_a.size
+          sleep 100.milliseconds
+          paths_a.size.should eq requests
+        ensure
+          authenticator.try &.cleanup
+        end
+      end
+    end
+  end
+
   describe "#authenticate with invalid tokens" do
     it "rejects tokens that don't start with 'ey'" do
       authenticator = create_test_authenticator
