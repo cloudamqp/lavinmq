@@ -12,13 +12,24 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.oauth"
 
-      def initialize(@oauth_authenticator : Auth::OAuthAuthenticator)
+      # Mounted even when OAuth is disabled: the OAuth backend is looked up per
+      # request, so enabling or disabling it on a config reload applies here too
+      def initialize(@authenticator : Auth::Authenticator)
         register_routes
       end
 
       def call(context)
-        authenticate_jwt_cookie(context) if management_api_request?(context)
+        if management_api_request?(context) && (oauth = oauth_authenticator)
+          authenticate_jwt_cookie(context, oauth)
+        end
         super
+      end
+
+      private def oauth_authenticator : Auth::OAuthAuthenticator?
+        case auth = @authenticator
+        when Auth::OAuthAuthenticator then auth
+        when Auth::Chain              then auth.oauth_authenticator
+        end
       end
 
       # The oauth_token cookie is only consumed to authenticate management HTTP
@@ -29,26 +40,26 @@ module LavinMQ
         context.request.path.starts_with?("/api/")
       end
 
-      private def authenticate_jwt_cookie(context)
+      private def authenticate_jwt_cookie(context, oauth : Auth::OAuthAuthenticator)
         token = context.request.cookies["oauth_token"]?
         return if token.nil?
 
-        if user = authenticate_token(token.value, context.request.remote_address)
+        if user = authenticate_token(oauth, token.value, context.request.remote_address)
           context.user = user
           return
         end
 
         # No JWKS keys yet means verification couldn't run; keep the session
         # cookies, the token may still be valid.
-        return if @oauth_authenticator.token_verifier.fetcher.public_keys.empty?
+        return if oauth.token_verifier.fetcher.public_keys.empty?
 
         expire_cookie(context, "oauth_token", cookie_path)
         expire_cookie(context, "m", cookie_path)
       end
 
-      private def authenticate_token(token, remote_address) : Auth::BaseUser?
+      private def authenticate_token(oauth : Auth::OAuthAuthenticator, token, remote_address) : Auth::BaseUser?
         auth_context = Auth::Context.new("", token.to_slice, remote_address)
-        user = @oauth_authenticator.authenticate(auth_context)
+        user = oauth.authenticate(auth_context)
         return if user.nil? || user.tags.empty?
         user
       end
@@ -62,16 +73,17 @@ module LavinMQ
 
       private def handle_enabled(context) : ::HTTP::Server::Context
         context.response.content_type = "application/json"
-        {enabled: Config.instance.oauth_mgmt_ui_enabled?}.to_json(context.response)
+        {enabled: Config.instance.oauth_mgmt_ui_enabled? && !oauth_authenticator.nil?}.to_json(context.response)
         context
       end
 
       private def handle_authorize(context) : ::HTTP::Server::Context
         config = Config.instance
+        oauth = oauth_authenticator || oauth_error(context, 503, "OAuth not configured")
         oauth_error(context, 503, "OAuth not configured") unless config.oauth_mgmt_ui_enabled?
         client_id = config.oauth_client_id || oauth_error(context, 503, "OAuth not configured")
 
-        auth_ep = oidc_config.authorization_endpoint || raise "OIDC missing authorization_endpoint"
+        auth_ep = oidc_config(oauth).authorization_endpoint || raise "OIDC missing authorization_endpoint"
         verifier, challenge = OAuth2::PKCE.generate
         state = Random::Secure.urlsafe_base64(32)
 
@@ -106,13 +118,14 @@ module LavinMQ
       end
 
       private def handle_callback(context) : ::HTTP::Server::Context
+        oauth = oauth_authenticator || oauth_redirect_error(context, "OAuth not configured")
         code, code_verifier, client_id = validate_callback(context)
 
-        token_ep = oidc_config.token_endpoint || raise "OIDC missing token_endpoint"
+        token_ep = oidc_config(oauth).token_endpoint || raise "OIDC missing token_endpoint"
         token_response = OAuth2::TokenExchange.new(token_ep, client_id)
           .exchange(code, build_redirect_uri, code_verifier)
 
-        user = authenticate_token(token_response.access_token, context.request.remote_address)
+        user = authenticate_token(oauth, token_response.access_token, context.request.remote_address)
         oauth_redirect_error(context, "Token validation failed") if user.nil?
 
         max_age = token_response.expires_in.try { |e| Math.min(e, 8.hours.total_seconds.to_i64).seconds } || 8.hours
@@ -207,8 +220,8 @@ module LavinMQ
         raise OAuthError.new
       end
 
-      private def oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration
-        fetcher = @oauth_authenticator.token_verifier.fetcher
+      private def oidc_config(oauth : Auth::OAuthAuthenticator) : Auth::JWT::JWKSFetcher::OIDCConfiguration
+        fetcher = oauth.token_verifier.fetcher
         fetcher.oidc_config || fetcher.fetch_oidc_config
       end
 

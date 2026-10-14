@@ -121,7 +121,7 @@ describe LavinMQ::Config do
           max_deleted_definitions = 16384
           consumer_timeout = 3600
           consumer_timeout_loop_interval = 120
-          auth_backends = ldap,basic
+          auth_backends = oauth,local
           default_consumer_prefetch = 1000
           default_password_hash = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
           default_user = admin
@@ -211,7 +211,7 @@ describe LavinMQ::Config do
     config.max_deleted_definitions.should eq 16384
     config.consumer_timeout.should eq 3600
     config.consumer_timeout_loop_interval.should eq 120
-    config.auth_backends.should eq ["ldap", "basic"]
+    config.auth_backends.should eq ["oauth", "local"]
     config.default_consumer_prefetch.should eq 1000
     config.default_user.should eq "admin"
     config.default_user_only_loopback?.should be_false
@@ -659,6 +659,21 @@ describe LavinMQ::Config do
       end
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /tcp_send_timeout/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
+  describe "auth_backends" do
+    it "rejects an unsupported backend" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          auth_backends = local,ldap
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /auth_backends.*ldap/) do
         config.parse(["-c", config_file.path])
       end
     end
