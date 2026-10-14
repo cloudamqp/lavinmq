@@ -47,6 +47,7 @@ module LavinMQ
       @last_proposed_lsn = Atomic(UInt64).new(0_u64)
       @lock = Mutex.new(:reentrant)
       @on_role_change : Proc(Role, Nil)?
+      @on_leader_promotion : Proc(LavinMQ::Server, Nil)?
       @suppressing_fiber : Fiber? = nil
       @suppress_depth : Int32 = 0
 
@@ -66,6 +67,13 @@ module LavinMQ
 
         @node.on_truncate do |entry|
           @applier.rollback_uncommitted(entry)
+          prev_lsn = entry.lsn - 1_u64
+          loop do
+            cur = @last_proposed_lsn.get(:relaxed)
+            break if cur <= prev_lsn
+            _, ok = @last_proposed_lsn.compare_and_set(cur, prev_lsn)
+            break if ok
+          end
         end
 
         @node.on_apply do |rec|
@@ -94,12 +102,30 @@ module LavinMQ
         @suppressed || @suppressing_fiber == Fiber.current
       end
 
+      @[AlwaysInline]
+      def record_proposed_lsn(lsn : UInt64) : UInt64
+        loop do
+          cur = @last_proposed_lsn.get(:relaxed)
+          return cur if lsn <= cur
+          _, ok = @last_proposed_lsn.compare_and_set(cur, lsn)
+          return lsn if ok
+        end
+      end
+
+      def last_proposed_lsn : UInt64
+        @last_proposed_lsn.get(:acquire)
+      end
+
       def standby? : Bool
         !@node.promoted?
       end
 
       def on_role_change(&block : Role -> Nil) : Nil
         @on_role_change = block
+      end
+
+      def on_leader_promotion(&block : LavinMQ::Server -> Nil) : Nil
+        @on_leader_promotion = block
       end
 
       def attach(server : LavinMQ::Server) : Nil
@@ -109,6 +135,7 @@ module LavinMQ
         if @node.promoted?
           enable_commit_gates! if @commit_gated_delivery
           server.on_leader_promotion
+          @on_leader_promotion.try &.call(server)
         end
       end
 
@@ -139,6 +166,7 @@ module LavinMQ
         if srv = @server
           Fiber::ExecutionContext.default.spawn(name: "ClusteringV2 leader promotion") do
             srv.on_leader_promotion
+            @on_leader_promotion.try &.call(srv)
           end
         end
         @on_role_change.try &.call(Role::Leader)
@@ -255,7 +283,7 @@ module LavinMQ
             payload = File.read(path).to_slice
             entry = @node.propose_command(LogCommandType::VHostCreate, payload)
             @applier.record_pending_file_replace(entry.lsn, rel)
-            @last_proposed_lsn.set(entry.lsn)
+            record_proposed_lsn(entry.lsn)
             wait_for_followers
           elsif is_mgmt_file
             return unless File.exists?(path)
@@ -273,7 +301,7 @@ module LavinMQ
             vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u64
             entry = @node.propose_command(LogCommandType::FileReplace, io.to_slice, vhost_id: vhost_id)
             @applier.record_pending_file_replace(entry.lsn, rel)
-            @last_proposed_lsn.set(entry.lsn)
+            record_proposed_lsn(entry.lsn)
             wait_for_followers
           elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
             return unless @node.leader? && File.exists?(path)
@@ -291,7 +319,7 @@ module LavinMQ
 
             topic_id = Digest::CRC32.checksum(msg_file).to_u64
             entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id, queue_id: topic_id)
-            @last_proposed_lsn.set(entry.lsn)
+            record_proposed_lsn(entry.lsn)
           end
         rescue ex : Clustering::Replicator::ReplicationError | RaftNode::Error::NotLeaderError
           if is_mgmt_file
@@ -338,7 +366,7 @@ module LavinMQ
             end
           end
           entry = @node.propose_publish(info.vhost_id, info.queue_id, info.seg_id, pos.to_u32, length.to_u32)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
         when .consumer_offsets?
           return unless @node.leader?
           if File.exists?(path)
@@ -348,7 +376,7 @@ module LavinMQ
               f.read_fully(copy)
             end
             entry = @node.propose_command(LogCommandType::StreamOffsetCommit, copy, vhost_id: info.vhost_id, queue_id: info.queue_id)
-            @last_proposed_lsn.set(entry.lsn)
+            record_proposed_lsn(entry.lsn)
           end
         end
       rescue ex : RaftNode::Error::NotLeaderError
@@ -364,7 +392,7 @@ module LavinMQ
         info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
         if info.kind.acks?
           entry = @node.propose_ack(info.vhost_id, info.queue_id, info.seg_id, value.to_u32)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end
@@ -381,7 +409,7 @@ module LavinMQ
           copy = Bytes.new(bytes.size)
           copy.copy_from(bytes)
           entry = @node.propose_command(cmd_type, copy, vhost_id: vhost_id, queue_id: res_id)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
         elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2] == "index"
           vhost_dir = parts[0]
           topic = String.new(bytes).chomp
@@ -414,7 +442,7 @@ module LavinMQ
           queue_dot_file = File.join(File.dirname(path), ".queue")
           return unless File.exists?(queue_dot_file)
           entry = @node.propose_segment_delete(info.vhost_id, info.queue_id, info.seg_id)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
           return
         end
 
@@ -425,7 +453,7 @@ module LavinMQ
           file_name = parts[2]
           topic_id = Digest::CRC32.checksum(file_name).to_u64
           entry = @node.propose_command(LogCommandType::MqttRetainDelete, file_name.to_slice, vhost_id: vhost_id, queue_id: topic_id)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end
@@ -439,7 +467,7 @@ module LavinMQ
           vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
           @applier.remove_vhost!(vhost_id)
           entry = @node.propose_command(LogCommandType::VHostDelete, vhost_dir.to_slice, vhost_id: vhost_id)
-          @last_proposed_lsn.set(entry.lsn)
+          record_proposed_lsn(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end

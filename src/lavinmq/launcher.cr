@@ -76,8 +76,7 @@ module LavinMQ
       started_at = Time.instant
       if v2_node = @v2_node
         @server = server = v2_node.server
-        load_definitions(server)
-        server.start_log_exchange
+        v2_node.definitions_loader = ->(srv : LavinMQ::Server) { load_definitions(srv) }
         @amqp_server = v2_node.router.amqp_server
         @mqtt_server = v2_node.router.mqtt_server
         @http_server = v2_node.router.http_server
@@ -202,6 +201,8 @@ module LavinMQ
       path = @config.load_definitions
       return if path.empty?
       GlobalDefinitions.import_from_file(path, amqp_server)
+    rescue ex : Clustering::Replicator::ReplicationError
+      raise ex
     rescue File::NotFoundError
       Log.error { "Failed to load definitions: file '#{path}' does not exist" }
       exit 1

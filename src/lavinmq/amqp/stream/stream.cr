@@ -341,6 +341,7 @@ module LavinMQ::AMQP
     def purge(max_count : Int = UInt32::MAX) : UInt32
       delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
+      @vhost.replicator.try &.wait_for_followers if durable? && delete_count > 0
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }

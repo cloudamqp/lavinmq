@@ -731,4 +731,107 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       FileUtils.rm_rf(base_dir)
     end
   end
+
+  it "monotonically tracks last_proposed_lsn without regressing on out-of-order updates and waits for quorum on durable purge" do
+    base_dir = File.tempname("lavinmq_cv2_monotonic_lsn_and_purge")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        cn.raft.leader_lease_timeout = 180.milliseconds
+        cn.raft.leader_stickiness_window = 50.milliseconds
+        nodes << cn
+        cn.bind
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+
+      wait_until { nodes.count(&.raft.leader?) == 1 }.should be_true
+      leader = nodes.find!(&.raft.leader?)
+      followers = nodes.reject(&.raft.leader?)
+
+      # Verify record_proposed_lsn never regresses when an earlier LSN is recorded after a higher LSN
+      leader.replicator.record_proposed_lsn(50_u64)
+      leader.replicator.record_proposed_lsn(42_u64)
+      leader.replicator.@last_proposed_lsn.get.should eq(50_u64)
+      leader.replicator.@last_proposed_lsn.set(leader.raft.commit_index)
+
+      # Declare durable queue and publish messages while quorum is healthy
+      leader.server.vhosts["/"].declare_queue("purge_quorum_q", true, false)
+      q_leader = leader.server.vhosts["/"].queue("purge_quorum_q") || raise "Expected purge_quorum_q"
+      q_leader.publish(make_test_message("p1", routing_key: "purge_quorum_q")).should eq(LavinMQ::AMQP::Queue::PublishResult::Ok)
+      q_leader.publish(make_test_message("p2", routing_key: "purge_quorum_q")).should eq(LavinMQ::AMQP::Queue::PublishResult::Ok)
+      leader.replicator.wait_for_followers
+
+      wait_until do
+        followers.all? { |f| f.server.vhosts["/"].queue?("purge_quorum_q").try(&.message_count) == 2 }
+      end.should be_true
+
+      # Purge 1 message while quorum is healthy -> succeeds and replicates to followers
+      q_leader.purge(1).should eq(1_u32)
+      wait_until do
+        followers.all? { |f| f.server.vhosts["/"].queue?("purge_quorum_q").try(&.message_count) == 1 }
+      end.should be_true
+
+      # Isolate followers and attempt to purge the remaining durable message -> must raise ReplicationError
+      followers.each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
+      expect_raises(LavinMQ::Clustering::Replicator::ReplicationError) do
+        q_leader.purge
+      end
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "defers definitions_loader until leader promotion and replicates imported definitions to followers" do
+    base_dir = File.tempname("lavinmq_cv2_deferred_defs")
+    Dir.mkdir_p(base_dir)
+    defs_path = File.join(base_dir, "defs.json")
+    File.write(defs_path, %({"vhosts":[{"name":"/"},{"name":"imported_vh"}],"queues":[{"name":"imported_q","vhost":"/","durable":true,"auto_delete":false,"arguments":{}}]}))
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      loader_calls = Atomic(Int32).new(0)
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        cn.raft.leader_lease_timeout = 180.milliseconds
+        cn.raft.leader_stickiness_window = 50.milliseconds
+        cn.definitions_loader = ->(srv : LavinMQ::Server) do
+          loader_calls.add(1)
+          LavinMQ::GlobalDefinitions.import_from_file(defs_path, srv)
+        end
+        nodes << cn
+        cn.bind
+      end
+
+      # Before election, no node is promoted and definitions_loader has not run on followers
+      loader_calls.get.should eq(0)
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+
+      # Wait for leader promotion and automatic bootstrap_leader execution
+      wait_until do
+        nodes.count(&.raft.leader?) == 1 &&
+          nodes.all? { |n| n.server.vhosts["imported_vh"]? && n.server.vhosts["/"].queue?("imported_q") }
+      end.should be_true
+
+      loader_calls.get.should eq(1)
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
 end

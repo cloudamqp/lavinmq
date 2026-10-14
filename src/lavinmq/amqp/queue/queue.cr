@@ -1315,6 +1315,7 @@ module LavinMQ::AMQP
         ensure_expire_fiber
       end
       delete_count += purge_delayed(max_count - delete_count)
+      @vhost.replicator.try &.wait_for_followers if durable? && delete_count > 0
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }

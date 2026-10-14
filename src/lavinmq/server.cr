@@ -157,6 +157,7 @@ module LavinMQ
     end
 
     def on_leader_step_down : Nil
+      close_log_exchange
       @vhosts.each_value(&.on_leader_step_down)
     end
 

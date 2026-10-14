@@ -466,6 +466,7 @@ module LavinMQ
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
+        @replicator.try &.wait_for_followers if durable? && count > 0
         count
       end
 

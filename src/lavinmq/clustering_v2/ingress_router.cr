@@ -7,6 +7,7 @@ require "../server"
 require "../amqp/server"
 require "../mqtt/server"
 require "../http/http_server"
+require "../definitions"
 require "./protocol"
 require "./raft_node"
 require "./logical_replicator"
@@ -869,7 +870,10 @@ module LavinMQ
       getter replicator : LogicalReplicator
       getter server : LavinMQ::Server
       getter router : IngressRouter
+      property definitions_loader : Proc(LavinMQ::Server, Nil)?
       @had_persisted_members : Bool
+      @bootstrap_lock = Mutex.new
+      @definitions_loaded = false
 
       def self.from_config(config : Config) : self
         role = config.clustering_role.downcase == "learner" ? MemberRole::Learner : MemberRole::Voter
@@ -926,9 +930,29 @@ module LavinMQ
         @had_persisted_members = @log.meta_existed? && (!@log.committed_members.empty? || !@log.members.empty?)
         @raft = RaftNode.new(@log, secret: secret, initial_role: initial_role, execution_context: @execution_context)
         @replicator = LogicalReplicator.new(@data_dir, @raft, commit_gated_delivery: commit_gated_delivery)
+        @definitions_loader = ->(srv : LavinMQ::Server) do
+          path = @config.load_definitions
+          GlobalDefinitions.import_from_file(path, srv) unless path.empty?
+        end
+        @replicator.on_leader_promotion do |srv|
+          bootstrap_leader(srv)
+        end
         @server = LavinMQ::Server.new(@config, @replicator)
         @replicator.attach(@server)
         @router = IngressRouter.new(@raft, @replicator, @server, @config, ingress_execution_context)
+      end
+
+      def bootstrap_leader(srv : LavinMQ::Server = @server) : Nil
+        @bootstrap_lock.synchronize do
+          return unless @raft.promoted?
+          unless @definitions_loaded
+            @definitions_loader.try &.call(srv)
+            @definitions_loaded = true
+          end
+          srv.start_log_exchange
+        end
+      rescue ex : Clustering::Replicator::ReplicationError
+        IngressRouter::Log.warn(exception: ex) { "Leader bootstrap interrupted by role change" }
       end
 
       def bind(host : String = "127.0.0.1",
@@ -1017,6 +1041,7 @@ module LavinMQ
           end
           @raft.configure_cluster(members_by_id.values)
         end
+        bootstrap_leader(@server) if @raft.promoted?
         self_info
       end
 
