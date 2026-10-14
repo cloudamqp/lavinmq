@@ -1,12 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 
-class LavinMQ::Launcher
-  def start_for_spec
-    start
-  end
-end
-
 # Without listeners other than the lavinmqctl socket
 private def standalone_config(data_dir) : LavinMQ::Config
   config = LavinMQ::Config.new
@@ -39,7 +33,7 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
 
       expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.not_nil!.start_for_spec
+        launcher.not_nil!.run
       end
     ensure
       launcher.try &.stop

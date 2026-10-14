@@ -169,7 +169,7 @@ The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_mem
 
 ### Transferring leadership
 
-`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR and answering the leader (without `--target`, any such voter, preferably one that has caught up; one that's behind gets to take over once it has). The leader stops serving clients, tells the target to take over, and continues as a follower of the target in the same process. Its raft node keeps running throughout, so the new leader keeps its quorum also when only a majority of the voters is up. If the target doesn't take over within two election timeouts, the leader serves again. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers proxy HTTP to the leader and a leader starts HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that. Over a follower's control socket (`lavinmqctl` without `--host`), which answers with that node's own view (`"local": true`), it also waits for `leader_serving`, which is true once the follower replicates from the new leader.
+`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR and answering the leader (without `--target`, any such voter, preferably one that has caught up; one that's behind gets to take over once it has). The leader stops serving clients, tells the target to take over, and continues as a follower of the target in the same process. Its raft node keeps running throughout, so the new leader keeps its quorum also when only a majority of the voters is up. If the target doesn't take over within two election timeouts, the leader serves again. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers forward HTTP to the leader and a leader answers HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that. Over a follower's control socket (`lavinmqctl` without `--host`), which answers with that node's own view (`"local": true`), it also waits for `leader_serving`, which is true once the follower replicates from the new leader.
 
 ### Relocating a replica
 
@@ -203,17 +203,17 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 
 ## Clustering Proxy
 
-When a node is a follower, it automatically proxies client traffic to the current leader. Clients can connect to any node in the cluster on the normal protocol ports and reach the leader without needing to know which node is the leader.
+Every node binds the client ports when it starts and keeps them bound through leadership changes. A node that serves handles the connections itself, a follower forwards them to the current leader, so clients can connect to any node on the normal protocol ports without needing to know which node is the leader. Connections a node forwarded to the old leader are closed when it starts to serve itself, so their clients reconnect to it.
 
-The proxy is transparent and runs on every follower for:
+Forwarding is transparent and covers:
 
 - AMQP and AMQPS (TCP and Unix socket)
 - MQTT and MQTTS (TCP and Unix socket)
-- HTTP/management (TCP and Unix socket)
+- HTTP/management, HTTPS and WebSockets (TCP and Unix socket)
 
-TCP listeners always proxy; Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node.
+TLS is forwarded as is: the follower doesn't terminate it, the client's TLS session is with the leader, so the certificate has to be valid for every node's name. Unix-socket forwarding activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`, and goes to the leader's TCP port of that protocol. Connections go to the same ports on the leader, so the client ports should be the same on all nodes.
 
-For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
+For AMQP and MQTT, with or without TLS, the follower sends a PROXY protocol v1 header first, so the leader sees the original client address. No further configuration is needed.
 
 ## Security
 

@@ -68,15 +68,17 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
-  rescue ex : Socket::BindError
-    Log.fatal { ex.message }
-    exit 36 # 36 for CF (Cluster Follower)
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
   end
 
   private abstract def follow_leader_changes
+
+  # The leader it replicates from, which client connections are forwarded to
+  def leader_host : String?
+    @repli_client.try &.host
+  end
 
   # The replication client's while following
   def write_metrics(writer) : Nil

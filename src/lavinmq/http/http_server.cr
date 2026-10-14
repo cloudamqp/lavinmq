@@ -69,6 +69,25 @@ module LavinMQ
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @handler = ::HTTP::Server.build_middleware(handlers)
         @http = ::HTTP::Server.new(@handler)
+        @processor = ::HTTP::Server::RequestProcessor.new(@handler)
+      end
+
+      @closed = false
+
+      # A connection accepted on a listener ClientListeners owns, over TLS
+      # with *tls*
+      def accept(client : Socket, tls : OpenSSL::SSL::Context::Server?) : Nil
+        return client.close if @closed
+        spawn(name: "HTTP client") do
+          client.sync = false
+          io = tls ? OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true) : client
+          @processor.process(io, io)
+        rescue ex : IO::Error | OpenSSL::SSL::Error
+          Log.debug { "HTTP connection error: #{ex.message}" }
+        ensure
+          io.try &.close rescue nil
+          client.close rescue nil
+        end
       end
 
       def bind_tcp(address, port)
@@ -95,11 +114,10 @@ module LavinMQ
         @http.listen
       end
 
-      def bound? : Bool
-        !@http.addresses.empty?
-      end
-
       def close
+        @closed = true
+        # Ends keep-alive connections after their current request
+        @processor.close
         @http.try &.close
       end
     end

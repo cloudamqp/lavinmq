@@ -47,7 +47,7 @@ describe "clustering join-during-publish race" do
       # Follower joins WHILE publishing is in flight.
       follower_config = config.dup.tap &.data_dir = follower_dir
       follower_config.metrics_http_port = -1 # no metrics server needed
-      repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
+      repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password)
       follower_done = WaitGroup.new(1)
       spawn(name: "follower spec") do
         repli.follow("localhost", port)
@@ -102,7 +102,7 @@ describe "clustering join-during-publish race" do
     with_amqp_server(replicator: replicator) do |s|
       follower_config = config.dup.tap &.data_dir = follower_dir
       follower_config.metrics_http_port = -1 # no metrics server needed
-      repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
+      repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password)
       follower_done = WaitGroup.new(1)
       spawn(name: "follower spec") do
         repli.follow("localhost", port)

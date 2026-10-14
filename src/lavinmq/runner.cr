@@ -26,6 +26,11 @@ module LavinMQ
     def raft : Clustering::RaftController?
     end
 
+    # The leader's host, which client connections are forwarded to while this
+    # node doesn't serve, nil when there's none to forward to
+    def leader_host : String?
+    end
+
     # This node's view of the cluster, which the lavinmqctl socket answers
     # GET /api/cluster with while this node doesn't serve, see
     # HTTP::ControlSocket. Nil to answer as a follower.

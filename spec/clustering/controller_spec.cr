@@ -108,10 +108,11 @@ describe LavinMQ::Clustering::Controller do
       ensure
         stopped.close
       end
+      # The port is bound from the start, it serves AMQP once this node leads
       wait_for(10.seconds) do
-        TCPSocket.new("127.0.0.1", config.amqp_port).close
+        AMQP::Client.new(host: "127.0.0.1", port: config.amqp_port).connect.close
         true
-      rescue Socket::ConnectError
+      rescue AMQP::Client::Error | IO::Error
         false
       end
       File.exists?(File.join(data_dir, ".raft_state")).should be_true

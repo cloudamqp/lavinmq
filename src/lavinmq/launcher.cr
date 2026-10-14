@@ -7,6 +7,7 @@ require "./mqtt/server"
 require "./http/http_server"
 require "./http/metrics_server"
 require "./http/control_socket"
+require "./client_listeners"
 require "./data_dir_lock"
 require "./pidfile"
 require "./clustering/controller"
@@ -35,6 +36,9 @@ module LavinMQ
     # The lavinmqctl socket, bound once for the process: the broker's API
     # while this node serves, the runner's view of the cluster otherwise
     @control_socket : HTTP::ControlSocket
+    # The client ports, bound once for the process: the broker's while this
+    # node serves, forwarded to the leader otherwise
+    @client_listeners : ClientListeners
 
     def initialize(@config : Config)
       print_environment_info
@@ -52,6 +56,7 @@ module LavinMQ
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
       @runner.on_demote { |hand_over| demote(hand_over) }
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, -> { @runner.cluster_status })
+      @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
@@ -75,7 +80,8 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
         @control_socket.path, runner_metrics)
-      start_listeners(amqp_server, mqtt_server, http_server)
+      start_clustering_listener
+      @client_listeners.serve(ClientListeners::Brokers.new(amqp_server, mqtt_server, http_server))
       # If it couldn't be bound when the process started, e.g. while another
       # node on this machine had it
       @control_socket.bind
@@ -97,9 +103,16 @@ module LavinMQ
         abort "Error: #{ex.message}"
       end
       bind_control_socket
+      begin
+        @client_listeners.bind(@amqp_tls_context, @mqtt_tls_context, @http_tls_context)
+      rescue ex : Socket::BindError
+        abort "Error: #{ex.message}"
+      end
+      @client_listeners.listen
       @runner.run do
         start
       end
+      @client_listeners.close
       @control_socket.close
       @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
@@ -138,6 +151,7 @@ module LavinMQ
 
     private def close_listeners : Nil
       @control_socket.api = nil
+      @client_listeners.serve(nil)
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
@@ -156,6 +170,7 @@ module LavinMQ
         SystemD.notify_stopping
         @runner.stopping
         close_listeners
+        @client_listeners.close
         @control_socket.close
         @server.try &.close rescue nil
         @metrics_server.try &.close rescue nil
@@ -280,49 +295,17 @@ module LavinMQ
       abort "Error: #{ex.message}"
     end
 
-    private def start_listeners(amqp_server, mqtt_server, http_server)
-      bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
-      bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
-      bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
-
-      unless amqp_server.listeners.empty?
-        spawn(name: "AMQP listener") do
-          amqp_server.listen
-        end
-      end
-      unless mqtt_server.listeners.empty?
-        spawn(name: "MQTT listener") do
-          mqtt_server.listen
-        end
-      end
-      if clustering_bind = @config.clustering_bind
-        if replicator = @replicator
-          clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
-          spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
-        end
-      end
-      if http_server.bound?
-        spawn(name: "HTTP listener") do
-          http_server.listen
-        end
-      end
+    private def start_clustering_listener : Nil
+      clustering_bind = @config.clustering_bind || return
+      replicator = @replicator || return
+      clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
+      spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
     end
 
     private def bind_clustering_listener(bind, port)
       TCPServer.new(bind, port)
     rescue ex : Socket::BindError
       abort "Error: #{ex.message}"
-    end
-
-    # Binds the plain TCP, TLS and unix listeners a server is configured for.
-    # Works for any server exposing bind_tcp/bind_tls/bind_unix (the protocol
-    # servers and the HTTP server).
-    private def bind_listeners(server, bind, port, tls_port, tls_context, unix_path)
-      server.bind_tcp(bind, port) if port > 0
-      if tls_port > 0 && (ctx = tls_context)
-        server.bind_tls(bind, tls_port, ctx)
-      end
-      server.bind_unix(unix_path) unless unix_path.empty?
     end
 
     private def dump_debug_info

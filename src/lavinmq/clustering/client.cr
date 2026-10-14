@@ -2,7 +2,6 @@ require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
 require "./checksums"
-require "./proxy"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -28,12 +27,6 @@ module LavinMQ
 
       @closed = false
       @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
-      @amqp_proxy : Proxy?
-      @http_proxy : Proxy?
-      @mqtt_proxy : Proxy?
-      @unix_amqp_proxy : Proxy?
-      @unix_http_proxy : Proxy?
-      @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       getter streamed_bytes = 0_u64
 
@@ -69,7 +62,7 @@ module LavinMQ
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -85,16 +78,12 @@ module LavinMQ
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
-
-        if proxy
-          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
-          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
-          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
-          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
-          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
-          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
       end
+
+      # The leader's host while following it, client connections are
+      # forwarded there, see ClientListeners
+      getter host : String?
+      @port : Int32?
 
       # Tells whether this node is part of the cluster, to explain why the
       # leader keeps refusing the connection. Set by controllers that have
@@ -111,29 +100,10 @@ module LavinMQ
         follow(host, port)
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
         loop do
           hash_local_files
           return if @closed
@@ -772,12 +742,6 @@ module LavinMQ
         return if @closed
         @closed = true
         @closing.close
-        @amqp_proxy.try &.close
-        @http_proxy.try &.close
-        @mqtt_proxy.try &.close
-        @unix_amqp_proxy.try &.close
-        @unix_http_proxy.try &.close
-        @unix_mqtt_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)
