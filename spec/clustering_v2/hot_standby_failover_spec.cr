@@ -150,7 +150,11 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
 
       new_leader = followers.find!(&.raft.leader?)
       new_leader.replicator.standby?.should be_false
-      promotion_duration.not_nil!.should be < 50.milliseconds
+      if dur = promotion_duration
+        dur.should be < 50.milliseconds
+      else
+        fail "Expected promotion_duration"
+      end
 
       # Consume the remaining 2 messages from the newly promoted leader and verify order & content
       q_new_leader = new_leader.server.vhosts["/"].queue("orders")
@@ -337,7 +341,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       # leader's "msg-before-restart" are preserved in order on both f1 and f2 without overwriting offset 4!
       [f1, f2].each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
       prev_lsn = f1.raft.log.last_lsn
-      prev_term = f1.raft.log.term_at(prev_lsn).not_nil!
+      prev_term = f1.raft.log.term_at(prev_lsn) || raise "Expected term at #{prev_lsn}"
       cur_term = f1.raft.current_term
 
       frame_io = IO::Memory.new
@@ -359,14 +363,14 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
         prev_log_lsn: prev_lsn,
         prev_log_term: prev_term,
         leader_commit: prev_lsn,
-        entries: leader.raft.log.read_entries(prev_lsn + 1).not_nil!
+        entries: leader.raft.log.read_entries(prev_lsn + 1) || raise("Expected entries")
       ).to_io(wire_io)
       wire_io.rewind
       wire_req = LavinMQ::ClusteringV2::AppendEntriesRequest.from_io(wire_io)
 
       leader.raft.set_isolated(true)
       [f1, f2].each do |follower|
-        follower.raft.handle_append_entries(leader.raft.node_id, wire_req).not_nil!.success?.should be_true
+        (follower.raft.handle_append_entries(leader.raft.node_id, wire_req) || raise("Expected response")).success?.should be_true
         follower.raft.pause_peer(leader.raft.node_id, true)
       end
       f1.server.vhosts["/"].queue?("prior_term_q").should be_nil
@@ -562,7 +566,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       # 1. Send an uncommitted Publish record to follower f1 and then overwrite/truncate it in a higher term.
       #    Because f1 never applied the uncommitted entry to its MessageStore, truncating it must NOT decrement f1's message_count.
       prev_lsn = f1.raft.log.last_lsn
-      prev_term = f1.raft.log.term_at(prev_lsn).not_nil!
+      prev_term = f1.raft.log.term_at(prev_lsn) || raise "Expected term at #{prev_lsn}"
       cur_term = f1.raft.current_term
       uncommitted_pub = LavinMQ::ClusteringV2::LogEntryRecord.new(
         LavinMQ::ClusteringV2::LogIndexEntry.new(
@@ -577,14 +581,14 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
         ),
         Bytes.new(64)
       )
-      f1.raft.handle_append_entries(leader.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+      (f1.raft.handle_append_entries(leader.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
         term: cur_term,
         leader_id: leader.raft.node_id,
         prev_log_lsn: prev_lsn,
         prev_log_term: prev_term,
         leader_commit: f1.raft.commit_index,
         entries: [uncommitted_pub]
-      )).not_nil!.success?.should be_true
+      )) || raise("Expected response")).success?.should be_true
 
       # Overwrite prev_lsn + 1 on f1 with a LeaderNoOp in cur_term + 1
       noop_rec = LavinMQ::ClusteringV2::LogEntryRecord.new(
@@ -595,14 +599,14 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
         ),
         Bytes.empty
       )
-      f1.raft.handle_append_entries(f2.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+      (f1.raft.handle_append_entries(f2.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
         term: cur_term + 1,
         leader_id: f2.raft.node_id,
         prev_log_lsn: prev_lsn,
         prev_log_term: prev_term,
         leader_commit: f1.raft.commit_index,
         entries: [noop_rec]
-      )).not_nil!.success?.should be_true
+      )) || raise("Expected response")).success?.should be_true
 
       # Wait for f1's apply_loop to drain pending truncations and verify message_count is still 1 (not 0)
       sleep 30.milliseconds

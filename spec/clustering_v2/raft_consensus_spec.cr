@@ -193,9 +193,9 @@ describe LavinMQ::ClusteringV2::RaftNode do
         end
         sleep 10.milliseconds
       end
-      new_leader.should_not be_nil
-      new_leader.not_nil!.node_id.should_not eq(old_leader.node_id)
-      new_leader.not_nil!.current_term.should be > old_leader.current_term
+      elected = new_leader || raise "Expected a new leader to be elected"
+      elected.node_id.should_not eq(old_leader.node_id)
+      elected.current_term.should be > old_leader.current_term
     ensure
       cluster.cleanup
     end
@@ -205,7 +205,6 @@ describe LavinMQ::ClusteringV2::RaftNode do
     cluster = ClusteringV2ConsensusSpec::TestCluster.new(3)
     learner_dir = File.tempname("lavinmq_raft_learner_")
     Dir.mkdir_p(learner_dir)
-    learner_node = nil
     begin
       cluster.start_all
       leader = cluster.wait_for_leader
@@ -240,7 +239,7 @@ describe LavinMQ::ClusteringV2::RaftNode do
       seed_peers << learner_info
 
       learner_log = LavinMQ::ClusteringV2::RaftLog.new(learner_dir, capacity: 128_u64, node_id: 4_u64)
-      learner_node = LavinMQ::ClusteringV2::RaftNode.new(
+      learner = LavinMQ::ClusteringV2::RaftNode.new(
         log: learner_log,
         secret: cluster.secret,
         peer_uri: learner_info.peer_uri,
@@ -248,29 +247,32 @@ describe LavinMQ::ClusteringV2::RaftNode do
         http_uri: learner_info.http_uri,
         initial_role: LavinMQ::ClusteringV2::MemberRole::Learner
       )
-      learner_node.heartbeat_interval = 20.milliseconds
-      learner_node.election_timeout_min = 80.milliseconds
-      learner_node.election_timeout_max = 150.milliseconds
-      learner_node.configure_cluster(seed_peers)
-      learner_node.start("127.0.0.1", learner_port)
+      begin
+        learner.heartbeat_interval = 20.milliseconds
+        learner.election_timeout_min = 80.milliseconds
+        learner.election_timeout_max = 150.milliseconds
+        learner.configure_cluster(seed_peers)
+        learner.start("127.0.0.1", learner_port)
 
-      # Add learner to leader; leader will stream log and auto-promote to Voter
-      conf_entry = leader.propose_conf_change(
-        LavinMQ::ClusteringV2::ConfChangeType::AddLearner,
-        learner_info
-      )
-      leader.wait_for_commit(conf_entry.lsn, 2.seconds).should be_true
+        # Add learner to leader; leader will stream log and auto-promote to Voter
+        conf_entry = leader.propose_conf_change(
+          LavinMQ::ClusteringV2::ConfChangeType::AddLearner,
+          learner_info
+        )
+        leader.wait_for_commit(conf_entry.lsn, 2.seconds).should be_true
 
-      wait_for(3.seconds) do
-        leader.members.find { |m| m.node_id == 4_u64 }.try(&.voter?) == true &&
-          learner_node.not_nil!.commit_index >= conf_entry.lsn &&
-          learner_node.not_nil!.role.follower?
+        wait_for(3.seconds) do
+          leader.members.find { |m| m.node_id == 4_u64 }.try(&.voter?) == true &&
+            learner.commit_index >= conf_entry.lsn &&
+            learner.role.follower?
+        end
+
+        leader.members.find! { |m| m.node_id == 4_u64 }.role.should eq(LavinMQ::ClusteringV2::MemberRole::Voter)
+        learner.role.should eq(LavinMQ::ClusteringV2::Role::Follower)
+      ensure
+        learner.close
       end
-
-      leader.members.find! { |m| m.node_id == 4_u64 }.role.should eq(LavinMQ::ClusteringV2::MemberRole::Voter)
-      learner_node.not_nil!.role.should eq(LavinMQ::ClusteringV2::Role::Follower)
     ensure
-      learner_node.try(&.close)
       FileUtils.rm_rf(learner_dir)
       cluster.cleanup
     end
@@ -424,7 +426,7 @@ describe LavinMQ::ClusteringV2::RaftNode do
         leader_commit: 0_u64,
         entries: [rejected_entry]
       ))
-      resp.not_nil!.success?.should be_false
+      (resp || raise "Expected response").success?.should be_false
       node.members.any? { |m| m.node_id == 9_u64 }.should be_false
 
       # 2. Accepted uncommitted ConfChange at LSN 1 applies, then gets reverted when overwritten by term 2
@@ -444,7 +446,7 @@ describe LavinMQ::ClusteringV2::RaftNode do
         leader_commit: 0_u64,
         entries: [accepted_entry]
       ))
-      resp2.not_nil!.success?.should be_true
+      (resp2 || raise "Expected response").success?.should be_true
       node.members.any? { |m| m.node_id == 9_u64 }.should be_true
 
       # Overwrite LSN 1 in term 2 with a LeaderNoOp -> ConfChange at LSN 1 is truncated and membership reverts
@@ -463,7 +465,7 @@ describe LavinMQ::ClusteringV2::RaftNode do
         leader_commit: 1_u64,
         entries: [noop_entry]
       ))
-      resp3.not_nil!.success?.should be_true
+      (resp3 || raise "Expected response").success?.should be_true
       node.members.any? { |m| m.node_id == 9_u64 }.should be_false
     ensure
       node.try(&.close)

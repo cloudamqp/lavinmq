@@ -65,9 +65,9 @@ describe LavinMQ::ClusteringV2::RaftLog do
     reopened.members.size.should eq 2
     reopened.members[1].learner?.should be_true
 
-    rec1 = reopened.read_entry(e1.lsn).not_nil!
+    rec1 = reopened.read_entry(e1.lsn) || raise "Expected entry at #{e1.lsn}"
     rec1.command.should eq LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp
-    rec2 = reopened.read_entry(e2.lsn).not_nil!
+    rec2 = reopened.read_entry(e2.lsn) || raise "Expected entry at #{e2.lsn}"
     rec2.command.should eq LavinMQ::ClusteringV2::LogCommandType::QueueDeclare
     String.new(rec2.payload).should eq "q1"
     reopened.close
@@ -97,7 +97,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
     log.append_ack(1_u64, 1_u64, 10_u64, 1_u32, pos2)
 
     # Before segment deletion, read_entry_leased slices directly from seg_mfile under an MFile lease
-    r1, leased_mfile = log.read_entry_leased(pub1.lsn).not_nil!
+    r1, leased_mfile = log.read_entry_leased(pub1.lsn) || raise "Expected leased entry"
     begin
       leased_mfile.should eq seg_mfile
       r1.entry.has_ctrl_payload?.should be_false
@@ -114,7 +114,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
 
     # Catching-up follower reading from LSN 1..5 receives Tombstone entries for the deleted segment's
     # Publish and Ack entries, followed by SegmentDelete, without needing the deleted segment file!
-    entries = log.read_entries(1_u64).not_nil!
+    entries = log.read_entries(1_u64) || raise "Expected entries from LSN 1"
     entries.size.should eq 5
     entries[0].entry.tombstoned?.should be_true
     entries[0].command.should eq LavinMQ::ClusteringV2::LogCommandType::Tombstone
@@ -172,7 +172,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
     log.last_lsn.should eq 14_u64
     log.first_lsn.should eq 7_u64
     log.read_entries(6_u64).should be_nil
-    log.read_entries(7_u64).not_nil!.size.should eq 8
+    (log.read_entries(7_u64) || raise "Expected entries from LSN 7").size.should eq 8
 
     log.close
   end
@@ -249,7 +249,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
 
     # Every single unapplied entry 1..10 is still readable
     (1_u64..10_u64).each do |lsn|
-      rec = log.read_entry(lsn).not_nil!
+      rec = log.read_entry(lsn) || raise "Expected entry at #{lsn}"
       String.new(rec.payload).should eq "q#{lsn}"
     end
 
@@ -282,7 +282,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
     File.delete(seg_path)
 
     # Reading the entry still succeeds from staged raft.ctrl memory without touching the closed MFile
-    rec = log.read_entry(pub.lsn).not_nil!
+    rec = log.read_entry(pub.lsn) || raise "Expected entry at #{pub.lsn}"
     rec.entry.position.should eq pos
     rec.entry.byte_size.should eq payload.size.to_u32
     rec.payload.should eq payload
