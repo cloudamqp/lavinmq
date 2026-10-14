@@ -94,7 +94,7 @@ describe "Transactions" do
           2.times { |i| q.publish "#{i}" }
           ch.tx_commit
           2.times do |i|
-            msg = q.get(no_ack: false).not_nil!
+            msg = q.get(no_ack: false).should_not be_nil
             msg.body_io.to_s.should eq "#{i}"
             msg.ack
           end
@@ -113,7 +113,7 @@ describe "Transactions" do
           2.times { |i| q.publish "#{i}" }
           ch.tx_commit
           2.times do |i|
-            msg = q.get(no_ack: false).not_nil!
+            msg = q.get(no_ack: false).should_not be_nil
             msg.body_io.to_s.should eq "#{i}"
             msg.ack
           end
