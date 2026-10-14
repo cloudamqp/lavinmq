@@ -98,6 +98,13 @@ module LavinMQ
       @replicator.try &.replace_file path
     end
 
+    def reload! : Nil
+      @save_lock.synchronize do
+        @parameters.clear
+        load!
+      end
+    end
+
     private def load!
       path = File.join(@data_dir, @file_name)
       if File.exists?(path)

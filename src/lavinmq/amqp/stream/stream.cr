@@ -53,6 +53,7 @@ module LavinMQ::AMQP
       super
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool
       # Reject policy keys that are forbidden as queue arguments, so a
       # matching policy can't install state the stream doesn't honor.
@@ -71,8 +72,10 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             stream_msg_store.max_age = max_age_policy
             @effective_args.delete("x-max-age")
-            stream_msg_store.drop_overflow
-            ensure_max_age_loop
+            unless standby?
+              stream_msg_store.drop_overflow
+              ensure_max_age_loop
+            end
           end
           return true
         end
@@ -83,7 +86,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             stream_msg_store.max_length = @max_length
             @effective_args.delete("x-max-length")
-            stream_msg_store.drop_overflow
+            stream_msg_store.drop_overflow unless standby?
           end
           return true
         end
@@ -94,7 +97,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             stream_msg_store.max_length_bytes = @max_length_bytes
             @effective_args.delete("x-max-length-bytes")
-            stream_msg_store.drop_overflow
+            stream_msg_store.drop_overflow unless standby?
           end
           return true
         end
@@ -256,6 +259,17 @@ module LavinMQ::AMQP
         # Propagate limits set by super to stream_msg_store
         stream_msg_store.max_length = @max_length
         stream_msg_store.max_length_bytes = @max_length_bytes
+        unless standby?
+          stream_msg_store.drop_overflow
+          ensure_max_age_loop
+        end
+      end
+    end
+
+    def on_leader_promotion : Nil
+      return if closed? || standby?
+      @msg_store_lock.synchronize do
+        return if closed? || stream_msg_store.closed
         stream_msg_store.drop_overflow
         ensure_max_age_loop
       end
@@ -265,6 +279,7 @@ module LavinMQ::AMQP
 
     # Must be called with @msg_store_lock held
     private def ensure_max_age_loop : Nil
+      return if standby?
       if @max_age_loop_running
         stream_msg_store.expiry_changed.try_send?(nil)
       elsif stream_msg_store.max_age
@@ -279,7 +294,7 @@ module LavinMQ::AMQP
       loop do
         expiry = @msg_store_lock.synchronize do
           store = stream_msg_store
-          if closed? || store.closed || store.max_age.nil?
+          if closed? || store.closed || store.max_age.nil? || standby?
             @max_age_loop_running = false
             return
           end

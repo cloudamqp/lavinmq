@@ -54,6 +54,7 @@ module LavinMQ
       ParameterPut       = 23
       ParameterDelete    = 24
       Tombstone          = 25
+      FileReplace        = 26
     end
 
     enum FrameType : UInt8
@@ -85,8 +86,9 @@ module LavinMQ
       property position : UInt32
       property byte_size : UInt32
 
-      FLAG_TOMBSTONED = 0x01_u8
-      FLAG_HAS_CTRL   = 0x02_u8
+      FLAG_TOMBSTONED  = 0x01_u8
+      FLAG_HAS_CTRL    = 0x02_u8
+      FLAG_FROM_LEADER = 0x04_u8
 
       def initialize(@term : UInt64 = 0_u64,
                      @lsn : UInt64 = 0_u64,
@@ -109,6 +111,10 @@ module LavinMQ
 
       def has_ctrl_payload? : Bool
         (@flags & FLAG_HAS_CTRL) != 0
+      end
+
+      def from_leader? : Bool
+        (@flags & FLAG_FROM_LEADER) != 0
       end
     end
 

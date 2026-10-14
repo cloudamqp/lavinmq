@@ -175,6 +175,11 @@ describe LavinMQ::Config do
 
           [clustering]
           enabled = true
+          v2 = true
+          node_id = 2
+          secret = my-cluster-secret
+          role = learner
+          peers = 1@10.0.0.1:5679,2@10.0.0.2:5679#learner
           bind = 0.0.0.0
           port = 5680
           etcd_endpoints = localhost:2380,localhost:2381
@@ -264,6 +269,11 @@ describe LavinMQ::Config do
 
     # Clustering section
     config.clustering?.should be_true
+    config.clustering_v2?.should be_true
+    config.clustering_node_id.should eq 2_u64
+    config.clustering_secret.should eq "my-cluster-secret"
+    config.clustering_role.should eq "learner"
+    config.clustering_peers.should eq ["1@10.0.0.1:5679", "2@10.0.0.2:5679#learner"]
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_port.should eq 5680
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"

@@ -1,4 +1,5 @@
 require "digest/crc32"
+require "file_utils"
 require "../mfile"
 require "../filesystem"
 require "./protocol"
@@ -14,6 +15,7 @@ module LavinMQ
 
       alias SegmentKey = Tuple(UInt16, UInt32, UInt32)
       alias TruncateCallback = LogIndexEntry -> Nil
+      alias MembershipCallback = Array(MemberInfo) -> Nil
 
       getter data_dir : String
       getter capacity : UInt64
@@ -26,15 +28,21 @@ module LavinMQ
       getter first_lsn : UInt64 = 1_u64
       getter last_lsn : UInt64 = 0_u64
       getter commit_index : UInt64 = 0_u64
+      getter applied_index : UInt64 = 0_u64
       getter members = Array(MemberInfo).new
+      getter? meta_existed : Bool = false
+      property? track_applied : Bool = false
 
+      @snapshot_members = Array(MemberInfo).new
       @mask : UInt64
       @idx_mfile : MFile
       @ctrl_mfile : MFile
       @lock = Mutex.new(:reentrant)
       @segments = Hash(SegmentKey, MFile).new
+      @segment_paths = Hash(SegmentKey, String).new
       @deleted_segments = Hash(SegmentKey, UInt64).new
       @on_truncate : TruncateCallback?
+      @on_membership_change : MembershipCallback?
       @closed = false
 
       def initialize(@data_dir : String,
@@ -57,6 +65,10 @@ module LavinMQ
         @on_truncate = block
       end
 
+      def on_membership_change(&block : Array(MemberInfo) -> Nil) : Nil
+        @on_membership_change = block
+      end
+
       def set_term_and_vote(term : UInt64, voted_for : UInt64 = 0_u64) : Nil
         @lock.synchronize do
           @current_term = term
@@ -67,42 +79,114 @@ module LavinMQ
 
       # ameba:disable Naming/AccessorMethodName
       def set_members(members : Array(MemberInfo)) : Nil
-        @lock.synchronize do
+        cb, new_members = @lock.synchronize do
+          @snapshot_members = members.dup
           @members = members.dup
+          recompute_members_unsafe
           save_meta!
+          {@on_membership_change, @members.dup}
         end
+        cb.try &.call(new_members)
       end
 
       def upsert_member(member : MemberInfo) : Nil
-        @lock.synchronize do
-          if idx = @members.index { |m| m.node_id == member.node_id }
-            @members[idx] = member
-          else
-            @members << member
-          end
+        cb, new_members = @lock.synchronize do
+          upsert_into_list(@snapshot_members, member)
+          upsert_into_list(@members, member)
           save_meta!
+          {@on_membership_change, @members.dup}
         end
+        cb.try &.call(new_members)
       end
 
       def remove_member(node_id : UInt64) : Nil
-        @lock.synchronize do
+        cb, new_members = @lock.synchronize do
+          @snapshot_members.reject! { |m| m.node_id == node_id }
           @members.reject! { |m| m.node_id == node_id }
           save_meta!
+          {@on_membership_change, @members.dup}
         end
+        cb.try &.call(new_members)
       end
 
       def register_segment(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, mfile : MFile) : Nil
         @lock.synchronize do
           key = {vhost_id, queue_id, segment_id}
+          mfile.lease
+          if old = @segments[key]?
+            old.release_lease
+          end
           @segments[key] = mfile
+          @segment_paths[key] = mfile.path
           @deleted_segments.delete(key)
+        end
+      end
+
+      def register_segment_path(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, path : String) : Nil
+        @lock.synchronize do
+          key = {vhost_id, queue_id, segment_id}
+          @segment_paths[key] = path
+          if old = @segments.delete(key)
+            evict_segment_unsafe(key, old)
+          end
         end
       end
 
       def unregister_segment(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32) : Nil
         @lock.synchronize do
-          @segments.delete({vhost_id, queue_id, segment_id})
+          key = {vhost_id, queue_id, segment_id}
+          if old = @segments.delete(key)
+            evict_segment_unsafe(key, old)
+          end
         end
+      end
+
+      def unregister_queue_segments(vhost_id : UInt16, queue_id : UInt32) : Nil
+        @lock.synchronize do
+          to_evict = Array(Tuple(Tuple(UInt16, UInt32, UInt32), MFile)).new
+          @segments.reject! do |key, mfile|
+            if key[0] == vhost_id && key[1] == queue_id
+              to_evict << {key, mfile}
+              @deleted_segments[key] = @last_lsn + 1
+              true
+            else
+              false
+            end
+          end
+          to_evict.each { |(k, mf)| evict_segment_unsafe(k, mf) }
+          @segment_paths.reject! { |key, _| key[0] == vhost_id && key[1] == queue_id }
+        end
+      end
+
+      private def evict_segment_unsafe(key : Tuple(UInt16, UInt32, UInt32), mfile : MFile) : Nil
+        if !mfile.closed? && @last_lsn >= @first_lsn
+          lsn = @first_lsn
+          while lsn <= @last_lsn
+            entry = entry_ptr(lsn).value
+            if entry.lsn == lsn && entry.command.publish? && !entry.has_ctrl_payload? &&
+               entry.vhost_id == key[0] && entry.queue_id == key[1] && entry.segment_id == key[2]
+              end_pos = entry.position.to_u64 + entry.byte_size.to_u64
+              if end_pos <= mfile.size.to_u64
+                slice = mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+                ctrl_pos = append_staged_publish_ctrl(entry.position, slice)
+                updated = LogIndexEntry.new(
+                  term: entry.term,
+                  lsn: entry.lsn,
+                  vhost_id: entry.vhost_id,
+                  cmd_type: entry.cmd_type,
+                  flags: entry.flags | LogIndexEntry::FLAG_HAS_CTRL,
+                  queue_id: entry.queue_id,
+                  segment_id: entry.segment_id,
+                  position: ctrl_pos,
+                  byte_size: entry.byte_size + 4_u32
+                )
+                entry_ptr(lsn).value = updated
+              end
+            end
+            lsn += 1
+          end
+        end
+        mfile.release_lease
       end
 
       def last_log_term : UInt64
@@ -135,7 +219,7 @@ module LavinMQ
                          fallback_payload : Bytes? = nil) : LogIndexEntry
         @lock.synchronize do
           lsn = @last_lsn + 1
-          flags = 0_u8
+          flags = LogIndexEntry::FLAG_FROM_LEADER
           pos = position
           len = byte_size
           key = {vhost_id, queue_id, segment_id}
@@ -195,7 +279,7 @@ module LavinMQ
             lsn: lsn,
             vhost_id: vhost_id,
             cmd_type: LogCommandType::Ack.value,
-            flags: 0_u8,
+            flags: LogIndexEntry::FLAG_FROM_LEADER,
             queue_id: queue_id,
             segment_id: segment_id,
             position: position,
@@ -215,14 +299,17 @@ module LavinMQ
         @lock.synchronize do
           lsn = @last_lsn + 1
           key = {vhost_id, queue_id, segment_id}
-          @segments.delete(key)
+          if old = @segments.delete(key)
+            old.release_lease
+          end
+          @segment_paths.delete(key)
           @deleted_segments[key] = lsn
           entry = LogIndexEntry.new(
             term: term,
             lsn: lsn,
             vhost_id: vhost_id,
             cmd_type: LogCommandType::SegmentDelete.value,
-            flags: 0_u8,
+            flags: LogIndexEntry::FLAG_FROM_LEADER,
             queue_id: queue_id,
             segment_id: segment_id,
             position: 0_u32,
@@ -241,16 +328,16 @@ module LavinMQ
                          queue_id : UInt32 = 0_u32,
                          segment_id : UInt32 = 0_u32,
                          position : UInt32 = 0_u32) : LogIndexEntry
-        @lock.synchronize do
+        entry, cb, members_snapshot = @lock.synchronize do
           lsn = @last_lsn + 1
-          flags = 0_u8
+          flags = LogIndexEntry::FLAG_FROM_LEADER
           pos = position
           len = payload.size.to_u32
           unless payload.empty?
             flags |= LogIndexEntry::FLAG_HAS_CTRL
             pos = append_ctrl_bytes(payload)
           end
-          entry = LogIndexEntry.new(
+          idx_entry = LogIndexEntry.new(
             term: term,
             lsn: lsn,
             vhost_id: vhost_id,
@@ -261,23 +348,36 @@ module LavinMQ
             position: pos,
             byte_size: len
           )
-          write_index_entry_unsafe(entry)
-          entry
+          write_index_entry_unsafe(idx_entry)
+          if cmd_type.conf_change? && !payload.empty?
+            apply_conf_change_to_list(@members, payload)
+            save_meta!
+            {idx_entry, @on_membership_change, @members.dup}
+          else
+            {idx_entry, nil, nil}
+          end
         end
+        if cb && members_snapshot
+          cb.call(members_snapshot)
+        end
+        entry
       end
 
       # Appends a pre-constructed LogEntryRecord received from a leader in AppendEntries.
       def append_follower_record(record : LogEntryRecord) : LogIndexEntry
-        @lock.synchronize do
+        stored, cb, members_snapshot = @lock.synchronize do
           in_entry = record.entry
           payload = record.payload
-          flags = in_entry.flags
+          flags = in_entry.flags & ~LogIndexEntry::FLAG_FROM_LEADER
           pos = in_entry.position
           len = in_entry.byte_size
 
           if in_entry.command.segment_delete?
             key = {in_entry.vhost_id, in_entry.queue_id, in_entry.segment_id}
-            @segments.delete(key)
+            if old = @segments.delete(key)
+              old.release_lease
+            end
+            @segment_paths.delete(key)
             @deleted_segments[key] = in_entry.lsn
           end
 
@@ -292,7 +392,7 @@ module LavinMQ
             end
           end
 
-          stored = LogIndexEntry.new(
+          idx_entry = LogIndexEntry.new(
             term: in_entry.term,
             lsn: in_entry.lsn,
             vhost_id: in_entry.vhost_id,
@@ -303,58 +403,90 @@ module LavinMQ
             position: pos,
             byte_size: len
           )
-          write_index_entry_unsafe(stored)
-          stored
+          write_index_entry_unsafe(idx_entry)
+          if in_entry.command.conf_change? && !payload.empty?
+            apply_conf_change_to_list(@members, payload)
+            save_meta!
+            {idx_entry, @on_membership_change, @members.dup}
+          else
+            {idx_entry, nil, nil}
+          end
         end
+        if cb && members_snapshot
+          cb.call(members_snapshot)
+        end
+        stored
       end
 
       # Standard Raft AppendEntries log consistency check + conflict truncation + append.
+      # ameba:disable Metrics/CyclomaticComplexity
       def maybe_append(prev_log_lsn : UInt64,
                        prev_log_term : UInt64,
                        leader_commit : UInt64,
                        entries : Array(LogEntryRecord)) : Tuple(Bool, UInt64, UInt64, UInt64)
-        @lock.synchronize do
+        res, cb, members_snapshot = @lock.synchronize do
           if prev_log_lsn > @last_lsn
-            return {false, @last_lsn, @last_lsn + 1, 0_u64}
+            next { {false, @last_lsn, @last_lsn + 1, 0_u64}, nil, nil }
           end
 
           if prev_log_lsn > 0
             local_prev_term = term_at(prev_log_lsn)
             if local_prev_term.nil?
-              return {false, @last_lsn, @first_lsn, 0_u64}
+              next { {false, @last_lsn, @first_lsn, 0_u64}, nil, nil }
             elsif local_prev_term != prev_log_term
               conflict_term = local_prev_term
               conflict_lsn = prev_log_lsn
               while conflict_lsn > @first_lsn && term_at_unsafe(conflict_lsn - 1) == conflict_term
                 conflict_lsn -= 1
               end
-              return {false, @last_lsn, conflict_lsn, conflict_term}
+              next { {false, @last_lsn, conflict_lsn, conflict_term}, nil, nil }
             end
           end
 
+          membership_changed = false
           entries.each do |rec|
             existing_term = term_at(rec.lsn)
             if existing_term && existing_term != rec.term
-              truncate_from_unsafe(rec.lsn)
+              membership_changed |= truncate_from_unsafe(rec.lsn, notify_membership: false)
               append_follower_record(rec)
+              membership_changed |= rec.command.conf_change?
             elsif existing_term.nil?
               append_follower_record(rec)
+              membership_changed |= rec.command.conf_change?
             end
           end
 
+          last_new_lsn = prev_log_lsn + entries.size.to_u64
           if leader_commit > @commit_index
-            new_commit = Math.min(leader_commit, @last_lsn)
+            new_commit = Math.min(leader_commit, last_new_lsn)
             advance_commit_index_unsafe(new_commit) if new_commit > @commit_index
           end
 
-          {true, @last_lsn, 0_u64, 0_u64}
+          if membership_changed
+            { {true, last_new_lsn, 0_u64, 0_u64}, @on_membership_change, @members.dup }
+          else
+            { {true, last_new_lsn, 0_u64, 0_u64}, nil, nil }
+          end
         end
+        if cb && members_snapshot
+          cb.call(members_snapshot)
+        end
+        res
       end
 
       def advance_commit_index(new_commit : UInt64) : Bool
         @lock.synchronize do
           return false if new_commit <= @commit_index || new_commit > @last_lsn
           advance_commit_index_unsafe(new_commit)
+          true
+        end
+      end
+
+      def advance_applied_index(new_applied : UInt64) : Bool
+        @lock.synchronize do
+          return false if new_applied <= @applied_index
+          @applied_index = new_applied
+          write_idx_header_unsafe
           true
         end
       end
@@ -367,20 +499,31 @@ module LavinMQ
       # Truncates uncommitted entries from `from_lsn` through `@last_lsn` inclusive.
       # Never truncates committed entries (`from_lsn <= @commit_index` raises).
       def truncate_from(from_lsn : UInt64) : Nil
-        @lock.synchronize do
-          truncate_from_unsafe(from_lsn)
+        cb, members_snapshot = @lock.synchronize do
+          changed = truncate_from_unsafe(from_lsn, notify_membership: false)
+          if changed
+            {@on_membership_change, @members.dup}
+          else
+            {nil, nil}
+          end
+        end
+        if cb && members_snapshot
+          cb.call(members_snapshot)
         end
       end
 
-      private def truncate_from_unsafe(from_lsn : UInt64) : Nil
-        return if from_lsn > @last_lsn
+      private def truncate_from_unsafe(from_lsn : UInt64, notify_membership : Bool = true) : Bool
+        return false if from_lsn > @last_lsn
         if from_lsn <= @commit_index
           raise ArgumentError.new("Cannot truncate committed entry lsn=#{from_lsn} (commit_index=#{@commit_index})")
         end
 
+        conf_truncated = false
         lsn = @last_lsn
         while lsn >= from_lsn
-          entry = normalize_entry_unsafe(entry_ptr(lsn).value)
+          raw = entry_ptr(lsn).value
+          conf_truncated = true if raw.command.conf_change?
+          entry = normalize_entry_unsafe(raw)
           @on_truncate.try &.call(entry)
           entry_ptr(lsn).value = LogIndexEntry.new
           if lsn == 1
@@ -393,7 +536,15 @@ module LavinMQ
         if @last_lsn < @first_lsn
           @first_lsn = @last_lsn + 1
         end
+        if conf_truncated
+          recompute_members_unsafe
+          save_meta!
+          if notify_membership && (cb = @on_membership_change)
+            cb.call(@members.dup)
+          end
+        end
         write_idx_header_unsafe
+        conf_truncated
       end
 
       # Reads a single log entry at `lsn`.
@@ -409,24 +560,31 @@ module LavinMQ
           if entry.command.publish? || entry.command.ack?
             key = {entry.vhost_id, entry.queue_id, entry.segment_id}
             if (del_lsn = @deleted_segments[key]?) && del_lsn > lsn
-              tombstone = LogIndexEntry.new(
-                term: entry.term,
-                lsn: entry.lsn,
-                vhost_id: entry.vhost_id,
-                cmd_type: LogCommandType::Tombstone.value,
-                flags: LogIndexEntry::FLAG_TOMBSTONED,
-                queue_id: entry.queue_id,
-                segment_id: entry.segment_id,
-                position: entry.position,
-                byte_size: 0_u32
-              )
-              return LogEntryRecord.new(tombstone, Bytes.empty)
+              return make_tombstone_record(entry)
             end
           end
 
           payload = resolve_payload_unsafe(raw_entry)
+          if entry.command.publish? && entry.byte_size > 0 && payload.empty?
+            return make_tombstone_record(entry)
+          end
           LogEntryRecord.new(entry, payload)
         end
+      end
+
+      private def make_tombstone_record(entry : LogIndexEntry) : LogEntryRecord
+        tombstone = LogIndexEntry.new(
+          term: entry.term,
+          lsn: entry.lsn,
+          vhost_id: entry.vhost_id,
+          cmd_type: LogCommandType::Tombstone.value,
+          flags: LogIndexEntry::FLAG_TOMBSTONED | (entry.flags & LogIndexEntry::FLAG_FROM_LEADER),
+          queue_id: entry.queue_id,
+          segment_id: entry.segment_id,
+          position: entry.position,
+          byte_size: 0_u32
+        )
+        LogEntryRecord.new(tombstone, Bytes.empty)
       end
 
       def read_entries(from_lsn : UInt64, max_count : Int32 = 1024, max_bytes : Int32 = 4 * 1024 * 1024) : Array(LogEntryRecord)?
@@ -452,20 +610,30 @@ module LavinMQ
       def install_snapshot_state(last_included_lsn : UInt64,
                                  last_included_term : UInt64,
                                  members : Array(MemberInfo)) : Nil
-        @lock.synchronize do
+        cb, new_members = @lock.synchronize do
+          has_matching_entry = last_included_lsn >= @first_lsn &&
+                               last_included_lsn <= @last_lsn &&
+                               term_at_unsafe(last_included_lsn) == last_included_term
+
           @last_snapshot_lsn = last_included_lsn
           @last_snapshot_term = last_included_term
-          @members = members.dup
-          if @last_lsn <= last_included_lsn
+          @snapshot_members = members.dup
+
+          if has_matching_entry && @last_lsn > last_included_lsn
+            @first_lsn = last_included_lsn + 1
+            recompute_members_unsafe
+          else
             @first_lsn = last_included_lsn + 1
             @last_lsn = last_included_lsn
-          elsif @first_lsn <= last_included_lsn
-            @first_lsn = last_included_lsn + 1
+            @members = members.dup
           end
           @commit_index = Math.max(@commit_index, last_included_lsn)
+          @applied_index = Math.max(@applied_index, last_included_lsn)
           write_idx_header_unsafe
           save_meta!
+          {@on_membership_change, @members.dup}
         end
+        cb.try &.call(new_members)
       end
 
       # Checks whether candidate's log is at least as up-to-date as ours (Raft §5.4.1).
@@ -480,6 +648,12 @@ module LavinMQ
         end
       end
 
+      def compact_ctrl! : Nil
+        @lock.synchronize do
+          compact_ctrl_unsafe
+        end
+      end
+
       def fsync : Nil
         @lock.synchronize do
           @idx_mfile.fsync
@@ -491,9 +665,58 @@ module LavinMQ
         @lock.synchronize do
           return if @closed
           @closed = true
+          @segments.each_value(&.release_lease)
+          @segments.clear
+          @segment_paths.clear
           @idx_mfile.close(truncate_to_size: false)
           @ctrl_mfile.close
         end
+      end
+
+      private def upsert_into_list(list : Array(MemberInfo), member : MemberInfo) : Nil
+        if idx = list.index { |m| m.node_id == member.node_id }
+          list[idx] = member
+        else
+          list << member
+        end
+      end
+
+      private def apply_conf_change_to_list(list : Array(MemberInfo), payload : Bytes) : Nil
+        cc = ConfChangeCommand.from_slice(payload)
+        case cc.change_type
+        in .add_learner?
+          m = cc.member
+          m.role = MemberRole::Learner
+          upsert_into_list(list, m)
+        in .promote_learner?
+          if idx = list.index { |m| m.node_id == cc.member.node_id }
+            existing = list[idx]
+            existing.role = MemberRole::Voter
+            list[idx] = existing
+          else
+            m = cc.member
+            m.role = MemberRole::Voter
+            list << m
+          end
+        in .remove_node?
+          list.reject! { |m| m.node_id == cc.member.node_id }
+        end
+      end
+
+      private def recompute_members_unsafe : Nil
+        recomputed = @snapshot_members.dup
+        if @last_lsn >= @first_lsn
+          lsn = @first_lsn
+          while lsn <= @last_lsn
+            raw = entry_ptr(lsn).value
+            if raw.lsn == lsn && raw.command.conf_change?
+              payload = resolve_payload_unsafe(raw)
+              apply_conf_change_to_list(recomputed, payload) unless payload.empty?
+            end
+            lsn += 1
+          end
+        end
+        @members = recomputed
       end
 
       private def normalize_entry_unsafe(raw_entry : LogIndexEntry) : LogIndexEntry
@@ -515,39 +738,113 @@ module LavinMQ
         raw_entry
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def resolve_payload_unsafe(entry : LogIndexEntry) : Bytes
         return Bytes.empty if entry.byte_size == 0
 
         if entry.has_ctrl_payload?
           if entry.command.publish?
             return Bytes.empty if entry.byte_size <= 4
-            return @ctrl_mfile.to_slice((entry.position + 4).to_i64, (entry.byte_size - 4).to_i64)
+            return @ctrl_mfile.to_slice((entry.position + 4).to_i64, (entry.byte_size - 4).to_i64).dup
           end
-          return @ctrl_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+          return @ctrl_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64).dup
         end
 
         if entry.command.publish?
           key = {entry.vhost_id, entry.queue_id, entry.segment_id}
           if seg_mfile = @segments[key]?
-            return seg_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
-          elsif @deleted_segments.has_key?(key)
-            return Bytes.empty
-          else
-            raise IO::EOFError.new("Segment #{key} not registered and not marked deleted for lsn=#{entry.lsn}")
+            if !seg_mfile.closed? && entry.position.to_i64 + entry.byte_size.to_i64 <= seg_mfile.size
+              return seg_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+            end
           end
+          if @deleted_segments.has_key?(key)
+            return Bytes.empty
+          end
+          if (path = @segment_paths[key]?) && File.exists?(path)
+            begin
+              File.open(path, "r") do |f|
+                f.seek(entry.position)
+                buf = Bytes.new(entry.byte_size)
+                f.read_fully(buf)
+                return buf
+              end
+            rescue
+              return Bytes.empty
+            end
+          end
+          return Bytes.empty
         end
 
         Bytes.empty
       end
 
-      private def append_staged_publish_ctrl(seg_pos : UInt32, payload : Bytes) : UInt32
-        needed = payload.size + 4
+      private def ensure_ctrl_space_unsafe(needed : Int) : Nil
+        if @ctrl_mfile.size + needed > @ctrl_mfile.capacity || @ctrl_mfile.size + needed > UInt32::MAX
+          compact_ctrl_unsafe
+        end
         if @ctrl_mfile.size + needed > @ctrl_mfile.capacity
           new_cap = Math.max(@ctrl_mfile.capacity * 2, @ctrl_mfile.size + needed + CTRL_INIT_SIZE)
+          raise OverflowError.new("raft.ctrl capacity exceeded UInt32::MAX") if new_cap > UInt32::MAX
           path = @ctrl_mfile.path
           @ctrl_mfile.close(truncate_to_size: false)
           @ctrl_mfile = MFile.new(path, new_cap)
         end
+      end
+
+      private def compact_ctrl_unsafe : Nil
+        live_bytes = 4_i64
+        if @last_lsn >= @first_lsn
+          lsn = @first_lsn
+          while lsn <= @last_lsn
+            raw = entry_ptr(lsn).value
+            if raw.lsn == lsn && raw.has_ctrl_payload? && raw.byte_size > 0
+              live_bytes += raw.byte_size
+            end
+            lsn += 1
+          end
+        end
+
+        new_cap = Math.max(CTRL_INIT_SIZE.to_i64, live_bytes * 2)
+        tmp_path = File.join(@data_dir, "raft.ctrl.tmp")
+        File.delete?(tmp_path)
+        new_ctrl = MFile.new(tmp_path, new_cap)
+        new_ctrl.write_bytes(IDX_MAGIC, IO::ByteFormat::LittleEndian)
+
+        if @last_lsn >= @first_lsn
+          lsn = @first_lsn
+          while lsn <= @last_lsn
+            ptr = entry_ptr(lsn)
+            raw = ptr.value
+            if raw.lsn == lsn && raw.has_ctrl_payload? && raw.byte_size > 0
+              new_pos = new_ctrl.size.to_u32
+              slice = @ctrl_mfile.to_slice(raw.position.to_i64, raw.byte_size.to_i64)
+              new_ctrl.write(slice)
+              ptr.value = LogIndexEntry.new(
+                term: raw.term,
+                lsn: raw.lsn,
+                vhost_id: raw.vhost_id,
+                cmd_type: raw.cmd_type,
+                flags: raw.flags,
+                queue_id: raw.queue_id,
+                segment_id: raw.segment_id,
+                position: new_pos,
+                byte_size: raw.byte_size
+              )
+            end
+            lsn += 1
+          end
+        end
+
+        final_path = @ctrl_mfile.path
+        new_ctrl.close(truncate_to_size: false)
+        @ctrl_mfile.close(truncate_to_size: false)
+        FileSystem.durable_rename(tmp_path, final_path)
+        @ctrl_mfile = MFile.new(final_path, new_cap)
+      end
+
+      private def append_staged_publish_ctrl(seg_pos : UInt32, payload : Bytes) : UInt32
+        needed = payload.size + 4
+        ensure_ctrl_space_unsafe(needed)
         pos = @ctrl_mfile.size.to_u32
         @ctrl_mfile.write_bytes(seg_pos, IO::ByteFormat::LittleEndian)
         @ctrl_mfile.write(payload)
@@ -555,14 +852,7 @@ module LavinMQ
       end
 
       private def append_ctrl_bytes(bytes : Bytes) : UInt32
-        if @ctrl_mfile.size + bytes.size > @ctrl_mfile.capacity
-          # Compact/reset ctrl_mfile if all entries referencing old positions have wrapped or been snapshotted,
-          # or expand capacity by reopening with doubled capacity.
-          new_cap = Math.max(@ctrl_mfile.capacity * 2, @ctrl_mfile.size + bytes.size + CTRL_INIT_SIZE)
-          path = @ctrl_mfile.path
-          @ctrl_mfile.close(truncate_to_size: false)
-          @ctrl_mfile = MFile.new(path, new_cap)
-        end
+        ensure_ctrl_space_unsafe(bytes.size)
         pos = @ctrl_mfile.size.to_u32
         @ctrl_mfile.write(bytes)
         pos
@@ -570,13 +860,59 @@ module LavinMQ
 
       private def write_index_entry_unsafe(entry : LogIndexEntry) : Nil
         lsn = entry.lsn
-        entry_ptr(lsn).value = entry
-        @last_lsn = lsn
         if @first_lsn == 0
           @first_lsn = lsn
         end
-        if @last_lsn >= @first_lsn + @capacity
-          @first_lsn = @last_lsn - @capacity + 1
+        while @last_lsn >= @first_lsn && lsn >= @first_lsn + @capacity
+          evictable = @first_lsn <= @commit_index && (!@track_applied || @first_lsn <= @applied_index)
+          if evictable
+            oldest = entry_ptr(@first_lsn).value
+            if oldest.lsn == @first_lsn
+              @last_snapshot_lsn = oldest.lsn
+              @last_snapshot_term = oldest.term
+              if oldest.command.conf_change?
+                payload = resolve_payload_unsafe(oldest)
+                apply_conf_change_to_list(@snapshot_members, payload) unless payload.empty?
+              end
+            end
+            @first_lsn += 1
+          else
+            grow_index_ring_unsafe
+          end
+        end
+        entry_ptr(lsn).value = entry
+        @last_lsn = lsn
+        write_idx_header_unsafe
+      end
+
+      private def grow_index_ring_unsafe : Nil
+        new_cap = @capacity * 2
+        new_mask = new_cap - 1
+        existing = Array(LogIndexEntry).new
+        if @last_lsn >= @first_lsn
+          lsn = @first_lsn
+          while lsn <= @last_lsn
+            existing << entry_ptr(lsn).value
+            lsn += 1
+          end
+        end
+
+        path = @idx_mfile.path
+        total_bytes = IDX_HEADER_SIZE + (new_cap.to_i64 * sizeof(LogIndexEntry))
+        @idx_mfile.close(truncate_to_size: false)
+        @idx_mfile = MFile.new(path, total_bytes)
+        @idx_mfile.resize(total_bytes)
+        @capacity = new_cap
+        @mask = new_mask
+
+        base = (@idx_mfile.to_slice.to_unsafe + IDX_HEADER_SIZE).as(LogIndexEntry*)
+        new_cap.times do |i|
+          (base + i).value = LogIndexEntry.new
+        end
+        existing.each do |e|
+          next if e.lsn == 0
+          slot = (e.lsn - 1) & @mask
+          (base + slot).value = e
         end
         write_idx_header_unsafe
       end
@@ -589,26 +925,33 @@ module LavinMQ
 
       private def open_or_init_idx : MFile
         path = File.join(@data_dir, "raft.idx")
-        total_bytes = IDX_HEADER_SIZE + (@capacity.to_i64 * sizeof(LogIndexEntry))
         existed = File.exists?(path) && File.size(path) >= IDX_HEADER_SIZE
-        mfile = MFile.new(path, total_bytes)
-        mfile.resize(total_bytes)
-
         if existed
-          slice = mfile.to_slice
-          magic = IO::ByteFormat::LittleEndian.decode(UInt32, slice[0, 4])
-          stored_cap = IO::ByteFormat::LittleEndian.decode(UInt64, slice[8, 8])
-          if magic == IDX_MAGIC && stored_cap == @capacity
-            @first_lsn = IO::ByteFormat::LittleEndian.decode(UInt64, slice[16, 8])
-            @last_lsn = IO::ByteFormat::LittleEndian.decode(UInt64, slice[24, 8])
-            @commit_index = IO::ByteFormat::LittleEndian.decode(UInt64, slice[32, 8])
+          hdr_bytes = Bytes.new(IDX_HEADER_SIZE)
+          File.open(path, "r", &.read_fully(hdr_bytes))
+          magic = IO::ByteFormat::LittleEndian.decode(UInt32, hdr_bytes[0, 4])
+          stored_cap = IO::ByteFormat::LittleEndian.decode(UInt64, hdr_bytes[8, 8])
+          if magic == IDX_MAGIC && stored_cap >= @capacity && (stored_cap & (stored_cap - 1)) == 0
+            @capacity = stored_cap
+            @mask = @capacity - 1
+            total_bytes = IDX_HEADER_SIZE + (@capacity.to_i64 * sizeof(LogIndexEntry))
+            mfile = MFile.new(path, total_bytes)
+            mfile.resize(total_bytes)
+            @first_lsn = IO::ByteFormat::LittleEndian.decode(UInt64, hdr_bytes[16, 8])
+            @last_lsn = IO::ByteFormat::LittleEndian.decode(UInt64, hdr_bytes[24, 8])
+            @commit_index = IO::ByteFormat::LittleEndian.decode(UInt64, hdr_bytes[32, 8])
+            @applied_index = IO::ByteFormat::LittleEndian.decode(UInt64, hdr_bytes[40, 8])
             return mfile
           end
         end
 
+        total_bytes = IDX_HEADER_SIZE + (@capacity.to_i64 * sizeof(LogIndexEntry))
+        mfile = MFile.new(path, total_bytes)
+        mfile.resize(total_bytes)
         @first_lsn = @last_snapshot_lsn + 1
         @last_lsn = @last_snapshot_lsn
         @commit_index = @last_snapshot_lsn
+        @applied_index = @last_snapshot_lsn
         write_idx_header_to_slice(mfile.to_slice)
         mfile
       end
@@ -625,6 +968,7 @@ module LavinMQ
         IO::ByteFormat::LittleEndian.encode(@first_lsn, Slice.new(ptr + 16, 8))
         IO::ByteFormat::LittleEndian.encode(@last_lsn, Slice.new(ptr + 24, 8))
         IO::ByteFormat::LittleEndian.encode(@commit_index, Slice.new(ptr + 32, 8))
+        IO::ByteFormat::LittleEndian.encode(@applied_index, Slice.new(ptr + 40, 8))
       end
 
       private def open_or_init_ctrl : MFile
@@ -660,6 +1004,13 @@ module LavinMQ
               @last_snapshot_term = fmt.decode(UInt64, io)
               count = fmt.decode(UInt32, io)
               @members = Array(MemberInfo).new(count.to_i) { MemberInfo.from_io(io, fmt) }
+              if io.pos < io.size
+                snap_count = fmt.decode(UInt32, io)
+                @snapshot_members = Array(MemberInfo).new(snap_count.to_i) { MemberInfo.from_io(io, fmt) }
+              else
+                @snapshot_members = @members.dup
+              end
+              @meta_existed = true
               return
             end
           end
@@ -681,6 +1032,8 @@ module LavinMQ
         fmt.encode(@last_snapshot_term, body_io)
         fmt.encode(@members.size.to_u32, body_io)
         @members.each(&.to_io(body_io, fmt))
+        fmt.encode(@snapshot_members.size.to_u32, body_io)
+        @snapshot_members.each(&.to_io(body_io, fmt))
 
         body = body_io.to_slice
         crc = Digest::CRC32.checksum(body)

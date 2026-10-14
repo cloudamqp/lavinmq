@@ -123,6 +123,11 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |
+| `v2` | `--clustering-v2` | `LAVINMQ_CLUSTERING_V2` | Bool | `false` | Enable embedded Raft-based ClusteringV2 |
+| `node_id` | `--clustering-node-id` | `LAVINMQ_CLUSTERING_NODE_ID` | UInt64 | `1` | Node ID for ClusteringV2 |
+| `secret` | `--clustering-secret` | `LAVINMQ_CLUSTERING_SECRET` | String | (empty) | Shared HMAC secret for ClusteringV2 peer authentication (required when `v2 = true`) |
+| `peers` | `--clustering-peers` | `LAVINMQ_CLUSTERING_PEERS` | Array | `[]` | Comma-separated ClusteringV2 peers (`id@host:port[|amqp_uri|http_uri][#role]`) |
+| `role` | `--clustering-role` | `LAVINMQ_CLUSTERING_ROLE` | String | `voter` | Initial ClusteringV2 member role (`voter` or `learner`) |
 
 ## [oauth] Section
 

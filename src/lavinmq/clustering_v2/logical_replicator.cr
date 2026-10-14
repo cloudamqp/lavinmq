@@ -24,8 +24,25 @@ module LavinMQ
       property? suppressed : Bool = false
       property wait_timeout : Time::Span = 5.seconds
 
+      private enum SegmentFileKind : UInt8
+        Msgs            = 1
+        Acks            = 2
+        ConsumerOffsets = 3
+      end
+
+      private struct SegmentPathInfo
+        getter vhost_id : UInt16
+        getter queue_id : UInt32
+        getter seg_id : UInt32
+        getter kind : SegmentFileKind
+
+        def initialize(@vhost_id : UInt16, @queue_id : UInt32, @seg_id : UInt32, @kind : SegmentFileKind)
+        end
+      end
+
       @data_dir : String
       @mfiles = Hash(String, MFile).new
+      @segment_path_cache = Hash(String, SegmentPathInfo).new
       @mqtt_file_to_topic = Hash(String, String).new
       @last_proposed_lsn = Atomic(UInt64).new(0_u64)
       @lock = Mutex.new(:reentrant)
@@ -44,7 +61,7 @@ module LavinMQ
         end
 
         @node.on_apply do |rec|
-          @applier.apply_committed(rec, from_leader: @node.leader?)
+          @applier.apply_committed(rec, from_leader: rec.entry.from_leader?)
         end
 
         @node.on_promote do |_term|
@@ -64,6 +81,10 @@ module LavinMQ
         end
       end
 
+      def standby? : Bool
+        !@node.leader?
+      end
+
       def on_role_change(&block : Role -> Nil) : Nil
         @on_role_change = block
       end
@@ -72,8 +93,9 @@ module LavinMQ
         @server = server
         @applier.server = server
         @applier.register_all_segments!
-        if @node.leader? && @commit_gated_delivery
-          enable_commit_gates!
+        if @node.leader?
+          enable_commit_gates! if @commit_gated_delivery
+          server.on_leader_promotion
         end
       end
 
@@ -101,12 +123,14 @@ module LavinMQ
         else
           disable_commit_gates!
         end
+        @server.try &.on_leader_promotion
         @on_role_change.try &.call(Role::Leader)
       end
 
       # Clean in-process step-down without terminating the process (`exit 3` is eliminated).
       private def handle_step_down : Nil
         if srv = @server
+          srv.on_leader_step_down
           srv.vhosts.each_value do |vh|
             vh.connections.dup.each do |conn|
               conn.close("Stepping down from cluster leader") rescue nil
@@ -134,7 +158,8 @@ module LavinMQ
               next unless File.file?(full_path)
               rel = Path[full_path].relative_to(@data_dir).to_s
               seg_id = (child.starts_with?("msgs.") || child.starts_with?("acks.")) && child.size == 15 ? (child[5, 10].to_u32? || 0_u32) : 0_u32
-              if mfile = @mfiles[full_path]?
+              mfile = @lock.synchronize { @mfiles[full_path]? }
+              if mfile && !mfile.closed?
                 slice = mfile.to_slice(0, mfile.size)
                 copy = Bytes.new(slice.size)
                 copy.copy_from(slice)
@@ -151,6 +176,11 @@ module LavinMQ
       # --- LavinMQ::Clustering::Replicator interface ---
 
       def register_file(path : String)
+        if info = cache_segment_path_info(path)
+          if info.kind.msgs?
+            @log.register_segment_path(info.vhost_id, info.queue_id, info.seg_id, path)
+          end
+        end
       end
 
       def register_file(file : File)
@@ -160,10 +190,9 @@ module LavinMQ
         @lock.synchronize do
           @mfiles[mfile.path] = mfile
         end
-        if ids = parse_queue_segment_path(mfile.path)
-          vhost_id, queue_id, prefix, seg_id = ids
-          if prefix == "msgs"
-            @log.register_segment(vhost_id, queue_id, seg_id, mfile)
+        if info = cache_segment_path_info(mfile.path)
+          if info.kind.msgs?
+            @log.register_segment(info.vhost_id, info.queue_id, info.seg_id, mfile)
           end
         end
       end
@@ -178,6 +207,19 @@ module LavinMQ
           return unless File.exists?(path)
           payload = File.read(path).to_slice
           entry = @node.propose_command(LogCommandType::VHostCreate, payload)
+          @last_proposed_lsn.set(entry.lsn)
+        elsif (parts.size == 1 && parts[0].in?("users.json", "parameters.json")) ||
+              (parts.size == 2 && parts[1].in?("parameters.json", "policies.json", "operator_policies.json", "limits.json", "mqtt_permissions.json"))
+          return unless File.exists?(path)
+          content = File.read(path).to_slice
+          rel_bytes = rel.to_slice
+          io = IO::Memory.new(2 + rel_bytes.size + 4 + content.size)
+          io.write_bytes(rel_bytes.size.to_u16, IO::ByteFormat::LittleEndian)
+          io.write(rel_bytes)
+          io.write_bytes(content.size.to_u32, IO::ByteFormat::LittleEndian)
+          io.write(content)
+          vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u16
+          entry = @node.propose_command(LogCommandType::FileReplace, io.to_slice, vhost_id: vhost_id)
           @last_proposed_lsn.set(entry.lsn)
         elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
           return unless File.exists?(path)
@@ -203,39 +245,33 @@ module LavinMQ
         @lock.synchronize do
           @mfiles[mfile.path] = mfile
         end
+        if info = (@lock.synchronize { @segment_path_cache[mfile.path]? } || cache_segment_path_info(mfile.path))
+          if info.kind.msgs?
+            @log.register_segment(info.vhost_id, info.queue_id, info.seg_id, mfile)
+          end
+        end
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
       def append(path : String, pos : Int, length : Int)
         return if @suppressed || @server.nil? || !@node.leader?
-        rel = relative_path(path)
-        parts = rel.split('/')
-        return unless parts.size == 3
+        info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
 
-        vhost_dir = parts[0]
-        queue_dir = parts[1]
-        filename = parts[2]
-        vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
-        queue_id = ResourceId.queue_id_for_dirs(vhost_dir, queue_dir)
-
-        if filename.starts_with?("msgs.") && filename.size == 15
-          seg_id = filename[5, 10].to_u32
+        case info.kind
+        when .msgs?
           if @commit_gated_delivery
-            if q = @applier.resolve_queue(vhost_id, queue_id)
+            if q = @applier.resolve_queue(info.vhost_id, info.queue_id)
               q.enable_commit_gate! unless q.raw_msg_store.commit_gated?
             end
           end
-          if mfile = @lock.synchronize { @mfiles[path]? }
-            @log.register_segment(vhost_id, queue_id, seg_id, mfile)
-          end
-          entry = @node.propose_publish(vhost_id, queue_id, seg_id, pos.to_u32, length.to_u32)
+          entry = @node.propose_publish(info.vhost_id, info.queue_id, info.seg_id, pos.to_u32, length.to_u32)
           @last_proposed_lsn.set(entry.lsn)
-        elsif filename == "consumer_offsets"
+        when .consumer_offsets?
           if mfile = @lock.synchronize { @mfiles[path]? }
             slice = mfile.to_slice(pos, length)
             copy = Bytes.new(slice.size)
             copy.copy_from(slice)
-            entry = @node.propose_command(LogCommandType::StreamOffsetCommit, copy, vhost_id: vhost_id, queue_id: queue_id)
+            entry = @node.propose_command(LogCommandType::StreamOffsetCommit, copy, vhost_id: info.vhost_id, queue_id: info.queue_id)
             @last_proposed_lsn.set(entry.lsn)
           end
         end
@@ -244,12 +280,10 @@ module LavinMQ
 
       def append_value(path : String, value : UInt32 | Int32, offset : Int64)
         return if @suppressed || @server.nil? || !@node.leader?
-        if ids = parse_queue_segment_path(path)
-          vhost_id, queue_id, prefix, seg_id = ids
-          if prefix == "acks"
-            entry = @node.propose_ack(vhost_id, queue_id, seg_id, value.to_u32)
-            @last_proposed_lsn.set(entry.lsn)
-          end
+        info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
+        if info.kind.acks?
+          entry = @node.propose_ack(info.vhost_id, info.queue_id, info.seg_id, value.to_u32)
+          @last_proposed_lsn.set(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end
@@ -284,24 +318,33 @@ module LavinMQ
       rescue RaftNode::Error::NotLeaderError
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def delete_file(path : String)
-        @lock.synchronize do
+        info = @lock.synchronize do
           @mfiles.delete(path)
+          @segment_path_cache.delete(path)
+        end || parse_segment_path_info(path)
+
+        if info && info.kind.msgs?
+          # Stage any in-ring publish entries to raft.ctrl and release the MFile lease
+          # before MessageStore#delete_file calls file.close
+          @log.unregister_segment(info.vhost_id, info.queue_id, info.seg_id)
         end
+
         return if @suppressed || @server.nil? || !@node.leader?
 
-        rel = relative_path(path)
-        parts = rel.split('/')
-        if parts.size == 3 && parts[2].starts_with?("msgs.") && parts[2].size == 15
+        if info && info.kind.msgs?
           # Only emit SegmentDelete when the queue itself still exists (not during queue deletion)
           queue_dot_file = File.join(File.dirname(path), ".queue")
           return unless File.exists?(queue_dot_file)
-          vhost_id = ResourceId.vhost_id_for_dir(parts[0])
-          queue_id = ResourceId.queue_id_for_dirs(parts[0], parts[1])
-          seg_id = parts[2][5, 10].to_u32
-          entry = @node.propose_segment_delete(vhost_id, queue_id, seg_id)
+          entry = @node.propose_segment_delete(info.vhost_id, info.queue_id, info.seg_id)
           @last_proposed_lsn.set(entry.lsn)
-        elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
+          return
+        end
+
+        rel = relative_path(path)
+        parts = rel.split('/')
+        if parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
           vhost_id = ResourceId.vhost_id_for_dir(parts[0])
           file_name = parts[2]
           entry = @node.propose_command(LogCommandType::MqttRetainDelete, file_name.to_slice, vhost_id: vhost_id)
@@ -341,11 +384,16 @@ module LavinMQ
       def flush_isr : Nil
       end
 
-      def wait_for_followers : Nil
-        return if @suppressed || @server.nil? || !@node.leader?
+      def wait_for_followers(timeout : Time::Span = @wait_timeout) : Nil
+        return if @suppressed || @server.nil?
+        unless @node.leader?
+          raise Clustering::Replicator::ReplicationError.new("Node #{@node.node_id} is not the cluster leader")
+        end
         target = @last_proposed_lsn.get(:acquire)
         return if target.zero?
-        @node.wait_for_commit(target, @wait_timeout)
+        unless @node.wait_for_commit(target, timeout)
+          raise Clustering::Replicator::ReplicationError.new("Failed to commit LSN #{target} within #{timeout}")
+        end
       end
 
       def request_fsync(paths : Enumerable(String)) : Nil
@@ -364,6 +412,7 @@ module LavinMQ
       def clear
         @lock.synchronize do
           @mfiles.clear
+          @segment_path_cache.clear
           @mqtt_file_to_topic.clear
         end
       end
@@ -378,19 +427,35 @@ module LavinMQ
         path
       end
 
-      private def parse_queue_segment_path(path : String) : Tuple(UInt16, UInt32, String, UInt32)?
+      private def cache_segment_path_info(path : String) : SegmentPathInfo?
+        if info = parse_segment_path_info(path)
+          @lock.synchronize do
+            @segment_path_cache[path] = info
+          end
+          info
+        end
+      end
+
+      private def parse_segment_path_info(path : String) : SegmentPathInfo?
         rel = relative_path(path)
         parts = rel.split('/')
         return unless parts.size == 3
         filename = parts[2]
-        if (filename.starts_with?("msgs.") || filename.starts_with?("acks.")) && filename.size == 15
-          prefix = filename[0, 4]
+        if filename.starts_with?("msgs.") && filename.size == 15
           seg_id = filename[5, 10].to_u32? || return
           vhost_id = ResourceId.vhost_id_for_dir(parts[0])
           queue_id = ResourceId.queue_id_for_dirs(parts[0], parts[1])
-          return {vhost_id, queue_id, prefix, seg_id}
+          SegmentPathInfo.new(vhost_id, queue_id, seg_id, SegmentFileKind::Msgs)
+        elsif filename.starts_with?("acks.") && filename.size == 15
+          seg_id = filename[5, 10].to_u32? || return
+          vhost_id = ResourceId.vhost_id_for_dir(parts[0])
+          queue_id = ResourceId.queue_id_for_dirs(parts[0], parts[1])
+          SegmentPathInfo.new(vhost_id, queue_id, seg_id, SegmentFileKind::Acks)
+        elsif filename == "consumer_offsets"
+          vhost_id = ResourceId.vhost_id_for_dir(parts[0])
+          queue_id = ResourceId.queue_id_for_dirs(parts[0], parts[1])
+          SegmentPathInfo.new(vhost_id, queue_id, 0_u32, SegmentFileKind::ConsumerOffsets)
         end
-        nil
       end
 
       private def classify_definition_frame(bytes : Bytes) : LogCommandType

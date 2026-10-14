@@ -99,3 +99,24 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 ## Security
 
 Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+
+## Embedded Raft Clustering (ClusteringV2)
+
+`ClusteringV2` provides embedded Raft consensus and logical replication without requiring an external `etcd` deployment:
+
+- **Embedded Raft with Pre-Vote & Leader Lease**: Coordinates leader election, membership changes (`Learner` staging and `Voter` promotion), and log replication over a dedicated `Fiber::ExecutionContext::Concurrent`.
+- **Zero-Copy Unified Log**: Published message payloads are indexed in `raft.idx` directly against their queue segment files, while topology/definition changes and consumer acks are recorded in `raft.ctrl`.
+- **Hot-Standby Followers & Commit-Gated Delivery**: Followers apply committed logical operations (`DeclareQueue`, `Publish`, `Ack`, definitions, and vhost files) into a warm in-memory `LavinMQ::Server` with background expiration/upstream tasks paused until promotion. On the leader, messages become deliverable to consumers and publisher confirms are sent only after quorum commit.
+- **Permanent Ingress Routing**: AMQP and HTTP listeners remain bound across role changes. Followers serve read-only management HTTP queries locally from warm memory, proxy mutating HTTP requests to the leader, and splice AMQP connections at Layer 4.
+
+```ini
+[clustering]
+v2 = true
+node_id = 1
+secret = replace-with-strong-cluster-secret
+bind = 0.0.0.0
+port = 5679
+role = voter
+peers = 1@node1.example.com:5679|amqp://node1.example.com:5672|http://node1.example.com:15672,2@node2.example.com:5679|amqp://node2.example.com:5672|http://node2.example.com:15672,3@node3.example.com:5679|amqp://node3.example.com:5672|http://node3.example.com:15672
+```
+

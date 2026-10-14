@@ -13,6 +13,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./clustering/etcd_coordinator"
+require "./clustering_v2"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -27,6 +28,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @v2_node : ClusteringV2::ClusterNode?
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -47,7 +49,10 @@ module LavinMQ
 
       @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
 
-      if @config.clustering?
+      if @config.clustering_v2?
+        @v2_node = ClusteringV2::ClusterNode.from_config(@config)
+        @runner = StandaloneRunner.new
+      elsif @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
         @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
@@ -69,14 +74,25 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
-      @server = server = LavinMQ::Server.new(@config, @replicator)
-      load_definitions(server)
-      server.start_log_exchange
-      @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
-      @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
-      start_listeners(amqp_server, mqtt_server, http_server)
-      @metrics_server.try &.leader = server
+      if v2_node = @v2_node
+        @server = server = v2_node.server
+        load_definitions(server)
+        server.start_log_exchange
+        @amqp_server = v2_node.router.amqp_server
+        @mqtt_server = v2_node.router.mqtt_server
+        @http_server = v2_node.router.http_server
+        v2_node.start_from_config(@config)
+        @metrics_server.try &.leader = server
+      else
+        @server = server = LavinMQ::Server.new(@config, @replicator)
+        load_definitions(server)
+        server.start_log_exchange
+        @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
+        @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
+        @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+        start_listeners(amqp_server, mqtt_server, http_server)
+        @metrics_server.try &.leader = server
+      end
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -91,6 +107,7 @@ module LavinMQ
       @runner.run do
         start
       end
+      @v2_node.try &.close
       @replicator.try &.close
       @data_dir_lock.try &.release
     end
@@ -100,6 +117,7 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
+      @v2_node.try &.close rescue nil
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil

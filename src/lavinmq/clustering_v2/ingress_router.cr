@@ -203,7 +203,7 @@ module LavinMQ
                      @server : LavinMQ::Server,
                      config : Config = Config.instance,
                      execution_context : Fiber::ExecutionContext? = nil)
-        @execution_context = execution_context || @node.execution_context
+        @execution_context = execution_context || Fiber::ExecutionContext.default
         @amqp_server = LavinMQ::AMQP::Server.new(@server, config)
         @mqtt_server = LavinMQ::MQTT::Server.new(@server, config)
         @http_router = FollowerHttpRouterHandler.new(@node)
@@ -354,16 +354,48 @@ module LavinMQ
       getter server : LavinMQ::Server
       getter router : IngressRouter
 
+      def self.from_config(config : Config) : self
+        role = config.clustering_role.downcase == "learner" ? MemberRole::Learner : MemberRole::Voter
+        new(
+          config.data_dir,
+          node_id: config.clustering_node_id,
+          secret: config.clustering_secret,
+          initial_role: role,
+          config: config
+        )
+      end
+
+      def self.parse_peer_spec(spec : String) : MemberInfo
+        role = MemberRole::Voter
+        main_part = spec.strip
+        if hash_idx = main_part.rindex('#')
+          role_str = main_part[(hash_idx + 1)..].downcase
+          role = role_str == "learner" ? MemberRole::Learner : MemberRole::Voter
+          main_part = main_part[0...hash_idx]
+        end
+        at_idx = main_part.index('@') || raise ArgumentError.new("Invalid peer spec '#{spec}': missing '@'")
+        node_id = main_part[0...at_idx].to_u64
+        uris = main_part[(at_idx + 1)..].split('|')
+        raw_peer = uris[0]
+        peer_uri = raw_peer.includes?("://") ? raw_peer : "tcp://#{raw_peer}"
+        amqp_uri = uris[1]? || ""
+        http_uri = uris[2]? || ""
+        MemberInfo.new(node_id, peer_uri, amqp_uri, http_uri, role)
+      end
+
       def initialize(@data_dir : String,
                      node_id : UInt64,
-                     secret : String = "test_cluster_secret_32_bytes_min!",
+                     secret : String,
                      initial_role : MemberRole = MemberRole::Voter,
                      commit_gated_delivery : Bool = true,
                      ring_capacity : UInt64 = 4096_u64,
-                     execution_context : Fiber::ExecutionContext? = nil)
+                     execution_context : Fiber::ExecutionContext? = nil,
+                     ingress_execution_context : Fiber::ExecutionContext? = nil,
+                     config : Config? = nil)
+        raise ArgumentError.new("Cluster secret must not be empty") if secret.blank?
         FileUtils.mkdir_p(@data_dir)
-        @execution_context = execution_context || Fiber::ExecutionContext::Concurrent.new("ClusteringV2-Node-#{node_id}")
-        @config = Config.new.tap do |cfg|
+        @execution_context = execution_context || Fiber::ExecutionContext::Parallel.new("ClusteringV2-Node-#{node_id}", 4)
+        @config = config || Config.new.tap do |cfg|
           cfg.data_dir = @data_dir
         end
         @log = RaftLog.new(@data_dir, capacity: ring_capacity, node_id: node_id)
@@ -371,7 +403,7 @@ module LavinMQ
         @replicator = LogicalReplicator.new(@data_dir, @raft, commit_gated_delivery: commit_gated_delivery)
         @server = LavinMQ::Server.new(@config, @replicator)
         @replicator.attach(@server)
-        @router = IngressRouter.new(@raft, @replicator, @server, @config, @execution_context)
+        @router = IngressRouter.new(@raft, @replicator, @server, @config, ingress_execution_context)
       end
 
       def bind(host : String = "127.0.0.1",
@@ -389,6 +421,29 @@ module LavinMQ
           @raft.http_uri,
           @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter
         )
+      end
+
+      def start_from_config(config : Config = @config) : MemberInfo
+        @router.bind_amqp(config.amqp_bind, config.amqp_port) if config.amqp_port > 0
+        @router.bind_http(config.http_bind, config.http_port) if config.http_port > 0
+        @router.http_server.bind_internal_unix
+        @raft.start(config.clustering_bind, config.clustering_port)
+        @router.start
+        self_info = MemberInfo.new(
+          @raft.node_id,
+          @raft.peer_uri,
+          @raft.amqp_uri,
+          @raft.http_uri,
+          @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter
+        )
+        members_by_id = {self_info.node_id => self_info}
+        config.clustering_peers.each do |peer_spec|
+          next if peer_spec.empty?
+          info = ClusterNode.parse_peer_spec(peer_spec)
+          members_by_id[info.node_id] = info unless info.node_id == self_info.node_id
+        end
+        @raft.configure_cluster(members_by_id.values)
+        self_info
       end
 
       def close : Nil

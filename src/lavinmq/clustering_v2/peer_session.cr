@@ -16,7 +16,9 @@ module LavinMQ
 
       @secret : String
       @socket : TCPSocket?
+      @inbound_sockets = Array(TCPSocket).new
       @write_lock = Mutex.new
+      @connect_lock = Mutex.new
       @closed = false
       @on_frame : (UInt64, FrameType, IO) -> Nil
 
@@ -62,10 +64,19 @@ module LavinMQ
       end
 
       def attach_inbound_socket(socket : TCPSocket) : Nil
-        @write_lock.synchronize do
-          @socket.try &.close rescue nil
-          @socket = socket
+        should_read = @write_lock.synchronize do
+          if @closed || @paused
+            socket.close rescue nil
+            false
+          else
+            @inbound_sockets << socket
+            if (current = @socket).nil? || current.closed?
+              @socket = socket
+            end
+            true
+          end
         end
+        return unless should_read
         @execution_context.spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(socket) }
       end
 
@@ -73,6 +84,8 @@ module LavinMQ
         @write_lock.synchronize do
           @socket.try &.close rescue nil
           @socket = nil
+          @inbound_sockets.each { |s| s.close rescue nil }
+          @inbound_sockets.clear
         end
       end
 
@@ -82,9 +95,13 @@ module LavinMQ
       end
 
       private def send_frame(type : FrameType, & : IO -> Nil) : Bool
+        sock = ensure_connected || return false
         @write_lock.synchronize do
           return false if @closed || @paused
-          sock = ensure_connected_unsafe || return false
+          if sock.closed?
+            @socket = nil if @socket == sock
+            return false
+          end
           begin
             sock.write_byte(type.value)
             yield sock
@@ -92,32 +109,76 @@ module LavinMQ
             true
           rescue IO::Error | Socket::Error
             sock.close rescue nil
-            @socket = nil
+            @socket = nil if @socket == sock
             false
           end
         end
       end
 
-      private def ensure_connected_unsafe : TCPSocket?
-        if sock = @socket
-          return sock unless sock.closed?
-          @socket = nil
+      private def active_socket : TCPSocket?
+        @write_lock.synchronize do
+          if sock = @socket
+            return sock unless sock.closed?
+            @socket = nil
+          end
+          nil
         end
-        return if @peer_uri.empty?
+      end
 
-        uri = URI.parse(@peer_uri)
-        host = uri.host || "127.0.0.1"
-        port = uri.port || 5679
-        sock = TCPSocket.new(host, port, dns_timeout: 1.second, connect_timeout: 1.second)
-        sock.tcp_nodelay = true
-        sock.sync = false
-        Protocol.client_handshake!(sock, @local_node_id, @secret, @local_peer_uri)
-        @socket = sock
-        @execution_context.spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(sock) }
-        sock
-      rescue
-        sock.try &.close rescue nil
-        nil
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def ensure_connected : TCPSocket?
+        return if @closed || @paused
+        if sock = active_socket
+          return sock
+        end
+
+        @connect_lock.synchronize do
+          return if @closed || @paused
+          if sock = active_socket
+            return sock
+          end
+
+          peer_uri = @peer_uri
+          return if peer_uri.empty?
+
+          dialed : TCPSocket? = nil
+          begin
+            uri = URI.parse(peer_uri)
+            host = uri.host || "127.0.0.1"
+            port = uri.port || 5679
+            dialed = TCPSocket.new(host, port, dns_timeout: 1.second, connect_timeout: 1.second)
+            dialed.tcp_nodelay = true
+            dialed.sync = false
+            server_id = Protocol.client_handshake!(dialed, @local_node_id, @secret, @local_peer_uri)
+            if server_id != @peer_id
+              dialed.close rescue nil
+              return
+            end
+
+            spawn_reader = false
+            chosen = @write_lock.synchronize do
+              if @closed || @paused
+                dialed.close rescue nil
+                nil
+              else
+                if (existing = @socket) && !existing.closed? && !@inbound_sockets.includes?(existing)
+                  existing.close rescue nil
+                end
+                @socket = dialed
+                spawn_reader = true
+                dialed
+              end
+            end
+
+            if spawn_reader && (s = chosen)
+              @execution_context.spawn(name: "ClusteringV2 peer reader #{@peer_id}") { read_loop(s) }
+            end
+            chosen
+          rescue
+            dialed.try &.close rescue nil
+            nil
+          end
+        end
       end
 
       private def read_loop(sock : TCPSocket) : Nil
@@ -134,8 +195,9 @@ module LavinMQ
       rescue IO::Error | Socket::Error
       ensure
         @write_lock.synchronize do
+          @inbound_sockets.delete(sock)
           if @socket == sock
-            @socket = nil
+            @socket = @inbound_sockets.find { |s| !s.closed? }
           end
         end
         sock.close rescue nil

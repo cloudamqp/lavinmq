@@ -248,6 +248,7 @@ module LavinMQ
         when closed.when_true.receive?
           return
         end
+        next if @replicator.try(&.standby?)
         each_connection do |c|
           c.each_channel do |ch|
             ch.check_consumer_timeout
@@ -278,6 +279,12 @@ module LavinMQ
 
     def queue_limit_reached? : Bool
       @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+    end
+
+    def reload_limits! : Nil
+      @max_queues = nil
+      @max_connections = nil
+      load_limits
     end
 
     private def load_limits
@@ -569,7 +576,7 @@ module LavinMQ
       @parameters.apply(parameter) do |p|
         case p.component_name
         when SHOVEL
-          shovels.create(p.parameter_name, p.value)
+          shovels.create(p.parameter_name, p.value) unless @replicator.try(&.standby?)
         when FEDERATION_UPSTREAM
           upstreams.create_upstream(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM_SET
@@ -578,6 +585,36 @@ module LavinMQ
           @log.warn { "No action when applying parameter #{p.component_name}" }
         end
       end
+    end
+
+    def reload_parameters! : Nil
+      stop_shovels
+      stop_upstream_links
+      @parameters.reload!
+      apply_parameters
+      apply_policies
+    end
+
+    def reload_policies! : Nil
+      @policies.reload!
+      apply_policies
+    end
+
+    def reload_operator_policies! : Nil
+      @operator_policies.reload!
+      apply_policies
+    end
+
+    def on_leader_promotion : Nil
+      return if closed?
+      apply_parameters
+      apply_policies
+      queues.each &.on_leader_promotion
+    end
+
+    def on_leader_step_down : Nil
+      stop_shovels
+      stop_upstream_links
     end
 
     private def load!

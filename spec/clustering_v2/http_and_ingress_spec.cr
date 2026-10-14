@@ -20,6 +20,20 @@ private def auth_headers : HTTP::Headers
 end
 
 describe LavinMQ::ClusteringV2::IngressRouter do
+  it "rejects empty or whitespace-only cluster secrets" do
+    base_dir = File.tempname("lavinmq_cv2_empty_secret")
+    begin
+      expect_raises(ArgumentError, /secret/) do
+        LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "")
+      end
+      expect_raises(ArgumentError, /secret/) do
+        LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "   ")
+      end
+    ensure
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
   it "serves read-only HTTP API and Prometheus /metrics locally from Hot-Standby followers while reverse-proxying mutations and /api/connections to the leader" do
     base_dir = File.tempname("lavinmq_cv2_http_ingress")
     Dir.mkdir_p(base_dir)
@@ -28,7 +42,7 @@ describe LavinMQ::ClusteringV2::IngressRouter do
     begin
       infos = (1_u64..3_u64).map do |id|
         ndir = File.join(base_dir, "node#{id}")
-        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id)
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
         cn.raft.heartbeat_interval = 20.milliseconds
         cn.raft.election_timeout_min = 90.milliseconds
         cn.raft.election_timeout_max = 160.milliseconds
@@ -134,7 +148,7 @@ describe LavinMQ::ClusteringV2::IngressRouter do
     begin
       infos = (1_u64..3_u64).map do |id|
         ndir = File.join(base_dir, "node#{id}")
-        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id)
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
         cn.raft.heartbeat_interval = 20.milliseconds
         cn.raft.election_timeout_min = 90.milliseconds
         cn.raft.election_timeout_max = 160.milliseconds
@@ -173,6 +187,7 @@ describe LavinMQ::ClusteringV2::IngressRouter do
       # Pause the other follower's elections so target_follower deterministically wins
       followers[1].raft.election_timeout_min = 2.seconds
       followers[1].raft.election_timeout_max = 3.seconds
+      sleep 60.milliseconds
       target_follower.raft.trigger_election!
 
       wait_until { target_follower.raft.leader? }.should be_true

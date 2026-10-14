@@ -157,16 +157,130 @@ describe LavinMQ::ClusteringV2::RaftLog do
     log.commit_index.should eq 4_u64
     truncated_lsns.should eq [5_u64, 4_u64]
 
-    # Now append 10 more entries to wrap the 8-slot ring buffer
+    # Now append 10 more entries, advancing commit_index and applied_index so the 8-slot ring buffer can wrap
+    log.advance_applied_index(4_u64)
     10.times do
       e = log.append_command(2_u64, LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp)
       log.advance_commit_index(e.lsn)
+      log.advance_applied_index(e.lsn)
     end
     log.last_lsn.should eq 14_u64
     log.first_lsn.should eq 7_u64
     log.read_entries(6_u64).should be_nil
     log.read_entries(7_u64).not_nil!.size.should eq 8
 
+    log.close
+  end
+
+  it "does not inflate match_lsn or commit stale follower suffix entries in maybe_append" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "raft_log_stale_suffix")
+    log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 32_u64, node_id: 2_u64)
+
+    # Follower holds LSN 1..10 from term 1
+    10.times do |i|
+      log.append_command(1_u64, LavinMQ::ClusteringV2::LogCommandType::QueueDeclare, "q#{i + 1}".to_slice)
+    end
+    log.last_lsn.should eq 10_u64
+
+    # Leader sends entries 6..7 (matching term 1) with leader_commit = 9
+    entries = [6_u64, 7_u64].map do |lsn|
+      LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: 1_u64,
+          lsn: lsn,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::QueueDeclare.value
+        ),
+        "q#{lsn}".to_slice
+      )
+    end
+
+    ok, match_lsn, _, _ = log.maybe_append(5_u64, 1_u64, 9_u64, entries)
+    ok.should be_true
+    # match_lsn must be prev_log_lsn + entries.size (7), NOT @last_lsn (10)
+    match_lsn.should eq 7_u64
+    # commit_index must be min(leader_commit=9, last_new_lsn=7) = 7, NOT 9 or 10
+    log.commit_index.should eq 7_u64
+    log.close
+  end
+
+  it "discards local log suffix on install_snapshot_state when term at last_included_lsn mismatches" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "raft_log_snap_term")
+    log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 32_u64, node_id: 2_u64)
+
+    10.times do
+      log.append_command(1_u64, LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp)
+    end
+    log.last_lsn.should eq 10_u64
+
+    # Snapshot at LSN 6 with term 1 (matches local term 1 at LSN 6) -> keeps suffix 7..10
+    log.install_snapshot_state(6_u64, 1_u64, [] of LavinMQ::ClusteringV2::MemberInfo)
+    log.last_lsn.should eq 10_u64
+    log.first_lsn.should eq 7_u64
+
+    # Snapshot at LSN 8 with term 2 (mismatches local term 1 at LSN 8) -> discards suffix 9..10
+    log.install_snapshot_state(8_u64, 2_u64, [] of LavinMQ::ClusteringV2::MemberInfo)
+    log.last_lsn.should eq 8_u64
+    log.first_lsn.should eq 9_u64
+    log.commit_index.should eq 8_u64
+    log.applied_index.should eq 8_u64
+    log.close
+  end
+
+  it "dynamically grows the index ring rather than overwriting uncommitted or unapplied entries" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "raft_log_grow")
+    log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 4_u64, node_id: 1_u64)
+    log.track_applied = true
+    log.capacity.should eq 4_u64
+
+    # Append 10 entries while applied_index remains 0
+    10.times do |i|
+      e = log.append_command(1_u64, LavinMQ::ClusteringV2::LogCommandType::QueueDeclare, "q#{i + 1}".to_slice)
+      log.advance_commit_index(e.lsn)
+    end
+
+    log.capacity.should be >= 16_u64
+    log.first_lsn.should eq 1_u64
+    log.last_lsn.should eq 10_u64
+
+    # Every single unapplied entry 1..10 is still readable
+    (1_u64..10_u64).each do |lsn|
+      rec = log.read_entry(lsn).not_nil!
+      String.new(rec.payload).should eq "q#{lsn}"
+    end
+
+    log.advance_applied_index(10_u64).should be_true
+    log.close
+
+    reopened = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 4_u64)
+    reopened.applied_index.should eq 10_u64
+    reopened.close
+  end
+
+  it "stages active publish payloads into raft.ctrl on unregister_segment so closing the segment MFile is safe" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "raft_log_unregister_seg")
+    FileUtils.mkdir_p(dir)
+    seg_path = File.join(dir, "msgs.0000000005")
+    seg_mfile = MFile.new(seg_path, 4096)
+    seg_mfile.write_bytes(1_i32)
+
+    payload = "stream-segment-evicted-payload".to_slice
+    pos = seg_mfile.size.to_u32
+    seg_mfile.write(payload)
+
+    log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 16_u64, node_id: 1_u64)
+    log.register_segment(1_u16, 42_u32, 5_u32, seg_mfile)
+    pub = log.append_publish(1_u64, 1_u16, 42_u32, 5_u32, pos, payload.size.to_u32)
+
+    # Evict/unregister the segment without tombstoning the entry (e.g., queue close or stream retention)
+    log.unregister_segment(1_u16, 42_u32, 5_u32)
+    seg_mfile.close
+    File.delete(seg_path)
+
+    # Reading the entry still succeeds from staged raft.ctrl memory without touching the closed MFile
+    rec = log.read_entry(pub.lsn).not_nil!
+    rec.entry.position.should eq pos
+    rec.entry.byte_size.should eq payload.size.to_u32
+    rec.payload.should eq payload
     log.close
   end
 end

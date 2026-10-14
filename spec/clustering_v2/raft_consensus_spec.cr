@@ -303,6 +303,10 @@ describe LavinMQ::ClusteringV2::RaftNode do
           "overflow.#{i}".to_slice
         )
         last_lsn = e.lsn
+        if (i + 1) % 10 == 0
+          leader.wait_for_commit(last_lsn, 3.seconds).should be_true
+          wait_for(1.seconds) { leader.last_applied >= last_lsn }
+        end
       end
       leader.wait_for_commit(last_lsn, 3.seconds).should be_true
       leader.log.first_lsn.should be > 1_u64
@@ -322,6 +326,148 @@ describe LavinMQ::ClusteringV2::RaftNode do
       lagging_follower.commit_index.should be >= last_lsn
     ensure
       cluster.cleanup
+    end
+  end
+
+  it "ignores learner votes in PreVote and RequestVote so learners cannot form a quorum" do
+    base_dir = File.tempname("lavinmq_raft_learner_votes_")
+    nodes = Array(LavinMQ::ClusteringV2::RaftNode).new
+    begin
+      ports = Array(Int32).new(3) do
+        srv = TCPServer.new("127.0.0.1", 0)
+        port = srv.local_address.port
+        srv.close
+        port
+      end
+      # 3 voters (1..3) and 2 learners (4..5); only voter 1 and learners 4..5 are online
+      members = [
+        LavinMQ::ClusteringV2::MemberInfo.new(1_u64, "tcp://127.0.0.1:#{ports[0]}", "amqp://127.0.0.1:5671", "http://127.0.0.1:15671", LavinMQ::ClusteringV2::MemberRole::Voter),
+        LavinMQ::ClusteringV2::MemberInfo.new(2_u64, "tcp://127.0.0.1:65531", "amqp://127.0.0.1:5672", "http://127.0.0.1:15672", LavinMQ::ClusteringV2::MemberRole::Voter),
+        LavinMQ::ClusteringV2::MemberInfo.new(3_u64, "tcp://127.0.0.1:65532", "amqp://127.0.0.1:5673", "http://127.0.0.1:15673", LavinMQ::ClusteringV2::MemberRole::Voter),
+        LavinMQ::ClusteringV2::MemberInfo.new(4_u64, "tcp://127.0.0.1:#{ports[1]}", "amqp://127.0.0.1:5674", "http://127.0.0.1:15674", LavinMQ::ClusteringV2::MemberRole::Learner),
+        LavinMQ::ClusteringV2::MemberInfo.new(5_u64, "tcp://127.0.0.1:#{ports[2]}", "amqp://127.0.0.1:5675", "http://127.0.0.1:15675", LavinMQ::ClusteringV2::MemberRole::Learner),
+      ]
+      [{1_u64, ports[0], LavinMQ::ClusteringV2::MemberRole::Voter},
+       {4_u64, ports[1], LavinMQ::ClusteringV2::MemberRole::Learner},
+       {5_u64, ports[2], LavinMQ::ClusteringV2::MemberRole::Learner}].each do |nid, port, role|
+        dir = File.join(base_dir, "node-#{nid}")
+        Dir.mkdir_p(dir)
+        log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 64_u64, node_id: nid)
+        node = LavinMQ::ClusteringV2::RaftNode.new(
+          log: log,
+          secret: "test-secret",
+          peer_uri: "tcp://127.0.0.1:#{port}",
+          amqp_uri: "amqp://127.0.0.1:567#{nid}",
+          http_uri: "http://127.0.0.1:1567#{nid}",
+          initial_role: role
+        )
+        node.heartbeat_interval = 20.milliseconds
+        node.election_timeout_min = 60.milliseconds
+        node.election_timeout_max = 100.milliseconds
+        node.configure_cluster(members)
+        node.start("127.0.0.1", port)
+        nodes << node
+      end
+
+      sleep 250.milliseconds
+      # Voter 1 only has itself (1 of 3 voters); learners 4 and 5 must not grant votes or be counted
+      nodes.first.leader?.should be_false
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "does not apply ConfChange from rejected AppendEntries and reverts ConfChange when log is truncated" do
+    base_dir = File.tempname("lavinmq_raft_confchange_")
+    Dir.mkdir_p(base_dir)
+    log = LavinMQ::ClusteringV2::RaftLog.new(base_dir, capacity: 64_u64, node_id: 2_u64)
+    srv = TCPServer.new("127.0.0.1", 0)
+    port = srv.local_address.port
+    srv.close
+    node = LavinMQ::ClusteringV2::RaftNode.new(
+      log: log,
+      secret: "test-secret",
+      peer_uri: "tcp://127.0.0.1:#{port}",
+      amqp_uri: "amqp://127.0.0.1:5672",
+      http_uri: "http://127.0.0.1:15672",
+      initial_role: LavinMQ::ClusteringV2::MemberRole::Voter
+    )
+    begin
+      initial_members = [
+        LavinMQ::ClusteringV2::MemberInfo.new(1_u64, "tcp://127.0.0.1:65531", "amqp://127.0.0.1:5671", "http://127.0.0.1:15671", LavinMQ::ClusteringV2::MemberRole::Voter),
+        LavinMQ::ClusteringV2::MemberInfo.new(2_u64, "tcp://127.0.0.1:#{port}", "amqp://127.0.0.1:5672", "http://127.0.0.1:15672", LavinMQ::ClusteringV2::MemberRole::Voter),
+        LavinMQ::ClusteringV2::MemberInfo.new(3_u64, "tcp://127.0.0.1:65532", "amqp://127.0.0.1:5673", "http://127.0.0.1:15673", LavinMQ::ClusteringV2::MemberRole::Voter),
+      ]
+      node.configure_cluster(initial_members)
+
+      # Build a ConfChange entry adding node 9
+      io = IO::Memory.new
+      io.write_byte(LavinMQ::ClusteringV2::ConfChangeType::AddLearner.value)
+      LavinMQ::ClusteringV2::MemberInfo.new(9_u64, "tcp://127.0.0.1:65533", "amqp://127.0.0.1:5679", "http://127.0.0.1:15679", LavinMQ::ClusteringV2::MemberRole::Learner).to_io(io)
+      conf_payload = io.to_slice
+
+      # 1. Rejected AppendEntries (prev_log_lsn = 5 doesn't exist) must NOT apply ConfChange
+      rejected_entry = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: 1_u64,
+          lsn: 6_u64,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::ConfChange.value
+        ),
+        conf_payload
+      )
+      resp = node.handle_append_entries(1_u64, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: 1_u64,
+        leader_id: 1_u64,
+        prev_log_lsn: 5_u64,
+        prev_log_term: 1_u64,
+        leader_commit: 0_u64,
+        entries: [rejected_entry]
+      ))
+      resp.not_nil!.success?.should be_false
+      node.members.any? { |m| m.node_id == 9_u64 }.should be_false
+
+      # 2. Accepted uncommitted ConfChange at LSN 1 applies, then gets reverted when overwritten by term 2
+      accepted_entry = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: 1_u64,
+          lsn: 1_u64,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::ConfChange.value
+        ),
+        conf_payload
+      )
+      resp2 = node.handle_append_entries(1_u64, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: 1_u64,
+        leader_id: 1_u64,
+        prev_log_lsn: 0_u64,
+        prev_log_term: 0_u64,
+        leader_commit: 0_u64,
+        entries: [accepted_entry]
+      ))
+      resp2.not_nil!.success?.should be_true
+      node.members.any? { |m| m.node_id == 9_u64 }.should be_true
+
+      # Overwrite LSN 1 in term 2 with a LeaderNoOp -> ConfChange at LSN 1 is truncated and membership reverts
+      noop_entry = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: 2_u64,
+          lsn: 1_u64,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp.value
+        )
+      )
+      resp3 = node.handle_append_entries(3_u64, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: 2_u64,
+        leader_id: 3_u64,
+        prev_log_lsn: 0_u64,
+        prev_log_term: 0_u64,
+        leader_commit: 1_u64,
+        entries: [noop_entry]
+      ))
+      resp3.not_nil!.success?.should be_true
+      node.members.any? { |m| m.node_id == 9_u64 }.should be_false
+    ensure
+      node.try(&.close)
+      FileUtils.rm_rf(base_dir)
     end
   end
 end

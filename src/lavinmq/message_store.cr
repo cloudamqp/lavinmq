@@ -336,6 +336,12 @@ module LavinMQ
       @size.zero?
     end
 
+    def each_segment(& : UInt32, MFile ->) : Nil
+      @segments.each do |seg_id, mfile|
+        yield seg_id, mfile
+      end
+    end
+
     def close : Nil
       return if @closed
       @closed = true

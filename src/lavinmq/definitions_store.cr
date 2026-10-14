@@ -174,9 +174,20 @@ module LavinMQ
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
-          store_definition(f, fsync: fsync) if !loading && f.durable
+          begin
+            store_definition(f, fsync: fsync) if !loading && f.durable
+          rescue ex : Clustering::Replicator::ReplicationError
+            @exchanges.delete(f.exchange_name).try(&.delete)
+            raise ex
+          end
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
+            begin
+              store_definition(f, dirty: true) if !loading && x.durable?
+            rescue ex : Clustering::Replicator::ReplicationError
+              @exchanges[f.exchange_name] = x
+              raise ex
+            end
             unless @vhost.closed?
               @exchanges.each_value do |ex|
                 ex.bindings_details.each do |binding|
@@ -186,7 +197,6 @@ module LavinMQ
               end
             end
             x.delete
-            store_definition(f, dirty: true) if !loading && x.durable?
           else
             return false
           end
@@ -194,12 +204,22 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
+          begin
+            store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
+          rescue ex : Clustering::Replicator::ReplicationError
+            src.unbind(dst, f.routing_key, f.arguments)
+            raise ex
+          end
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
+          begin
+            store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
+          rescue ex : Clustering::Replicator::ReplicationError
+            src.bind(dst, f.routing_key, f.arguments)
+            raise ex
+          end
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
           q = QueueFactory.make(@vhost, f)
@@ -209,10 +229,27 @@ module LavinMQ
             @queues[f.queue_name] = q.as(AMQP::Queue)
           end
           @vhost.apply_policies([q] of Queue) unless loading
-          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
+          begin
+            store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
+          rescue ex : Clustering::Replicator::ReplicationError
+            @queues.delete(f.queue_name)
+            @sessions.delete(f.queue_name)
+            q.delete
+            raise ex
+          end
           @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
           if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
+            begin
+              store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
+            rescue ex : Clustering::Replicator::ReplicationError
+              if q.is_a?(MQTT::Session)
+                @sessions[f.queue_name] = q
+              else
+                @queues[f.queue_name] = q.as(AMQP::Queue)
+              end
+              raise ex
+            end
             unless @vhost.closed?
               @exchanges.each_value do |ex|
                 ex.bindings_details.each do |binding|
@@ -221,7 +258,6 @@ module LavinMQ
                 end
               end
             end
-            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
             @vhost.event_tick(EventType::QueueDeleted) unless loading
             q.delete
           else
@@ -231,12 +267,22 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
+          begin
+            store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
+          rescue ex : Clustering::Replicator::ReplicationError
+            x.unbind(q, f.routing_key, f.arguments)
+            raise ex
+          end
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
+          begin
+            store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
+          rescue ex : Clustering::Replicator::ReplicationError
+            x.bind(q, f.routing_key, f.arguments)
+            raise ex
+          end
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
         end
         true
@@ -417,19 +463,25 @@ module LavinMQ
       # already_synced then skips (or tail-slices) this append against the
       # baseline instead of duplicating it.
       @definitions_file.write bytes
-      @replicator.try &.append_bytes @definitions_file_path, bytes, offset
-      if fsync
-        @definitions_file.fsync
-        # The caller acknowledges the change to the client right after this
-        # returns (Declare-Ok etc.), so like a publish confirm it must be
-        # durable on every in-sync follower first — otherwise a leader crash
-        # could elect a follower lacking the acknowledged change. A follower
-        # that doesn't ack within its deadline is disconnected and its ISR
-        # removal committed before this returns.
-        if replicator = @replicator
-          replicator.request_fsync({@definitions_file_path})
-          replicator.wait_for_followers
+      begin
+        @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+        if fsync
+          @definitions_file.fsync
+          # The caller acknowledges the change to the client right after this
+          # returns (Declare-Ok etc.), so like a publish confirm it must be
+          # durable on every in-sync follower first — otherwise a leader crash
+          # could elect a follower lacking the acknowledged change. A follower
+          # that doesn't ack within its deadline is disconnected and its ISR
+          # removal committed before this returns.
+          if replicator = @replicator
+            replicator.request_fsync({@definitions_file_path})
+            replicator.wait_for_followers
+          end
         end
+      rescue ex : Clustering::Replicator::ReplicationError
+        @definitions_file.truncate(offset)
+        @definitions_file.seek(0, IO::Seek::End)
+        raise ex
       end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

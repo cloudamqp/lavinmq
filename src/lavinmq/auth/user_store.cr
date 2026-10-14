@@ -135,6 +135,13 @@ module LavinMQ
         @users[DIRECT_USER]
       end
 
+      def reload! : Nil
+        @save_lock.synchronize do
+          @users.clear
+          load!
+        end
+      end
+
       private def load!
         path = File.join(@data_dir, "users.json")
         if File.exists? path

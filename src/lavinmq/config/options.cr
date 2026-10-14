@@ -449,6 +449,31 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      @[CliOpt("", "--clustering-v2", "Enable Raft-based ClusteringV2", ->(_v : String) { true }, section: "clustering")]
+      @[IniOpt(ini_name: v2, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_V2")]
+      property? clustering_v2 = false
+
+      @[CliOpt("", "--clustering-node-id=ID", "Node ID for ClusteringV2 (default: 1)", section: "clustering")]
+      @[IniOpt(ini_name: node_id, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_NODE_ID")]
+      property clustering_node_id : UInt64 = 1_u64
+
+      @[CliOpt("", "--clustering-secret=SECRET", "Shared secret for ClusteringV2 peer authentication", section: "clustering")]
+      @[IniOpt(ini_name: secret, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SECRET")]
+      property clustering_secret = ""
+
+      @[CliOpt("", "--clustering-peers=PEERS", "Comma-separated ClusteringV2 peers (id@host:port[|amqp_uri|http_uri][#role])", section: "clustering")]
+      @[IniOpt(ini_name: peers, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PEERS")]
+      property clustering_peers = Array(String).new
+
+      @[CliOpt("", "--clustering-role=ROLE", "Initial ClusteringV2 role: voter or learner (default: voter)", section: "clustering")]
+      @[IniOpt(ini_name: role, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_ROLE")]
+      property clustering_role = "voter"
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

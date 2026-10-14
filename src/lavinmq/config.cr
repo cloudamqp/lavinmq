@@ -97,6 +97,14 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      if @clustering_v2
+        if @clustering_secret.empty?
+          raise Error.new("clustering.secret must not be empty when clustering.v2 is enabled")
+        end
+        unless {"voter", "learner"}.includes?(@clustering_role.downcase)
+          raise Error.new("clustering.role must be 'voter' or 'learner' (got #{@clustering_role})")
+        end
+      end
     end
 
     private def parse_config_from_cli(argv)

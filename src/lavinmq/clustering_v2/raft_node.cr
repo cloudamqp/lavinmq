@@ -1,4 +1,5 @@
 require "socket"
+require "../../stdlib/channel"
 require "./protocol"
 require "./raft_log"
 require "./peer_session"
@@ -31,15 +32,36 @@ module LavinMQ
       property amqp_uri : String
       property http_uri : String
       property heartbeat_interval : Time::Span = 50.milliseconds
-      property election_timeout_min : Time::Span = 200.milliseconds
-      property election_timeout_max : Time::Span = 400.milliseconds
+      getter election_timeout_min : Time::Span = 200.milliseconds
+      getter election_timeout_max : Time::Span = 400.milliseconds
       property leader_lease_timeout : Time::Span = 350.milliseconds
       property leader_stickiness_window : Time::Span = 150.milliseconds
       property learner_promote_threshold : UInt64 = 32_u64
       property? auto_promote_learners : Bool = true
 
+      def election_timeout_min=(@election_timeout_min : Time::Span) : Time::Span
+        if @election_timeout_max >= @election_timeout_min
+          @current_election_timeout = random_election_timeout
+        end
+        @election_timeout_min
+      end
+
+      def election_timeout_max=(@election_timeout_max : Time::Span) : Time::Span
+        if @election_timeout_max >= @election_timeout_min
+          @current_election_timeout = random_election_timeout
+        end
+        @election_timeout_max
+      end
+
       @lock = Mutex.new(:reentrant)
+      @apply_lock = Mutex.new(:reentrant)
       @peers = Hash(UInt64, PeerSession).new
+      @peer_notify = Hash(UInt64, ::Channel(Bool)).new
+      @peer_force_send = Hash(UInt64, Bool).new
+      @peer_in_flight_until = Hash(UInt64, Time::Instant).new
+      @peer_last_sent_commit = Hash(UInt64, UInt64).new
+      @snapshot_in_flight = Hash(UInt64, Time::Instant).new
+      @apply_notify = ::Channel(Bool).new(1)
       @next_index = Hash(UInt64, UInt64).new
       @match_index = Hash(UInt64, UInt64).new
       @last_ack_at = Hash(UInt64, Time::Instant).new
@@ -47,11 +69,15 @@ module LavinMQ
       @votes_granted = Set(UInt64).new
       @commit_waiters = Array(CommitWaiter).new
       @control_history = Array(LogEntryRecord).new
+      @ctrl_hist_path : String
       @last_leader_contact : Time::Instant = Time.instant
+      @last_heartbeat_sent : Time::Instant = Time.instant
       @current_election_timeout : Time::Span = 300.milliseconds
       @promoted_term : UInt64 = 0_u64
       @pending_conf_change_lsn : UInt64 = 0_u64
       @listener : TCPServer?
+      @cluster_configured : Bool = false
+      @started = false
       @closed = false
       @isolated = false
 
@@ -61,6 +87,8 @@ module LavinMQ
       @snapshot_builder : SnapshotBuilderCallback?
       @snapshot_installer : SnapshotInstallerCallback?
 
+      CTRL_HIST_MAGIC = 0x4C4D5148_u32
+
       def initialize(@log : RaftLog,
                      @secret : String,
                      @peer_uri : String = "",
@@ -68,13 +96,33 @@ module LavinMQ
                      @http_uri : String = "",
                      initial_role : MemberRole = MemberRole::Voter,
                      execution_context : Fiber::ExecutionContext? = nil)
+        raise ArgumentError.new("Cluster secret must not be empty") if @secret.blank?
         @node_id = @log.node_id
-        @execution_context = execution_context || Fiber::ExecutionContext::Concurrent.new("ClusteringV2-Raft-#{@node_id}")
+        @execution_context = execution_context || Fiber::ExecutionContext::Parallel.new("ClusteringV2-Raft-#{@node_id}", 4)
         @role = initial_role.learner? ? Role::Learner : Role::Follower
         @current_election_timeout = random_election_timeout
-        if @log.members.empty? && !@peer_uri.empty?
-          @log.set_members([MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, initial_role)])
+        @log.track_applied = true
+        @last_applied = @log.applied_index
+        @ctrl_hist_path = File.join(@log.data_dir, "raft.ctrl_hist")
+        load_control_history
+
+        @log.on_membership_change do |members|
+          on_log_membership_changed_unsafe(members)
         end
+
+        if @log.meta_existed? && !@log.members.empty?
+          @cluster_configured = true
+          if me = @log.members.find { |m| m.node_id == @node_id }
+            @role = me.learner? ? Role::Learner : Role::Follower
+          end
+        elsif !@peer_uri.empty?
+          @cluster_configured = true
+          if @log.members.empty?
+            @log.set_members([MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, initial_role)])
+          end
+        end
+
+        @execution_context.spawn(name: "ClusteringV2 applier #{@node_id}") { apply_loop }
       end
 
       def on_apply(&block : LogEntryRecord -> Nil) : Nil
@@ -138,21 +186,28 @@ module LavinMQ
         @peer_uri = "tcp://#{addr.address}:#{addr.port}" if @peer_uri.empty?
 
         @lock.synchronize do
-          my_role = @role.learner? ? MemberRole::Learner : MemberRole::Voter
-          if existing = @log.members.find { |m| m.node_id == @node_id }
-            my_role = existing.role
+          @started = true
+          if @cluster_configured
+            my_role = @role.learner? ? MemberRole::Learner : MemberRole::Voter
+            if existing = @log.members.find { |m| m.node_id == @node_id }
+              my_role = existing.role
+            end
+            @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role))
           end
-          @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role))
           sync_peer_sessions_unsafe
+          @current_election_timeout = random_election_timeout
           @last_leader_contact = Time.instant
+          @last_heartbeat_sent = Time.instant
         end
 
         @execution_context.spawn(name: "ClusteringV2 listener #{@node_id}") { accept_loop(server) }
         @execution_context.spawn(name: "ClusteringV2 ticker #{@node_id}") { tick_loop }
+        signal_apply if @lock.synchronize { @last_applied < @log.commit_index }
       end
 
       def configure_cluster(members : Array(MemberInfo)) : Nil
         @lock.synchronize do
+          @cluster_configured = true
           @log.set_members(members)
           if me = members.find { |m| m.node_id == @node_id }
             if me.learner? && !@role.leader?
@@ -177,15 +232,17 @@ module LavinMQ
                           position : UInt32,
                           byte_size : UInt32,
                           fallback_payload : Bytes? = nil) : LogIndexEntry
+        committed_now = false
         entry = @lock.synchronize do
           ensure_leader_unsafe!
           e = @log.append_publish(@log.current_term, vhost_id, queue_id, segment_id, position, byte_size, fallback_payload)
           @match_index[@node_id] = e.lsn
           try_advance_commit_index_unsafe
+          committed_now = @last_applied < @log.commit_index
+          signal_all_peers_unsafe(force: false)
           e
         end
-        replicate_to_peers
-        drain_committed_callbacks
+        signal_apply if committed_now
         entry
       end
 
@@ -193,30 +250,34 @@ module LavinMQ
                       queue_id : UInt32,
                       segment_id : UInt32,
                       position : UInt32) : LogIndexEntry
+        committed_now = false
         entry = @lock.synchronize do
           ensure_leader_unsafe!
           e = @log.append_ack(@log.current_term, vhost_id, queue_id, segment_id, position)
           @match_index[@node_id] = e.lsn
           try_advance_commit_index_unsafe
+          committed_now = @last_applied < @log.commit_index
+          signal_all_peers_unsafe(force: false)
           e
         end
-        replicate_to_peers
-        drain_committed_callbacks
+        signal_apply if committed_now
         entry
       end
 
       def propose_segment_delete(vhost_id : UInt16,
                                  queue_id : UInt32,
                                  segment_id : UInt32) : LogIndexEntry
+        committed_now = false
         entry = @lock.synchronize do
           ensure_leader_unsafe!
           e = @log.append_segment_delete(@log.current_term, vhost_id, queue_id, segment_id)
           @match_index[@node_id] = e.lsn
           try_advance_commit_index_unsafe
+          committed_now = @last_applied < @log.commit_index
+          signal_all_peers_unsafe(force: false)
           e
         end
-        replicate_to_peers
-        drain_committed_callbacks
+        signal_apply if committed_now
         entry
       end
 
@@ -226,45 +287,54 @@ module LavinMQ
                           queue_id : UInt32 = 0_u32,
                           segment_id : UInt32 = 0_u32,
                           position : UInt32 = 0_u32) : LogIndexEntry
+        committed_now = false
         entry = @lock.synchronize do
           ensure_leader_unsafe!
           e = @log.append_command(@log.current_term, cmd_type, payload, vhost_id, queue_id, segment_id, position)
           if cmd_type.conf_change?
             @pending_conf_change_lsn = e.lsn
-            apply_conf_change_bytes_unsafe(payload)
           end
           @match_index[@node_id] = e.lsn
           try_advance_commit_index_unsafe
+          committed_now = @last_applied < @log.commit_index
+          signal_all_peers_unsafe(force: false)
           e
         end
-        replicate_to_peers
-        drain_committed_callbacks
+        signal_apply if committed_now
         entry
       end
 
-      # Blocks the caller until `target_lsn <= commit_index`, or returns false if
+      # Blocks the caller until `target_lsn <= commit_index` and applied, or returns false if
       # the node steps down / times out before committing `target_lsn`.
       def wait_for_commit(target_lsn : UInt64, timeout : Time::Span? = nil) : Bool
-        ch = @lock.synchronize do
-          return true if @log.commit_index >= target_lsn
+        ch : ::Channel(Bool)? = nil
+        needs_apply = false
+
+        @lock.synchronize do
+          if @log.commit_index >= target_lsn && @last_applied >= target_lsn
+            return true
+          end
           return false unless @role.leader?
           c = ::Channel(Bool).new(1)
           @commit_waiters << CommitWaiter.new(target_lsn, c)
-          c
+          ch = c
+          needs_apply = @log.commit_index >= target_lsn
+          signal_all_peers_unsafe(force: false)
         end
 
-        replicate_to_peers
+        signal_apply if needs_apply
+        wait_ch = ch || return false
 
         if t = timeout
           select
-          when res = ch.receive?
+          when res = wait_ch.receive?
             res || false
           when timeout(t)
-            @lock.synchronize { @commit_waiters.reject! { |w| w.channel == ch } }
+            @lock.synchronize { @commit_waiters.reject! { |w| w.channel == wait_ch } }
             false
           end
         else
-          ch.receive? || false
+          wait_ch.receive? || false
         end
       end
 
@@ -277,6 +347,11 @@ module LavinMQ
             p.paused = isolated
             p.disconnect! if isolated
           end
+          unless isolated
+            @peer_in_flight_until.clear
+            @snapshot_in_flight.clear
+            signal_all_peers_unsafe(force: true) if @role.leader?
+          end
         end
       end
 
@@ -284,6 +359,11 @@ module LavinMQ
         @lock.synchronize do
           if peer = @peers[peer_id]?
             peer.paused = paused
+          end
+          unless paused
+            @peer_in_flight_until.delete(peer_id)
+            @snapshot_in_flight.delete(peer_id)
+            signal_peer_unsafe(peer_id, force: true) if @role.leader?
           end
         end
       end
@@ -297,6 +377,9 @@ module LavinMQ
           return if @closed
           @closed = true
           @listener.try &.close rescue nil
+          @peer_notify.each_value(&.close)
+          @peer_notify.clear
+          @apply_notify.close
           @peers.each_value(&.close)
           @peers.clear
           @commit_waiters.each(&.channel.try_send(false))
@@ -307,6 +390,10 @@ module LavinMQ
 
       private def ensure_leader_unsafe! : Nil
         raise Error::NotLeaderError.new(@leader_id) unless @role.leader?
+      end
+
+      private def voter_unsafe?(node_id : UInt64) : Bool
+        @log.members.any? { |m| m.node_id == node_id && m.voter? }
       end
 
       private def accept_loop(server : TCPServer) : Nil
@@ -326,10 +413,7 @@ module LavinMQ
               if s
                 s.peer_uri = remote_uri unless remote_uri.empty?
               else
-                s = PeerSession.new(@node_id, @peer_uri, remote_id, remote_uri, @secret, @execution_context) do |pid, ftype, io|
-                  handle_peer_frame(pid, ftype, io)
-                end
-                @peers[remote_id] = s
+                s = create_peer_session_unsafe(remote_id, remote_uri)
               end
               s
             end
@@ -340,13 +424,15 @@ module LavinMQ
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def tick_loop : Nil
         loop do
-          sleep 15.milliseconds
+          sleep 10.milliseconds
           break if @closed
 
           should_replicate = false
           should_pre_vote = false
+          won_single_node = false
           stepped_down_term : UInt64? = nil
 
           @lock.synchronize do
@@ -358,14 +444,18 @@ module LavinMQ
               if check_leader_lease_expired_unsafe(now)
                 stepped_down_term = @log.current_term
                 step_down_unsafe(@log.current_term)
-              else
+              elsif now - @last_heartbeat_sent >= @heartbeat_interval
+                @last_heartbeat_sent = now
                 should_replicate = true
               end
             when .follower?, .pre_candidate?, .candidate?
-              if voting_single_node_cluster_unsafe?
-                become_candidate_and_win_single_node_unsafe
-              elsif now - @last_leader_contact >= @current_election_timeout
-                should_pre_vote = true
+              if @cluster_configured && voter_unsafe?(@node_id)
+                if voting_single_node_cluster_unsafe?
+                  become_candidate_and_win_single_node_unsafe
+                  won_single_node = true
+                elsif now - @last_leader_contact >= @current_election_timeout
+                  should_pre_vote = true
+                end
               end
             when .learner?
               # Learners do not initiate elections
@@ -374,9 +464,11 @@ module LavinMQ
 
           if term = stepped_down_term
             @on_step_down.try &.call(term)
+          elsif won_single_node
+            signal_apply
           elsif should_replicate
-            replicate_to_peers
-            drain_committed_callbacks
+            replicate_to_peers(force: true)
+            signal_apply
           elsif should_pre_vote
             start_pre_vote
           end
@@ -384,6 +476,7 @@ module LavinMQ
       end
 
       private def voting_single_node_cluster_unsafe? : Bool
+        return false unless @cluster_configured
         voters = @log.members.select(&.voter?)
         voters.size == 1 && voters.first.node_id == @node_id
       end
@@ -399,7 +492,7 @@ module LavinMQ
         return false if voters.size <= 1
 
         quorum = (voters.size // 2) + 1
-        active = 1 # self
+        active = voter_unsafe?(@node_id) ? 1 : 0
         voters.each do |m|
           next if m.node_id == @node_id
           if last_ack = @last_ack_at[m.node_id]?
@@ -416,6 +509,7 @@ module LavinMQ
 
         @lock.synchronize do
           return if @closed || @role.leader? || @role.learner? || @isolated
+          return unless @cluster_configured && voter_unsafe?(@node_id)
           if voting_single_node_cluster_unsafe?
             become_candidate_and_win_single_node_unsafe
             won_single_node = true
@@ -435,11 +529,11 @@ module LavinMQ
               last_log_term: @log.last_log_term
             )
             sync_peer_sessions_unsafe
-            peers_to_send = @peers.values
+            peers_to_send = @peers.values.select { |p| voter_unsafe?(p.peer_id) }
           end
         end
 
-        drain_committed_callbacks
+        signal_apply
         return if won_single_node
 
         if vote_req = req
@@ -452,6 +546,7 @@ module LavinMQ
       end
 
       private def start_real_election_unsafe : Tuple(VoteRequest?, Array(PeerSession))
+        return {nil, Array(PeerSession).new} unless @cluster_configured && voter_unsafe?(@node_id)
         new_term = @log.current_term + 1
         @log.set_term_and_vote(new_term, @node_id)
         @role = Role::Candidate
@@ -473,13 +568,18 @@ module LavinMQ
           last_log_lsn: @log.last_lsn,
           last_log_term: @log.last_log_term
         )
-        {req, @peers.values}
+        {req, @peers.values.select { |p| voter_unsafe?(p.peer_id) }}
       end
 
       private def become_leader_unsafe : Nil
         @role = Role::Leader
         @leader_id = @node_id
         now = Time.instant
+        @last_heartbeat_sent = now
+        @peer_in_flight_until.clear
+        @peer_last_sent_commit.clear
+        @snapshot_in_flight.clear
+
         next_lsn = @log.last_lsn + 1
         @log.members.each do |m|
           if m.node_id == @node_id
@@ -495,6 +595,7 @@ module LavinMQ
         noop = @log.append_command(@log.current_term, LogCommandType::LeaderNoOp)
         @match_index[@node_id] = noop.lsn
         try_advance_commit_index_unsafe
+        signal_all_peers_unsafe(force: true)
       end
 
       private def step_down_unsafe(new_term : UInt64, new_leader_id : UInt64 = 0_u64) : Bool
@@ -508,6 +609,8 @@ module LavinMQ
         @leader_id = new_leader_id
         @pre_votes_granted.clear
         @votes_granted.clear
+        @peer_in_flight_until.clear
+        @snapshot_in_flight.clear
 
         if was_leader
           if @log.last_lsn > @log.commit_index
@@ -554,22 +657,25 @@ module LavinMQ
           return if @closed || @isolated
           peer = @peers[peer_id]?
           now = Time.instant
+          both_voters = voter_unsafe?(@node_id) && voter_unsafe?(req.candidate_id) && req.candidate_id == peer_id
           leader_recently_active = @leader_id != 0 && @leader_id != req.candidate_id &&
                                    (now - @last_leader_contact) < @leader_stickiness_window
 
           if req.pre_vote?
-            grant = !leader_recently_active &&
+            grant = both_voters &&
+                    !leader_recently_active &&
                     req.term >= @log.current_term &&
                     @log.up_to_date?(req.last_log_lsn, req.last_log_term)
             resp = VoteResponse.new(true, @log.current_term, @node_id, grant)
           else
-            if req.term > @log.current_term && !leader_recently_active
+            if both_voters && req.term > @log.current_term && !leader_recently_active
               stepped_down = step_down_unsafe(req.term)
               stepped_down_term = req.term
             end
 
             can_vote = (@log.voted_for == 0 || @log.voted_for == req.candidate_id)
-            grant = !leader_recently_active &&
+            grant = both_voters &&
+                    !leader_recently_active &&
                     req.term == @log.current_term &&
                     can_vote &&
                     @log.up_to_date?(req.last_log_lsn, req.last_log_term)
@@ -604,6 +710,8 @@ module LavinMQ
             return
           end
 
+          return unless resp.voter_id == peer_id && voter_unsafe?(resp.voter_id)
+
           if resp.pre_vote? && @role.pre_candidate? && resp.vote_granted?
             @pre_votes_granted.add(resp.voter_id)
             if @pre_votes_granted.size >= quorum_size_unsafe
@@ -628,16 +736,16 @@ module LavinMQ
           end
         end
         if became_leader
-          replicate_to_peers
-          drain_committed_callbacks
+          signal_apply
         end
       end
 
-      private def handle_append_entries(peer_id : UInt64, req : AppendEntriesRequest) : Nil
+      def handle_append_entries(peer_id : UInt64, req : AppendEntriesRequest) : AppendEntriesResponse?
         resp : AppendEntriesResponse? = nil
         peer : PeerSession? = nil
         stepped_down = false
         stepped_down_term = 0_u64
+        has_committed = false
 
         @lock.synchronize do
           return if @closed || @isolated
@@ -646,18 +754,13 @@ module LavinMQ
           if req.term < @log.current_term
             resp = AppendEntriesResponse.new(@log.current_term, @node_id, false, @log.last_lsn)
           else
+            @cluster_configured = true
             @last_leader_contact = Time.instant
-            if req.term > @log.current_term || !@role.follower?
+            if req.term > @log.current_term || (@role != Role::Follower && @role != Role::Learner)
               stepped_down = step_down_unsafe(req.term, req.leader_id)
               stepped_down_term = req.term
             else
               @leader_id = req.leader_id
-            end
-
-            req.entries.each do |rec|
-              if rec.command.conf_change?
-                apply_conf_change_bytes_unsafe(rec.payload)
-              end
             end
 
             ok, match_lsn, conflict_lsn, conflict_term = @log.maybe_append(
@@ -666,23 +769,25 @@ module LavinMQ
               req.leader_commit,
               req.entries
             )
+            has_committed = @last_applied < @log.commit_index
             resp = AppendEntriesResponse.new(@log.current_term, @node_id, ok, match_lsn, conflict_lsn, conflict_term)
           end
         end
 
         @on_step_down.try &.call(stepped_down_term) if stepped_down
-        drain_committed_callbacks
+        signal_apply if has_committed
         if (r = resp) && (p = peer)
           p.send_append_entries_response(r)
         end
+        resp
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def handle_append_entries_response(peer_id : UInt64, resp : AppendEntriesResponse) : Nil
         stepped_down = false
         stepped_down_term = 0_u64
-        needs_retry = false
         learner_to_promote : MemberInfo? = nil
+        has_committed = false
 
         @lock.synchronize do
           return if @closed || @isolated
@@ -694,6 +799,7 @@ module LavinMQ
           return unless @role.leader? && resp.term == @log.current_term
 
           @last_ack_at[resp.follower_id] = Time.instant
+          @peer_in_flight_until.delete(resp.follower_id)
 
           if resp.success?
             prev_match = @match_index[resp.follower_id]? || 0_u64
@@ -702,6 +808,8 @@ module LavinMQ
             end
             @next_index[resp.follower_id] = (@match_index[resp.follower_id]? || 0_u64) + 1
             try_advance_commit_index_unsafe
+            has_committed = @last_applied < @log.commit_index ||
+                            (@log.commit_index > 0 && @commit_waiters.any? { |w| w.target_lsn <= @log.commit_index })
 
             if @auto_promote_learners && @pending_conf_change_lsn <= @log.commit_index
               if member = @log.members.find { |m| m.node_id == resp.follower_id && m.learner? }
@@ -717,26 +825,30 @@ module LavinMQ
                 end
               end
             end
+
+            if (@next_index[resp.follower_id]? || 1_u64) <= @log.last_lsn ||
+               (@peer_last_sent_commit[resp.follower_id]? || 0_u64) < @log.commit_index
+              signal_peer_unsafe(resp.follower_id, force: false)
+            end
           else
             next_lsn = resp.conflict_lsn > 0 ? resp.conflict_lsn : (@next_index[resp.follower_id]? || 1_u64) - 1
             @next_index[resp.follower_id] = Math.max(1_u64, next_lsn)
-            needs_retry = true
+            signal_peer_unsafe(resp.follower_id, force: true)
           end
         end
 
         @on_step_down.try &.call(stepped_down_term) if stepped_down
-        drain_committed_callbacks
+        signal_apply if has_committed
 
         if promoted = learner_to_promote
           begin
             propose_conf_change(ConfChangeType::PromoteLearner, promoted)
           rescue Error::NotLeaderError
           end
-        elsif needs_retry
-          replicate_to_peer(peer_id)
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def handle_install_snapshot(peer_id : UInt64, req : InstallSnapshotRequest) : Nil
         resp : InstallSnapshotResponse? = nil
         peer : PeerSession? = nil
@@ -748,10 +860,11 @@ module LavinMQ
           return if @closed || @isolated
           peer = @peers[peer_id]?
           if req.term < @log.current_term
-            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, @log.last_lsn)
+            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, @log.commit_index)
           else
+            @cluster_configured = true
             @last_leader_contact = Time.instant
-            if req.term > @log.current_term || !@role.follower?
+            if req.term > @log.current_term || (@role != Role::Follower && @role != Role::Learner)
               stepped_down = step_down_unsafe(req.term, req.leader_id)
               stepped_down_term = req.term
             else
@@ -761,22 +874,30 @@ module LavinMQ
             if req.last_included_lsn > @log.commit_index
               should_install = true
             end
-            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, Math.max(@log.last_lsn, req.last_included_lsn))
+            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, req.last_included_lsn)
           end
         end
 
         @on_step_down.try &.call(stepped_down_term) if stepped_down
 
         if should_install
-          req.control_records.each do |rec|
-            @on_apply.try &.call(rec)
+          @apply_lock.synchronize do
+            req.control_records.each do |rec|
+              @on_apply.try &.call(rec)
+            end
+            @snapshot_installer.try &.call(req)
+            @lock.synchronize do
+              @log.install_snapshot_state(req.last_included_lsn, req.last_included_term, req.members)
+              @control_history = req.control_records.map { |r| LogEntryRecord.new(r.entry, r.payload.dup) }
+              save_control_history_unsafe
+              if req.last_included_lsn > @last_applied
+                @last_applied = req.last_included_lsn
+                @log.advance_applied_index(@last_applied)
+              end
+              sync_peer_sessions_unsafe
+            end
           end
-          @snapshot_installer.try &.call(req)
-          @lock.synchronize do
-            @log.install_snapshot_state(req.last_included_lsn, req.last_included_term, req.members)
-            @last_applied = Math.max(@last_applied, req.last_included_lsn)
-            sync_peer_sessions_unsafe
-          end
+          signal_apply
         end
 
         if (r = resp) && (p = peer)
@@ -787,9 +908,12 @@ module LavinMQ
       private def handle_install_snapshot_response(peer_id : UInt64, resp : InstallSnapshotResponse) : Nil
         stepped_down = false
         stepped_down_term = 0_u64
+        has_committed = false
 
         @lock.synchronize do
           return if @closed || @isolated
+          @snapshot_in_flight.delete(resp.follower_id)
+          @peer_in_flight_until.delete(resp.follower_id)
           if resp.term > @log.current_term
             stepped_down = step_down_unsafe(resp.term)
             stepped_down_term = resp.term
@@ -801,70 +925,118 @@ module LavinMQ
           @match_index[resp.follower_id] = Math.max(@match_index[resp.follower_id]? || 0_u64, resp.match_lsn)
           @next_index[resp.follower_id] = @match_index[resp.follower_id] + 1
           try_advance_commit_index_unsafe
+          has_committed = @last_applied < @log.commit_index ||
+                          (@log.commit_index > 0 && @commit_waiters.any? { |w| w.target_lsn <= @log.commit_index })
+          signal_peer_unsafe(peer_id, force: true)
         end
 
         @on_step_down.try &.call(stepped_down_term) if stepped_down
-        drain_committed_callbacks
-        replicate_to_peer(peer_id)
+        signal_apply if has_committed
       end
 
-      private def replicate_to_peers : Nil
-        peer_ids = @lock.synchronize do
+      private def replicate_to_peers(force : Bool = false) : Nil
+        @lock.synchronize do
           return if !@role.leader? || @closed || @isolated
           sync_peer_sessions_unsafe
-          @peers.keys
+          signal_all_peers_unsafe(force: force)
         end
-        peer_ids.each { |pid| replicate_to_peer(pid) }
+      end
+
+      private def signal_all_peers_unsafe(force : Bool) : Nil
+        @peers.each_key do |pid|
+          signal_peer_unsafe(pid, force: force)
+        end
+      end
+
+      private def signal_peer_unsafe(peer_id : UInt64, force : Bool) : Nil
+        @peer_force_send[peer_id] = true if force
+        if ch = @peer_notify[peer_id]?
+          ch.try_send?(true)
+        end
+      end
+
+      private def peer_replication_loop(peer_id : UInt64, notify : ::Channel(Bool)) : Nil
+        loop do
+          notify.receive? || break
+          break if @closed
+          replicate_to_peer_now(peer_id)
+        end
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      private def replicate_to_peer(peer_id : UInt64) : Nil
+      private def replicate_to_peer_now(peer_id : UInt64) : Nil
         append_req : AppendEntriesRequest? = nil
-        snap_req : InstallSnapshotRequest? = nil
+        snap_meta : Tuple(UInt64, UInt64, UInt64, Array(MemberInfo), Array(LogEntryRecord))? = nil
         peer : PeerSession? = nil
 
         @lock.synchronize do
           return if !@role.leader? || @closed || @isolated
           peer = @peers[peer_id]? || return
+          return if peer.paused?
+
+          now = Time.instant
+          force = @peer_force_send.delete(peer_id) || false
           next_lsn = @next_index[peer_id]? || (@log.last_lsn + 1)
 
           if next_lsn < @log.first_lsn
+            if started_at = @snapshot_in_flight[peer_id]?
+              return if (now - started_at) < 2.seconds
+            end
+            @snapshot_in_flight[peer_id] = now
             snap_lsn = @log.commit_index
             snap_term = @log.term_at(snap_lsn) || @log.last_snapshot_term
-            files = @snapshot_builder.try(&.call(snap_lsn)) || Array(SnapshotSegmentFile).new
-            snap_req = InstallSnapshotRequest.new(
-              term: @log.current_term,
-              leader_id: @node_id,
-              last_included_lsn: snap_lsn,
-              last_included_term: snap_term,
-              members: @log.members,
-              control_records: @control_history.dup,
-              files: files
-            )
+            snap_meta = {@log.current_term, snap_lsn, snap_term, @log.members, @control_history.dup}
           else
-            entries = @log.read_entries(next_lsn, max_count: 256) || Array(LogEntryRecord).new
+            if !force
+              if in_flight_until = @peer_in_flight_until[peer_id]?
+                return if now < in_flight_until
+              end
+              has_unsent = next_lsn <= @log.last_lsn
+              commit_unsent = (@peer_last_sent_commit[peer_id]? || 0_u64) < @log.commit_index
+              return unless has_unsent || commit_unsent
+            end
+
+            raw_entries = @log.read_entries(next_lsn, max_count: 256)
+            entries = if raw_entries
+                        raw_entries.map { |rec| LogEntryRecord.new(rec.entry, rec.payload.dup) }
+                      else
+                        Array(LogEntryRecord).new
+                      end
             prev_lsn = next_lsn - 1
             prev_term = @log.term_at(prev_lsn) || @log.last_snapshot_term
+            commit_idx = @log.commit_index
             append_req = AppendEntriesRequest.new(
               term: @log.current_term,
               leader_id: @node_id,
               prev_log_lsn: prev_lsn,
               prev_log_term: prev_term,
-              leader_commit: @log.commit_index,
+              leader_commit: commit_idx,
               entries: entries
             )
+            @peer_in_flight_until[peer_id] = now + @heartbeat_interval
+            @peer_last_sent_commit[peer_id] = commit_idx
           end
         end
 
-        if p = peer
-          if sreq = snap_req
-            @execution_context.spawn(name: "ClusteringV2 snapshot #{@node_id}->#{peer_id}") do
-              p.send_install_snapshot(sreq)
-            end
-          elsif areq = append_req
-            @execution_context.spawn(name: "ClusteringV2 append #{@node_id}->#{peer_id}") do
-              p.send_append_entries(areq)
-            end
+        p = peer || return
+        if meta = snap_meta
+          term, snap_lsn, snap_term, members_list, ctrl_records = meta
+          files = @snapshot_builder.try(&.call(snap_lsn)) || Array(SnapshotSegmentFile).new
+          sreq = InstallSnapshotRequest.new(
+            term: term,
+            leader_id: @node_id,
+            last_included_lsn: snap_lsn,
+            last_included_term: snap_term,
+            members: members_list,
+            control_records: ctrl_records,
+            files: files
+          )
+          unless p.send_install_snapshot(sreq)
+            @lock.synchronize { @snapshot_in_flight.delete(peer_id) }
+          end
+        elsif areq = append_req
+          unless p.send_append_entries(areq)
+            @lock.synchronize { @peer_in_flight_until.delete(peer_id) }
           end
         end
       end
@@ -885,99 +1057,158 @@ module LavinMQ
         end
       end
 
-      private def drain_committed_callbacks : Nil
-        if Fiber::ExecutionContext.current == @execution_context
-          drain_committed_callbacks_now
-          return
-        end
-
-        has_pending = @lock.synchronize do
-          @last_applied < @log.commit_index ||
-            (@log.commit_index > 0 && @commit_waiters.any? { |w| w.target_lsn <= @log.commit_index })
-        end
-        return unless has_pending
-
-        done = ::Channel(Nil).new(1)
-        @execution_context.spawn(name: "ClusteringV2 drain committed #{@node_id}") do
-          drain_committed_callbacks_now
-        ensure
-          done.send(nil) rescue nil
-        end
-        done.receive?
+      private def signal_apply : Nil
+        @apply_notify.try_send?(true)
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
+      private def apply_loop : Nil
+        loop do
+          @apply_notify.receive? || break
+          break if @closed
+          drain_committed_callbacks_now
+        end
+      end
+
       private def drain_committed_callbacks_now : Nil
-        to_apply = Array(LogEntryRecord).new
-        promote_term : UInt64? = nil
-        woken_waiters = Array(CommitWaiter).new
+        @apply_lock.synchronize do
+          loop do
+            rec_to_apply : LogEntryRecord? = nil
+            promote_term : UInt64? = nil
+            next_lsn = 0_u64
 
-        @lock.synchronize do
-          while @last_applied < @log.commit_index
-            next_lsn = @last_applied + 1
-            if next_lsn < @log.first_lsn
-              @last_applied = @log.first_lsn - 1
-              next
-            end
-            if rec = @log.read_entry(next_lsn)
-              to_apply << rec
-              if rec.command.leader_no_op? && @role.leader? && @promoted_term < rec.term
-                @promoted_term = rec.term
-                promote_term = rec.term
-              elsif !rec.command.publish? && !rec.command.ack? && !rec.command.tombstone? &&
-                    !rec.command.leader_no_op? && !rec.command.segment_delete? &&
-                    !rec.command.stream_offset_commit? && !rec.command.queue_purge?
-                @control_history << rec
+            @lock.synchronize do
+              return if @closed
+              if @last_applied >= @log.commit_index
+                wake_commit_waiters_unsafe
+                return
+              end
+
+              next_lsn = @last_applied + 1
+              if next_lsn < @log.first_lsn
+                @last_applied = @log.first_lsn - 1
+                @log.advance_applied_index(@last_applied)
+                next
+              end
+
+              if raw = @log.read_entry(next_lsn)
+                rec = LogEntryRecord.new(raw.entry, raw.payload.dup)
+                rec_to_apply = rec
+                if rec.command.leader_no_op? && @role.leader? && @promoted_term < rec.term
+                  @promoted_term = rec.term
+                  promote_term = rec.term
+                elsif control_record?(rec.command)
+                  @control_history << rec
+                  save_control_history_unsafe
+                end
               end
             end
-            @last_applied = next_lsn
-          end
 
-          if @log.commit_index > 0
-            @commit_waiters.reject! do |w|
-              if w.target_lsn <= @log.commit_index
-                woken_waiters << w
-                true
-              else
-                false
+            if pterm = promote_term
+              @on_promote.try &.call(pterm)
+            end
+
+            if rec = rec_to_apply
+              @on_apply.try &.call(rec)
+            end
+
+            @lock.synchronize do
+              if next_lsn > @last_applied
+                @last_applied = next_lsn
+                @log.advance_applied_index(@last_applied)
               end
+              wake_commit_waiters_unsafe
             end
           end
-        end
-
-        if pterm = promote_term
-          @on_promote.try &.call(pterm)
-        end
-
-        to_apply.each do |rec|
-          @on_apply.try &.call(rec)
-        end
-
-        woken_waiters.each do |w|
-          w.channel.try_send(true)
         end
       end
 
-      private def apply_conf_change_bytes_unsafe(payload : Bytes) : Nil
-        return if payload.empty?
-        cc = ConfChangeCommand.from_slice(payload)
-        case cc.change_type
-        in .add_learner?, .promote_learner?
-          @log.upsert_member(cc.member)
-          if cc.member.node_id == @node_id
-            if cc.member.voter? && @role.learner?
-              @role = Role::Follower
-            elsif cc.member.learner? && !@role.leader?
-              @role = Role::Learner
-            end
-          end
-        in .remove_node?
-          @log.remove_member(cc.member.node_id)
-          if peer = @peers.delete(cc.member.node_id)
-            peer.close
+      private def wake_commit_waiters_unsafe : Nil
+        return unless @log.commit_index > 0
+        @commit_waiters.reject! do |w|
+          if w.target_lsn <= @last_applied && w.target_lsn <= @log.commit_index
+            w.channel.try_send?(true)
+            true
+          else
+            false
           end
         end
+      end
+
+      private def control_record?(cmd : LogCommandType) : Bool
+        !cmd.publish? && !cmd.ack? && !cmd.tombstone? &&
+          !cmd.leader_no_op? && !cmd.segment_delete? &&
+          !cmd.stream_offset_commit? && !cmd.queue_purge?
+      end
+
+      private def load_control_history : Nil
+        return unless File.exists?(@ctrl_hist_path)
+        File.open(@ctrl_hist_path, "r") do |f|
+          return if f.size < 8
+          magic = UInt32.from_io(f, IO::ByteFormat::LittleEndian)
+          return unless magic == CTRL_HIST_MAGIC
+          count = UInt32.from_io(f, IO::ByteFormat::LittleEndian)
+          records = Array(LogEntryRecord).new(count)
+          count.times do
+            records << LogEntryRecord.from_io(f)
+          end
+          @control_history = records
+        end
+      rescue
+        @control_history.clear
+      end
+
+      private def save_control_history_unsafe : Nil
+        tmp_path = "#{@ctrl_hist_path}.tmp"
+        File.open(tmp_path, "w") do |f|
+          f.write_bytes(CTRL_HIST_MAGIC, IO::ByteFormat::LittleEndian)
+          f.write_bytes(@control_history.size.to_u32, IO::ByteFormat::LittleEndian)
+          @control_history.each(&.to_io(f))
+        end
+        File.rename(tmp_path, @ctrl_hist_path)
+      rescue
+      end
+
+      private def on_log_membership_changed_unsafe(members : Array(MemberInfo)) : Nil
+        if me = members.find { |m| m.node_id == @node_id }
+          if me.learner? && !@role.leader?
+            @role = Role::Learner
+          elsif me.voter? && @role.learner?
+            @role = Role::Follower
+          end
+        end
+
+        active_ids = members.map(&.node_id)
+        @peers.keys.each do |pid|
+          unless active_ids.includes?(pid)
+            if ch = @peer_notify.delete(pid)
+              ch.close
+            end
+            @peer_force_send.delete(pid)
+            @peer_in_flight_until.delete(pid)
+            @peer_last_sent_commit.delete(pid)
+            @snapshot_in_flight.delete(pid)
+            if peer = @peers.delete(pid)
+              peer.close
+            end
+          end
+        end
+
         sync_peer_sessions_unsafe
+      end
+
+      private def create_peer_session_unsafe(peer_id : UInt64, peer_uri : String) : PeerSession
+        session = PeerSession.new(@node_id, @peer_uri, peer_id, peer_uri, @secret, @execution_context) do |pid, ftype, io|
+          handle_peer_frame(pid, ftype, io)
+        end
+        @peers[peer_id] = session
+        unless @peer_notify.has_key?(peer_id)
+          ch = ::Channel(Bool).new(1)
+          @peer_notify[peer_id] = ch
+          @execution_context.spawn(name: "ClusteringV2 replicator #{@node_id}->#{peer_id}") do
+            peer_replication_loop(peer_id, ch)
+          end
+        end
+        session
       end
 
       private def sync_peer_sessions_unsafe : Nil
@@ -986,9 +1217,7 @@ module LavinMQ
           if existing = @peers[m.node_id]?
             existing.peer_uri = m.peer_uri unless m.peer_uri.empty?
           else
-            @peers[m.node_id] = PeerSession.new(@node_id, @peer_uri, m.node_id, m.peer_uri, @secret, @execution_context) do |pid, ftype, io|
-              handle_peer_frame(pid, ftype, io)
-            end
+            create_peer_session_unsafe(m.node_id, m.peer_uri)
           end
         end
       end

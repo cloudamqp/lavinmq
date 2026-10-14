@@ -3,6 +3,12 @@ require "../mfile"
 module LavinMQ
   module Clustering
     module Replicator
+      class ReplicationError < Exception; end
+
+      def standby? : Bool
+        false
+      end
+
       abstract def register_file(path : String)
       abstract def register_file(file : File)
       abstract def register_file(mfile : MFile)

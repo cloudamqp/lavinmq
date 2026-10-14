@@ -178,7 +178,13 @@ module LavinMQ
       # the coordinator is unreachable confirms stall (publishers time out,
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
-      replicator.try &.wait_for_followers
+      begin
+        replicator.try &.wait_for_followers
+      rescue ex : Clustering::Replicator::ReplicationError
+        Log.warn(exception: ex) { "Replication failed before confirm; suppressing publisher confirms" }
+        batch.waiters.each &.close
+        return
+      end
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)

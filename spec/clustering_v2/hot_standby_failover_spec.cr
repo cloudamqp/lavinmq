@@ -30,7 +30,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
     begin
       infos = (1_u64..3_u64).map do |id|
         ndir = File.join(base_dir, "node#{id}")
-        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id)
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
         cn.raft.heartbeat_interval = 20.milliseconds
         cn.raft.election_timeout_min = 90.milliseconds
         cn.raft.election_timeout_max = 160.milliseconds
@@ -40,12 +40,20 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
         cn.bind
       end
 
+      # Review Item 9: nodes bound before configure_cluster must NOT self-elect as a 1-node cluster
+      sleep 120.milliseconds
+      nodes.any?(&.raft.leader?).should be_false
+
       nodes.each(&.raft.configure_cluster(infos))
       nodes[0].raft.trigger_election!
 
       wait_until { nodes.count(&.raft.leader?) == 1 }.should be_true
       leader = nodes.find!(&.raft.leader?)
       followers = nodes.reject(&.raft.leader?)
+
+      # Review Item 12: leader has standby? == false, followers have standby? == true
+      leader.replicator.standby?.should be_false
+      followers.all?(&.replicator.standby?).should be_true
 
       # 1. Declare a durable classic queue, a stream queue, an exchange, and a binding on the leader
       leader_vh = leader.server.vhosts["/"]
@@ -55,13 +63,19 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       leader_vh.declare_exchange("orders_ex", "direct", true, false)
       leader_vh.bind_queue("orders", "orders_ex", "order.created")
 
+      # Review Item 11: Replicate users.json and vhost limits/policies via replace_file
+      leader.server.users.create("replicated_user", "secret_pw", [LavinMQ::Tag::Administrator], save: true)
+      leader_vh.max_queues = 42
+
       # Wait for definitions to replicate to hot-standby followers
       wait_until do
         followers.all? do |f|
           vh = f.server.vhosts["/"]
           !vh.queue?("orders").nil? &&
             !vh.queue?("events_stream").nil? &&
-            !vh.exchange?("orders_ex").nil?
+            !vh.exchange?("orders_ex").nil? &&
+            !f.server.users["replicated_user"]?.nil? &&
+            vh.max_queues == 42
         end
       end.should be_true
 
@@ -132,9 +146,10 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       end
 
       leader.raft.set_isolated(true)
-      wait_until { followers.any?(&.raft.leader?) }.should be_true
+      wait_until { followers.any?(&.raft.leader?) && !promotion_duration.nil? }.should be_true
 
       new_leader = followers.find!(&.raft.leader?)
+      new_leader.replicator.standby?.should be_false
       promotion_duration.not_nil!.should be < 50.milliseconds
 
       # Consume the remaining 2 messages from the newly promoted leader and verify order & content
@@ -162,7 +177,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
     begin
       infos = (1_u64..3_u64).map do |id|
         ndir = File.join(base_dir, "node#{id}")
-        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, commit_gated_delivery: true)
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret", commit_gated_delivery: true)
         cn.raft.heartbeat_interval = 20.milliseconds
         cn.raft.election_timeout_min = 120.milliseconds
         cn.raft.election_timeout_max = 220.milliseconds
@@ -189,6 +204,11 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       followers.each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
 
       q.publish(make_test_message("uncommitted-secret", routing_key: "gated_q"))
+
+      # Review Item 10: wait_for_followers raises ReplicationError when quorum is not reached before timeout
+      expect_raises(LavinMQ::Clustering::Replicator::ReplicationError) do
+        leader.replicator.wait_for_followers(50.milliseconds)
+      end
 
       # Because the publish LSN is > commit_index, consumers MUST NOT see the uncommitted message
       q.empty?.should be_true
@@ -218,7 +238,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
     begin
       infos = (1_u64..3_u64).map do |id|
         ndir = File.join(base_dir, "node#{id}")
-        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, commit_gated_delivery: true)
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret", commit_gated_delivery: true)
         cn.raft.heartbeat_interval = 20.milliseconds
         cn.raft.election_timeout_min = 90.milliseconds
         cn.raft.election_timeout_max = 160.milliseconds
@@ -275,6 +295,137 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       bodies.should eq(["committed-1", "committed-2"])
     ensure
       nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "applies prior-term uncommitted entries on a newly elected leader and does not double-apply on node restart" do
+    base_dir = File.tempname("lavinmq_cv2_prior_term_and_restart")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret")
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        cn.raft.leader_lease_timeout = 250.milliseconds
+        cn.raft.leader_stickiness_window = 50.milliseconds
+        nodes << cn
+        cn.bind
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+      wait_until { nodes[0].raft.leader? }.should be_true
+
+      leader = nodes[0]
+      f1 = nodes[1]
+      f2 = nodes[2]
+
+      leader.server.vhosts["/"].declare_queue("pt_q", true, false)
+      wait_until { [f1, f2].all? { |f| !f.server.vhosts["/"].queue?("pt_q").nil? } }.should be_true
+
+      # Review Item 5:
+      # Append a replicated entry directly to f1 & f2's logs as uncommitted in current term,
+      # simulating an entry that reached f1 from leader before leader crashed, prior to commit notification.
+      # Then isolate leader and let f1 win election in the next term; f1's LeaderNoOp commits the prior-term entry
+      # and f1 MUST apply it to its state machine even though f1 is now leader!
+      leader.raft.set_isolated(true)
+      prev_lsn = f1.raft.log.last_lsn
+      prev_term = f1.raft.log.term_at(prev_lsn).not_nil!
+      cur_term = f1.raft.current_term
+
+      frame_io = IO::Memory.new
+      frame_io.write_bytes(
+        LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, "prior_term_q", false, true, false, false, false, LavinMQ::AMQP::Table.new),
+        IO::ByteFormat::SystemEndian
+      )
+      uncommitted_rec = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: cur_term,
+          lsn: prev_lsn + 1,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::QueueDeclare.value,
+          vhost_id: 1_u16
+        ),
+        frame_io.to_slice
+      )
+      [f1, f2].each do |follower|
+        follower.raft.handle_append_entries(leader.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+          term: cur_term,
+          leader_id: leader.raft.node_id,
+          prev_log_lsn: prev_lsn,
+          prev_log_term: prev_term,
+          leader_commit: follower.raft.commit_index,
+          entries: [uncommitted_rec]
+        )).not_nil!.success?.should be_true
+        follower.raft.pause_peer(leader.raft.node_id, true)
+      end
+      f1.server.vhosts["/"].queue?("prior_term_q").should be_nil
+
+      sleep 60.milliseconds
+      f1.raft.trigger_election!
+      wait_until { f1.raft.leader? }.should be_true
+      wait_until { !f1.server.vhosts["/"].queue?("prior_term_q").nil? }.should be_true
+
+      f1.server.vhosts["/"].queue("pt_q").publish(make_test_message("msg-before-restart", routing_key: "pt_q"))
+      f1.replicator.wait_for_followers
+      wait_until { f2.server.vhosts["/"].queue("pt_q").message_count == 1 }.should be_true
+
+      # Review Item 6: Restart f2 on the same data_dir and verify it does NOT double-apply committed entries
+      f2_dir = File.join(base_dir, "node3")
+      f2_applied_before = f2.raft.last_applied
+      f2.close
+      nodes.delete(f2)
+
+      f2_restarted = LavinMQ::ClusteringV2::ClusterNode.new(f2_dir, 3_u64, secret: "test-secret")
+      nodes << f2_restarted
+      f2_restarted.raft.last_applied.should eq(f2_applied_before)
+      f2_restarted.server.vhosts["/"].queue("pt_q").message_count.should eq(1)
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "publishes and consumes on a 1-node Voter ClusterNode durable queue without deadlocking and isolates Raft execution context" do
+    base_dir = File.tempname("lavinmq_cv2_single_voter")
+    Dir.mkdir_p(base_dir)
+    cn = LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "test-secret", commit_gated_delivery: true)
+
+    begin
+      cn.raft.execution_context.should_not eq(Fiber::ExecutionContext.default)
+      cn.raft.execution_context.should_not eq(cn.router.execution_context)
+
+      info = cn.bind
+      cn.raft.configure_cluster([info])
+      cn.raft.trigger_election!
+      wait_until { cn.raft.leader? }.should be_true
+
+      vh = cn.server.vhosts["/"]
+      vh.declare_queue("single_voter_q", true, false)
+      q = vh.queue("single_voter_q")
+
+      # On a 1-node Voter cluster, propose_publish commits immediately while Queue#publish holds @msg_store_lock.
+      # The asynchronous apply_loop must advance the commit gate on Raft's execution context without deadlocking.
+      q.publish(make_test_message("single-voter-msg-1", routing_key: "single_voter_q")).ok?.should be_true
+      q.publish(make_test_message("single-voter-msg-2", routing_key: "single_voter_q")).ok?.should be_true
+      cn.replicator.wait_for_followers
+
+      wait_until { q.message_count == 2 && !q.empty? }.should be_true
+
+      bodies = Array(String).new
+      2.times do
+        q.basic_get(false) do |env|
+          bodies << String.new(env.message.body)
+          q.ack(env.segment_position)
+        end
+      end
+      bodies.should eq(["single-voter-msg-1", "single-voter-msg-2"])
+    ensure
+      cn.close
       FileUtils.rm_rf(base_dir)
     end
   end

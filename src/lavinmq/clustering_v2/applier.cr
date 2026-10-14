@@ -448,16 +448,69 @@ module LavinMQ
     class Applier
       Log = LavinMQ::Log.for "clustering_v2.applier"
 
-      property server : LavinMQ::Server?
+      getter server : LavinMQ::Server?
       getter raft_log : RaftLog
       @suppress_callback : Proc(Bool, Nil)?
+      @vhost_by_id = Hash(UInt16, VHost).new
+      @vhost_dir_by_id = Hash(UInt16, String).new
+      @queue_by_key = Hash(UInt64, AMQP::Queue).new
+      @queue_name_by_key = Hash(UInt64, String).new
 
       def initialize(@raft_log : RaftLog, @server : LavinMQ::Server? = nil, &suppress_callback : Bool -> Nil)
         @suppress_callback = suppress_callback
+        rebuild_resource_cache!
       end
 
       def initialize(@raft_log : RaftLog, @server : LavinMQ::Server? = nil)
         @suppress_callback = nil
+        rebuild_resource_cache!
+      end
+
+      def server=(srv : LavinMQ::Server?) : LavinMQ::Server?
+        @server = srv
+        rebuild_resource_cache!
+        srv
+      end
+
+      @[AlwaysInline]
+      private def queue_cache_key(vhost_id : UInt16, queue_id : UInt32) : UInt64
+        (vhost_id.to_u64 << 32) | queue_id.to_u64
+      end
+
+      def rebuild_resource_cache! : Nil
+        @vhost_by_id.clear
+        @vhost_dir_by_id.clear
+        @queue_by_key.clear
+        @queue_name_by_key.clear
+        srv = @server || return
+        srv.vhosts.each_value do |vh|
+          vh_id = index_vhost!(vh)
+          vh.queues.each do |q|
+            index_queue!(vh, vh_id, q)
+          end
+        end
+      end
+
+      def index_vhost!(vh : VHost) : UInt16
+        vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+        if (existing_dir = @vhost_dir_by_id[vh_id]?) && existing_dir != vh.dir
+          raise RuntimeError.new("VHost ID collision for vhost '#{vh.name}' (dir=#{vh.dir}, id=#{vh_id})")
+        end
+        @vhost_by_id[vh_id] = vh
+        @vhost_dir_by_id[vh_id] = vh.dir
+        vh_id
+      end
+
+      def index_queue!(vh : VHost, vh_id : UInt16, q : AMQP::Queue) : UInt32
+        q_dir = Digest::SHA1.hexdigest(q.name)
+        q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir)
+        key = queue_cache_key(vh_id, q_id)
+        if (existing_name = @queue_name_by_key[key]?) && existing_name != q.name
+          raise RuntimeError.new("Queue ID collision in vhost '#{vh.name}' between '#{existing_name}' and '#{q.name}' (id=#{q_id})")
+        end
+        @queue_by_key[key] = q
+        @queue_name_by_key[key] = q.name
+        q_id
       end
 
       private def with_suppressed_replication(&)
@@ -470,47 +523,50 @@ module LavinMQ
       end
 
       def resolve_vhost(vhost_id : UInt16) : VHost?
-        srv = @server || return
-        srv.vhosts.each_value do |vh|
-          return vh if ResourceId.vhost_id_for_dir(vh.dir) == vhost_id
+        if vh = @vhost_by_id[vhost_id]?
+          return vh
         end
-        nil
+        rebuild_resource_cache!
+        @vhost_by_id[vhost_id]?
       end
 
       def resolve_queue(vhost_id : UInt16, queue_id : UInt32) : AMQP::Queue?
-        vh = resolve_vhost(vhost_id) || return
-        vh.queues.each do |q|
-          return q if ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name)) == queue_id
+        key = queue_cache_key(vhost_id, queue_id)
+        if q = @queue_by_key[key]?
+          return q unless q.closed?
+        end
+        rebuild_resource_cache!
+        if q = @queue_by_key[key]?
+          return q unless q.closed?
         end
         nil
       end
 
       def register_all_segments! : Nil
         srv = @server || return
+        rebuild_resource_cache!
         srv.vhosts.each_value do |vh|
-          vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+          vh_id = index_vhost!(vh)
           vh.queues.each do |q|
             next unless q.durable?
-            q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+            q_id = index_queue!(vh, vh_id, q)
             register_queue_segments(vh_id, q_id, q)
           end
         end
       end
 
       private def register_queue_segments(vhost_id : UInt16, queue_id : UInt32, q : AMQP::Queue) : Nil
-        store = q.raw_msg_store
-        1_u32.upto(1024_u32) do |seg_id|
-          if mfile = store.current_segment_mfile(seg_id)
-            @raft_log.register_segment(vhost_id, queue_id, seg_id, mfile)
-          end
+        q.raw_msg_store.each_segment do |seg_id, mfile|
+          @raft_log.register_segment(vhost_id, queue_id, seg_id, mfile)
         end
       end
 
       # Called when `record` is committed in Raft.
       # - If `from_leader` is true (this node proposed and already executed the mutation locally),
       #   we only need to advance the commit-gated consumer delivery watermark on `Publish`.
-      # - If `from_leader` is false (this node is a Hot-Standby Follower), we apply the command
-      #   directly to the live in-memory `LavinMQ::Server` state machine.
+      # - If `from_leader` is false (this node is a Hot-Standby Follower or a newly elected Leader
+      #   applying an entry from a previous term), we apply the command directly to the live
+      #   in-memory `LavinMQ::Server` state machine.
       # ameba:disable Metrics/CyclomaticComplexity
       def apply_committed(record : LogEntryRecord, from_leader : Bool) : Nil
         entry = record.entry
@@ -540,7 +596,9 @@ module LavinMQ
             apply_definition_frame(entry.vhost_id, record.payload)
           when LogCommandType::QueuePurge
             if q = resolve_queue(entry.vhost_id, entry.queue_id)
+              @raft_log.unregister_queue_segments(entry.vhost_id, entry.queue_id)
               q.purge
+              register_queue_segments(entry.vhost_id, entry.queue_id, q)
             end
           when LogCommandType::Publish
             if q = resolve_queue(entry.vhost_id, entry.queue_id)
@@ -555,6 +613,7 @@ module LavinMQ
           when LogCommandType::SegmentDelete
             if q = resolve_queue(entry.vhost_id, entry.queue_id)
               q.apply_follower_segment_delete(entry.segment_id)
+              @raft_log.unregister_segment(entry.vhost_id, entry.queue_id, entry.segment_id)
             end
           when LogCommandType::StreamOffsetCommit
             if q = resolve_queue(entry.vhost_id, entry.queue_id)
@@ -578,6 +637,8 @@ module LavinMQ
               file_name = String.new(record.payload)
               vh.mqtt_broker.raw_retain_store.apply_follower_delete_file(file_name)
             end
+          when LogCommandType::FileReplace
+            apply_file_replace(entry.vhost_id, record.payload)
           end
         end
       end
@@ -599,7 +660,8 @@ module LavinMQ
             name = vh_obj["name"].as_s
             description = vh_obj["description"]?.try(&.as_s) || ""
             tags = vh_obj["tags"]?.try(&.as_a.map(&.as_s)) || Array(String).new
-            srv.vhosts.create(name, description: description, tags: tags) unless srv.vhosts[name]?
+            vh = srv.vhosts[name]? || srv.vhosts.create(name, description: description, tags: tags)
+            index_vhost!(vh)
           end
         end
       end
@@ -607,15 +669,25 @@ module LavinMQ
       private def apply_vhost_delete(payload : Bytes) : Nil
         srv = @server || return
         dir_or_name = String.new(payload)
-        target_name = nil
+        target_vh : VHost? = nil
         srv.vhosts.each_value do |vh|
           if vh.dir == dir_or_name || vh.name == dir_or_name
-            target_name = vh.name
+            target_vh = vh
             break
           end
         end
-        if name = target_name
-          srv.vhosts.delete(name)
+        if vh = target_vh
+          vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+          vh.queues.each do |q|
+            q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+            @raft_log.unregister_queue_segments(vh_id, q_id)
+            key = queue_cache_key(vh_id, q_id)
+            @queue_by_key.delete(key)
+            @queue_name_by_key.delete(key)
+          end
+          @vhost_by_id.delete(vh_id)
+          @vhost_dir_by_id.delete(vh_id)
+          srv.vhosts.delete(vh.name)
         end
       end
 
@@ -624,11 +696,62 @@ module LavinMQ
         io = IO::Memory.new(payload)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         frame = stream.next_frame
+        if frame.is_a?(AMQP::Frame::Queue::Delete)
+          q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(frame.queue_name))
+          @raft_log.unregister_queue_segments(vhost_id, q_id)
+          key = queue_cache_key(vhost_id, q_id)
+          @queue_by_key.delete(key)
+          @queue_name_by_key.delete(key)
+        end
         vh.apply(frame, loading: false, fsync: false)
         if frame.is_a?(AMQP::Frame::Queue::Declare)
           if q = vh.queue?(frame.queue_name)
-            q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+            q_id = index_queue!(vh, vhost_id, q)
             register_queue_segments(vhost_id, q_id, q)
+          end
+        end
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def apply_file_replace(vhost_id : UInt16, payload : Bytes) : Nil
+        srv = @server || return
+        return if payload.size < 6
+        io = IO::Memory.new(payload)
+        rel_len = UInt16.from_io(io, IO::ByteFormat::LittleEndian)
+        rel = io.read_string(rel_len)
+        content_len = UInt32.from_io(io, IO::ByteFormat::LittleEndian)
+        content = Bytes.new(content_len)
+        io.read_fully(content)
+
+        full_path = File.join(srv.data_dir, rel)
+        FileUtils.mkdir_p(File.dirname(full_path))
+        tmp_path = "#{full_path}.tmp.rf"
+        File.write(tmp_path, content)
+        File.rename(tmp_path, full_path)
+
+        parts = rel.split('/')
+        if parts.size == 1
+          case parts[0]
+          when "users.json"
+            srv.users.reload!
+          when "parameters.json"
+            srv.reload_parameters!
+          end
+        elsif parts.size == 2
+          vh = resolve_vhost(vhost_id) || srv.vhosts.values.find { |v| v.dir == parts[0] }
+          if vh
+            case parts[1]
+            when "parameters.json"
+              vh.reload_parameters!
+            when "policies.json"
+              vh.reload_policies!
+            when "operator_policies.json"
+              vh.reload_operator_policies!
+            when "limits.json"
+              vh.reload_limits!
+            when "mqtt_permissions.json"
+              vh.mqtt_permission_service.reload!
+            end
           end
         end
       end
@@ -638,8 +761,11 @@ module LavinMQ
         with_suppressed_replication do
           # Close durable queues and clear old segments before writing snapshot segments
           srv.vhosts.each_value do |vh|
+            vh_id = ResourceId.vhost_id_for_dir(vh.dir)
             vh.queues.each do |q|
               next unless q.durable?
+              q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+              @raft_log.unregister_queue_segments(vh_id, q_id)
               q.close
               q_dir = File.join(vh.data_dir, Digest::SHA1.hexdigest(q.name))
               if Dir.exists?(q_dir)
@@ -659,12 +785,13 @@ module LavinMQ
           end
 
           # Restart queues whose segments were replaced by snapshot so their MFiles map the snapshot
+          rebuild_resource_cache!
           srv.vhosts.each_value do |vh|
-            vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+            vh_id = index_vhost!(vh)
             vh.queues.each do |q|
               next unless q.durable?
               q.restart!
-              q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+              q_id = index_queue!(vh, vh_id, q)
               register_queue_segments(vh_id, q_id, q)
             end
           end

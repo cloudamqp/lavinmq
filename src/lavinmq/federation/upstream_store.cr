@@ -62,6 +62,7 @@ module LavinMQ
       end
 
       def link(name, resource : AMQP::Queue | Exchange)
+        return if @vhost.replicator.try(&.standby?)
         @upstreams[name]?.try &.link(resource)
       end
 
@@ -131,6 +132,7 @@ module LavinMQ
       end
 
       def link_set(name, resource : Exchange | Queue)
+        return if @vhost.replicator.try(&.standby?)
         set = get_set(name)
         set.each do |upstream|
           upstream.link(resource)

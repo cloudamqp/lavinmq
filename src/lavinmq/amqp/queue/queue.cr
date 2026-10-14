@@ -146,10 +146,21 @@ module LavinMQ::AMQP
 
     getter? internal = false
 
+    private def standby? : Bool
+      @vhost.replicator.try(&.standby?) || false
+    end
+
+    def on_leader_promotion : Nil
+      return if @closed || standby?
+      ensure_queue_expire_fiber
+      ensure_expire_fiber
+      schedule_policy_limits if @max_length || @max_length_bytes || @delivery_limit
+    end
+
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break if @closed || !@expires
+        break if @closed || !@expires || standby?
         select
         when @consumers_empty.when_true.receive
         when @queue_expiration_ttl_change.receive
@@ -161,6 +172,7 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
+          break if standby?
           expire_queue
           close
           break
@@ -172,6 +184,7 @@ module LavinMQ::AMQP
     private def message_expire_loop
       @vhost.closed.when_false.receive?
       loop do
+        break if standby?
         break unless wait_for_consumers_empty
         break unless wait_for_messages
         next unless @consumers.empty?
@@ -223,6 +236,7 @@ module LavinMQ::AMQP
         when @consumers_empty.when_false.receive
           @log.debug { "Got consumers" }
         when timeout ttl
+          return false if standby?
           @log.debug { "Message TTL reached" }
           expire_messages
         end
@@ -311,13 +325,14 @@ module LavinMQ::AMQP
     end
 
     private def start_message_expire_loop
+      return if standby?
       return if @message_expire_fiber_active.swap(true)
       @log.debug { "Starting message expire loop" }
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
     end
 
     private def ensure_queue_expire_fiber
-      return if @closed || !@expires
+      return if @closed || !@expires || standby?
       return if @queue_expire_fiber_active.swap(true)
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         queue_expire_loop
@@ -335,16 +350,16 @@ module LavinMQ::AMQP
     end
 
     private def ensure_policy_limits_fiber
-      return if @closed || !@policy_limits_pending.get(:acquire)
+      return if @closed || !@policy_limits_pending.get(:acquire) || standby?
       return if @policy_limits_fiber_active.swap(true)
       spawn apply_policy_limits, name: "Queue#apply_policy_limits #{@vhost.name}/#{@name}"
     end
 
     private def apply_policy_limits
       @vhost.closed.when_false.receive?
-      while !@closed && @policy_limits_pending.swap(false)
+      while !@closed && !standby? && @policy_limits_pending.swap(false)
         @msg_store_lock.synchronize do
-          break if @closed
+          break if @closed || standby?
           # Read the current limits after acquiring the lock. Policy churn while
           # this pass yields requests another pass, without spawning more fibers.
           # A failed operation must not skip the other limit check or discard
@@ -369,13 +384,14 @@ module LavinMQ::AMQP
 
     # Ensure the expire fiber is running if there are messages that need expiring
     private def ensure_expire_fiber
-      if !@closed && !@message_expire_fiber_active.get(:acquire)
+      if !@closed && !standby? && !@message_expire_fiber_active.get(:acquire)
         start_message_expire_loop if should_start_expire_fiber?
       end
     end
 
     # Check if we need the expire fiber running
     private def should_start_expire_fiber? : Bool
+      return false if standby?
       return false if @msg_store.size == 0  # No messages to expire
       return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
       return true if @message_ttl           # Queue-level TTL means all messages need expiring

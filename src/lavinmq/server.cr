@@ -146,7 +146,22 @@ module LavinMQ
       @parameters.delete({component_name, parameter_name})
     end
 
+    def reload_parameters! : Nil
+      @parameters.reload!
+      apply_parameter unless @replicator.try(&.standby?)
+    end
+
+    def on_leader_promotion : Nil
+      apply_parameter
+      @vhosts.each_value(&.on_leader_promotion)
+    end
+
+    def on_leader_step_down : Nil
+      @vhosts.each_value(&.on_leader_step_down)
+    end
+
     private def apply_parameter(parameter : Parameter? = nil)
+      return if @replicator.try(&.standby?)
       @parameters.apply(parameter) do |p|
         Log.warn { "No action when applying parameter #{p.parameter_name}" }
       end

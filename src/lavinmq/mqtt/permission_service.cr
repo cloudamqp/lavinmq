@@ -200,6 +200,13 @@ module LavinMQ
         @compiled = Compiled.new(by_member, global_rules)
       end
 
+      def reload! : Nil
+        @save_lock.synchronize do
+          @groups = Hash(String, PermissionGroup).new
+          load!(false)
+        end
+      end
+
       # Groups are validated on load as they are on put, so everything in
       # memory always passes validate! and every later put of a loaded group
       # can only fail on the change being made.
