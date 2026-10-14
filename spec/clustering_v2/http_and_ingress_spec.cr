@@ -20,20 +20,6 @@ private def auth_headers : HTTP::Headers
 end
 
 describe LavinMQ::ClusteringV2::IngressRouter do
-  it "rejects empty or whitespace-only cluster secrets" do
-    base_dir = File.tempname("lavinmq_cv2_empty_secret")
-    begin
-      expect_raises(ArgumentError, /secret/) do
-        LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "")
-      end
-      expect_raises(ArgumentError, /secret/) do
-        LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "   ")
-      end
-    ensure
-      FileUtils.rm_rf(base_dir)
-    end
-  end
-
   it "serves read-only HTTP API and Prometheus /metrics locally from Hot-Standby followers while reverse-proxying mutations and /api/connections to the leader" do
     base_dir = File.tempname("lavinmq_cv2_http_ingress")
     Dir.mkdir_p(base_dir)

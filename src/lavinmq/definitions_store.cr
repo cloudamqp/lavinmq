@@ -49,7 +49,12 @@ module LavinMQ
         @definitions_file.fsync
         if replicator = @replicator
           replicator.request_fsync({@definitions_file_path})
-          replicator.wait_for_followers
+          begin
+            replicator.wait_for_followers
+          rescue ex : Clustering::Replicator::ReplicationError
+            replicator.abort_uncommitted!
+            raise ex
+          end
         end
       end
     end
@@ -481,6 +486,7 @@ module LavinMQ
       rescue ex : Clustering::Replicator::ReplicationError
         @definitions_file.truncate(offset)
         @definitions_file.seek(0, IO::Seek::End)
+        @replicator.try &.abort_uncommitted!
         raise ex
       end
       if dirty

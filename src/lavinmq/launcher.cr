@@ -81,7 +81,7 @@ module LavinMQ
         @amqp_server = v2_node.router.amqp_server
         @mqtt_server = v2_node.router.mqtt_server
         @http_server = v2_node.router.http_server
-        v2_node.start_from_config(@config)
+        v2_node.start_from_config(@config, @amqp_tls_context, @mqtt_tls_context, @http_tls_context)
         @metrics_server.try &.leader = server
       else
         @server = server = LavinMQ::Server.new(@config, @replicator)

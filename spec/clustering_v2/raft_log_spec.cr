@@ -96,11 +96,16 @@ describe LavinMQ::ClusteringV2::RaftLog do
     log.append_ack(1_u64, 1_u16, 10_u32, 1_u32, pos1)
     log.append_ack(1_u64, 1_u16, 10_u32, 1_u32, pos2)
 
-    # Before segment deletion, read_entry slices directly from seg_mfile
-    r1 = log.read_entry(pub1.lsn).not_nil!
-    r1.entry.has_ctrl_payload?.should be_false
-    r1.payload.should eq msg1_bytes
-    r1.payload.to_unsafe.should eq(seg_mfile.to_slice.to_unsafe + pos1)
+    # Before segment deletion, read_entry_leased slices directly from seg_mfile under an MFile lease
+    r1, leased_mfile = log.read_entry_leased(pub1.lsn).not_nil!
+    begin
+      leased_mfile.should eq seg_mfile
+      r1.entry.has_ctrl_payload?.should be_false
+      r1.payload.should eq msg1_bytes
+      r1.payload.to_unsafe.should eq(seg_mfile.to_slice.to_unsafe + pos1)
+    ensure
+      leased_mfile.try(&.release_lease)
+    end
 
     # Now delete segment 1 immediately (as MessageStore#delete does when all messages are acked)
     seg_del = log.append_segment_delete(1_u64, 1_u16, 10_u32, 1_u32)

@@ -1,5 +1,6 @@
 require "socket"
 require "../../stdlib/channel"
+require "../logger"
 require "./protocol"
 require "./raft_log"
 require "./peer_session"
@@ -7,7 +8,10 @@ require "./peer_session"
 module LavinMQ
   module ClusteringV2
     class RaftNode
+      Log = LavinMQ::Log.for "clustering_v2.raft"
+
       alias ApplyCallback = LogEntryRecord -> Nil
+      alias TruncateCallback = LogIndexEntry -> Nil
       alias PromoteCallback = UInt64 -> Nil
       alias StepDownCallback = UInt64 -> Nil
       alias SnapshotBuilderCallback = UInt64 -> Array(SnapshotSegmentFile)
@@ -68,6 +72,8 @@ module LavinMQ
       @pre_votes_granted = Set(UInt64).new
       @votes_granted = Set(UInt64).new
       @commit_waiters = Array(CommitWaiter).new
+      @pending_truncations = Deque(LogIndexEntry).new
+      @quorum_scratch = Array(UInt64).new(16)
       @control_history = Array(LogEntryRecord).new
       @ctrl_hist_path : String
       @last_leader_contact : Time::Instant = Time.instant
@@ -82,6 +88,7 @@ module LavinMQ
       @isolated = false
 
       @on_apply : ApplyCallback?
+      @on_truncate : TruncateCallback?
       @on_promote : PromoteCallback?
       @on_step_down : StepDownCallback?
       @snapshot_builder : SnapshotBuilderCallback?
@@ -106,8 +113,13 @@ module LavinMQ
         @ctrl_hist_path = File.join(@log.data_dir, "raft.ctrl_hist")
         load_control_history
 
+        @log.on_truncate do |entry|
+          @lock.synchronize { @pending_truncations << entry }
+          signal_apply
+        end
+
         @log.on_membership_change do |members|
-          on_log_membership_changed_unsafe(members)
+          @lock.synchronize { on_log_membership_changed_unsafe(members) }
         end
 
         if @log.meta_existed? && !@log.members.empty?
@@ -127,6 +139,10 @@ module LavinMQ
 
       def on_apply(&block : LogEntryRecord -> Nil) : Nil
         @on_apply = block
+      end
+
+      def on_truncate(&block : LogIndexEntry -> Nil) : Nil
+        @on_truncate = block
       end
 
       def on_promote(&block : UInt64 -> Nil) : Nil
@@ -372,6 +388,24 @@ module LavinMQ
         start_pre_vote
       end
 
+      # Aborts any uncommitted log entries by stepping down (if leader) and truncating
+      # entries above `commit_index` so timed-out proposals cannot commit later.
+      def abort_uncommitted! : Nil
+        stepped_down = false
+        term = 0_u64
+        @lock.synchronize do
+          return if @closed
+          term = @log.current_term
+          if @role.leader?
+            stepped_down = step_down_unsafe(term)
+          elsif @log.last_lsn > @log.commit_index
+            @log.truncate_from(@log.commit_index + 1)
+          end
+        end
+        drain_pending_truncations
+        @on_step_down.try &.call(term) if stepped_down
+      end
+
       def close : Nil
         @lock.synchronize do
           return if @closed
@@ -463,6 +497,7 @@ module LavinMQ
           end
 
           if term = stepped_down_term
+            drain_pending_truncations
             @on_step_down.try &.call(term)
           elsif won_single_node
             signal_apply
@@ -477,8 +512,15 @@ module LavinMQ
 
       private def voting_single_node_cluster_unsafe? : Bool
         return false unless @cluster_configured
-        voters = @log.members.select(&.voter?)
-        voters.size == 1 && voters.first.node_id == @node_id
+        voter_count = 0
+        only_voter_id = 0_u64
+        @log.members.each do |m|
+          next unless m.voter?
+          voter_count += 1
+          only_voter_id = m.node_id
+          return false if voter_count > 1
+        end
+        voter_count == 1 && only_voter_id == @node_id
       end
 
       private def become_candidate_and_win_single_node_unsafe : Nil
@@ -488,17 +530,19 @@ module LavinMQ
       end
 
       private def check_leader_lease_expired_unsafe(now : Time::Instant) : Bool
-        voters = @log.members.select(&.voter?)
-        return false if voters.size <= 1
-
-        quorum = (voters.size // 2) + 1
-        active = voter_unsafe?(@node_id) ? 1 : 0
-        voters.each do |m|
-          next if m.node_id == @node_id
-          if last_ack = @last_ack_at[m.node_id]?
+        voter_count = 0
+        active = 0
+        @log.members.each do |m|
+          next unless m.voter?
+          voter_count += 1
+          if m.node_id == @node_id
+            active += 1
+          elsif last_ack = @last_ack_at[m.node_id]?
             active += 1 if (now - last_ack) <= @leader_lease_timeout
           end
         end
+        return false if voter_count <= 1
+        quorum = (voter_count // 2) + 1
         active < quorum
       end
 
@@ -688,7 +732,10 @@ module LavinMQ
           end
         end
 
-        @on_step_down.try &.call(stepped_down_term) if stepped_down
+        if stepped_down
+          drain_pending_truncations
+          @on_step_down.try &.call(stepped_down_term)
+        end
         if (r = resp) && (p = peer)
           p.send_vote_response(r)
         end
@@ -727,7 +774,10 @@ module LavinMQ
           end
         end
 
-        @on_step_down.try &.call(stepped_down_term) if stepped_down
+        if stepped_down
+          drain_pending_truncations
+          @on_step_down.try &.call(stepped_down_term)
+        end
         if req = real_vote_req
           peers_to_send.each do |peer|
             @execution_context.spawn(name: "ClusteringV2 vote #{@node_id}->#{peer.peer_id}") do
@@ -774,6 +824,7 @@ module LavinMQ
           end
         end
 
+        drain_pending_truncations
         @on_step_down.try &.call(stepped_down_term) if stepped_down
         signal_apply if has_committed
         if (r = resp) && (p = peer)
@@ -837,7 +888,10 @@ module LavinMQ
           end
         end
 
-        @on_step_down.try &.call(stepped_down_term) if stepped_down
+        if stepped_down
+          drain_pending_truncations
+          @on_step_down.try &.call(stepped_down_term)
+        end
         signal_apply if has_committed
 
         if promoted = learner_to_promote
@@ -878,18 +932,33 @@ module LavinMQ
           end
         end
 
-        @on_step_down.try &.call(stepped_down_term) if stepped_down
+        if stepped_down
+          drain_pending_truncations
+          @on_step_down.try &.call(stepped_down_term)
+        end
 
         if should_install
           @apply_lock.synchronize do
+            drain_pending_truncations
+            normalized_ctrl = Array(LogEntryRecord).new(req.control_records.size)
             req.control_records.each do |rec|
-              @on_apply.try &.call(rec)
+              follower_rec = strip_leader_flag(rec)
+              normalized_ctrl << follower_rec
+              begin
+                @on_apply.try &.call(follower_rec)
+              rescue ex
+                Log.error(exception: ex) { "Error applying snapshot control record lsn=#{rec.lsn} cmd=#{rec.command}" }
+              end
             end
-            @snapshot_installer.try &.call(req)
+            begin
+              @snapshot_installer.try &.call(req)
+            rescue ex
+              Log.error(exception: ex) { "Error installing snapshot files at lsn=#{req.last_included_lsn}" }
+            end
+            @control_history = normalized_ctrl
+            save_control_history_under_apply_lock
             @lock.synchronize do
               @log.install_snapshot_state(req.last_included_lsn, req.last_included_term, req.members)
-              @control_history = req.control_records.map { |r| LogEntryRecord.new(r.entry, r.payload.dup) }
-              save_control_history_unsafe
               if req.last_included_lsn > @last_applied
                 @last_applied = req.last_included_lsn
                 @log.advance_applied_index(@last_applied)
@@ -930,7 +999,10 @@ module LavinMQ
           signal_peer_unsafe(peer_id, force: true)
         end
 
-        @on_step_down.try &.call(stepped_down_term) if stepped_down
+        if stepped_down
+          drain_pending_truncations
+          @on_step_down.try &.call(stepped_down_term)
+        end
         signal_apply if has_committed
       end
 
@@ -966,7 +1038,8 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def replicate_to_peer_now(peer_id : UInt64) : Nil
         append_req : AppendEntriesRequest? = nil
-        snap_meta : Tuple(UInt64, UInt64, UInt64, Array(MemberInfo), Array(LogEntryRecord))? = nil
+        leased_mfiles : Array(MFile)? = nil
+        want_snapshot = false
         peer : PeerSession? = nil
 
         @lock.synchronize do
@@ -980,12 +1053,10 @@ module LavinMQ
 
           if next_lsn < @log.first_lsn
             if started_at = @snapshot_in_flight[peer_id]?
-              return if (now - started_at) < 2.seconds
+              return if (now - started_at) < 30.seconds
             end
             @snapshot_in_flight[peer_id] = now
-            snap_lsn = @log.commit_index
-            snap_term = @log.term_at(snap_lsn) || @log.last_snapshot_term
-            snap_meta = {@log.current_term, snap_lsn, snap_term, @log.members, @control_history.dup}
+            want_snapshot = true
           else
             if !force
               if in_flight_until = @peer_in_flight_until[peer_id]?
@@ -996,12 +1067,12 @@ module LavinMQ
               return unless has_unsent || commit_unsent
             end
 
-            raw_entries = @log.read_entries(next_lsn, max_count: 256)
-            entries = if raw_entries
-                        raw_entries.map { |rec| LogEntryRecord.new(rec.entry, rec.payload.dup) }
-                      else
-                        Array(LogEntryRecord).new
-                      end
+            if leased = @log.read_entries_leased(next_lsn, max_count: 256)
+              entries, mfiles = leased
+              leased_mfiles = mfiles
+            else
+              entries = Array(LogEntryRecord).new
+            end
             prev_lsn = next_lsn - 1
             prev_term = @log.term_at(prev_lsn) || @log.last_snapshot_term
             commit_idx = @log.commit_index
@@ -1018,11 +1089,48 @@ module LavinMQ
           end
         end
 
-        p = peer || return
-        if meta = snap_meta
-          term, snap_lsn, snap_term, members_list, ctrl_records = meta
-          files = @snapshot_builder.try(&.call(snap_lsn)) || Array(SnapshotSegmentFile).new
-          sreq = InstallSnapshotRequest.new(
+        begin
+          p = peer || return
+          if want_snapshot
+            sreq = build_consistent_snapshot_request
+            unless sreq && p.send_install_snapshot(sreq)
+              @lock.synchronize { @snapshot_in_flight.delete(peer_id) }
+            end
+          elsif areq = append_req
+            unless p.send_append_entries(areq)
+              @lock.synchronize { @peer_in_flight_until.delete(peer_id) }
+            end
+          end
+        ensure
+          leased_mfiles.try &.each(&.release_lease)
+        end
+      end
+
+      private def build_consistent_snapshot_request : InstallSnapshotRequest?
+        @apply_lock.synchronize do
+          drain_pending_truncations
+          term = 0_u64
+          snap_lsn = 0_u64
+          snap_term = 0_u64
+          members_list = Array(MemberInfo).new
+          ok = @lock.synchronize do
+            next false if !@role.leader? || @closed || @isolated
+            term = @log.current_term
+            snap_lsn = @last_applied
+            snap_term = @log.term_at(snap_lsn) || @log.last_snapshot_term
+            members_list = @log.members.dup
+            true
+          end
+          return unless ok
+
+          ctrl_records = @control_history.dup
+          files = begin
+            @snapshot_builder.try(&.call(snap_lsn)) || Array(SnapshotSegmentFile).new
+          rescue ex
+            Log.error(exception: ex) { "Error building snapshot at lsn=#{snap_lsn}" }
+            Array(SnapshotSegmentFile).new
+          end
+          InstallSnapshotRequest.new(
             term: term,
             leader_id: @node_id,
             last_included_lsn: snap_lsn,
@@ -1031,26 +1139,33 @@ module LavinMQ
             control_records: ctrl_records,
             files: files
           )
-          unless p.send_install_snapshot(sreq)
-            @lock.synchronize { @snapshot_in_flight.delete(peer_id) }
-          end
-        elsif areq = append_req
-          unless p.send_append_entries(areq)
-            @lock.synchronize { @peer_in_flight_until.delete(peer_id) }
-          end
         end
       end
 
       private def try_advance_commit_index_unsafe : Nil
-        voters = @log.members.select(&.voter?)
-        return if voters.empty?
-
-        match_lsns = voters.map do |m|
-          m.node_id == @node_id ? @log.last_lsn : (@match_index[m.node_id]? || 0_u64)
+        @quorum_scratch.clear
+        @log.members.each do |m|
+          next unless m.voter?
+          lsn = m.node_id == @node_id ? @log.last_lsn : (@match_index[m.node_id]? || 0_u64)
+          @quorum_scratch << lsn
         end
-        match_lsns.sort! { |a, b| b <=> a }
-        quorum_idx = (voters.size // 2)
-        quorum_lsn = match_lsns[quorum_idx]
+        return if @quorum_scratch.empty?
+
+        # In-place descending insertion sort on pre-allocated buffer (zero heap allocations)
+        i = 1
+        while i < @quorum_scratch.size
+          val = @quorum_scratch[i]
+          j = i - 1
+          while j >= 0 && @quorum_scratch[j] < val
+            @quorum_scratch[j + 1] = @quorum_scratch[j]
+            j -= 1
+          end
+          @quorum_scratch[j + 1] = val
+          i += 1
+        end
+
+        quorum_idx = @quorum_scratch.size // 2
+        quorum_lsn = @quorum_scratch[quorum_idx]
 
         if quorum_lsn > @log.commit_index && @log.term_at(quorum_lsn) == @log.current_term
           @log.advance_commit_index(quorum_lsn)
@@ -1069,11 +1184,29 @@ module LavinMQ
         end
       end
 
+      private def drain_pending_truncations : Nil
+        return if @lock.synchronize { @pending_truncations.empty? }
+        @apply_lock.synchronize do
+          loop do
+            entry = @lock.synchronize { @pending_truncations.shift? } || break
+            begin
+              @on_truncate.try &.call(entry)
+            rescue ex
+              Log.error(exception: ex) { "Error rolling back truncated entry lsn=#{entry.lsn} cmd=#{entry.command}" }
+            end
+          end
+        end
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
       private def drain_committed_callbacks_now : Nil
         @apply_lock.synchronize do
           loop do
+            drain_pending_truncations
             rec_to_apply : LogEntryRecord? = nil
+            leased_mfile : MFile? = nil
             promote_term : UInt64? = nil
+            is_ctrl = false
             next_lsn = 0_u64
 
             @lock.synchronize do
@@ -1090,25 +1223,43 @@ module LavinMQ
                 next
               end
 
-              if raw = @log.read_entry(next_lsn)
-                rec = LogEntryRecord.new(raw.entry, raw.payload.dup)
-                rec_to_apply = rec
-                if rec.command.leader_no_op? && @role.leader? && @promoted_term < rec.term
+              if idx_entry = @log.read_index_entry(next_lsn)
+                is_ctrl = control_record?(idx_entry.command)
+                if idx_entry.from_leader? && !is_ctrl
+                  rec_to_apply = LogEntryRecord.new(idx_entry, Bytes.empty)
+                elsif leased = @log.read_entry_leased(next_lsn)
+                  rec_to_apply, leased_mfile = leased
+                end
+
+                if (rec = rec_to_apply) && rec.command.leader_no_op? && @role.leader? && @promoted_term < rec.term
                   @promoted_term = rec.term
                   promote_term = rec.term
-                elsif control_record?(rec.command)
-                  @control_history << rec
-                  save_control_history_unsafe
                 end
               end
             end
 
-            if pterm = promote_term
-              @on_promote.try &.call(pterm)
-            end
+            begin
+              if (rec = rec_to_apply) && is_ctrl
+                record_control_history_under_apply_lock(rec)
+              end
 
-            if rec = rec_to_apply
-              @on_apply.try &.call(rec)
+              if pterm = promote_term
+                begin
+                  @on_promote.try &.call(pterm)
+                rescue ex
+                  Log.error(exception: ex) { "Error in on_promote callback for term=#{pterm}" }
+                end
+              end
+
+              if rec = rec_to_apply
+                begin
+                  @on_apply.try &.call(rec)
+                rescue ex
+                  Log.error(exception: ex) { "Error applying committed entry lsn=#{rec.lsn} cmd=#{rec.command}" }
+                end
+              end
+            ensure
+              leased_mfile.try(&.release_lease)
             end
 
             @lock.synchronize do
@@ -1137,7 +1288,107 @@ module LavinMQ
       private def control_record?(cmd : LogCommandType) : Bool
         !cmd.publish? && !cmd.ack? && !cmd.tombstone? &&
           !cmd.leader_no_op? && !cmd.segment_delete? &&
-          !cmd.stream_offset_commit? && !cmd.queue_purge?
+          !cmd.stream_offset_commit? && !cmd.queue_purge? &&
+          !cmd.conf_change?
+      end
+
+      private def strip_leader_flag(rec : LogEntryRecord) : LogEntryRecord
+        e = rec.entry
+        stripped_entry = LogIndexEntry.new(
+          term: e.term,
+          lsn: e.lsn,
+          vhost_id: e.vhost_id,
+          cmd_type: e.cmd_type,
+          flags: e.flags & ~LogIndexEntry::FLAG_FROM_LEADER,
+          queue_id: e.queue_id,
+          segment_id: e.segment_id,
+          position: e.position,
+          byte_size: e.byte_size
+        )
+        LogEntryRecord.new(stripped_entry, rec.payload.dup)
+      end
+
+      private def extract_lp16_prefix(payload : Bytes) : Bytes
+        return Bytes.empty if payload.size < 2
+        len = IO::ByteFormat::LittleEndian.decode(UInt16, payload[0, 2]).to_i
+        return Bytes.empty if payload.size < 2 + len
+        payload[0, 2 + len]
+      end
+
+      # Compacts superseded control records and persists `@control_history` outside `RaftNode#@lock`.
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def record_control_history_under_apply_lock(rec : LogEntryRecord) : Nil
+        stored = strip_leader_flag(rec)
+        compacted = false
+        vhost_id = stored.entry.vhost_id
+        queue_id = stored.entry.queue_id
+
+        case stored.command
+        when LogCommandType::VHostCreate
+          before = @control_history.size
+          @control_history.reject! { |r| r.command == LogCommandType::VHostCreate }
+          compacted = @control_history.size != before
+        when LogCommandType::VHostDelete
+          if vhost_id != 0
+            before = @control_history.size
+            @control_history.reject! { |r| r.entry.vhost_id == vhost_id }
+            compacted = @control_history.size != before
+          end
+        when .queue_delete?
+          if queue_id != 0
+            before = @control_history.size
+            @control_history.reject! do |r|
+              r.entry.vhost_id == vhost_id && r.entry.queue_id == queue_id &&
+                (r.command.queue_declare? || r.command.queue_delete? || r.command.binding_add? || r.command.binding_remove?)
+            end
+            compacted = @control_history.size != before
+          end
+        when .exchange_delete?
+          if queue_id != 0
+            before = @control_history.size
+            @control_history.reject! do |r|
+              r.entry.vhost_id == vhost_id && r.entry.queue_id == queue_id &&
+                (r.command.exchange_declare? || r.command.exchange_delete?)
+            end
+            compacted = @control_history.size != before
+          end
+        when .file_replace?
+          prefix = extract_lp16_prefix(stored.payload)
+          unless prefix.empty?
+            before = @control_history.size
+            @control_history.reject! do |r|
+              r.command.file_replace? && extract_lp16_prefix(r.payload) == prefix
+            end
+            compacted = @control_history.size != before
+          end
+        when .mqtt_retain_put?, .mqtt_retain_delete?
+          if queue_id != 0
+            before = @control_history.size
+            @control_history.reject! do |r|
+              r.entry.vhost_id == vhost_id && r.entry.queue_id == queue_id &&
+                (r.command.mqtt_retain_put? || r.command.mqtt_retain_delete?)
+            end
+            compacted = @control_history.size != before
+          elsif stored.command.mqtt_retain_put?
+            prefix = extract_lp16_prefix(stored.payload)
+            unless prefix.empty?
+              before = @control_history.size
+              @control_history.reject! do |r|
+                r.entry.vhost_id == vhost_id && r.command.mqtt_retain_put? &&
+                  extract_lp16_prefix(r.payload) == prefix
+              end
+              compacted = @control_history.size != before
+            end
+          end
+        else
+        end
+
+        @control_history << stored
+        if compacted || !File.exists?(@ctrl_hist_path)
+          save_control_history_under_apply_lock
+        else
+          append_control_history_under_apply_lock(stored)
+        end
       end
 
       private def load_control_history : Nil
@@ -1149,7 +1400,7 @@ module LavinMQ
           count = UInt32.from_io(f, IO::ByteFormat::LittleEndian)
           records = Array(LogEntryRecord).new(count)
           count.times do
-            records << LogEntryRecord.from_io(f)
+            records << strip_leader_flag(LogEntryRecord.from_io(f))
           end
           @control_history = records
         end
@@ -1157,7 +1408,7 @@ module LavinMQ
         @control_history.clear
       end
 
-      private def save_control_history_unsafe : Nil
+      private def save_control_history_under_apply_lock : Nil
         tmp_path = "#{@ctrl_hist_path}.tmp"
         File.open(tmp_path, "w") do |f|
           f.write_bytes(CTRL_HIST_MAGIC, IO::ByteFormat::LittleEndian)
@@ -1166,6 +1417,22 @@ module LavinMQ
         end
         File.rename(tmp_path, @ctrl_hist_path)
       rescue
+      end
+
+      private def append_control_history_under_apply_lock(rec : LogEntryRecord) : Nil
+        File.open(@ctrl_hist_path, "r+") do |f|
+          if f.size < 8
+            f.close
+            save_control_history_under_apply_lock
+            return
+          end
+          f.seek(0, IO::Seek::End)
+          rec.to_io(f)
+          f.seek(4, IO::Seek::Set)
+          f.write_bytes(@control_history.size.to_u32, IO::ByteFormat::LittleEndian)
+        end
+      rescue
+        save_control_history_under_apply_lock
       end
 
       private def on_log_membership_changed_unsafe(members : Array(MemberInfo)) : Nil

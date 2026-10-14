@@ -52,7 +52,7 @@ module LavinMQ
       @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
-      @confirm_ack_mailbox : ::Channel(UInt64)?
+      @confirm_ack_mailbox : ::Channel(ConfirmEvent)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -132,7 +132,7 @@ module LavinMQ
           return
         end
         unless @confirm
-          @confirm_ack_mailbox = mailbox = ::Channel(UInt64).new(1)
+          @confirm_ack_mailbox = mailbox = ::Channel(ConfirmEvent).new(1)
           spawn confirm_writer(mailbox), name: "Channel##{@id} confirm writer"
           @confirm = true
         end
@@ -345,16 +345,31 @@ module LavinMQ
       # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
       def enqueue_confirm_ack(msgid : UInt64) : Nil
         mailbox = @confirm_ack_mailbox || return
+        event = ConfirmEvent.new(msgid, nack: false)
         loop do
-          return if mailbox.try_send(msgid)
+          return if mailbox.try_send(event)
           mailbox.try_receive?
         end
       rescue ::Channel::ClosedError
       end
 
-      private def confirm_writer(mailbox : ::Channel(UInt64))
-        while msgid = mailbox.receive?
-          do_confirm_ack(msgid, multiple: true)
+      def enqueue_confirm_nack(msgid : UInt64) : Nil
+        mailbox = @confirm_ack_mailbox || return
+        event = ConfirmEvent.new(msgid, nack: true)
+        loop do
+          return if mailbox.try_send(event)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def confirm_writer(mailbox : ::Channel(ConfirmEvent))
+        while event = mailbox.receive?
+          if event.nack
+            confirm_nack(event.msgid, multiple: true)
+          else
+            do_confirm_ack(event.msgid, multiple: true)
+          end
         end
       end
 

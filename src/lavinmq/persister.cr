@@ -22,7 +22,12 @@ module LavinMQ
 
     # Receives publish confirms once the confirmed data is durable
     module ConfirmTarget
+      record ConfirmEvent, msgid : UInt64, nack : Bool = false
+
       abstract def enqueue_confirm_ack(msgid : UInt64) : Nil
+
+      def enqueue_confirm_nack(msgid : UInt64) : Nil
+      end
     end
 
     private class Batch
@@ -35,7 +40,7 @@ module LavinMQ
       getter files = Array(MFile).new
       getter paths = Set(String).new
       # Callers of #sync, released by the drain that synced for them
-      getter waiters = Array(::Channel(Nil)).new
+      getter waiters = Array(::Channel(Exception?)).new
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty?
@@ -93,7 +98,7 @@ module LavinMQ
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
     def sync : Nil
-      waiter = ::Channel(Nil).new
+      waiter = ::Channel(Exception?).new(1)
       @pending.lock &.waiters.push(waiter)
       begin
         @publish_confirm_requested.try_send true
@@ -103,7 +108,9 @@ module LavinMQ
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive?
+      if ex = waiter.receive?
+        raise ex
+      end
     end
 
     def close : Nil
@@ -181,8 +188,15 @@ module LavinMQ
       begin
         replicator.try &.wait_for_followers
       rescue ex : Clustering::Replicator::ReplicationError
-        Log.warn(exception: ex) { "Replication failed before confirm; suppressing publisher confirms" }
-        batch.waiters.each &.close
+        Log.warn(exception: ex) { "Replication failed before confirm; rolling back uncommitted state and nacking confirms" }
+        replicator.try &.abort_uncommitted!
+        batch.acks.each do |target, id|
+          target.enqueue_confirm_nack(id)
+        end
+        batch.waiters.each do |w|
+          w.try_send(ex)
+          w.close
+        end
         return
       end
 

@@ -41,22 +41,29 @@ module LavinMQ
       end
 
       @data_dir : String
-      @mfiles = Hash(String, MFile).new
       @segment_path_cache = Hash(String, SegmentPathInfo).new
       @mqtt_file_to_topic = Hash(String, String).new
       @last_proposed_lsn = Atomic(UInt64).new(0_u64)
       @lock = Mutex.new(:reentrant)
       @on_role_change : Proc(Role, Nil)?
+      @suppressing_fiber : Fiber? = nil
+      @suppress_depth : Int32 = 0
 
       def initialize(@data_dir : String,
                      @node : RaftNode,
                      @commit_gated_delivery : Bool = true)
         @log = @node.log
         @applier = Applier.new(@log) do |suppress|
-          @suppressed = suppress
+          if suppress
+            @suppressing_fiber = Fiber.current
+            @suppress_depth += 1
+          else
+            @suppress_depth -= 1 if @suppress_depth > 0
+            @suppressing_fiber = nil if @suppress_depth.zero?
+          end
         end
 
-        @log.on_truncate do |entry|
+        @node.on_truncate do |entry|
           @applier.rollback_uncommitted(entry)
         end
 
@@ -72,13 +79,18 @@ module LavinMQ
           handle_step_down
         end
 
-        @node.on_build_snapshot do |_snap_lsn|
-          build_snapshot_segments
+        @node.on_build_snapshot do |snap_lsn|
+          build_snapshot_segments(snap_lsn)
         end
 
         @node.on_install_snapshot do |req|
           @applier.install_snapshot(req)
         end
+      end
+
+      @[AlwaysInline]
+      private def replication_suppressed? : Bool
+        @suppressed || @suppressing_fiber == Fiber.current
       end
 
       def standby? : Bool
@@ -141,33 +153,17 @@ module LavinMQ
         @on_role_change.try &.call(@node.role)
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
-      private def build_snapshot_segments : Array(SnapshotSegmentFile)
+      private def build_snapshot_segments(snap_lsn : UInt64) : Array(SnapshotSegmentFile)
         result = Array(SnapshotSegmentFile).new
         srv = @server || return result
 
         srv.vhosts.each_value do |vh|
+          vh_id = ResourceId.vhost_id_for_dir(vh.dir)
           vh.queues.each do |q|
             next unless q.durable?
-            q_dir = File.join(vh.data_dir, Digest::SHA1.hexdigest(q.name))
-            next unless Dir.exists?(q_dir)
-
-            Dir.each_child(q_dir) do |child|
-              next unless child.starts_with?("msgs.") || child.starts_with?("acks.") || child == "consumer_offsets"
-              full_path = File.join(q_dir, child)
-              next unless File.file?(full_path)
-              rel = Path[full_path].relative_to(@data_dir).to_s
-              seg_id = (child.starts_with?("msgs.") || child.starts_with?("acks.")) && child.size == 15 ? (child[5, 10].to_u32? || 0_u32) : 0_u32
-              mfile = @lock.synchronize { @mfiles[full_path]? }
-              if mfile && !mfile.closed?
-                slice = mfile.to_slice(0, mfile.size)
-                copy = Bytes.new(slice.size)
-                copy.copy_from(slice)
-                result << SnapshotSegmentFile.new(vh.name, q.name, seg_id, rel, copy)
-              else
-                result << SnapshotSegmentFile.new(vh.name, q.name, seg_id, rel, File.read(full_path).to_slice)
-              end
-            end
+            q_dir_name = Digest::SHA1.hexdigest(q.name)
+            q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir_name)
+            q.snapshot_segments(vh.dir, q_dir_name, vh_id, q_id, snap_lsn, @log, result)
           end
         end
         result
@@ -187,9 +183,6 @@ module LavinMQ
       end
 
       def register_file(mfile : MFile)
-        @lock.synchronize do
-          @mfiles[mfile.path] = mfile
-        end
         if info = cache_segment_path_info(mfile.path)
           if info.kind.msgs?
             @log.register_segment(info.vhost_id, info.queue_id, info.seg_id, mfile)
@@ -199,7 +192,7 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       def replace_file(path : String)
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
         rel = relative_path(path)
         parts = rel.split('/')
 
@@ -235,16 +228,14 @@ module LavinMQ
           io.write_bytes(msg_payload.size.to_u32, IO::ByteFormat::LittleEndian)
           io.write(msg_payload)
 
-          entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id)
+          topic_id = Digest::CRC32.checksum(msg_file)
+          entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id, queue_id: topic_id)
           @last_proposed_lsn.set(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end
 
       def replace_file(mfile : MFile)
-        @lock.synchronize do
-          @mfiles[mfile.path] = mfile
-        end
         if info = (@lock.synchronize { @segment_path_cache[mfile.path]? } || cache_segment_path_info(mfile.path))
           if info.kind.msgs?
             @log.register_segment(info.vhost_id, info.queue_id, info.seg_id, mfile)
@@ -254,32 +245,35 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       def append(path : String, pos : Int, length : Int)
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
         info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
 
         case info.kind
         when .msgs?
           if @commit_gated_delivery
             if q = @applier.resolve_queue(info.vhost_id, info.queue_id)
-              q.enable_commit_gate! unless q.raw_msg_store.commit_gated?
+              q.enable_commit_gate!(info.seg_id, pos.to_u32) unless q.raw_msg_store.commit_gated?
             end
           end
           entry = @node.propose_publish(info.vhost_id, info.queue_id, info.seg_id, pos.to_u32, length.to_u32)
           @last_proposed_lsn.set(entry.lsn)
         when .consumer_offsets?
-          if mfile = @lock.synchronize { @mfiles[path]? }
-            slice = mfile.to_slice(pos, length)
-            copy = Bytes.new(slice.size)
-            copy.copy_from(slice)
+          if File.exists?(path)
+            copy = Bytes.new(length)
+            File.open(path, "r") do |f|
+              f.seek(pos)
+              f.read_fully(copy)
+            end
             entry = @node.propose_command(LogCommandType::StreamOffsetCommit, copy, vhost_id: info.vhost_id, queue_id: info.queue_id)
             @last_proposed_lsn.set(entry.lsn)
           end
         end
       rescue RaftNode::Error::NotLeaderError
+      rescue IO::EOFError
       end
 
       def append_value(path : String, value : UInt32 | Int32, offset : Int64)
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
         info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
         if info.kind.acks?
           entry = @node.propose_ack(info.vhost_id, info.queue_id, info.seg_id, value.to_u32)
@@ -290,20 +284,20 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
         rel = relative_path(path)
         parts = rel.split('/')
 
         if parts.size == 2 && parts[1] == "definitions.amqp"
           vhost_dir = parts[0]
           vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
-          cmd_type = classify_definition_frame(bytes)
+          cmd_type, res_id = classify_definition_frame(vhost_dir, bytes)
           copy = Bytes.new(bytes.size)
           copy.copy_from(bytes)
           if cmd_type == LogCommandType::QueueDeclare && @commit_gated_delivery
             enable_commit_gates!
           end
-          entry = @node.propose_command(cmd_type, copy, vhost_id: vhost_id)
+          entry = @node.propose_command(cmd_type, copy, vhost_id: vhost_id, queue_id: res_id)
           @last_proposed_lsn.set(entry.lsn)
         elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2] == "index"
           vhost_dir = parts[0]
@@ -321,7 +315,6 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       def delete_file(path : String)
         info = @lock.synchronize do
-          @mfiles.delete(path)
           @segment_path_cache.delete(path)
         end || parse_segment_path_info(path)
 
@@ -331,7 +324,7 @@ module LavinMQ
           @log.unregister_segment(info.vhost_id, info.queue_id, info.seg_id)
         end
 
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
 
         if info && info.kind.msgs?
           # Only emit SegmentDelete when the queue itself still exists (not during queue deletion)
@@ -347,19 +340,21 @@ module LavinMQ
         if parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
           vhost_id = ResourceId.vhost_id_for_dir(parts[0])
           file_name = parts[2]
-          entry = @node.propose_command(LogCommandType::MqttRetainDelete, file_name.to_slice, vhost_id: vhost_id)
+          topic_id = Digest::CRC32.checksum(file_name)
+          entry = @node.propose_command(LogCommandType::MqttRetainDelete, file_name.to_slice, vhost_id: vhost_id, queue_id: topic_id)
           @last_proposed_lsn.set(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
       end
 
       def delete_dir(path : String)
-        return if @suppressed || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil? || !@node.leader?
         rel = relative_path(path)
         parts = rel.split('/')
         if parts.size == 1 && !parts[0].empty?
           vhost_dir = parts[0]
-          entry = @node.propose_command(LogCommandType::VHostDelete, vhost_dir.to_slice)
+          vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
+          entry = @node.propose_command(LogCommandType::VHostDelete, vhost_dir.to_slice, vhost_id: vhost_id)
           @last_proposed_lsn.set(entry.lsn)
         end
       rescue RaftNode::Error::NotLeaderError
@@ -384,8 +379,12 @@ module LavinMQ
       def flush_isr : Nil
       end
 
+      def abort_uncommitted! : Nil
+        @node.abort_uncommitted!
+      end
+
       def wait_for_followers(timeout : Time::Span = @wait_timeout) : Nil
-        return if @suppressed || @server.nil?
+        return if replication_suppressed? || @server.nil?
         unless @node.leader?
           raise Clustering::Replicator::ReplicationError.new("Node #{@node.node_id} is not the cluster leader")
         end
@@ -411,7 +410,6 @@ module LavinMQ
 
       def clear
         @lock.synchronize do
-          @mfiles.clear
           @segment_path_cache.clear
           @mqtt_file_to_topic.clear
         end
@@ -458,28 +456,32 @@ module LavinMQ
         end
       end
 
-      private def classify_definition_frame(bytes : Bytes) : LogCommandType
+      private def classify_definition_frame(vhost_dir : String, bytes : Bytes) : Tuple(LogCommandType, UInt32)
         io = IO::Memory.new(bytes)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         frame = stream.next_frame
         case frame
         when AMQP::Frame::Queue::Declare
-          LogCommandType::QueueDeclare
+          {LogCommandType::QueueDeclare, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
         when AMQP::Frame::Queue::Delete
-          LogCommandType::QueueDelete
+          {LogCommandType::QueueDelete, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
         when AMQP::Frame::Exchange::Declare
-          LogCommandType::ExchangeDeclare
+          {LogCommandType::ExchangeDeclare, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.exchange_name))}
         when AMQP::Frame::Exchange::Delete
-          LogCommandType::ExchangeDelete
-        when AMQP::Frame::Queue::Bind, AMQP::Frame::Exchange::Bind
-          LogCommandType::BindingAdd
-        when AMQP::Frame::Queue::Unbind, AMQP::Frame::Exchange::Unbind
-          LogCommandType::BindingRemove
+          {LogCommandType::ExchangeDelete, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.exchange_name))}
+        when AMQP::Frame::Queue::Bind
+          {LogCommandType::BindingAdd, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
+        when AMQP::Frame::Exchange::Bind
+          {LogCommandType::BindingAdd, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.destination))}
+        when AMQP::Frame::Queue::Unbind
+          {LogCommandType::BindingRemove, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
+        when AMQP::Frame::Exchange::Unbind
+          {LogCommandType::BindingRemove, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.destination))}
         else
-          LogCommandType::QueueDeclare
+          {LogCommandType::QueueDeclare, 0_u32}
         end
       rescue
-        LogCommandType::QueueDeclare
+        {LogCommandType::QueueDeclare, 0_u32}
       end
 
       private def resolve_mqtt_topic(vhost_dir : String, msg_file : String) : String?

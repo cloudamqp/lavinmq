@@ -36,6 +36,12 @@ module LavinMQ
       # acknowledged to a client (publish confirms via the Persister,
       # definition changes via the DefinitionsStore).
       abstract def wait_for_followers : Nil
+
+      # Called when wait_for_followers raises ReplicationError so the replicator
+      # can step down and roll back any uncommitted entries.
+      def abort_uncommitted! : Nil
+      end
+
       # Ask every in-sync follower to fsync these (absolute) paths, or to sync
       # its whole data dir, before acking past what has been replicated so far.
       # Callers then wait_for_followers.

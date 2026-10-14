@@ -48,7 +48,7 @@ module LavinMQ
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
       # Created with the PUBACK writer fiber on the first QoS 1 publish
-      @puback_mailbox : ::Channel(UInt64)?
+      @puback_mailbox : ::Channel(ConfirmEvent)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -226,7 +226,7 @@ module LavinMQ
       # the disk.
       private def enqueue_puback(packet_id : UInt16) : Nil
         unless @puback_mailbox
-          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
+          mailbox = @puback_mailbox = ::Channel(ConfirmEvent).new(1)
           spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
         end
         seq = @publish_seq &+= 1
@@ -238,17 +238,34 @@ module LavinMQ
       # (confirms are cumulative).
       def enqueue_confirm_ack(msgid : UInt64) : Nil
         mailbox = @puback_mailbox || return
+        event = ConfirmEvent.new(msgid, nack: false)
         loop do
-          return if mailbox.try_send(msgid)
+          return if mailbox.try_send(event)
           mailbox.try_receive?
         end
       rescue ::Channel::ClosedError
       end
 
-      private def puback_writer(mailbox : ::Channel(UInt64))
-        while seq = mailbox.receive?
-          while pending = next_puback(seq)
-            send(Protocol::PubAck.new(pending.packet_id))
+      def enqueue_confirm_nack(msgid : UInt64) : Nil
+        mailbox = @puback_mailbox || return
+        event = ConfirmEvent.new(msgid, nack: true)
+        loop do
+          return if mailbox.try_send(event)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def puback_writer(mailbox : ::Channel(ConfirmEvent))
+        while event = mailbox.receive?
+          if event.nack
+            while next_puback(event.msgid)
+            end
+            close_socket
+          else
+            while pending = next_puback(event.msgid)
+              send(Protocol::PubAck.new(pending.packet_id))
+            end
           end
         end
       rescue ::IO::Error

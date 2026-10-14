@@ -429,4 +429,189 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       FileUtils.rm_rf(base_dir)
     end
   end
+
+  it "catches up a lagging follower end-to-end via InstallSnapshot with control history and consistent segment sizes" do
+    base_dir = File.tempname("lavinmq_cv2_e2e_snapshot")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      # Use a small ring_capacity (16) so the lagging follower falls behind oldest_lsn and requires InstallSnapshot
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret", ring_capacity: 16_u64)
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        cn.raft.leader_lease_timeout = 500.milliseconds
+        nodes << cn
+        cn.bind
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+      wait_until { nodes[0].raft.leader? }.should be_true
+
+      leader = nodes[0]
+      live_follower = nodes[1]
+      lagging_follower = nodes[2]
+
+      # Pause lagging_follower before declaring queues and publishing > 16 messages
+      leader.raft.pause_peer(lagging_follower.raft.node_id, true)
+      lagging_follower.raft.set_isolated(true)
+
+      leader_vh = leader.server.vhosts["/"]
+      leader_vh.declare_queue("snap_q", true, false)
+      leader_vh.declare_exchange("snap_ex", "direct", true, false)
+      leader_vh.bind_queue("snap_q", "snap_ex", "rk")
+
+      q_leader = leader_vh.queue("snap_q")
+      24.times do |i|
+        q_leader.publish(make_test_message("snap-msg-#{i + 1}", routing_key: "snap_q"))
+      end
+      leader.replicator.wait_for_followers
+
+      # Ack the first 4 messages so the snapshot includes both msgs and acks
+      4.times do
+        q_leader.basic_get(true) { |_env| }
+      end
+      leader.replicator.wait_for_followers
+
+      wait_until { live_follower.server.vhosts["/"].queue?("snap_q").try(&.message_count) == 20 }.should be_true
+      leader.raft.log.first_lsn.should be > 1_u64
+
+      # Reconnect lagging_follower: leader must send InstallSnapshot (applying control_records with FLAG_FROM_LEADER stripped
+      # and consistent segment snapshots) followed by any subsequent AppendEntries without double-counting.
+      lagging_follower.raft.set_isolated(false)
+      leader.raft.pause_peer(lagging_follower.raft.node_id, false)
+
+      # Also publish 2 more messages while/after snapshot catchup is happening
+      q_leader.publish(make_test_message("post-snap-1", routing_key: "snap_q"))
+      q_leader.publish(make_test_message("post-snap-2", routing_key: "snap_q"))
+      leader.replicator.wait_for_followers
+
+      wait_until(10.seconds) do
+        vh = lagging_follower.server.vhosts["/"]
+        !vh.exchange?("snap_ex").nil? &&
+          vh.queue?("snap_q").try(&.message_count) == 22
+      end.should be_true
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "does not drift follower message_count on uncommitted truncation and cleanly aborts uncommitted leader publishes without deadlock" do
+    base_dir = File.tempname("lavinmq_cv2_abort_and_trunc")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      infos = (1_u64..3_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret", commit_gated_delivery: true)
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 100.milliseconds
+        cn.raft.election_timeout_max = 180.milliseconds
+        cn.raft.leader_lease_timeout = 500.milliseconds
+        nodes << cn
+        cn.bind
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+      wait_until { nodes[0].raft.leader? }.should be_true
+
+      leader = nodes[0]
+      f1 = nodes[1]
+      f2 = nodes[2]
+
+      leader.server.vhosts["/"].declare_queue("trunc_q", true, false)
+      q_leader = leader.server.vhosts["/"].queue("trunc_q")
+      q_leader.publish(make_test_message("base-msg", routing_key: "trunc_q"))
+      leader.replicator.wait_for_followers
+
+      wait_until { [f1, f2].all? { |f| f.server.vhosts["/"].queue?("trunc_q").try(&.message_count) == 1 } }.should be_true
+
+      # 1. Send an uncommitted Publish record to follower f1 and then overwrite/truncate it in a higher term.
+      #    Because f1 never applied the uncommitted entry to its MessageStore, truncating it must NOT decrement f1's message_count.
+      prev_lsn = f1.raft.log.last_lsn
+      prev_term = f1.raft.log.term_at(prev_lsn).not_nil!
+      cur_term = f1.raft.current_term
+      uncommitted_pub = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: cur_term,
+          lsn: prev_lsn + 1,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::Publish.value,
+          vhost_id: 1_u16,
+          queue_id: LavinMQ::ClusteringV2::ResourceId.queue_id_for_names("/", "trunc_q"),
+          segment_id: 1_u32,
+          position: 4096_u32,
+          byte_size: 64_u32
+        ),
+        Bytes.new(64)
+      )
+      f1.raft.handle_append_entries(leader.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: cur_term,
+        leader_id: leader.raft.node_id,
+        prev_log_lsn: prev_lsn,
+        prev_log_term: prev_term,
+        leader_commit: f1.raft.commit_index,
+        entries: [uncommitted_pub]
+      )).not_nil!.success?.should be_true
+
+      # Overwrite prev_lsn + 1 on f1 with a LeaderNoOp in cur_term + 1
+      noop_rec = LavinMQ::ClusteringV2::LogEntryRecord.new(
+        LavinMQ::ClusteringV2::LogIndexEntry.new(
+          term: cur_term + 1,
+          lsn: prev_lsn + 1,
+          cmd_type: LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp.value
+        ),
+        Bytes.empty
+      )
+      f1.raft.handle_append_entries(f2.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: cur_term + 1,
+        leader_id: f2.raft.node_id,
+        prev_log_lsn: prev_lsn,
+        prev_log_term: prev_term,
+        leader_commit: f1.raft.commit_index,
+        entries: [noop_rec]
+      )).not_nil!.success?.should be_true
+
+      # Wait for f1's apply_loop to drain pending truncations and verify message_count is still 1 (not 0)
+      sleep 30.milliseconds
+      f1.server.vhosts["/"].queue("trunc_q").message_count.should eq(1)
+
+      # 2. Re-elect leader, pause followers, and run concurrent publishes while calling abort_uncommitted!
+      #    Verify no lock-order deadlock and uncommitted publishes are rolled back from leader's MessageStore.
+      leader.raft.trigger_election!
+      wait_until { leader.raft.leader? }.should be_true
+      [f1, f2].each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
+
+      done = Channel(Nil).new(2)
+      spawn do
+        10.times do |i|
+          begin
+            q_leader.publish(make_test_message("uncommitted-#{i}", routing_key: "trunc_q"))
+          rescue
+          end
+          Fiber.yield
+        end
+        done.send(nil)
+      end
+      spawn do
+        sleep 2.milliseconds
+        leader.replicator.abort_uncommitted!
+        done.send(nil)
+      end
+      2.times { done.receive }
+
+      wait_until do
+        leader.raft.follower? && q_leader.message_count == 1
+      end.should be_true
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
 end

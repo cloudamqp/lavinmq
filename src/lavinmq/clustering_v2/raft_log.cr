@@ -366,47 +366,8 @@ module LavinMQ
       # Appends a pre-constructed LogEntryRecord received from a leader in AppendEntries.
       def append_follower_record(record : LogEntryRecord) : LogIndexEntry
         stored, cb, members_snapshot = @lock.synchronize do
-          in_entry = record.entry
-          payload = record.payload
-          flags = in_entry.flags & ~LogIndexEntry::FLAG_FROM_LEADER
-          pos = in_entry.position
-          len = in_entry.byte_size
-
-          if in_entry.command.segment_delete?
-            key = {in_entry.vhost_id, in_entry.queue_id, in_entry.segment_id}
-            if old = @segments.delete(key)
-              old.release_lease
-            end
-            @segment_paths.delete(key)
-            @deleted_segments[key] = in_entry.lsn
-          end
-
-          if !payload.empty?
-            flags |= LogIndexEntry::FLAG_HAS_CTRL
-            if in_entry.command.publish?
-              pos = append_staged_publish_ctrl(in_entry.position, payload)
-              len = (payload.size + 4).to_u32
-            else
-              pos = append_ctrl_bytes(payload)
-              len = payload.size.to_u32
-            end
-          end
-
-          idx_entry = LogIndexEntry.new(
-            term: in_entry.term,
-            lsn: in_entry.lsn,
-            vhost_id: in_entry.vhost_id,
-            cmd_type: in_entry.cmd_type,
-            flags: flags,
-            queue_id: in_entry.queue_id,
-            segment_id: in_entry.segment_id,
-            position: pos,
-            byte_size: len
-          )
-          write_index_entry_unsafe(idx_entry)
-          if in_entry.command.conf_change? && !payload.empty?
-            apply_conf_change_to_list(@members, payload)
-            save_meta!
+          idx_entry, changed = append_follower_record_unsafe(record)
+          if changed
             {idx_entry, @on_membership_change, @members.dup}
           else
             {idx_entry, nil, nil}
@@ -418,28 +379,77 @@ module LavinMQ
         stored
       end
 
+      private def append_follower_record_unsafe(record : LogEntryRecord) : Tuple(LogIndexEntry, Bool)
+        in_entry = record.entry
+        payload = record.payload
+        flags = in_entry.flags & ~LogIndexEntry::FLAG_FROM_LEADER
+        pos = in_entry.position
+        len = in_entry.byte_size
+
+        if in_entry.command.segment_delete?
+          key = {in_entry.vhost_id, in_entry.queue_id, in_entry.segment_id}
+          if old = @segments.delete(key)
+            old.release_lease
+          end
+          @segment_paths.delete(key)
+          @deleted_segments[key] = in_entry.lsn
+        end
+
+        if !payload.empty?
+          flags |= LogIndexEntry::FLAG_HAS_CTRL
+          if in_entry.command.publish?
+            pos = append_staged_publish_ctrl(in_entry.position, payload)
+            len = (payload.size + 4).to_u32
+          else
+            pos = append_ctrl_bytes(payload)
+            len = payload.size.to_u32
+          end
+        end
+
+        idx_entry = LogIndexEntry.new(
+          term: in_entry.term,
+          lsn: in_entry.lsn,
+          vhost_id: in_entry.vhost_id,
+          cmd_type: in_entry.cmd_type,
+          flags: flags,
+          queue_id: in_entry.queue_id,
+          segment_id: in_entry.segment_id,
+          position: pos,
+          byte_size: len
+        )
+        write_index_entry_unsafe(idx_entry)
+        if in_entry.command.conf_change? && !payload.empty?
+          apply_conf_change_to_list(@members, payload)
+          save_meta!
+          {idx_entry, true}
+        else
+          {idx_entry, false}
+        end
+      end
+
       # Standard Raft AppendEntries log consistency check + conflict truncation + append.
       # ameba:disable Metrics/CyclomaticComplexity
       def maybe_append(prev_log_lsn : UInt64,
                        prev_log_term : UInt64,
                        leader_commit : UInt64,
                        entries : Array(LogEntryRecord)) : Tuple(Bool, UInt64, UInt64, UInt64)
-        res, cb, members_snapshot = @lock.synchronize do
+        truncated : Array(LogIndexEntry)? = nil
+        res, tcb, cb, members_snapshot = @lock.synchronize do
           if prev_log_lsn > @last_lsn
-            next { {false, @last_lsn, @last_lsn + 1, 0_u64}, nil, nil }
+            next { {false, @last_lsn, @last_lsn + 1, 0_u64}, nil, nil, nil }
           end
 
           if prev_log_lsn > 0
             local_prev_term = term_at(prev_log_lsn)
             if local_prev_term.nil?
-              next { {false, @last_lsn, @first_lsn, 0_u64}, nil, nil }
+              next { {false, @last_lsn, @first_lsn, 0_u64}, nil, nil, nil }
             elsif local_prev_term != prev_log_term
               conflict_term = local_prev_term
               conflict_lsn = prev_log_lsn
               while conflict_lsn > @first_lsn && term_at_unsafe(conflict_lsn - 1) == conflict_term
                 conflict_lsn -= 1
               end
-              next { {false, @last_lsn, conflict_lsn, conflict_term}, nil, nil }
+              next { {false, @last_lsn, conflict_lsn, conflict_term}, nil, nil, nil }
             end
           end
 
@@ -447,12 +457,13 @@ module LavinMQ
           entries.each do |rec|
             existing_term = term_at(rec.lsn)
             if existing_term && existing_term != rec.term
-              membership_changed |= truncate_from_unsafe(rec.lsn, notify_membership: false)
-              append_follower_record(rec)
-              membership_changed |= rec.command.conf_change?
+              truncated ||= Array(LogIndexEntry).new
+              membership_changed |= truncate_from_unsafe(rec.lsn, truncated)
+              _, cc_changed = append_follower_record_unsafe(rec)
+              membership_changed |= cc_changed
             elsif existing_term.nil?
-              append_follower_record(rec)
-              membership_changed |= rec.command.conf_change?
+              _, cc_changed = append_follower_record_unsafe(rec)
+              membership_changed |= cc_changed
             end
           end
 
@@ -463,10 +474,13 @@ module LavinMQ
           end
 
           if membership_changed
-            { {true, last_new_lsn, 0_u64, 0_u64}, @on_membership_change, @members.dup }
+            { {true, last_new_lsn, 0_u64, 0_u64}, @on_truncate, @on_membership_change, @members.dup }
           else
-            { {true, last_new_lsn, 0_u64, 0_u64}, nil, nil }
+            { {true, last_new_lsn, 0_u64, 0_u64}, @on_truncate, nil, nil }
           end
+        end
+        if tcb && (trunc_list = truncated)
+          trunc_list.each { |e| tcb.call(e) }
         end
         if cb && members_snapshot
           cb.call(members_snapshot)
@@ -499,20 +513,24 @@ module LavinMQ
       # Truncates uncommitted entries from `from_lsn` through `@last_lsn` inclusive.
       # Never truncates committed entries (`from_lsn <= @commit_index` raises).
       def truncate_from(from_lsn : UInt64) : Nil
-        cb, members_snapshot = @lock.synchronize do
-          changed = truncate_from_unsafe(from_lsn, notify_membership: false)
+        truncated = Array(LogIndexEntry).new
+        tcb, cb, members_snapshot = @lock.synchronize do
+          changed = truncate_from_unsafe(from_lsn, truncated)
           if changed
-            {@on_membership_change, @members.dup}
+            {@on_truncate, @on_membership_change, @members.dup}
           else
-            {nil, nil}
+            {@on_truncate, nil, nil}
           end
+        end
+        if tcb
+          truncated.each { |e| tcb.call(e) }
         end
         if cb && members_snapshot
           cb.call(members_snapshot)
         end
       end
 
-      private def truncate_from_unsafe(from_lsn : UInt64, notify_membership : Bool = true) : Bool
+      private def truncate_from_unsafe(from_lsn : UInt64, truncated_out : Array(LogIndexEntry)? = nil) : Bool
         return false if from_lsn > @last_lsn
         if from_lsn <= @commit_index
           raise ArgumentError.new("Cannot truncate committed entry lsn=#{from_lsn} (commit_index=#{@commit_index})")
@@ -524,7 +542,7 @@ module LavinMQ
           raw = entry_ptr(lsn).value
           conf_truncated = true if raw.command.conf_change?
           entry = normalize_entry_unsafe(raw)
-          @on_truncate.try &.call(entry)
+          truncated_out << entry if truncated_out
           entry_ptr(lsn).value = LogIndexEntry.new
           if lsn == 1
             break
@@ -539,12 +557,19 @@ module LavinMQ
         if conf_truncated
           recompute_members_unsafe
           save_meta!
-          if notify_membership && (cb = @on_membership_change)
-            cb.call(@members.dup)
-          end
         end
         write_idx_header_unsafe
         conf_truncated
+      end
+
+      # Returns the normalized 36-byte index entry at `lsn` without reading or copying payload bytes.
+      def read_index_entry(lsn : UInt64) : LogIndexEntry?
+        @lock.synchronize do
+          return if lsn < @first_lsn || lsn > @last_lsn
+          raw_entry = entry_ptr(lsn).value
+          return if raw_entry.lsn != lsn
+          normalize_entry_unsafe(raw_entry)
+        end
       end
 
       # Reads a single log entry at `lsn`.
@@ -552,24 +577,39 @@ module LavinMQ
       # returns a Tombstone entry so followers can skip obsolete segment bytes without a snapshot.
       def read_entry(lsn : UInt64) : LogEntryRecord?
         @lock.synchronize do
-          return if lsn < @first_lsn || lsn > @last_lsn
-          raw_entry = entry_ptr(lsn).value
-          return if raw_entry.lsn != lsn
-          entry = normalize_entry_unsafe(raw_entry)
-
-          if entry.command.publish? || entry.command.ack?
-            key = {entry.vhost_id, entry.queue_id, entry.segment_id}
-            if (del_lsn = @deleted_segments[key]?) && del_lsn > lsn
-              return make_tombstone_record(entry)
-            end
-          end
-
-          payload = resolve_payload_unsafe(raw_entry)
-          if entry.command.publish? && entry.byte_size > 0 && payload.empty?
-            return make_tombstone_record(entry)
-          end
-          LogEntryRecord.new(entry, payload)
+          read_entry_unsafe(lsn, nil)[0]?
         end
+      end
+
+      # Reads a single log entry at `lsn` and acquires an `MFile#lease` on any backing mmap'd file
+      # so the caller can read the zero-copy payload slice outside `@lock` and release it in `ensure`.
+      def read_entry_leased(lsn : UInt64) : Tuple(LogEntryRecord, MFile?)?
+        @lock.synchronize do
+          rec, mfile = read_entry_unsafe(lsn, true)
+          return unless rec
+          {rec, mfile}
+        end
+      end
+
+      private def read_entry_unsafe(lsn : UInt64, lease : Bool?) : Tuple(LogEntryRecord?, MFile?)
+        return {nil, nil} if lsn < @first_lsn || lsn > @last_lsn
+        raw_entry = entry_ptr(lsn).value
+        return {nil, nil} if raw_entry.lsn != lsn
+        entry = normalize_entry_unsafe(raw_entry)
+
+        if entry.command.publish? || entry.command.ack?
+          key = {entry.vhost_id, entry.queue_id, entry.segment_id}
+          if (del_lsn = @deleted_segments[key]?) && del_lsn > lsn
+            return {make_tombstone_record(entry), nil}
+          end
+        end
+
+        payload, leased_mfile = resolve_payload_with_lease_unsafe(raw_entry, !lease.nil?)
+        if entry.command.publish? && entry.byte_size > 0 && payload.empty?
+          leased_mfile.try(&.release_lease)
+          return {make_tombstone_record(entry), nil}
+        end
+        {LogEntryRecord.new(entry, payload), leased_mfile}
       end
 
       private def make_tombstone_record(entry : LogIndexEntry) : LogEntryRecord
@@ -596,13 +636,74 @@ module LavinMQ
           bytes_accum = 0
           lsn = from_lsn
           while lsn <= @last_lsn && result.size < max_count
-            rec = read_entry(lsn) || return
+            rec, _ = read_entry_unsafe(lsn, nil)
+            return unless rec
             result << rec
             bytes_accum += sizeof(LogIndexEntry) + rec.payload.size
             lsn += 1
             break if bytes_accum >= max_bytes
           end
           result
+        end
+      end
+
+      # Reads a batch of log entries starting at `from_lsn` and leases all backing `MFile`s
+      # referenced by the returned zero-copy payload slices. Caller MUST release all returned
+      # `MFile` leases in an `ensure` block.
+      def read_entries_leased(from_lsn : UInt64, max_count : Int32 = 1024, max_bytes : Int32 = 4 * 1024 * 1024) : Tuple(Array(LogEntryRecord), Array(MFile))?
+        @lock.synchronize do
+          if from_lsn > @last_lsn
+            return {Array(LogEntryRecord).new, Array(MFile).new}
+          end
+          return if from_lsn < @first_lsn
+
+          result = Array(LogEntryRecord).new
+          leases = Array(MFile).new
+          bytes_accum = 0
+          lsn = from_lsn
+          while lsn <= @last_lsn && result.size < max_count
+            rec, mfile = read_entry_unsafe(lsn, true)
+            unless rec
+              leases.each(&.release_lease)
+              return
+            end
+            if mfile
+              if leases.includes?(mfile)
+                mfile.release_lease
+              else
+                leases << mfile
+              end
+            end
+            result << rec
+            bytes_accum += sizeof(LogIndexEntry) + rec.payload.size
+            lsn += 1
+            break if bytes_accum >= max_bytes
+          end
+          {result, leases}
+        end
+      end
+
+      # Returns the byte size of `{vhost_id, queue_id, segment_id}` as of `snap_lsn` by finding
+      # the earliest `Publish` entry for that segment at `lsn > snap_lsn` and capping `current_size`
+      # to its starting `position`. Returns `nil` if the entire segment was created after `snap_lsn`.
+      def segment_size_at(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, snap_lsn : UInt64, current_size : Int64) : Int64?
+        @lock.synchronize do
+          return current_size if snap_lsn >= @last_lsn
+          start_lsn = Math.max(@first_lsn, snap_lsn + 1)
+          min_pos = current_size
+          lsn = start_lsn
+          while lsn <= @last_lsn
+            raw = entry_ptr(lsn).value
+            if raw.lsn == lsn && raw.command.publish? &&
+               raw.vhost_id == vhost_id && raw.queue_id == queue_id && raw.segment_id == segment_id
+              entry = normalize_entry_unsafe(raw)
+              pos = entry.position.to_i64
+              min_pos = pos if pos < min_pos
+            end
+            lsn += 1
+          end
+          return if min_pos <= sizeof(Int32) && current_size > sizeof(Int32)
+          min_pos
         end
       end
 
@@ -738,27 +839,49 @@ module LavinMQ
         raw_entry
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def resolve_payload_unsafe(entry : LogIndexEntry) : Bytes
-        return Bytes.empty if entry.byte_size == 0
+        resolve_payload_with_lease_unsafe(entry, false)[0]
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def resolve_payload_with_lease_unsafe(entry : LogIndexEntry, lease : Bool) : Tuple(Bytes, MFile?)
+        return {Bytes.empty, nil} if entry.byte_size == 0
 
         if entry.has_ctrl_payload?
           if entry.command.publish?
-            return Bytes.empty if entry.byte_size <= 4
-            return @ctrl_mfile.to_slice((entry.position + 4).to_i64, (entry.byte_size - 4).to_i64).dup
+            return {Bytes.empty, nil} if entry.byte_size <= 4
+            slice = @ctrl_mfile.to_slice((entry.position + 4).to_i64, (entry.byte_size - 4).to_i64)
+            if lease
+              @ctrl_mfile.lease
+              return {slice, @ctrl_mfile}
+            else
+              return {slice.dup, nil}
+            end
           end
-          return @ctrl_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64).dup
+          slice = @ctrl_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+          if lease
+            @ctrl_mfile.lease
+            return {slice, @ctrl_mfile}
+          else
+            return {slice.dup, nil}
+          end
         end
 
         if entry.command.publish?
           key = {entry.vhost_id, entry.queue_id, entry.segment_id}
           if seg_mfile = @segments[key]?
             if !seg_mfile.closed? && entry.position.to_i64 + entry.byte_size.to_i64 <= seg_mfile.size
-              return seg_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+              slice = seg_mfile.to_slice(entry.position.to_i64, entry.byte_size.to_i64)
+              if lease
+                seg_mfile.lease
+                return {slice, seg_mfile}
+              else
+                return {slice.dup, nil}
+              end
             end
           end
           if @deleted_segments.has_key?(key)
-            return Bytes.empty
+            return {Bytes.empty, nil}
           end
           if (path = @segment_paths[key]?) && File.exists?(path)
             begin
@@ -766,16 +889,16 @@ module LavinMQ
                 f.seek(entry.position)
                 buf = Bytes.new(entry.byte_size)
                 f.read_fully(buf)
-                return buf
+                return {buf, nil}
               end
             rescue
-              return Bytes.empty
+              return {Bytes.empty, nil}
             end
           end
-          return Bytes.empty
+          return {Bytes.empty, nil}
         end
 
-        Bytes.empty
+        {Bytes.empty, nil}
       end
 
       private def ensure_ctrl_space_unsafe(needed : Int) : Nil
