@@ -38,15 +38,20 @@ module LavinMQ
         # Everything a verification depends on. A reload swaps in a new State
         # as one reference, and a verification reads @state once, so each token
         # is checked entirely against either the old or the new config, even
-        # when ensure_keys blocks while a reload runs.
+        # when ensure_keys blocks while a reload runs. Config#reload overwrites
+        # the live Config in place, so each State holds a detached copy of it.
         private record State, config : Config, parser : TokenParser,
-          fetcher : JWKSFetcher, expected_issuer : String
+          fetcher : JWKSFetcher, expected_issuer : String do
+          def self.new(config : Config, fetcher : JWKSFetcher, expected_issuer : String)
+            config = config.dup
+            new(config, TokenParser.new(config), fetcher, expected_issuer)
+          end
+        end
 
         @disabled = false
 
         def initialize(config : Config, fetcher : JWKSFetcher)
-          @state = State.new(config, TokenParser.new(config), fetcher,
-            config.oauth_issuer_url.to_s.chomp("/"))
+          @state = State.new(config, fetcher, config.oauth_issuer_url.to_s.chomp("/"))
         end
 
         def fetcher : JWKSFetcher
@@ -59,22 +64,21 @@ module LavinMQ
         # The verifier itself is kept, as OAuthUsers hold it for UpdateSecret.
         def reload(config : Config) : Nil
           state = @state
-          parser = TokenParser.new(config)
           uri = config.oauth_issuer_url
           unless uri
             Log.warn { "oauth issuer removed from the config, keeping the current issuer" }
-            @state = state.copy_with(config: config, parser: parser)
+            @state = State.new(config, state.fetcher, state.expected_issuer)
             return
           end
           issuer = uri.to_s.chomp("/")
           if issuer == state.fetcher.issuer_url && config.oauth_jwks_cache_ttl == state.fetcher.default_cache_ttl
-            @state = state.copy_with(config: config, parser: parser)
+            @state = State.new(config, state.fetcher, state.expected_issuer)
             return
           end
           Log.info { "OAuth issuer or jwks_cache_ttl changed, refetching JWKS from #{issuer}" }
           fetcher = JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
           fetcher.start_refresh_loop
-          @state = State.new(config, parser, fetcher, issuer)
+          @state = State.new(config, fetcher, issuer)
           state.fetcher.cleanup
         end
 
