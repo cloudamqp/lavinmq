@@ -1,15 +1,14 @@
 module LavinMQ
   module HTTP
     module StatsHelpers
+      # Sums logs_b into logs_a, right-aligned; logs_b is never mutated.
       def add_logs!(logs_a, logs_b)
         until logs_a.size >= logs_b.size
           logs_a.unshift 0
         end
-        until logs_b.size >= logs_a.size
-          logs_b.unshift 0
-        end
-        logs_a.size.times do |i|
-          logs_a[i] += logs_b[i]
+        offset = logs_a.size - logs_b.size
+        logs_b.each_with_index do |v, i|
+          logs_a[offset + i] += v
         end
         logs_a
       end

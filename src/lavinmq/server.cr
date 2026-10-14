@@ -154,15 +154,26 @@ module LavinMQ
 
     def update_stats_rates
       @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates)
+        ready = unacked = 0_u64
+        vhost.each_queue do |q|
+          q.update_rates
+          ready += q.message_count
+          unacked += q.unacked_count
+        end
         vhost.each_exchange(&.update_rates)
-        vhost.each_session(&.update_rates)
+        vhost.each_session do |s|
+          s.update_rates
+          ready += s.message_count
+          unacked += s.unacked_count
+        end
         vhost.each_connection do |connection|
           connection.update_rates
           connection.each_channel(&.update_rates)
         end
+        vhost.update_message_totals(ready, unacked)
         vhost.update_rates
       end
+      StatBlockPool.trim
     end
 
     def update_system_metrics(statm)

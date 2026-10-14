@@ -180,7 +180,7 @@ LavinMQ collects rate statistics at a configurable interval:
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
-| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
+| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval), must be at least `1`. A stat only keeps a history buffer while its value changes, so idle queues and connections cost almost nothing |
 
 ## Logging
 

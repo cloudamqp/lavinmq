@@ -97,6 +97,9 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      unless @stats_log_size.positive?
+        raise Error.new("stats_log_size must be positive (got #{@stats_log_size})")
+      end
     end
 
     private def parse_config_from_cli(argv)
