@@ -32,11 +32,36 @@ module LavinMQ
       # validation prevents accepting tokens from untrusted or unintended sources, fails
       # closed on any error.
       class TokenVerifier
+        Log = LavinMQ::Log.for "oauth2"
+
         getter :fetcher
 
         def initialize(@config : Config, @fetcher : JWKSFetcher)
           @expected_issuer = @config.oauth_issuer_url.to_s.chomp("/")
           @parser = TokenParser.new(@config)
+        end
+
+        # Applies a reloaded config. Claim, scope and audience settings are read
+        # from the config on every verification, but the issuer and JWKS cache
+        # TTL are bound to the fetcher, so it's replaced when either changes.
+        # The verifier itself is kept, as OAuthUsers hold it for UpdateSecret.
+        def reload(config : Config) : Nil
+          @config = config
+          @parser = TokenParser.new(config)
+          uri = config.oauth_issuer_url
+          unless uri
+            Log.warn { "oauth issuer removed from the config, a restart is required to disable OAuth" }
+            return
+          end
+          issuer = uri.to_s.chomp("/")
+          return if issuer == @fetcher.issuer_url && config.oauth_jwks_cache_ttl == @fetcher.default_cache_ttl
+          Log.info { "OAuth issuer or jwks_cache_ttl changed, refetching JWKS from #{issuer}" }
+          fetcher = JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
+          fetcher.start_refresh_loop
+          old_fetcher = @fetcher
+          @fetcher = fetcher
+          @expected_issuer = issuer
+          old_fetcher.cleanup
         end
 
         def parse_token(token : String) : TokenClaim
@@ -47,8 +72,9 @@ module LavinMQ
         def verify_token(token : String) : Token
           prevalidate_token(token)
           # After prevalidation so malformed tokens can't trigger network fetches
-          @fetcher.ensure_keys
-          verified_token = @fetcher.public_keys.decode(token)
+          fetcher = @fetcher # a reload may replace it while ensure_keys blocks
+          fetcher.ensure_keys
+          verified_token = fetcher.public_keys.decode(token)
           payload = verified_token.payload
           validate_issuer(payload)
           validate_audience(payload) if @config.oauth_verify_aud?

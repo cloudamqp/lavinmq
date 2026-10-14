@@ -57,6 +57,8 @@ module LavinMQ
 
         getter public_keys : PublicKeys
         getter oidc_config : OIDCConfiguration?
+        getter issuer_url : String
+        getter default_cache_ttl : Time::Span
         @stopped = BoolChannel.new(false)
         @fetch_lock = Mutex.new
         @last_failed_fetch : Time?

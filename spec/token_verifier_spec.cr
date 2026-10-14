@@ -250,6 +250,21 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         verifier.test_validate_issuer(payload)
       end
     end
+
+    it "validates against the new issuer after a reload" do
+      verifier = JWTTestHelper.create_testable_verifier
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+      verifier.reload(config)
+      payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com", exp: RoughTime.utc.to_unix + 3600)
+      expect_raises(LavinMQ::Auth::JWT::VerificationError, /Token issuer does not match/) do
+        verifier.test_validate_issuer(payload)
+      end
+      payload = LavinMQ::Auth::JWT::Payload.new(iss: "http://127.0.0.1:1", exp: RoughTime.utc.to_unix + 3600)
+      verifier.test_validate_issuer(payload)
+    ensure
+      verifier.try &.fetcher.cleanup
+    end
   end
 
   describe "#validate_audience" do
