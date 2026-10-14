@@ -49,7 +49,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
     log.set_term_and_vote(4_u64, 2_u64)
     log.set_members(members)
     e1 = log.append_command(4_u64, LavinMQ::ClusteringV2::LogCommandType::LeaderNoOp)
-    e2 = log.append_command(4_u64, LavinMQ::ClusteringV2::LogCommandType::QueueDeclare, "q1".to_slice, vhost_id: 1_u16, queue_id: 7_u32)
+    e2 = log.append_command(4_u64, LavinMQ::ClusteringV2::LogCommandType::QueueDeclare, "q1".to_slice, vhost_id: 1_u64, queue_id: 7_u64)
     log.advance_commit_index(e2.lsn).should be_true
     log.fsync
     log.close
@@ -89,12 +89,12 @@ describe LavinMQ::ClusteringV2::RaftLog do
     seg_mfile.write(msg2_bytes)
 
     log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 32_u64, node_id: 1_u64)
-    log.register_segment(1_u16, 10_u32, 1_u32, seg_mfile)
+    log.register_segment(1_u64, 10_u64, 1_u32, seg_mfile)
 
-    pub1 = log.append_publish(1_u64, 1_u16, 10_u32, 1_u32, pos1, msg1_bytes.size.to_u32)
-    log.append_publish(1_u64, 1_u16, 10_u32, 1_u32, pos2, msg2_bytes.size.to_u32)
-    log.append_ack(1_u64, 1_u16, 10_u32, 1_u32, pos1)
-    log.append_ack(1_u64, 1_u16, 10_u32, 1_u32, pos2)
+    pub1 = log.append_publish(1_u64, 1_u64, 10_u64, 1_u32, pos1, msg1_bytes.size.to_u32)
+    log.append_publish(1_u64, 1_u64, 10_u64, 1_u32, pos2, msg2_bytes.size.to_u32)
+    log.append_ack(1_u64, 1_u64, 10_u64, 1_u32, pos1)
+    log.append_ack(1_u64, 1_u64, 10_u64, 1_u32, pos2)
 
     # Before segment deletion, read_entry_leased slices directly from seg_mfile under an MFile lease
     r1, leased_mfile = log.read_entry_leased(pub1.lsn).not_nil!
@@ -108,7 +108,7 @@ describe LavinMQ::ClusteringV2::RaftLog do
     end
 
     # Now delete segment 1 immediately (as MessageStore#delete does when all messages are acked)
-    seg_del = log.append_segment_delete(1_u64, 1_u16, 10_u32, 1_u32)
+    seg_del = log.append_segment_delete(1_u64, 1_u64, 10_u64, 1_u32)
     seg_mfile.close
     File.delete(seg_path)
 
@@ -273,11 +273,11 @@ describe LavinMQ::ClusteringV2::RaftLog do
     seg_mfile.write(payload)
 
     log = LavinMQ::ClusteringV2::RaftLog.new(dir, capacity: 16_u64, node_id: 1_u64)
-    log.register_segment(1_u16, 42_u32, 5_u32, seg_mfile)
-    pub = log.append_publish(1_u64, 1_u16, 42_u32, 5_u32, pos, payload.size.to_u32)
+    log.register_segment(1_u64, 42_u64, 5_u32, seg_mfile)
+    pub = log.append_publish(1_u64, 1_u64, 42_u64, 5_u32, pos, payload.size.to_u32)
 
     # Evict/unregister the segment without tombstoning the entry (e.g., queue close or stream retention)
-    log.unregister_segment(1_u16, 42_u32, 5_u32)
+    log.unregister_segment(1_u64, 42_u64, 5_u32)
     seg_mfile.close
     File.delete(seg_path)
 

@@ -31,12 +31,13 @@ module LavinMQ
       end
 
       private struct SegmentPathInfo
-        getter vhost_id : UInt16
-        getter queue_id : UInt32
+        getter vhost_id : UInt64
+        getter queue_id : UInt64
         getter seg_id : UInt32
         getter kind : SegmentFileKind
+        property? gate_initialized : Bool = false
 
-        def initialize(@vhost_id : UInt16, @queue_id : UInt32, @seg_id : UInt32, @kind : SegmentFileKind)
+        def initialize(@vhost_id : UInt64, @queue_id : UInt64, @seg_id : UInt32, @kind : SegmentFileKind, @gate_initialized : Bool = false)
         end
       end
 
@@ -94,7 +95,7 @@ module LavinMQ
       end
 
       def standby? : Bool
-        !@node.leader?
+        !@node.promoted?
       end
 
       def on_role_change(&block : Role -> Nil) : Nil
@@ -105,7 +106,7 @@ module LavinMQ
         @server = server
         @applier.server = server
         @applier.register_all_segments!
-        if @node.leader?
+        if @node.promoted?
           enable_commit_gates! if @commit_gated_delivery
           server.on_leader_promotion
         end
@@ -135,22 +136,32 @@ module LavinMQ
         else
           disable_commit_gates!
         end
-        @server.try &.on_leader_promotion
+        if srv = @server
+          Fiber::ExecutionContext.default.spawn(name: "ClusteringV2 leader promotion") do
+            srv.on_leader_promotion
+          end
+        end
         @on_role_change.try &.call(Role::Leader)
       end
 
       # Clean in-process step-down without terminating the process (`exit 3` is eliminated).
+      # Dispatches connection closing to the default execution context so the Raft
+      # or Persister execution contexts are never blocked by client socket writes/handshakes.
       private def handle_step_down : Nil
+        disable_commit_gates!
+        @on_role_change.try &.call(@node.role)
         if srv = @server
-          srv.on_leader_step_down
-          srv.vhosts.each_value do |vh|
-            vh.connections.dup.each do |conn|
-              conn.close("Stepping down from cluster leader") rescue nil
+          Fiber::ExecutionContext.default.spawn(name: "ClusteringV2 leader step-down") do
+            srv.on_leader_step_down
+            srv.vhosts.each_value do |vh|
+              vh.connections.dup.each do |conn|
+                Fiber::ExecutionContext.default.spawn(name: "ClusteringV2 step-down close client") do
+                  conn.close("Stepping down from cluster leader") rescue nil
+                end
+              end
             end
           end
         end
-        disable_commit_gates!
-        @on_role_change.try &.call(@node.role)
       end
 
       private def build_snapshot_segments(snap_lsn : UInt64) : Array(SnapshotSegmentFile)
@@ -161,7 +172,7 @@ module LavinMQ
           vh_id = ResourceId.vhost_id_for_dir(vh.dir)
           vh.queues.each do |q|
             next unless q.durable?
-            q_dir_name = Digest::SHA1.hexdigest(q.name)
+            q_dir_name = q.queue_dir_name
             q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir_name)
             q.snapshot_segments(vh.dir, q_dir_name, vh_id, q_id, snap_lsn, @log, result)
           end
@@ -198,6 +209,9 @@ module LavinMQ
 
         if parts.size == 1 && parts[0] == "vhosts.json"
           return unless File.exists?(path)
+          if srv = @server
+            srv.vhosts.each_value { |vh| @applier.index_vhost!(vh) }
+          end
           payload = File.read(path).to_slice
           entry = @node.propose_command(LogCommandType::VHostCreate, payload)
           @last_proposed_lsn.set(entry.lsn)
@@ -211,7 +225,7 @@ module LavinMQ
           io.write(rel_bytes)
           io.write_bytes(content.size.to_u32, IO::ByteFormat::LittleEndian)
           io.write(content)
-          vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u16
+          vhost_id = parts.size == 2 ? ResourceId.vhost_id_for_dir(parts[0]) : 0_u64
           entry = @node.propose_command(LogCommandType::FileReplace, io.to_slice, vhost_id: vhost_id)
           @last_proposed_lsn.set(entry.lsn)
         elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
@@ -228,7 +242,7 @@ module LavinMQ
           io.write_bytes(msg_payload.size.to_u32, IO::ByteFormat::LittleEndian)
           io.write(msg_payload)
 
-          topic_id = Digest::CRC32.checksum(msg_file)
+          topic_id = Digest::CRC32.checksum(msg_file).to_u64
           entry = @node.propose_command(LogCommandType::MqttRetainPut, io.to_slice, vhost_id: vhost_id, queue_id: topic_id)
           @last_proposed_lsn.set(entry.lsn)
         end
@@ -250,9 +264,11 @@ module LavinMQ
 
         case info.kind
         when .msgs?
-          if @commit_gated_delivery
+          if @commit_gated_delivery && !info.gate_initialized?
             if q = @applier.resolve_queue(info.vhost_id, info.queue_id)
               q.enable_commit_gate!(info.seg_id, pos.to_u32) unless q.raw_msg_store.commit_gated?
+              info.gate_initialized = true
+              @lock.synchronize { @segment_path_cache[path] = info }
             end
           end
           entry = @node.propose_publish(info.vhost_id, info.queue_id, info.seg_id, pos.to_u32, length.to_u32)
@@ -282,7 +298,6 @@ module LavinMQ
       rescue RaftNode::Error::NotLeaderError
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         return if replication_suppressed? || @server.nil? || !@node.leader?
         rel = relative_path(path)
@@ -294,9 +309,6 @@ module LavinMQ
           cmd_type, res_id = classify_definition_frame(vhost_dir, bytes)
           copy = Bytes.new(bytes.size)
           copy.copy_from(bytes)
-          if cmd_type == LogCommandType::QueueDeclare && @commit_gated_delivery
-            enable_commit_gates!
-          end
           entry = @node.propose_command(cmd_type, copy, vhost_id: vhost_id, queue_id: res_id)
           @last_proposed_lsn.set(entry.lsn)
         elsif parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2] == "index"
@@ -340,7 +352,7 @@ module LavinMQ
         if parts.size == 3 && parts[1] == "mqtt_retained_store" && parts[2].ends_with?(".msg")
           vhost_id = ResourceId.vhost_id_for_dir(parts[0])
           file_name = parts[2]
-          topic_id = Digest::CRC32.checksum(file_name)
+          topic_id = Digest::CRC32.checksum(file_name).to_u64
           entry = @node.propose_command(LogCommandType::MqttRetainDelete, file_name.to_slice, vhost_id: vhost_id, queue_id: topic_id)
           @last_proposed_lsn.set(entry.lsn)
         end
@@ -456,13 +468,26 @@ module LavinMQ
         end
       end
 
-      private def classify_definition_frame(vhost_dir : String, bytes : Bytes) : Tuple(LogCommandType, UInt32)
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def classify_definition_frame(vhost_dir : String, bytes : Bytes) : Tuple(LogCommandType, UInt64)
         io = IO::Memory.new(bytes)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         frame = stream.next_frame
         case frame
         when AMQP::Frame::Queue::Declare
-          {LogCommandType::QueueDeclare, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
+          q_id = ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))
+          if srv = @server
+            vh_id = ResourceId.vhost_id_for_dir(vhost_dir)
+            srv.vhosts.each_value do |vh|
+              next unless vh.dir == vhost_dir
+              if q = vh.queue?(frame.queue_name)
+                q_id = @applier.index_queue!(vh, vh_id, q)
+                q.enable_commit_gate! if @commit_gated_delivery && q.durable?
+              end
+              break
+            end
+          end
+          {LogCommandType::QueueDeclare, q_id}
         when AMQP::Frame::Queue::Delete
           {LogCommandType::QueueDelete, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
         when AMQP::Frame::Exchange::Declare
@@ -478,10 +503,10 @@ module LavinMQ
         when AMQP::Frame::Exchange::Unbind
           {LogCommandType::BindingRemove, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.destination))}
         else
-          {LogCommandType::QueueDeclare, 0_u32}
+          {LogCommandType::QueueDeclare, 0_u64}
         end
       rescue
-        {LogCommandType::QueueDeclare, 0_u32}
+        {LogCommandType::QueueDeclare, 0_u64}
       end
 
       private def resolve_mqtt_topic(vhost_dir : String, msg_file : String) : String?

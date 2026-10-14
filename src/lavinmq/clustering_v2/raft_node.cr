@@ -72,6 +72,7 @@ module LavinMQ
       @pre_votes_granted = Set(UInt64).new
       @votes_granted = Set(UInt64).new
       @commit_waiters = Array(CommitWaiter).new
+      @promote_waiters = Array(::Channel(Bool)).new
       @pending_truncations = Deque(LogIndexEntry).new
       @quorum_scratch = Array(UInt64).new(16)
       @control_history = Array(LogEntryRecord).new
@@ -81,6 +82,7 @@ module LavinMQ
       @current_election_timeout : Time::Span = 300.milliseconds
       @promoted_term : UInt64 = 0_u64
       @pending_conf_change_lsn : UInt64 = 0_u64
+      @snapshot_staging_seq = Atomic(UInt64).new(0_u64)
       @listener : TCPServer?
       @cluster_configured : Bool = false
       @started = false
@@ -165,6 +167,31 @@ module LavinMQ
         @lock.synchronize { @role.leader? }
       end
 
+      # Returns true only after this node is leader for `current_term`, has applied all
+      # prior-term entries up to its `LeaderNoOp`, and has completed `@on_promote`.
+      def promoted? : Bool
+        @lock.synchronize { @role.leader? && @promoted_term == @log.current_term }
+      end
+
+      def wait_until_promoted(timeout : Time::Span = 5.seconds) : Bool
+        ch : ::Channel(Bool)? = nil
+        @lock.synchronize do
+          return true if @role.leader? && @promoted_term == @log.current_term
+          return false unless @role.leader?
+          c = ::Channel(Bool).new(1)
+          @promote_waiters << c
+          ch = c
+        end
+        wait_ch = ch || return false
+        select
+        when res = wait_ch.receive?
+          res || false
+        when timeout(timeout)
+          @lock.synchronize { @promote_waiters.delete(wait_ch) }
+          false
+        end
+      end
+
       def follower? : Bool
         @lock.synchronize { @role.follower? || @role.learner? }
       end
@@ -242,8 +269,8 @@ module LavinMQ
         propose_command(LogCommandType::ConfChange, cmd.to_slice)
       end
 
-      def propose_publish(vhost_id : UInt16,
-                          queue_id : UInt32,
+      def propose_publish(vhost_id : UInt64,
+                          queue_id : UInt64,
                           segment_id : UInt32,
                           position : UInt32,
                           byte_size : UInt32,
@@ -262,8 +289,8 @@ module LavinMQ
         entry
       end
 
-      def propose_ack(vhost_id : UInt16,
-                      queue_id : UInt32,
+      def propose_ack(vhost_id : UInt64,
+                      queue_id : UInt64,
                       segment_id : UInt32,
                       position : UInt32) : LogIndexEntry
         committed_now = false
@@ -280,8 +307,8 @@ module LavinMQ
         entry
       end
 
-      def propose_segment_delete(vhost_id : UInt16,
-                                 queue_id : UInt32,
+      def propose_segment_delete(vhost_id : UInt64,
+                                 queue_id : UInt64,
                                  segment_id : UInt32) : LogIndexEntry
         committed_now = false
         entry = @lock.synchronize do
@@ -299,8 +326,8 @@ module LavinMQ
 
       def propose_command(cmd_type : LogCommandType,
                           payload : Bytes = Bytes.empty,
-                          vhost_id : UInt16 = 0_u16,
-                          queue_id : UInt32 = 0_u32,
+                          vhost_id : UInt64 = 0_u64,
+                          queue_id : UInt64 = 0_u64,
                           segment_id : UInt32 = 0_u32,
                           position : UInt32 = 0_u32) : LogIndexEntry
         committed_now = false
@@ -418,6 +445,8 @@ module LavinMQ
           @peers.clear
           @commit_waiters.each(&.channel.try_send(false))
           @commit_waiters.clear
+          @promote_waiters.each(&.try_send(false))
+          @promote_waiters.clear
           @log.close
         end
       end
@@ -595,6 +624,9 @@ module LavinMQ
         @log.set_term_and_vote(new_term, @node_id)
         @role = Role::Candidate
         @leader_id = 0_u64
+        @promoted_term = 0_u64
+        @promote_waiters.each(&.try_send(false))
+        @promote_waiters.clear
         @last_leader_contact = Time.instant
         @current_election_timeout = random_election_timeout
         @votes_granted.clear
@@ -618,6 +650,7 @@ module LavinMQ
       private def become_leader_unsafe : Nil
         @role = Role::Leader
         @leader_id = @node_id
+        @promoted_term = 0_u64
         now = Time.instant
         @last_heartbeat_sent = now
         @peer_in_flight_until.clear
@@ -651,6 +684,9 @@ module LavinMQ
         me = @log.members.find { |m| m.node_id == @node_id }
         @role = (me && me.learner?) ? Role::Learner : Role::Follower
         @leader_id = new_leader_id
+        @promoted_term = 0_u64
+        @promote_waiters.each(&.try_send(false))
+        @promote_waiters.clear
         @pre_votes_granted.clear
         @votes_granted.clear
         @peer_in_flight_until.clear
@@ -681,8 +717,14 @@ module LavinMQ
           resp = AppendEntriesResponse.from_io(io)
           handle_append_entries_response(peer_id, resp)
         in .install_snapshot?
-          req = InstallSnapshotRequest.from_io(io)
-          handle_install_snapshot(peer_id, req)
+          seq = @snapshot_staging_seq.add(1_u64)
+          staging_dir = File.join(@log.data_dir, "snap_staging_#{peer_id}_#{seq}")
+          begin
+            req = InstallSnapshotRequest.from_io(io, staging_dir: staging_dir)
+            handle_install_snapshot(peer_id, req)
+          ensure
+            FileUtils.rm_rf(staging_dir) rescue nil
+          end
         in .install_snapshot_response?
           resp = InstallSnapshotResponse.from_io(io)
           handle_install_snapshot_response(peer_id, resp)
@@ -742,7 +784,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      private def handle_vote_response(peer_id : UInt64, resp : VoteResponse) : Nil
+      def handle_vote_response(peer_id : UInt64, resp : VoteResponse) : Nil
         real_vote_req : VoteRequest? = nil
         peers_to_send = Array(PeerSession).new
         became_leader = false
@@ -910,67 +952,81 @@ module LavinMQ
         stepped_down_term = 0_u64
         should_install = false
 
-        @lock.synchronize do
-          return if @closed || @isolated
-          peer = @peers[peer_id]?
-          if req.term < @log.current_term
-            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, @log.commit_index)
-          else
-            @cluster_configured = true
-            @last_leader_contact = Time.instant
-            if req.term > @log.current_term || (@role != Role::Follower && @role != Role::Learner)
-              stepped_down = step_down_unsafe(req.term, req.leader_id)
-              stepped_down_term = req.term
+        begin
+          @lock.synchronize do
+            return if @closed || @isolated
+            peer = @peers[peer_id]?
+            if req.term < @log.current_term
+              resp = InstallSnapshotResponse.new(@log.current_term, @node_id, @log.commit_index)
             else
-              @leader_id = req.leader_id
-            end
+              @cluster_configured = true
+              @last_leader_contact = Time.instant
+              if req.term > @log.current_term || (@role != Role::Follower && @role != Role::Learner)
+                stepped_down = step_down_unsafe(req.term, req.leader_id)
+                stepped_down_term = req.term
+              else
+                @leader_id = req.leader_id
+              end
 
-            if req.last_included_lsn > @log.commit_index
-              should_install = true
+              if req.last_included_lsn > @log.commit_index
+                should_install = true
+              end
+              resp = InstallSnapshotResponse.new(@log.current_term, @node_id, req.last_included_lsn)
             end
-            resp = InstallSnapshotResponse.new(@log.current_term, @node_id, req.last_included_lsn)
           end
-        end
 
-        if stepped_down
-          drain_pending_truncations
-          @on_step_down.try &.call(stepped_down_term)
-        end
-
-        if should_install
-          @apply_lock.synchronize do
+          if stepped_down
             drain_pending_truncations
-            normalized_ctrl = Array(LogEntryRecord).new(req.control_records.size)
-            req.control_records.each do |rec|
-              follower_rec = strip_leader_flag(rec)
-              normalized_ctrl << follower_rec
-              begin
-                @on_apply.try &.call(follower_rec)
-              rescue ex
-                Log.error(exception: ex) { "Error applying snapshot control record lsn=#{rec.lsn} cmd=#{rec.command}" }
-              end
-            end
-            begin
-              @snapshot_installer.try &.call(req)
-            rescue ex
-              Log.error(exception: ex) { "Error installing snapshot files at lsn=#{req.last_included_lsn}" }
-            end
-            @control_history = normalized_ctrl
-            save_control_history_under_apply_lock
-            @lock.synchronize do
-              @log.install_snapshot_state(req.last_included_lsn, req.last_included_term, req.members)
-              if req.last_included_lsn > @last_applied
-                @last_applied = req.last_included_lsn
-                @log.advance_applied_index(@last_applied)
-              end
-              sync_peer_sessions_unsafe
-            end
+            @on_step_down.try &.call(stepped_down_term)
           end
-          signal_apply
-        end
 
-        if (r = resp) && (p = peer)
-          p.send_install_snapshot_response(r)
+          if should_install
+            install_ok = false
+            @apply_lock.synchronize do
+              drain_pending_truncations
+              normalized_ctrl = Array(LogEntryRecord).new(req.control_records.size)
+              ctrl_ok = true
+              req.control_records.each do |rec|
+                follower_rec = strip_leader_flag(rec)
+                normalized_ctrl << follower_rec
+                begin
+                  @on_apply.try &.call(follower_rec)
+                rescue ex
+                  Log.error(exception: ex) { "Error applying snapshot control record lsn=#{rec.lsn} cmd=#{rec.command}" }
+                  ctrl_ok = false
+                  break
+                end
+              end
+              next unless ctrl_ok
+
+              begin
+                @snapshot_installer.try &.call(req)
+                install_ok = true
+              rescue ex
+                Log.error(exception: ex) { "Error installing snapshot files at lsn=#{req.last_included_lsn}" }
+              end
+              next unless install_ok
+
+              @control_history = normalized_ctrl
+              save_control_history_under_apply_lock
+              @lock.synchronize do
+                @log.install_snapshot_state(req.last_included_lsn, req.last_included_term, req.members)
+                if req.last_included_lsn > @last_applied
+                  @last_applied = req.last_included_lsn
+                  @log.advance_applied_index(@last_applied)
+                end
+                sync_peer_sessions_unsafe
+              end
+            end
+            return unless install_ok
+            signal_apply
+          end
+
+          if (r = resp) && (p = peer)
+            p.send_install_snapshot_response(r)
+          end
+        ensure
+          req.cleanup_staged_files!
         end
       end
 
@@ -1039,6 +1095,7 @@ module LavinMQ
       private def replicate_to_peer_now(peer_id : UInt64) : Nil
         append_req : AppendEntriesRequest? = nil
         leased_mfiles : Array(MFile)? = nil
+        sreq : InstallSnapshotRequest? = nil
         want_snapshot = false
         peer : PeerSession? = nil
 
@@ -1102,6 +1159,7 @@ module LavinMQ
             end
           end
         ensure
+          sreq.try(&.release_leases!)
           leased_mfiles.try &.each(&.release_lease)
         end
       end
@@ -1232,37 +1290,51 @@ module LavinMQ
                 end
 
                 if (rec = rec_to_apply) && rec.command.leader_no_op? && @role.leader? && @promoted_term < rec.term
-                  @promoted_term = rec.term
                   promote_term = rec.term
                 end
               end
             end
 
+            apply_failed = false
             begin
-              if (rec = rec_to_apply) && is_ctrl
-                record_control_history_under_apply_lock(rec)
-              end
-
               if pterm = promote_term
                 begin
                   @on_promote.try &.call(pterm)
                 rescue ex
                   Log.error(exception: ex) { "Error in on_promote callback for term=#{pterm}" }
+                  apply_failed = true
                 end
               end
 
-              if rec = rec_to_apply
+              if !apply_failed && (rec = rec_to_apply)
                 begin
                   @on_apply.try &.call(rec)
                 rescue ex
                   Log.error(exception: ex) { "Error applying committed entry lsn=#{rec.lsn} cmd=#{rec.command}" }
+                  apply_failed = true
                 end
+              end
+
+              if !apply_failed && (rec = rec_to_apply) && is_ctrl
+                record_control_history_under_apply_lock(rec)
               end
             ensure
               leased_mfile.try(&.release_lease)
             end
 
+            if apply_failed
+              sleep 10.milliseconds
+              signal_apply unless @closed
+              return
+            end
+
             @lock.synchronize do
+              return if @closed
+              if (pterm = promote_term) && @role.leader? && @log.current_term == pterm
+                @promoted_term = pterm
+                @promote_waiters.each(&.try_send(true))
+                @promote_waiters.clear
+              end
               if next_lsn > @last_applied
                 @last_applied = next_lsn
                 @log.advance_applied_index(@last_applied)

@@ -328,12 +328,14 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       leader.server.vhosts["/"].declare_queue("pt_q", true, false)
       wait_until { [f1, f2].all? { |f| !f.server.vhosts["/"].queue?("pt_q").nil? } }.should be_true
 
-      # Review Item 5:
-      # Append a replicated entry directly to f1 & f2's logs as uncommitted in current term,
-      # simulating an entry that reached f1 from leader before leader crashed, prior to commit notification.
-      # Then isolate leader and let f1 win election in the next term; f1's LeaderNoOp commits the prior-term entry
-      # and f1 MUST apply it to its state machine even though f1 is now leader!
-      leader.raft.set_isolated(true)
+      # Review Item 5 & Round 3 Item 1:
+      # Pause replication to f1 & f2, perform both a QueueDeclare ("prior_term_q") and a Publish ("prior-term-msg" to "pt_q")
+      # on leader, and deliver those records to f1 & f2 as uncommitted in current term (simulating entries replicated
+      # before leader crashed prior to commit notification).
+      # Then isolate leader, pause f1 -> f2 briefly while f1 wins election in the next term, verify f1 does not accept
+      # local leader writes until LeaderNoOp commits, unpause f1 -> f2, and verify both "prior-term-msg" and the new
+      # leader's "msg-before-restart" are preserved in order on both f1 and f2 without overwriting offset 4!
+      [f1, f2].each { |f| leader.raft.pause_peer(f.raft.node_id, true) }
       prev_lsn = f1.raft.log.last_lsn
       prev_term = f1.raft.log.term_at(prev_lsn).not_nil!
       cur_term = f1.raft.current_term
@@ -343,36 +345,52 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
         LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, "prior_term_q", false, true, false, false, false, LavinMQ::AMQP::Table.new),
         IO::ByteFormat::SystemEndian
       )
-      uncommitted_rec = LavinMQ::ClusteringV2::LogEntryRecord.new(
-        LavinMQ::ClusteringV2::LogIndexEntry.new(
-          term: cur_term,
-          lsn: prev_lsn + 1,
-          cmd_type: LavinMQ::ClusteringV2::LogCommandType::QueueDeclare.value,
-          vhost_id: 1_u16
-        ),
-        frame_io.to_slice
+      leader.raft.propose_command(
+        LavinMQ::ClusteringV2::LogCommandType::QueueDeclare,
+        frame_io.to_slice,
+        vhost_id: LavinMQ::ClusteringV2::ResourceId.vhost_id_for_dir(leader.server.vhosts["/"].dir)
       )
+      leader.server.vhosts["/"].queue("pt_q").publish(make_test_message("prior-term-msg", routing_key: "pt_q"))
+
+      wire_io = IO::Memory.new
+      LavinMQ::ClusteringV2::AppendEntriesRequest.new(
+        term: cur_term,
+        leader_id: leader.raft.node_id,
+        prev_log_lsn: prev_lsn,
+        prev_log_term: prev_term,
+        leader_commit: prev_lsn,
+        entries: leader.raft.log.read_entries(prev_lsn + 1).not_nil!
+      ).to_io(wire_io)
+      wire_io.rewind
+      wire_req = LavinMQ::ClusteringV2::AppendEntriesRequest.from_io(wire_io)
+
+      leader.raft.set_isolated(true)
       [f1, f2].each do |follower|
-        follower.raft.handle_append_entries(leader.raft.node_id, LavinMQ::ClusteringV2::AppendEntriesRequest.new(
-          term: cur_term,
-          leader_id: leader.raft.node_id,
-          prev_log_lsn: prev_lsn,
-          prev_log_term: prev_term,
-          leader_commit: follower.raft.commit_index,
-          entries: [uncommitted_rec]
-        )).not_nil!.success?.should be_true
+        follower.raft.handle_append_entries(leader.raft.node_id, wire_req).not_nil!.success?.should be_true
         follower.raft.pause_peer(leader.raft.node_id, true)
       end
       f1.server.vhosts["/"].queue?("prior_term_q").should be_nil
+      f1.server.vhosts["/"].queue("pt_q").message_count.should eq(0)
 
+      # Pause f1 -> f2 briefly so f1 enters the elected-but-unpromoted window (leader? && !promoted?)
+      f1.raft.pause_peer(f2.raft.node_id, true)
       sleep 60.milliseconds
       f1.raft.trigger_election!
-      wait_until { f1.raft.leader? }.should be_true
-      wait_until { !f1.server.vhosts["/"].queue?("prior_term_q").nil? }.should be_true
+      f1.raft.handle_vote_response(f2.raft.node_id, LavinMQ::ClusteringV2::VoteResponse.new(true, f1.raft.current_term, f2.raft.node_id, true))
+      f1.raft.handle_vote_response(f2.raft.node_id, LavinMQ::ClusteringV2::VoteResponse.new(false, f1.raft.current_term, f2.raft.node_id, true))
+      f1.raft.leader?.should be_true
+      f1.raft.promoted?.should be_false
+      f1.replicator.standby?.should be_true
+
+      # Unpause f1 -> f2 so LeaderNoOp commits, applying prior-term entries BEFORE promoting f1
+      f1.raft.pause_peer(f2.raft.node_id, false)
+      wait_until { f1.raft.promoted? && !f1.replicator.standby? }.should be_true
+      f1.server.vhosts["/"].queue?("prior_term_q").should_not be_nil
+      f1.server.vhosts["/"].queue("pt_q").message_count.should eq(1)
 
       f1.server.vhosts["/"].queue("pt_q").publish(make_test_message("msg-before-restart", routing_key: "pt_q"))
       f1.replicator.wait_for_followers
-      wait_until { f2.server.vhosts["/"].queue("pt_q").message_count == 1 }.should be_true
+      wait_until { f1.server.vhosts["/"].queue("pt_q").message_count == 2 && f2.server.vhosts["/"].queue("pt_q").message_count == 2 }.should be_true
 
       # Review Item 6: Restart f2 on the same data_dir and verify it does NOT double-apply committed entries
       f2_dir = File.join(base_dir, "node3")
@@ -383,7 +401,15 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       f2_restarted = LavinMQ::ClusteringV2::ClusterNode.new(f2_dir, 3_u64, secret: "test-secret")
       nodes << f2_restarted
       f2_restarted.raft.last_applied.should eq(f2_applied_before)
-      f2_restarted.server.vhosts["/"].queue("pt_q").message_count.should eq(1)
+      q_restarted = f2_restarted.server.vhosts["/"].queue("pt_q")
+      q_restarted.message_count.should eq(2)
+      bodies = Array(String).new
+      2.times do
+        q_restarted.basic_get(true) do |env|
+          bodies << String.new(env.message.body)
+        end
+      end
+      bodies.should eq(["prior-term-msg", "msg-before-restart"])
     ensure
       nodes.each(&.close)
       FileUtils.rm_rf(base_dir)
@@ -543,7 +569,7 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
           term: cur_term,
           lsn: prev_lsn + 1,
           cmd_type: LavinMQ::ClusteringV2::LogCommandType::Publish.value,
-          vhost_id: 1_u16,
+          vhost_id: 1_u64,
           queue_id: LavinMQ::ClusteringV2::ResourceId.queue_id_for_names("/", "trunc_q"),
           segment_id: 1_u32,
           position: 4096_u32,

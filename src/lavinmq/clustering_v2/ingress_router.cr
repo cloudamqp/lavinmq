@@ -92,7 +92,7 @@ module LavinMQ
       end
 
       def call(context : ::HTTP::Server::Context) : Nil
-        if @node.leader?
+        if @node.promoted? || (@node.leader? && @node.wait_until_promoted(2.seconds))
           context.response.headers["X-LavinMQ-Cluster-Role"] = "leader"
           context.response.headers["X-LavinMQ-Node-Id"] = @node.node_id.to_s
           call_next(context)
@@ -126,9 +126,10 @@ module LavinMQ
         true
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def proxy_to_leader(context : ::HTTP::Server::Context) : Nil
         leader = @node.leader_member
-        if leader.nil? || leader.http_uri.empty?
+        if leader.nil? || leader.node_id == @node.node_id || leader.http_uri.empty?
           context.response.status_code = 503
           context.response.content_type = "application/json"
           context.response.print(%({"error":"Cluster leader currently unavailable"}))
@@ -225,7 +226,7 @@ module LavinMQ
         @execution_context = execution_context || Fiber::ExecutionContext.default
         @amqp_server = LavinMQ::AMQP::Server.new(@server, config)
         @mqtt_server = LavinMQ::MQTT::Server.new(@server, config)
-        @mqtt_server.leader_check = -> { @node.leader? }
+        @mqtt_server.leader_check = -> { ensure_promoted_leader? }
         @http_router = FollowerHttpRouterHandler.new(@node)
         @http_server = LavinMQ::HTTP::Server.new(@server, @amqp_server, @mqtt_server, @http_router)
 
@@ -394,8 +395,14 @@ module LavinMQ
         end
       end
 
+      private def ensure_promoted_leader? : Bool
+        return true if @node.promoted?
+        return false unless @node.leader?
+        @node.wait_until_promoted(2.seconds)
+      end
+
       private def handle_amqp_socket(client : TCPSocket) : Nil
-        if @node.leader?
+        if ensure_promoted_leader?
           conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
           @amqp_server.handle_connection(client, conn_info)
         else
@@ -409,7 +416,7 @@ module LavinMQ
         remote_addr = client.remote_address
         local_addr = client.local_address
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, ctx, sync_close: true)
-        if @node.leader?
+        if ensure_promoted_leader?
           conn_info = ConnectionInfo.new(remote_addr, local_addr)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
@@ -423,7 +430,7 @@ module LavinMQ
       end
 
       private def handle_amqp_unix_socket(client : UNIXSocket) : Nil
-        if @node.leader?
+        if ensure_promoted_leader?
           @amqp_server.handle_connection(client, ConnectionInfo.local)
         else
           splice_to_leader_amqp(client)
@@ -435,7 +442,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def splice_to_leader_amqp(client : IO) : Nil
         leader = @node.leader_member
-        if leader.nil? || leader.amqp_uri.empty?
+        if leader.nil? || leader.node_id == @node.node_id || leader.amqp_uri.empty?
           client.close rescue nil
           return
         end

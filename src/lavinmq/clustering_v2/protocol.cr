@@ -72,19 +72,20 @@ module LavinMQ
       InstallSnapshotResponse = 12
     end
 
-    # Fixed 36-byte index entry stored in the mmap'd `raft.idx` ring buffer.
+    # Fixed 48-byte index entry stored in the mmap'd `raft.idx` ring buffer.
     # Zero heap allocations on read/write.
     @[Packed]
     struct LogIndexEntry
       property term : UInt64
       property lsn : UInt64
-      property vhost_id : UInt16
-      property cmd_type : UInt8
-      property flags : UInt8
-      property queue_id : UInt32
+      property vhost_id : UInt64
+      property queue_id : UInt64
       property segment_id : UInt32
       property position : UInt32
       property byte_size : UInt32
+      property cmd_type : UInt8
+      property flags : UInt8
+      property pad : UInt16
 
       FLAG_TOMBSTONED  = 0x01_u8
       FLAG_HAS_CTRL    = 0x02_u8
@@ -92,13 +93,14 @@ module LavinMQ
 
       def initialize(@term : UInt64 = 0_u64,
                      @lsn : UInt64 = 0_u64,
-                     @vhost_id : UInt16 = 0_u16,
+                     @vhost_id : UInt64 = 0_u64,
                      @cmd_type : UInt8 = 0_u8,
                      @flags : UInt8 = 0_u8,
-                     @queue_id : UInt32 = 0_u32,
+                     @queue_id : UInt64 = 0_u64,
                      @segment_id : UInt32 = 0_u32,
                      @position : UInt32 = 0_u32,
-                     @byte_size : UInt32 = 0_u32)
+                     @byte_size : UInt32 = 0_u32,
+                     @pad : UInt16 = 0_u16)
       end
 
       def command : LogCommandType
@@ -285,10 +287,10 @@ module LavinMQ
       def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : self
         term = format.decode(UInt64, io)
         lsn = format.decode(UInt64, io)
-        vhost_id = format.decode(UInt16, io)
+        vhost_id = format.decode(UInt64, io)
         cmd_type = io.read_byte || raise IO::EOFError.new
         flags = io.read_byte || raise IO::EOFError.new
-        queue_id = format.decode(UInt32, io)
+        queue_id = format.decode(UInt64, io)
         segment_id = format.decode(UInt32, io)
         position = format.decode(UInt32, io)
         payload_len = format.decode(UInt32, io)
@@ -385,17 +387,60 @@ module LavinMQ
     end
 
     struct SnapshotSegmentFile
+      STREAM_CHUNK_SIZE = 65_536
+
       getter vhost : String
       getter queue : String
       getter segment_id : UInt32
       getter relative_path : String
-      getter bytes : Bytes
+      getter source_mfile : MFile?
+      getter source_size : UInt32
+      getter staged_path : String?
 
       def initialize(@vhost : String,
                      @queue : String,
                      @segment_id : UInt32,
                      @relative_path : String,
-                     @bytes : Bytes)
+                     @bytes : Bytes = Bytes.empty,
+                     @source_mfile : MFile? = nil,
+                     @source_size : UInt32 = 0_u32,
+                     @staged_path : String? = nil)
+        if @source_size == 0_u32 && !@bytes.empty?
+          @source_size = @bytes.size.to_u32
+        end
+      end
+
+      def byte_size : UInt32
+        if !@bytes.empty?
+          @bytes.size.to_u32
+        elsif mfile = @source_mfile
+          Math.min(@source_size.to_i64, mfile.size.to_i64).to_u32
+        elsif (path = @staged_path) && File.exists?(path)
+          File.size(path).to_u32
+        else
+          @source_size
+        end
+      end
+
+      def bytes : Bytes
+        return @bytes unless @bytes.empty?
+        if (path = @staged_path) && File.exists?(path)
+          return File.read(path).to_slice
+        end
+        if mfile = @source_mfile
+          sz = Math.min(@source_size.to_i64, mfile.size.to_i64).to_i
+          return Bytes.empty if sz <= 0
+          buf = Bytes.new(sz)
+          buf.copy_from(mfile.to_slice(0, sz))
+          return buf
+        end
+        Bytes.empty
+      end
+
+      def release_lease! : Nil
+        if mfile = @source_mfile
+          mfile.release_lease
+        end
       end
 
       def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : Nil
@@ -403,19 +448,80 @@ module LavinMQ
         Protocol.write_string(io, @queue, format)
         format.encode(@segment_id, io)
         Protocol.write_string(io, @relative_path, format)
-        format.encode(@bytes.size.to_u32, io)
-        io.write(@bytes) unless @bytes.empty?
+        if mfile = @source_mfile
+          actual = Math.min(@source_size.to_i64, mfile.size.to_i64).to_u32
+          format.encode(actual, io)
+          remaining = actual.to_i64
+          offset = 0_i64
+          while remaining > 0
+            avail = mfile.size.to_i64 - offset
+            if avail <= 0
+              zeros = Bytes.new(Math.min(remaining, STREAM_CHUNK_SIZE.to_i64).to_i)
+              while remaining > 0
+                zchunk = Math.min(remaining, zeros.size.to_i64).to_i
+                io.write(zeros[0, zchunk])
+                remaining -= zchunk
+              end
+              break
+            end
+            chunk = Math.min(Math.min(remaining, avail), STREAM_CHUNK_SIZE.to_i64).to_i
+            io.write(mfile.to_slice(offset, chunk))
+            offset += chunk
+            remaining -= chunk
+          end
+        elsif (path = @staged_path) && File.exists?(path)
+          File.open(path, "rb") do |f|
+            actual = f.size.to_u32
+            format.encode(actual, io)
+            if actual > 0
+              buf = Bytes.new(Math.min(actual.to_i, STREAM_CHUNK_SIZE))
+              rem = actual.to_i64
+              while rem > 0
+                to_read = Math.min(rem, buf.size.to_i64).to_i
+                n = f.read(buf[0, to_read])
+                if n == 0
+                  zeros = Bytes.new(to_read)
+                  io.write(zeros)
+                  rem -= to_read
+                else
+                  io.write(buf[0, n])
+                  rem -= n
+                end
+              end
+            end
+          end
+        else
+          format.encode(@bytes.size.to_u32, io)
+          io.write(@bytes) unless @bytes.empty?
+        end
       end
 
-      def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : self
+      def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian, staged_path : String? = nil) : self
         vhost = Protocol.read_string(io, format)
         queue = Protocol.read_string(io, format)
         segment_id = format.decode(UInt32, io)
         relative_path = Protocol.read_string(io, format)
         len = format.decode(UInt32, io)
-        bytes = Bytes.new(len)
-        io.read_fully(bytes) if len > 0
-        new(vhost, queue, segment_id, relative_path, bytes)
+        if path = staged_path
+          Dir.mkdir_p(File.dirname(path))
+          File.open(path, "wb") do |f|
+            if len > 0
+              buf = Bytes.new(Math.min(len.to_i, STREAM_CHUNK_SIZE))
+              rem = len.to_i64
+              while rem > 0
+                chunk = Math.min(rem, buf.size.to_i64).to_i
+                io.read_fully(buf[0, chunk])
+                f.write(buf[0, chunk])
+                rem -= chunk
+              end
+            end
+          end
+          new(vhost, queue, segment_id, relative_path, Bytes.empty, staged_path: path, source_size: len)
+        else
+          bytes = Bytes.new(len)
+          io.read_fully(bytes) if len > 0
+          new(vhost, queue, segment_id, relative_path, bytes, source_size: len)
+        end
       end
     end
 
@@ -437,6 +543,18 @@ module LavinMQ
                      @files : Array(SnapshotSegmentFile) = Array(SnapshotSegmentFile).new)
       end
 
+      def release_leases! : Nil
+        @files.each(&.release_lease!)
+      end
+
+      def cleanup_staged_files! : Nil
+        @files.each do |f|
+          if path = f.staged_path
+            File.delete?(path)
+          end
+        end
+      end
+
       def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : Nil
         format.encode(@term, io)
         format.encode(@leader_id, io)
@@ -450,7 +568,7 @@ module LavinMQ
         @files.each(&.to_io(io, format))
       end
 
-      def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian) : self
+      def self.from_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian, staging_dir : String? = nil) : self
         term = format.decode(UInt64, io)
         leader_id = format.decode(UInt64, io)
         last_included_lsn = format.decode(UInt64, io)
@@ -460,7 +578,13 @@ module LavinMQ
         ctrl_count = format.decode(UInt32, io)
         control_records = Array(LogEntryRecord).new(ctrl_count.to_i) { LogEntryRecord.from_io(io, format) }
         file_count = format.decode(UInt32, io)
-        files = Array(SnapshotSegmentFile).new(file_count.to_i) { SnapshotSegmentFile.from_io(io, format) }
+        if sdir = staging_dir
+          Dir.mkdir_p(sdir)
+        end
+        files = Array(SnapshotSegmentFile).new(file_count.to_i) do |idx|
+          staged_path = staging_dir.try { |dir| File.join(dir, "file_#{idx}.bin") }
+          SnapshotSegmentFile.from_io(io, format, staged_path: staged_path)
+        end
         new(term, leader_id, last_included_lsn, last_included_term, members, control_records, files)
       end
     end

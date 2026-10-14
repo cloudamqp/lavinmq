@@ -274,14 +274,14 @@ module LavinMQ
     end
 
     # Captures a consistent snapshot of all segments up to `snap_lsn` while
-    # the caller holds `@msg_store_lock`.
-    # ameba:disable Metrics/CyclomaticComplexity
+    # the caller holds `@msg_store_lock`. Leases backing `MFile`s instead of copying
+    # segment bytes into heap memory under `@msg_store_lock`.
     def snapshot_segments(vhost_name : String,
                           queue_name : String,
                           vhost_dir : String,
                           queue_dir : String,
-                          vhost_id : UInt16,
-                          queue_id : UInt32,
+                          vhost_id : UInt64,
+                          queue_id : UInt64,
                           snap_lsn : UInt64,
                           raft_log : ClusteringV2::RaftLog,
                           out_files : Array(ClusteringV2::SnapshotSegmentFile)) : Nil
@@ -290,33 +290,25 @@ module LavinMQ
         next if mfile.closed?
         cap = raft_log.segment_size_at(vhost_id, queue_id, seg_id, snap_lsn, mfile.size.to_i64)
         next unless cap
-        seg_size = Math.min(cap, mfile.size.to_i64).to_i32
-        next if seg_size <= 0
+        seg_size = Math.min(cap, mfile.size.to_i64).to_u32
+        next if seg_size == 0_u32
 
-        slice = mfile.to_slice(0, seg_size)
-        copy = Bytes.new(seg_size)
-        copy.copy_from(slice)
+        mfile.lease
         rel_msgs = "#{vhost_dir}/#{queue_dir}/msgs.#{seg_id.to_s.rjust(10, '0')}"
-        out_files << ClusteringV2::SnapshotSegmentFile.new(vhost_name, queue_name, seg_id, rel_msgs, copy)
+        out_files << ClusteringV2::SnapshotSegmentFile.new(
+          vhost_name, queue_name, seg_id, rel_msgs,
+          source_mfile: mfile, source_size: seg_size
+        )
 
         if (afile = @acks[seg_id]?) && !afile.closed? && afile.size > 0
-          ack_io = IO::Memory.new(afile.size.to_i32)
-          if File.exists?(afile.path)
-            File.open(afile.path, "r") do |f|
-              remaining = afile.size
-              while remaining >= 4
-                pos = f.read_bytes(UInt32, IO::ByteFormat::SystemEndian)
-                if pos > 0 && pos < seg_size.to_u32
-                  ack_io.write_bytes(pos, IO::ByteFormat::SystemEndian)
-                end
-                remaining -= 4
-              end
-            rescue IO::EOFError
-            end
-          end
-          if ack_io.pos > 0
+          ack_size = raft_log.ack_size_at(vhost_id, queue_id, seg_id, snap_lsn, afile.size.to_i64).to_u32
+          if ack_size > 0_u32
+            afile.lease
             rel_acks = "#{vhost_dir}/#{queue_dir}/acks.#{seg_id.to_s.rjust(10, '0')}"
-            out_files << ClusteringV2::SnapshotSegmentFile.new(vhost_name, queue_name, seg_id, rel_acks, ack_io.to_slice)
+            out_files << ClusteringV2::SnapshotSegmentFile.new(
+              vhost_name, queue_name, seg_id, rel_acks,
+              source_mfile: afile, source_size: ack_size
+            )
           end
         end
       end
@@ -325,12 +317,10 @@ module LavinMQ
 
   module AMQP
     class ConsumerOffsets
-      def snapshot_bytes : Bytes
-        return Bytes.empty if @mfile.closed? || @mfile.size <= 0
-        slice = @mfile.to_slice(0, @mfile.size)
-        copy = Bytes.new(slice.size)
-        copy.copy_from(slice)
-        copy
+      def lease_snapshot_mfile : Tuple(MFile, UInt32)?
+        return if @mfile.closed? || @mfile.size <= 0
+        @mfile.lease
+        {@mfile, @mfile.size.to_u32}
       end
     end
 
@@ -383,17 +373,20 @@ module LavinMQ
                             queue_name : String,
                             vhost_dir : String,
                             queue_dir : String,
-                            vhost_id : UInt16,
-                            queue_id : UInt32,
+                            vhost_id : UInt64,
+                            queue_id : UInt64,
                             snap_lsn : UInt64,
                             raft_log : ClusteringV2::RaftLog,
                             out_files : Array(ClusteringV2::SnapshotSegmentFile)) : Nil
         super
         return if @closed
-        co_bytes = @consumer_offsets.snapshot_bytes
-        if co_bytes.size > 0
+        if leased = @consumer_offsets.lease_snapshot_mfile
+          co_mfile, co_size = leased
           rel_co = "#{vhost_dir}/#{queue_dir}/consumer_offsets"
-          out_files << ClusteringV2::SnapshotSegmentFile.new(vhost_name, queue_name, 0_u32, rel_co, co_bytes)
+          out_files << ClusteringV2::SnapshotSegmentFile.new(
+            vhost_name, queue_name, 0_u32, rel_co,
+            source_mfile: co_mfile, source_size: co_size
+          )
         end
       end
     end
@@ -401,6 +394,10 @@ module LavinMQ
     class Queue
       def raw_msg_store : MessageStore
         @msg_store
+      end
+
+      def queue_dir_name : String
+        File.basename(@data_dir)
       end
 
       def enable_commit_gate!(committed_seg_id : UInt32? = nil, committed_end_pos : UInt32? = nil) : Nil
@@ -462,8 +459,8 @@ module LavinMQ
 
       def snapshot_segments(vhost_dir : String,
                             queue_dir : String,
-                            vhost_id : UInt16,
-                            queue_id : UInt32,
+                            vhost_id : UInt64,
+                            queue_id : UInt64,
                             snap_lsn : UInt64,
                             raft_log : ClusteringV2::RaftLog,
                             out_files : Array(ClusteringV2::SnapshotSegmentFile)) : Nil
@@ -519,24 +516,68 @@ module LavinMQ
     module ResourceId
       extend self
 
-      def vhost_id_for_dir(vhost_dir : String) : UInt16
-        # Digest::SHA1.hexdigest("/") == "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8"
-        return 1_u16 if vhost_dir == "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8"
-        raw = (Digest::CRC32.checksum(vhost_dir) & 0xFFFF_u32).to_u16
-        raw <= 1_u16 ? (raw + 2_u16) : raw
+      @[AlwaysInline]
+      private def hex_nibble(b : UInt8) : Int32
+        if b >= 0x30_u8 && b <= 0x39_u8
+          (b - 0x30_u8).to_i32
+        elsif b >= 0x61_u8 && b <= 0x66_u8
+          (b - 0x61_u8 + 10_u8).to_i32
+        elsif b >= 0x41_u8 && b <= 0x46_u8
+          (b - 0x41_u8 + 10_u8).to_i32
+        else
+          -1
+        end
       end
 
-      def vhost_id_for_name(vhost_name : String) : UInt16
-        return 1_u16 if vhost_name == "/"
+      private def parse_hex64(str : String) : UInt64?
+        return unless str.bytesize >= 16
+        ptr = str.to_unsafe
+        val = 0_u64
+        i = 0
+        while i < 16
+          nib = hex_nibble(ptr[i])
+          return if nib < 0
+          val = (val << 4) | nib.to_u64
+          i += 1
+        end
+        val
+      end
+
+      private def fnv1a64(a : String, b : String? = nil) : UInt64
+        h = 0xcbf29ce484222325_u64
+        a.each_byte do |byte|
+          h ^= byte.to_u64
+          h &*= 0x100000001b3_u64
+        end
+        if s2 = b
+          h ^= '/'.ord.to_u64
+          h &*= 0x100000001b3_u64
+          s2.each_byte do |byte|
+            h ^= byte.to_u64
+            h &*= 0x100000001b3_u64
+          end
+        end
+        h
+      end
+
+      def vhost_id_for_dir(vhost_dir : String) : UInt64
+        # Digest::SHA1.hexdigest("/") == "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8"
+        return 1_u64 if vhost_dir == "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8"
+        raw = parse_hex64(vhost_dir) || fnv1a64(vhost_dir)
+        raw <= 1_u64 ? (raw &+ 2_u64) : raw
+      end
+
+      def vhost_id_for_name(vhost_name : String) : UInt64
+        return 1_u64 if vhost_name == "/"
         vhost_id_for_dir(Digest::SHA1.hexdigest(vhost_name))
       end
 
-      def queue_id_for_dirs(vhost_dir : String, queue_dir : String) : UInt32
-        raw = Digest::CRC32.checksum("#{vhost_dir}/#{queue_dir}")
-        raw.zero? ? 1_u32 : raw
+      def queue_id_for_dirs(vhost_dir : String, queue_dir : String) : UInt64
+        raw = parse_hex64(queue_dir) || fnv1a64(vhost_dir, queue_dir)
+        raw.zero? ? 1_u64 : raw
       end
 
-      def queue_id_for_names(vhost_name : String, queue_name : String) : UInt32
+      def queue_id_for_names(vhost_name : String, queue_name : String) : UInt64
         queue_id_for_dirs(Digest::SHA1.hexdigest(vhost_name), Digest::SHA1.hexdigest(queue_name))
       end
     end
@@ -547,14 +588,19 @@ module LavinMQ
     class Applier
       Log = LavinMQ::Log.for "clustering_v2.applier"
 
+      alias QueueKey = Tuple(UInt64, UInt64)
+
       getter server : LavinMQ::Server?
       getter raft_log : RaftLog
       @suppress_callback : Proc(Bool, Nil)?
       @cache_lock = Mutex.new(:reentrant)
-      @vhost_by_id = Hash(UInt16, VHost).new
-      @vhost_dir_by_id = Hash(UInt16, String).new
-      @queue_by_key = Hash(UInt64, AMQP::Queue).new
-      @queue_name_by_key = Hash(UInt64, String).new
+      @vhost_by_id = Hash(UInt64, VHost).new
+      @vhost_dir_by_id = Hash(UInt64, String).new
+      @queue_by_key = Hash(QueueKey, AMQP::Queue).new
+      @queue_name_by_key = Hash(QueueKey, String).new
+      @cache_epoch = Atomic(UInt64).new(1_u64)
+      @apply_queue_cache = Hash(QueueKey, AMQP::Queue).new
+      @apply_cache_epoch : UInt64 = 0_u64
 
       def initialize(@raft_log : RaftLog, @server : LavinMQ::Server? = nil, &suppress_callback : Bool -> Nil)
         @suppress_callback = suppress_callback
@@ -574,17 +620,13 @@ module LavinMQ
         srv
       end
 
-      @[AlwaysInline]
-      private def queue_cache_key(vhost_id : UInt16, queue_id : UInt32) : UInt64
-        (vhost_id.to_u64 << 32) | queue_id.to_u64
-      end
-
       def rebuild_resource_cache! : Nil
         @cache_lock.synchronize do
           @vhost_by_id.clear
           @vhost_dir_by_id.clear
           @queue_by_key.clear
           @queue_name_by_key.clear
+          @cache_epoch.add(1_u64)
           srv = @server || return
           srv.vhosts.each_value do |vh|
             vh_id = index_vhost!(vh)
@@ -595,11 +637,29 @@ module LavinMQ
         end
       end
 
-      def index_vhost!(vh : VHost) : UInt16
+      private def sync_missing_resources_unsafe : Nil
+        srv = @server || return
+        srv.vhosts.each_value do |vh|
+          vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+          unless @vhost_by_id.has_key?(vh_id)
+            index_vhost!(vh)
+          end
+          vh.queues.each do |q|
+            q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
+            key = {vh_id, q_id}
+            if (existing = @queue_by_key[key]?) && !existing.closed?
+              next
+            end
+            index_queue!(vh, vh_id, q)
+          end
+        end
+      end
+
+      def index_vhost!(vh : VHost) : UInt64
         @cache_lock.synchronize do
           vh_id = ResourceId.vhost_id_for_dir(vh.dir)
           if (existing_dir = @vhost_dir_by_id[vh_id]?) && existing_dir != vh.dir
-            Log.warn { "VHost ID collision for vhost '#{vh.name}' (dir=#{vh.dir}, existing_dir=#{existing_dir}, id=#{vh_id})" }
+            raise "VHost ID collision for vhost '#{vh.name}' (dir=#{vh.dir}, existing_dir=#{existing_dir}, id=#{vh_id})"
           end
           @vhost_by_id[vh_id] = vh
           @vhost_dir_by_id[vh_id] = vh.dir
@@ -607,16 +667,17 @@ module LavinMQ
         end
       end
 
-      def index_queue!(vh : VHost, vh_id : UInt16, q : AMQP::Queue) : UInt32
+      def index_queue!(vh : VHost, vh_id : UInt64, q : AMQP::Queue) : UInt64
         @cache_lock.synchronize do
-          q_dir = Digest::SHA1.hexdigest(q.name)
+          q_dir = q.queue_dir_name
           q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir)
-          key = queue_cache_key(vh_id, q_id)
+          key = {vh_id, q_id}
           if (existing_name = @queue_name_by_key[key]?) && existing_name != q.name
-            Log.warn { "Queue ID collision in vhost '#{vh.name}' between '#{existing_name}' and '#{q.name}' (id=#{q_id})" }
+            raise "Queue ID collision in vhost '#{vh.name}' between '#{existing_name}' and '#{q.name}' (id=#{q_id})"
           end
           @queue_by_key[key] = q
           @queue_name_by_key[key] = q.name
+          @cache_epoch.add(1_u64)
           q_id
         end
       end
@@ -630,28 +691,47 @@ module LavinMQ
         end
       end
 
-      def resolve_vhost(vhost_id : UInt16) : VHost?
+      def resolve_vhost(vhost_id : UInt64) : VHost?
         @cache_lock.synchronize do
           if vh = @vhost_by_id[vhost_id]?
             return vh
           end
-          rebuild_resource_cache!
+          sync_missing_resources_unsafe
           @vhost_by_id[vhost_id]?
         end
       end
 
-      def resolve_queue(vhost_id : UInt16, queue_id : UInt32) : AMQP::Queue?
-        key = queue_cache_key(vhost_id, queue_id)
+      def resolve_queue(vhost_id : UInt64, queue_id : UInt64) : AMQP::Queue?
+        key = {vhost_id, queue_id}
         @cache_lock.synchronize do
           if q = @queue_by_key[key]?
             return q unless q.closed?
           end
-          rebuild_resource_cache!
+          sync_missing_resources_unsafe
           if q = @queue_by_key[key]?
             return q unless q.closed?
           end
           nil
         end
+      end
+
+      # Fast-path queue lookup for the single Raft applier fiber without taking `@cache_lock`
+      # on steady-state Publish/Ack commits.
+      private def resolve_queue_for_applier(vhost_id : UInt64, queue_id : UInt64) : AMQP::Queue?
+        epoch = @cache_epoch.get(:acquire)
+        key = {vhost_id, queue_id}
+        if epoch == @apply_cache_epoch
+          if q = @apply_queue_cache[key]?
+            return q unless q.closed?
+          end
+        end
+        q = resolve_queue(vhost_id, queue_id)
+        @cache_lock.synchronize do
+          @apply_queue_cache.clear
+          @queue_by_key.each { |k, v| @apply_queue_cache[k] = v }
+          @apply_cache_epoch = @cache_epoch.get(:acquire)
+        end
+        q
       end
 
       def register_all_segments! : Nil
@@ -669,7 +749,7 @@ module LavinMQ
         end
       end
 
-      private def register_queue_segments(vhost_id : UInt16, queue_id : UInt32, q : AMQP::Queue) : Nil
+      private def register_queue_segments(vhost_id : UInt64, queue_id : UInt64, q : AMQP::Queue) : Nil
         q.raw_msg_store.each_segment do |seg_id, mfile|
           @raft_log.register_segment(vhost_id, queue_id, seg_id, mfile)
         end
@@ -686,7 +766,7 @@ module LavinMQ
         entry = record.entry
         if from_leader
           if entry.command == LogCommandType::Publish
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               q.advance_committed(entry.segment_id, entry.position + entry.byte_size)
             end
           end
@@ -709,28 +789,28 @@ module LavinMQ
                LogCommandType::BindingRemove
             apply_definition_frame(entry.vhost_id, record.payload)
           when LogCommandType::QueuePurge
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               @raft_log.unregister_queue_segments(entry.vhost_id, entry.queue_id)
               q.purge
               register_queue_segments(entry.vhost_id, entry.queue_id, q)
             end
           when LogCommandType::Publish
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               mfile = q.apply_follower_publish(entry.segment_id, entry.position, record.payload)
               @raft_log.register_segment(entry.vhost_id, entry.queue_id, entry.segment_id, mfile)
               @raft_log.bind_publish_segment(entry.lsn, entry.segment_id, entry.position, record.payload.size.to_u32)
             end
           when LogCommandType::Ack
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               q.apply_follower_ack(entry.segment_id, entry.position)
             end
           when LogCommandType::SegmentDelete
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               q.apply_follower_segment_delete(entry.segment_id)
               @raft_log.unregister_segment(entry.vhost_id, entry.queue_id, entry.segment_id)
             end
           when LogCommandType::StreamOffsetCommit
-            if q = resolve_queue(entry.vhost_id, entry.queue_id)
+            if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               io = IO::Memory.new(record.payload)
               tag = AMQ::Protocol::ShortString.from_io(io)
               offset = Int64.from_io(io, IO::ByteFormat::LittleEndian)
@@ -794,31 +874,34 @@ module LavinMQ
           vh_id = ResourceId.vhost_id_for_dir(vh.dir)
           @cache_lock.synchronize do
             vh.queues.each do |q|
-              q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+              q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
               @raft_log.unregister_queue_segments(vh_id, q_id)
-              key = queue_cache_key(vh_id, q_id)
+              key = {vh_id, q_id}
               @queue_by_key.delete(key)
               @queue_name_by_key.delete(key)
             end
             @vhost_by_id.delete(vh_id)
             @vhost_dir_by_id.delete(vh_id)
+            @cache_epoch.add(1_u64)
           end
           srv.vhosts.delete(vh.name)
         end
       end
 
-      private def apply_definition_frame(vhost_id : UInt16, payload : Bytes) : Nil
+      private def apply_definition_frame(vhost_id : UInt64, payload : Bytes) : Nil
         vh = resolve_vhost(vhost_id) || return
         io = IO::Memory.new(payload)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         frame = stream.next_frame
         if frame.is_a?(AMQP::Frame::Queue::Delete)
-          q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(frame.queue_name))
+          q_dir = vh.queue?(frame.queue_name).try(&.queue_dir_name) || Digest::SHA1.hexdigest(frame.queue_name)
+          q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir)
           @raft_log.unregister_queue_segments(vhost_id, q_id)
-          key = queue_cache_key(vhost_id, q_id)
+          key = {vhost_id, q_id}
           @cache_lock.synchronize do
             @queue_by_key.delete(key)
             @queue_name_by_key.delete(key)
+            @cache_epoch.add(1_u64)
           end
         end
         vh.apply(frame, loading: false, fsync: false)
@@ -831,7 +914,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      private def apply_file_replace(vhost_id : UInt16, payload : Bytes) : Nil
+      private def apply_file_replace(vhost_id : UInt64, payload : Bytes) : Nil
         srv = @server || return
         return if payload.size < 6
         io = IO::Memory.new(payload)
@@ -882,10 +965,10 @@ module LavinMQ
             vh_id = ResourceId.vhost_id_for_dir(vh.dir)
             vh.queues.each do |q|
               next unless q.durable?
-              q_id = ResourceId.queue_id_for_dirs(vh.dir, Digest::SHA1.hexdigest(q.name))
+              q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
               @raft_log.unregister_queue_segments(vh_id, q_id)
               q.close
-              q_dir = File.join(vh.data_dir, Digest::SHA1.hexdigest(q.name))
+              q_dir = File.join(vh.data_dir, q.queue_dir_name)
               if Dir.exists?(q_dir)
                 Dir.each_child(q_dir) do |child|
                   if child.starts_with?("msgs.") || child.starts_with?("acks.") || child == "consumer_offsets"
@@ -899,7 +982,11 @@ module LavinMQ
           req.files.each do |seg_file|
             full_path = File.join(srv.data_dir, seg_file.relative_path)
             FileUtils.mkdir_p(File.dirname(full_path))
-            File.write(full_path, seg_file.bytes)
+            if (staged = seg_file.staged_path) && File.exists?(staged)
+              FileSystem.durable_rename(staged, full_path)
+            else
+              File.write(full_path, seg_file.bytes)
+            end
           end
 
           # Restart queues whose segments were replaced by snapshot so their MFiles map the snapshot

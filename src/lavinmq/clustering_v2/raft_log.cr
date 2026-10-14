@@ -13,7 +13,7 @@ module LavinMQ
       DEFAULT_CAPACITY =     65_536_u64
       CTRL_INIT_SIZE   = 8 * 1024 * 1024 # 8 MiB control log segment
 
-      alias SegmentKey = Tuple(UInt16, UInt32, UInt32)
+      alias SegmentKey = Tuple(UInt64, UInt64, UInt32)
       alias TruncateCallback = LogIndexEntry -> Nil
       alias MembershipCallback = Array(MemberInfo) -> Nil
 
@@ -109,7 +109,7 @@ module LavinMQ
         cb.try &.call(new_members)
       end
 
-      def register_segment(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, mfile : MFile) : Nil
+      def register_segment(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32, mfile : MFile) : Nil
         @lock.synchronize do
           key = {vhost_id, queue_id, segment_id}
           mfile.lease
@@ -122,7 +122,7 @@ module LavinMQ
         end
       end
 
-      def register_segment_path(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, path : String) : Nil
+      def register_segment_path(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32, path : String) : Nil
         @lock.synchronize do
           key = {vhost_id, queue_id, segment_id}
           @segment_paths[key] = path
@@ -132,7 +132,7 @@ module LavinMQ
         end
       end
 
-      def unregister_segment(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32) : Nil
+      def unregister_segment(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32) : Nil
         @lock.synchronize do
           key = {vhost_id, queue_id, segment_id}
           if old = @segments.delete(key)
@@ -141,9 +141,9 @@ module LavinMQ
         end
       end
 
-      def unregister_queue_segments(vhost_id : UInt16, queue_id : UInt32) : Nil
+      def unregister_queue_segments(vhost_id : UInt64, queue_id : UInt64) : Nil
         @lock.synchronize do
-          to_evict = Array(Tuple(Tuple(UInt16, UInt32, UInt32), MFile)).new
+          to_evict = Array(Tuple(SegmentKey, MFile)).new
           @segments.reject! do |key, mfile|
             if key[0] == vhost_id && key[1] == queue_id
               to_evict << {key, mfile}
@@ -158,7 +158,7 @@ module LavinMQ
         end
       end
 
-      private def evict_segment_unsafe(key : Tuple(UInt16, UInt32, UInt32), mfile : MFile) : Nil
+      private def evict_segment_unsafe(key : SegmentKey, mfile : MFile) : Nil
         if !mfile.closed? && @last_lsn >= @first_lsn
           lsn = @first_lsn
           while lsn <= @last_lsn
@@ -211,8 +211,8 @@ module LavinMQ
 
       # Appends a zero-copy Publish entry referencing an existing queue MFile segment.
       def append_publish(term : UInt64,
-                         vhost_id : UInt16,
-                         queue_id : UInt32,
+                         vhost_id : UInt64,
+                         queue_id : UInt64,
                          segment_id : UInt32,
                          position : UInt32,
                          byte_size : UInt32,
@@ -266,10 +266,10 @@ module LavinMQ
         end
       end
 
-      # Appends a compact 36-byte Ack entry (no payload needed beyond LogIndexEntry fields).
+      # Appends a compact 48-byte Ack entry (no payload needed beyond LogIndexEntry fields).
       def append_ack(term : UInt64,
-                     vhost_id : UInt16,
-                     queue_id : UInt32,
+                     vhost_id : UInt64,
+                     queue_id : UInt64,
                      segment_id : UInt32,
                      position : UInt32) : LogIndexEntry
         @lock.synchronize do
@@ -293,8 +293,8 @@ module LavinMQ
       # Appends a SegmentDelete entry and records the deletion LSN so older Publish/Ack
       # entries for this segment can be elided during follower catch-up.
       def append_segment_delete(term : UInt64,
-                                vhost_id : UInt16,
-                                queue_id : UInt32,
+                                vhost_id : UInt64,
+                                queue_id : UInt64,
                                 segment_id : UInt32) : LogIndexEntry
         @lock.synchronize do
           lsn = @last_lsn + 1
@@ -324,8 +324,8 @@ module LavinMQ
       def append_command(term : UInt64,
                          cmd_type : LogCommandType,
                          payload : Bytes = Bytes.empty,
-                         vhost_id : UInt16 = 0_u16,
-                         queue_id : UInt32 = 0_u32,
+                         vhost_id : UInt64 = 0_u64,
+                         queue_id : UInt64 = 0_u64,
                          segment_id : UInt32 = 0_u32,
                          position : UInt32 = 0_u32) : LogIndexEntry
         entry, cb, members_snapshot = @lock.synchronize do
@@ -686,7 +686,7 @@ module LavinMQ
       # Returns the byte size of `{vhost_id, queue_id, segment_id}` as of `snap_lsn` by finding
       # the earliest `Publish` entry for that segment at `lsn > snap_lsn` and capping `current_size`
       # to its starting `position`. Returns `nil` if the entire segment was created after `snap_lsn`.
-      def segment_size_at(vhost_id : UInt16, queue_id : UInt32, segment_id : UInt32, snap_lsn : UInt64, current_size : Int64) : Int64?
+      def segment_size_at(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32, snap_lsn : UInt64, current_size : Int64) : Int64?
         @lock.synchronize do
           return current_size if snap_lsn >= @last_lsn
           start_lsn = Math.max(@first_lsn, snap_lsn + 1)
@@ -704,6 +704,26 @@ module LavinMQ
           end
           return if min_pos <= sizeof(Int32) && current_size > sizeof(Int32)
           min_pos
+        end
+      end
+
+      # Returns the byte size of `{vhost_id, queue_id, segment_id}`'s ack file as of `snap_lsn`
+      # by subtracting 4 bytes per `Ack` entry logged at `lsn > snap_lsn` for that segment.
+      def ack_size_at(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32, snap_lsn : UInt64, current_size : Int64) : Int64
+        @lock.synchronize do
+          return current_size if snap_lsn >= @last_lsn
+          start_lsn = Math.max(@first_lsn, snap_lsn + 1)
+          acks_after = 0_i64
+          lsn = start_lsn
+          while lsn <= @last_lsn
+            raw = entry_ptr(lsn).value
+            if raw.lsn == lsn && raw.command.ack? &&
+               raw.vhost_id == vhost_id && raw.queue_id == queue_id && raw.segment_id == segment_id
+              acks_after += 1
+            end
+            lsn += 1
+          end
+          Math.max(0_i64, current_size - acks_after * sizeof(UInt32))
         end
       end
 
@@ -1080,6 +1100,7 @@ module LavinMQ
       end
 
       private def write_idx_header_unsafe : Nil
+        return if @idx_mfile.closed?
         write_idx_header_to_slice(@idx_mfile.to_slice)
       end
 
