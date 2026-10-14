@@ -168,12 +168,45 @@ module LavinMQ
         result = Array(SnapshotSegmentFile).new
         srv = @server || return result
 
+        {"vhosts.json", "users.json", "parameters.json"}.each do |fn|
+          full = File.join(srv.data_dir, fn)
+          if bytes = @applier.committed_file_bytes(fn, full)
+            result << SnapshotSegmentFile.new("", "", 0_u32, fn, bytes)
+          end
+        end
+
         srv.vhosts.each_value do |vh|
           vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+          {".vhost", "definitions.amqp", "limits.json", "policies.json", "operator_policies.json", "parameters.json", "mqtt_permissions.json"}.each do |fn|
+            rel = "#{vh.dir}/#{fn}"
+            full = File.join(srv.data_dir, rel)
+            if bytes = @applier.committed_file_bytes(rel, full)
+              result << SnapshotSegmentFile.new(vh.name, "", 0_u32, rel, bytes)
+            end
+          end
+
+          retain_dir = File.join(vh.data_dir, "mqtt_retained_store")
+          if Dir.exists?(retain_dir)
+            Dir.each_child(retain_dir) do |child|
+              next unless child == "index" || child.ends_with?(".msg")
+              full = File.join(retain_dir, child)
+              next unless File.file?(full)
+              rel = "#{vh.dir}/mqtt_retained_store/#{child}"
+              result << SnapshotSegmentFile.new(vh.name, "", 0_u32, rel, File.read(full).to_slice.dup)
+            end
+          end
+
           vh.queues.each do |q|
             next unless q.durable?
             q_dir_name = q.queue_dir_name
             q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir_name)
+            {".queue", ".meta"}.each do |fn|
+              rel = "#{vh.dir}/#{q_dir_name}/#{fn}"
+              full = File.join(srv.data_dir, rel)
+              if File.exists?(full)
+                result << SnapshotSegmentFile.new(vh.name, q.name, 0_u32, rel, File.read(full).to_slice.dup)
+              end
+            end
             q.snapshot_segments(vh.dir, q_dir_name, vh_id, q_id, snap_lsn, @log, result)
           end
         end
@@ -277,13 +310,26 @@ module LavinMQ
         end
       end
 
+      private def abort_inflight_publish!(info : SegmentPathInfo, position : UInt32) : Nil
+        if q = @applier.resolve_queue(info.vhost_id, info.queue_id)
+          return if q.abort_inflight_publish_unlocked(info.seg_id, position)
+        end
+        if mfile = @log.registered_segment(info.vhost_id, info.queue_id, info.seg_id)
+          mfile.resize(position) if !mfile.closed? && mfile.size > position
+        end
+      end
+
       # ameba:disable Metrics/CyclomaticComplexity
       def append(path : String, pos : Int, length : Int)
-        return if replication_suppressed? || @server.nil? || !@node.leader?
+        return if replication_suppressed? || @server.nil?
         info = @lock.synchronize { @segment_path_cache[path]? } || cache_segment_path_info(path) || return
 
         case info.kind
         when .msgs?
+          unless @node.leader?
+            abort_inflight_publish!(info, pos.to_u32)
+            raise Clustering::Replicator::ReplicationError.new("Node #{@node.node_id} is not the cluster leader")
+          end
           if @commit_gated_delivery && !info.gate_initialized?
             if q = @applier.resolve_queue(info.vhost_id, info.queue_id)
               q.enable_commit_gate!(info.seg_id, pos.to_u32) unless q.raw_msg_store.commit_gated?
@@ -294,6 +340,7 @@ module LavinMQ
           entry = @node.propose_publish(info.vhost_id, info.queue_id, info.seg_id, pos.to_u32, length.to_u32)
           @last_proposed_lsn.set(entry.lsn)
         when .consumer_offsets?
+          return unless @node.leader?
           if File.exists?(path)
             copy = Bytes.new(length)
             File.open(path, "r") do |f|
@@ -304,7 +351,11 @@ module LavinMQ
             @last_proposed_lsn.set(entry.lsn)
           end
         end
-      rescue RaftNode::Error::NotLeaderError
+      rescue ex : RaftNode::Error::NotLeaderError
+        if info && info.kind.msgs?
+          abort_inflight_publish!(info, pos.to_u32)
+          raise Clustering::Replicator::ReplicationError.new(ex.message || "Node #{@node.node_id} is not the cluster leader")
+        end
       rescue IO::EOFError
       end
 

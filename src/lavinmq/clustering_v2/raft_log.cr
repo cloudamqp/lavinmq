@@ -139,6 +139,12 @@ module LavinMQ
         end
       end
 
+      def registered_segment(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32) : MFile?
+        @lock.synchronize do
+          @segments[{vhost_id, queue_id, segment_id}]?
+        end
+      end
+
       def register_segment_path(vhost_id : UInt64, queue_id : UInt64, segment_id : UInt32, path : String) : Nil
         @lock.synchronize do
           key = {vhost_id, queue_id, segment_id}
@@ -546,6 +552,7 @@ module LavinMQ
           return false if new_applied <= @applied_index
           @applied_index = new_applied
           write_idx_header_unsafe
+          @idx_mfile.fsync if @sync && !@idx_mfile.closed?
           true
         end
       end

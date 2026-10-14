@@ -264,6 +264,8 @@ module LavinMQ
         end
         @publish_count.add(1, :relaxed)
         true
+      rescue MessageStore::ClosedError | Clustering::Replicator::ReplicationError
+        false
       end
 
       def bindings

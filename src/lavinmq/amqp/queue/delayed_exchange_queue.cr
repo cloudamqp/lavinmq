@@ -47,6 +47,8 @@ module LavinMQ::AMQP
       @message_ttl_change.try_send? nil
       ensure_expire_fiber # restart the release fiber if it died on a transient store error
       true
+    rescue MessageStore::ClosedError | Clustering::Replicator::ReplicationError
+      false
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

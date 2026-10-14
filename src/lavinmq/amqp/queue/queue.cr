@@ -877,7 +877,7 @@ module LavinMQ::AMQP
       end
 
       PublishResult::Ok
-    rescue MessageStore::ClosedError
+    rescue MessageStore::ClosedError | Clustering::Replicator::ReplicationError
       # A racing delete closed the store. If push hadn't stored the message it's
       # not stored (avoids an HTTP 500); if it had, a later ClosedError from the
       # post-publish expire-fiber check still means the publish succeeded.

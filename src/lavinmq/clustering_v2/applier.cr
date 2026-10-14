@@ -123,8 +123,52 @@ module LavinMQ
       @segments[seg_id]?
     end
 
+    protected def already_applied_follower_publish?(seg_id : UInt32, position : UInt32, msg_bytes : Bytes) : MFile?
+      if mfile = @segments[seg_id]?
+        if mfile.size >= position.to_i64 + msg_bytes.size.to_i64 &&
+           mfile.to_slice(position.to_i64, msg_bytes.size.to_i64) == msg_bytes
+          if @committed_segment_id != UInt32::MAX
+            @committed_segment_id = seg_id
+            @committed_end_pos = (position + msg_bytes.size).to_u32
+          end
+          @empty.set(false) if !@size.zero? && !@commit_gated
+          return mfile
+        end
+      end
+      nil
+    end
+
+    protected def truncate_uncommitted_tail(seg_id : UInt32, mfile : MFile, position : UInt32) : UInt32
+      removed_msgs = 0_u32
+      begin
+        pos = position
+        limit = mfile.size.to_u32
+        while pos < limit
+          break if pos.to_i64 + 49 > limit.to_i64
+          msg = BytesMessage.from_bytes(mfile.to_slice + pos)
+          bs = msg.bytesize.to_u32
+          break if bs == 0_u32 || pos + bs > limit
+          unless deleted?(seg_id, pos)
+            @bytesize = @bytesize >= bs ? @bytesize - bs : 0_u64
+            @size -= 1 if @size > 0
+          end
+          if (cnt = @segment_msg_count[seg_id]?) && cnt > 0
+            @segment_msg_count[seg_id] = cnt - 1
+          end
+          removed_msgs += 1
+          pos += bs
+        end
+      rescue
+      end
+      mfile.resize(position)
+      removed_msgs
+    end
+
     def apply_follower_publish(seg_id : UInt32, position : UInt32, msg_bytes : Bytes) : MFile
       raise ClosedError.new if @closed
+      if existing = already_applied_follower_publish?(seg_id, position, msg_bytes)
+        return existing
+      end
       while @wfile_id < seg_id
         open_new_segment(msg_bytes.size)
       end
@@ -143,7 +187,9 @@ module LavinMQ
         end
         f
       end
-      if mfile.size != position
+      if mfile.size > position
+        truncate_uncommitted_tail(seg_id, mfile, position)
+      elsif mfile.size < position
         mfile.resize(position)
       end
       mfile.write(msg_bytes)
@@ -160,7 +206,7 @@ module LavinMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply_follower_ack(seg_id : UInt32, position : UInt32) : Nil
+    def apply_follower_ack(seg_id : UInt32, position : UInt32, sync : Bool = false) : Nil
       return if @closed
       mfile = @segments[seg_id]? || return
       return if seg_id < @rfile_id
@@ -173,6 +219,7 @@ module LavinMQ
 
       afile = @acks[seg_id]
       afile.write_bytes(position)
+      afile.fsync if sync && !afile.closed?
 
       if seg_id == @rfile_id && position == @rfile.pos.to_u32
         @rfile.seek(msg_bytesize, IO::Seek::Current)
@@ -204,6 +251,7 @@ module LavinMQ
         @segment_msg_count.delete(seg_id)
         @deleted.delete(seg_id)
         drain_contiguous_deleted_at_rfile
+        FileSystem.fsync_dir(@msg_dir) if sync && Dir.exists?(@msg_dir)
       end
     end
 
@@ -228,7 +276,7 @@ module LavinMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply_follower_segment_delete(seg_id : UInt32) : Nil
+    def apply_follower_segment_delete(seg_id : UInt32, sync : Bool = false) : Nil
       return if @closed
       mfile = @segments[seg_id]? || return
       return if seg_id == @wfile_id
@@ -257,6 +305,21 @@ module LavinMQ
       @segment_msg_count.delete(seg_id)
       @deleted.delete(seg_id)
       @empty.set(empty?)
+      FileSystem.fsync_dir(@msg_dir) if sync && Dir.exists?(@msg_dir)
+    end
+
+    def abort_inflight_publish(seg_id : UInt32, position : UInt32) : Bool
+      return false if @closed
+      mfile = @segments[seg_id]? || return false
+      return false unless mfile.size > position
+      mfile.resize(position)
+      true
+    end
+
+    def fsync_store_dir! : Nil
+      return if @closed
+      @wfile.fsync unless @wfile.closed?
+      FileSystem.fsync_dir(@msg_dir) if Dir.exists?(@msg_dir)
     end
 
     def rollback_uncommitted_publish(seg_id : UInt32, position : UInt32, byte_size : UInt32) : Bool
@@ -322,6 +385,10 @@ module LavinMQ
         @mfile.lease
         {@mfile, @mfile.size.to_u32}
       end
+
+      def fsync : Nil
+        @mfile.fsync unless @mfile.closed?
+      end
     end
 
     class StreamMessageStore < MessageStore
@@ -341,7 +408,19 @@ module LavinMQ
         end
       end
 
+      protected def truncate_uncommitted_tail(seg_id : UInt32, mfile : MFile, position : UInt32) : UInt32
+        removed = super(seg_id, mfile, position)
+        @last_offset = @last_offset >= removed.to_i64 ? @last_offset - removed.to_i64 : 0_i64
+        removed
+      end
+
       def apply_follower_publish(seg_id : UInt32, position : UInt32, msg_bytes : Bytes) : MFile
+        if existing = already_applied_follower_publish?(seg_id, position, msg_bytes)
+          return existing
+        end
+        if (mfile = @segments[seg_id]?) && mfile.size > position
+          truncate_uncommitted_tail(seg_id, mfile, position)
+        end
         @last_offset += 1
         mfile = super(seg_id, position, msg_bytes)
         if msg_bytes.size >= 8
@@ -355,14 +434,29 @@ module LavinMQ
         mfile
       end
 
-      def apply_follower_stream_offset(consumer_tag : String, offset : Int64) : Nil
+      def apply_follower_stream_offset(consumer_tag : String, offset : Int64, sync : Bool = false) : Nil
         return if @closed
         @consumer_offsets.store(consumer_tag, offset) { lowest_offset_in_stream }
+        @consumer_offsets.fsync if sync
       end
 
       def rollback_uncommitted_publish(seg_id : UInt32, position : UInt32, byte_size : UInt32) : Bool
         if super(seg_id, position, byte_size)
           @last_offset -= 1 if @last_offset > 0
+          true
+        else
+          false
+        end
+      end
+
+      def abort_inflight_publish(seg_id : UInt32, position : UInt32) : Bool
+        if super(seg_id, position)
+          @last_offset -= 1 if @last_offset > 0
+          if position <= 4_u32
+            @segment_first_offset.delete(seg_id)
+            @segment_first_ts.delete(seg_id)
+            @segment_last_ts.delete(seg_id)
+          end
           true
         else
           false
@@ -432,23 +526,23 @@ module LavinMQ
         mfile
       end
 
-      def apply_follower_ack(seg_id : UInt32, position : UInt32) : Nil
+      def apply_follower_ack(seg_id : UInt32, position : UInt32, sync : Bool = false) : Nil
         @msg_store_lock.synchronize do
-          @msg_store.apply_follower_ack(seg_id, position)
+          @msg_store.apply_follower_ack(seg_id, position, sync)
         end
         @ack_count.add(1, :relaxed)
       end
 
-      def apply_follower_segment_delete(seg_id : UInt32) : Nil
+      def apply_follower_segment_delete(seg_id : UInt32, sync : Bool = false) : Nil
         @msg_store_lock.synchronize do
-          @msg_store.apply_follower_segment_delete(seg_id)
+          @msg_store.apply_follower_segment_delete(seg_id, sync)
         end
       end
 
-      def apply_follower_stream_offset(consumer_tag : String, offset : Int64) : Nil
+      def apply_follower_stream_offset(consumer_tag : String, offset : Int64, sync : Bool = false) : Nil
         @msg_store_lock.synchronize do
           if store = @msg_store.as?(StreamMessageStore)
-            store.apply_follower_stream_offset(consumer_tag, offset)
+            store.apply_follower_stream_offset(consumer_tag, offset, sync)
           end
         end
       end
@@ -456,6 +550,17 @@ module LavinMQ
       def rollback_uncommitted_publish(seg_id : UInt32, position : UInt32, byte_size : UInt32) : Bool
         @msg_store_lock.synchronize do
           @msg_store.rollback_uncommitted_publish(seg_id, position, byte_size)
+        end
+      end
+
+      # Called inline from `LogicalReplicator#append` while `@msg_store_lock` is already held by `Queue#publish`.
+      def abort_inflight_publish_unlocked(seg_id : UInt32, position : UInt32) : Bool
+        @msg_store.abort_inflight_publish(seg_id, position)
+      end
+
+      def fsync_store_dir! : Nil
+        @msg_store_lock.synchronize do
+          @msg_store.fsync_store_dir!
         end
       end
 
@@ -474,6 +579,37 @@ module LavinMQ
     end
   end
 
+  class DefinitionsStore
+    def reload_from_snapshot! : Nil
+      @definitions_lock.synchronize do
+        @definitions_file.close unless @definitions_file.closed?
+        @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
+        return if @definitions_file.size.zero?
+        @exchanges.each_value do |ex|
+          ex.bindings_details.each do |binding|
+            ex.unbind(binding.destination, binding.routing_key, binding.arguments)
+          end
+        end
+        @exchanges.clear
+        @exchanges[MQTT::EXCHANGE] = @mqtt_exchange
+        load_default_definitions
+        @queues.each_value { |q| q.close unless q.closed? }
+        @queues.clear
+        @sessions.each_value { |s| s.close unless s.closed? }
+        @sessions.clear
+        @definitions_file.rewind
+      end
+      load!
+    end
+  end
+
+  class VHost
+    def reload_definitions_from_snapshot! : Nil
+      definitions.reload_from_snapshot!
+      apply_policies
+    end
+  end
+
   module MQTT
     class Broker
       def raw_retain_store : RetainStore
@@ -482,7 +618,7 @@ module LavinMQ
     end
 
     class RetainStore
-      def apply_follower_retain(topic : String, payload : Bytes) : Nil
+      def apply_follower_retain(topic : String, payload : Bytes, sync : Bool = false) : Nil
         pkt = Protocol::Publish.new(
           topic: topic,
           payload: payload,
@@ -492,9 +628,17 @@ module LavinMQ
           dup: false
         )
         retain(pkt)
+        return unless sync
+        @lock.synchronize do
+          @index_file.fsync unless @index_file.closed?
+          if fn = @index[topic]?
+            @files[fn]?.try { |f| f.fsync unless f.closed? }
+          end
+          FileSystem.fsync_dir(@dir)
+        end
       end
 
-      def apply_follower_delete_file(file_name : String) : Nil
+      def apply_follower_delete_file(file_name : String, sync : Bool = false) : Nil
         @lock.synchronize do
           matched_topic = nil
           @index.each do |topic, fn|
@@ -509,6 +653,30 @@ module LavinMQ
             end
             File.delete?(File.join(@dir, file_name))
           end
+          FileSystem.fsync_dir(@dir) if sync
+        end
+      end
+
+      def close_for_snapshot! : Nil
+        @lock.synchronize do
+          @index_file.close unless @index_file.closed?
+          @files.each_value { |f| f.close unless f.closed? }
+          @files.clear
+        end
+      end
+
+      def reload_from_snapshot!(sync : Bool = false) : Nil
+        @lock.synchronize do
+          @index_file.close unless @index_file.closed?
+          @files.each_value { |f| f.close unless f.closed? }
+          @files.clear
+          @index = IndexTree.new
+          FileSystem.mkdir_p(@dir)
+          @index_file = File.new(@index_file_name, "a+")
+          @index_file.rewind
+          restore_index(@index, @index_file)
+          write_index
+          FileSystem.fsync_dir(@dir) if sync
         end
       end
     end
@@ -852,6 +1020,16 @@ module LavinMQ
         end
       end
 
+      def committed_file_bytes(rel : String, full_path : String) : Bytes?
+        @cache_lock.synchronize do
+          if bytes = @committed_files[rel]?
+            return bytes.dup
+          end
+        end
+        return File.read(full_path).to_slice.dup if File.exists?(full_path)
+        nil
+      end
+
       # Called when `record` is committed in Raft.
       # - If `from_leader` is true (this node proposed and already executed the mutation locally),
       #   we only need to advance the commit-gated consumer delivery watermark on `Publish`.
@@ -892,41 +1070,43 @@ module LavinMQ
           return
         end
 
+        sync = @raft_log.sync?
         with_suppressed_replication do
           case entry.command
           when LogCommandType::LeaderNoOp, LogCommandType::ConfChange, LogCommandType::Tombstone
             # Handled by RaftNode
           when LogCommandType::VHostCreate
-            apply_vhost_create(record.payload)
+            apply_vhost_create(record.payload, sync)
           when LogCommandType::VHostDelete
-            apply_vhost_delete(record.payload)
+            apply_vhost_delete(record.payload, sync)
           when LogCommandType::QueueDeclare,
                LogCommandType::QueueDelete,
                LogCommandType::ExchangeDeclare,
                LogCommandType::ExchangeDelete,
                LogCommandType::BindingAdd,
                LogCommandType::BindingRemove
-            apply_definition_frame(entry.vhost_id, record.payload)
+            apply_definition_frame(entry.vhost_id, record.payload, sync)
           when LogCommandType::QueuePurge
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               @raft_log.unregister_queue_segments(entry.vhost_id, entry.queue_id)
               q.purge
+              q.fsync_store_dir! if sync
               register_queue_segments(entry.vhost_id, entry.queue_id, q)
             end
           when LogCommandType::Publish
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               mfile = q.apply_follower_publish(entry.segment_id, entry.position, record.payload)
-              mfile.fsync if Config.instance.sync? && @raft_log.sync?
+              mfile.fsync if sync
               @raft_log.register_segment(entry.vhost_id, entry.queue_id, entry.segment_id, mfile)
               @raft_log.bind_publish_segment(entry.lsn, entry.segment_id, entry.position, record.payload.size.to_u32)
             end
           when LogCommandType::Ack
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
-              q.apply_follower_ack(entry.segment_id, entry.position)
+              q.apply_follower_ack(entry.segment_id, entry.position, sync)
             end
           when LogCommandType::SegmentDelete
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
-              q.apply_follower_segment_delete(entry.segment_id)
+              q.apply_follower_segment_delete(entry.segment_id, sync)
               @raft_log.unregister_segment(entry.vhost_id, entry.queue_id, entry.segment_id)
             end
           when LogCommandType::StreamOffsetCommit
@@ -934,7 +1114,7 @@ module LavinMQ
               io = IO::Memory.new(record.payload)
               tag = AMQ::Protocol::ShortString.from_io(io)
               offset = Int64.from_io(io, IO::ByteFormat::LittleEndian)
-              q.apply_follower_stream_offset(tag, offset)
+              q.apply_follower_stream_offset(tag, offset, sync)
             end
           when LogCommandType::MqttRetainPut
             if vh = resolve_vhost(entry.vhost_id)
@@ -944,15 +1124,15 @@ module LavinMQ
               payload_len = UInt32.from_io(io, IO::ByteFormat::LittleEndian)
               payload = Bytes.new(payload_len)
               io.read_fully(payload)
-              vh.mqtt_broker.raw_retain_store.apply_follower_retain(topic, payload)
+              vh.mqtt_broker.raw_retain_store.apply_follower_retain(topic, payload, sync)
             end
           when LogCommandType::MqttRetainDelete
             if vh = resolve_vhost(entry.vhost_id)
               file_name = String.new(record.payload)
-              vh.mqtt_broker.raw_retain_store.apply_follower_delete_file(file_name)
+              vh.mqtt_broker.raw_retain_store.apply_follower_delete_file(file_name, sync)
             end
           when LogCommandType::FileReplace
-            apply_file_replace(entry.vhost_id, record.payload)
+            apply_file_replace(entry.vhost_id, record.payload, sync)
           end
         end
       end
@@ -1087,7 +1267,7 @@ module LavinMQ
         nil
       end
 
-      private def apply_vhost_create(payload : Bytes) : Nil
+      private def apply_vhost_create(payload : Bytes, sync : Bool = false) : Nil
         srv = @server || return
         @cache_lock.synchronize { @committed_files["vhosts.json"] = payload.dup }
         json = JSON.parse(String.new(payload))
@@ -1098,6 +1278,7 @@ module LavinMQ
             tags = vh_obj["tags"]?.try(&.as_a.map(&.as_s)) || Array(String).new
             vh = srv.vhosts[name]? || srv.vhosts.create(name, description: description, tags: tags)
             index_vhost!(vh)
+            FileSystem.fsync_dir(vh.data_dir) if sync
             rel_mqtt = "#{vh.dir}/mqtt_permissions.json"
             full_mqtt = File.join(srv.data_dir, rel_mqtt)
             @cache_lock.synchronize do
@@ -1107,9 +1288,10 @@ module LavinMQ
             end
           end
         end
+        FileSystem.fsync_dir(srv.data_dir) if sync
       end
 
-      private def apply_vhost_delete(payload : Bytes) : Nil
+      private def apply_vhost_delete(payload : Bytes, sync : Bool = false) : Nil
         srv = @server || return
         dir_or_name = String.new(payload)
         target_vh : VHost? = nil
@@ -1131,10 +1313,11 @@ module LavinMQ
           remove_vhost!(vh_id)
           drain_pending_apply_cache_ops
           srv.vhosts.delete(vh.name)
+          FileSystem.fsync_dir(srv.data_dir) if sync
         end
       end
 
-      private def apply_definition_frame(vhost_id : UInt64, payload : Bytes) : Nil
+      private def apply_definition_frame(vhost_id : UInt64, payload : Bytes, sync : Bool = false) : Nil
         vh = resolve_vhost(vhost_id) || return
         io = IO::Memory.new(payload)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
@@ -1146,18 +1329,21 @@ module LavinMQ
           remove_queue!(vhost_id, q_id)
           drain_pending_apply_cache_ops
         end
-        vh.apply(frame, loading: false, fsync: Config.instance.sync? && @raft_log.sync?)
+        vh.apply(frame, loading: false, fsync: sync)
         if frame.is_a?(AMQP::Frame::Queue::Declare)
           if q = vh.queue?(frame.queue_name)
+            q.fsync_store_dir! if sync
             q_id = index_queue!(vh, vhost_id, q)
             register_queue_segments(vhost_id, q_id, q)
             drain_pending_apply_cache_ops
           end
+        elsif frame.is_a?(AMQP::Frame::Queue::Delete) && sync
+          FileSystem.fsync_dir(vh.data_dir)
         end
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      private def apply_file_replace(vhost_id : UInt64, payload : Bytes) : Nil
+      private def apply_file_replace(vhost_id : UInt64, payload : Bytes, sync : Bool = false) : Nil
         @file_restore_lock.synchronize do
           srv = @server || return
           parsed = parse_file_replace_payload(payload) || return
@@ -1166,10 +1352,15 @@ module LavinMQ
           @cache_lock.synchronize { @committed_files[rel] = content }
 
           full_path = File.join(srv.data_dir, rel)
-          FileUtils.mkdir_p(File.dirname(full_path))
+          dir_path = File.dirname(full_path)
+          FileUtils.mkdir_p(dir_path)
           tmp_path = "#{full_path}.tmp.rf"
-          File.write(tmp_path, content)
+          File.open(tmp_path, "w") do |f|
+            f.write(content)
+            f.fsync if sync
+          end
           File.rename(tmp_path, full_path)
+          FileSystem.fsync_dir(dir_path) if sync
 
           parts = rel.split('/')
           if parts.size == 1
@@ -1199,12 +1390,21 @@ module LavinMQ
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def install_snapshot(req : InstallSnapshotRequest) : Nil
         srv = @server || return
+        sync = @raft_log.sync?
         with_suppressed_replication do
-          # Close durable queues and clear old segments before writing snapshot segments
+          # Close durable queues and retain stores and clear old files before writing snapshot files
           srv.vhosts.each_value do |vh|
             vh_id = ResourceId.vhost_id_for_dir(vh.dir)
+            vh.mqtt_broker.raw_retain_store.close_for_snapshot!
+            retain_dir = File.join(vh.data_dir, "mqtt_retained_store")
+            if Dir.exists?(retain_dir)
+              Dir.each_child(retain_dir) do |child|
+                File.delete?(File.join(retain_dir, child))
+              end
+            end
             vh.queues.each do |q|
               next unless q.durable?
               q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
@@ -1221,27 +1421,53 @@ module LavinMQ
             end
           end
 
+          touched_dirs = Set(String).new
           req.files.each do |seg_file|
             full_path = File.join(srv.data_dir, seg_file.relative_path)
-            FileUtils.mkdir_p(File.dirname(full_path))
+            dir_path = File.dirname(full_path)
+            FileUtils.mkdir_p(dir_path)
+            touched_dirs << dir_path
             if (staged = seg_file.staged_path) && File.exists?(staged)
               FileSystem.durable_rename(staged, full_path)
             else
-              File.write(full_path, seg_file.bytes)
+              File.open(full_path, "w") do |f|
+                f.write(seg_file.bytes)
+                f.fsync if sync
+              end
             end
           end
+          if sync
+            touched_dirs.each { |d| FileSystem.fsync_dir(d) if Dir.exists?(d) }
+            FileSystem.fsync_dir(srv.data_dir)
+          end
 
-          # Restart queues whose segments were replaced by snapshot so their MFiles map the snapshot
           @cache_lock.synchronize do
             @committed_files.clear
             @pending_file_replaces.clear
           end
+
+          vhosts_path = File.join(srv.data_dir, "vhosts.json")
+          vhosts_bytes = File.exists?(vhosts_path) ? File.read(vhosts_path).to_slice.dup : nil
+          reconcile_committed_vhosts!(srv, vhosts_bytes)
+          srv.users.reload! if File.exists?(File.join(srv.data_dir, "users.json"))
+          srv.reload_parameters! if File.exists?(File.join(srv.data_dir, "parameters.json"))
+
+          srv.vhosts.each_value do |vh|
+            vh.reload_limits! if File.exists?(File.join(vh.data_dir, "limits.json"))
+            vh.reload_operator_policies! if File.exists?(File.join(vh.data_dir, "operator_policies.json"))
+            vh.reload_policies! if File.exists?(File.join(vh.data_dir, "policies.json"))
+            vh.reload_parameters! if File.exists?(File.join(vh.data_dir, "parameters.json"))
+            vh.mqtt_permission_service.reload_for_rollback! if File.exists?(File.join(vh.data_dir, "mqtt_permissions.json"))
+            vh.reload_definitions_from_snapshot!
+            vh.mqtt_broker.raw_retain_store.reload_from_snapshot!(sync)
+          end
+
           rebuild_resource_cache!
           srv.vhosts.each_value do |vh|
             vh_id = index_vhost!(vh)
             vh.queues.each do |q|
               next unless q.durable?
-              q.restart!
+              q.restart! if q.closed?
               q_id = index_queue!(vh, vh_id, q)
               register_queue_segments(vh_id, q_id, q)
             end

@@ -163,7 +163,7 @@ module LavinMQ::AMQP
       # Notify all waiting stream consumers about new messages
       notify_all_stream_consumers
       PublishResult::Ok
-    rescue MessageStore::ClosedError
+    rescue MessageStore::ClosedError | Clustering::Replicator::ReplicationError
       # Closed/deleted concurrently after the @state.closed? check; treat as
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.

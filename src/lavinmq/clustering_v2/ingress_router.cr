@@ -335,12 +335,12 @@ module LavinMQ
       def initialize(@node : RaftNode,
                      @replicator : LogicalReplicator,
                      @server : LavinMQ::Server,
-                     config : Config = Config.instance,
+                     @config : Config = Config.instance,
                      execution_context : Fiber::ExecutionContext? = nil)
         @execution_context = execution_context || Fiber::ExecutionContext.default
-        @amqp_server = LavinMQ::AMQP::Server.new(@server, config)
+        @amqp_server = LavinMQ::AMQP::Server.new(@server, @config)
         @amqp_server.leader_check = -> { ensure_promoted_leader? }
-        @mqtt_server = LavinMQ::MQTT::Server.new(@server, config)
+        @mqtt_server = LavinMQ::MQTT::Server.new(@server, @config)
         @mqtt_server.leader_check = -> { ensure_promoted_leader? }
         @http_router = FollowerHttpRouterHandler.new(@node)
         @http_server = LavinMQ::HTTP::Server.new(@server, @amqp_server, @mqtt_server, @http_router)
@@ -590,18 +590,117 @@ module LavinMQ
         end
       end
 
+      SPLICE_MAGIC = "LMQSPL01".to_slice
+
       private def ensure_promoted_leader? : Bool
         return true if @node.promoted?
         return false unless @node.leader?
         @node.wait_until_promoted(2.seconds)
       end
 
+      private def compute_splice_hmac(ts : Int64, remote_ip : String, remote_port : UInt16, local_ip : String, local_port : UInt16, proxied : Bool) : Bytes
+        io = IO::Memory.new(64)
+        io.write(SPLICE_MAGIC)
+        IO::ByteFormat::LittleEndian.encode(ts, io)
+        Protocol.write_string(io, remote_ip)
+        IO::ByteFormat::LittleEndian.encode(remote_port, io)
+        Protocol.write_string(io, local_ip)
+        IO::ByteFormat::LittleEndian.encode(local_port, io)
+        io.write_byte(proxied ? 1_u8 : 0_u8)
+        OpenSSL::HMAC.digest(:sha256, @node.secret, io.to_slice)
+      end
+
+      private def write_splice_header(upstream : IO, conn_info : ConnectionInfo) : Nil
+        ts = Time.utc.to_unix_ms
+        remote_ip = conn_info.remote_address.address
+        remote_port = conn_info.remote_address.port
+        local_ip = conn_info.local_address.address
+        local_port = conn_info.local_address.port
+        proxied = conn_info.proxied?
+        mac = compute_splice_hmac(ts, remote_ip, remote_port, local_ip, local_port, proxied)
+
+        upstream.write(SPLICE_MAGIC)
+        IO::ByteFormat::LittleEndian.encode(ts, upstream)
+        Protocol.write_string(upstream, remote_ip)
+        IO::ByteFormat::LittleEndian.encode(remote_port, upstream)
+        Protocol.write_string(upstream, local_ip)
+        IO::ByteFormat::LittleEndian.encode(local_port, upstream)
+        upstream.write_byte(proxied ? 1_u8 : 0_u8)
+        upstream.write(mac)
+        upstream.flush
+      end
+
+      private def read_splice_ip(client : IO) : String
+        len = IO::ByteFormat::LittleEndian.decode(UInt32, client)
+        if len == 0_u32 || len > 256_u32
+          raise IO::Error.new("Invalid cluster splice IP length")
+        end
+        String.new(len.to_i) do |buf|
+          client.read_fully(Slice.new(buf, len.to_i))
+          {len.to_i, 0}
+        end
+      end
+
+      private def extract_connection_info(client : IO::Buffered, remote_addr : Socket::IPAddress, local_addr : Socket::IPAddress) : ConnectionInfo
+        client.read_timeout = 15.seconds
+        peeked = client.peek
+        if !peeked.empty? && peeked[0] == SPLICE_MAGIC[0]
+          magic = uninitialized UInt8[8]
+          client.read_fully(magic.to_slice)
+          unless magic.to_slice == SPLICE_MAGIC
+            raise IO::Error.new("Invalid cluster splice magic")
+          end
+          ts = IO::ByteFormat::LittleEndian.decode(Int64, client)
+          remote_ip = read_splice_ip(client)
+          remote_port = IO::ByteFormat::LittleEndian.decode(UInt16, client)
+          local_ip = read_splice_ip(client)
+          local_port = IO::ByteFormat::LittleEndian.decode(UInt16, client)
+          proxied_byte = client.read_byte || raise IO::EOFError.new
+          proxied = proxied_byte != 0_u8
+          mac = uninitialized UInt8[32]
+          client.read_fully(mac.to_slice)
+
+          if (Time.utc.to_unix_ms - ts).abs > 60_000_i64
+            raise IO::Error.new("Expired cluster splice header")
+          end
+          expected_mac = compute_splice_hmac(ts, remote_ip, remote_port, local_ip, local_port, proxied)
+          unless Crypto::Subtle.constant_time_compare(mac.to_slice, expected_mac)
+            raise IO::Error.new("Cluster splice HMAC verification failed")
+          end
+          return ConnectionInfo.new(
+            Socket::IPAddress.new(remote_ip, remote_port.to_i32),
+            Socket::IPAddress.new(local_ip, local_port.to_i32),
+            proxied: proxied
+          )
+        end
+        if @config.tcp_proxy_protocol?
+          if proxied_info = ProxyProtocol.parse(client)
+            return proxied_info
+          end
+        end
+        ConnectionInfo.new(remote_addr, local_addr)
+      ensure
+        client.read_timeout = nil
+      end
+
+      private def extract_follower_connection_info(client : IO::Buffered, remote_addr : Socket::IPAddress, local_addr : Socket::IPAddress) : ConnectionInfo
+        if @config.tcp_proxy_protocol?
+          if proxied_info = ProxyProtocol.parse(client)
+            return proxied_info
+          end
+        end
+        ConnectionInfo.new(remote_addr, local_addr)
+      end
+
       private def handle_amqp_socket(client : TCPSocket) : Nil
+        remote_addr = client.remote_address
+        local_addr = client.local_address
         if ensure_promoted_leader?
-          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+          conn_info = extract_connection_info(client, remote_addr, local_addr)
           @amqp_server.handle_connection(client, conn_info)
         else
-          splice_to_leader_amqp(client)
+          conn_info = extract_follower_connection_info(client, remote_addr, local_addr)
+          splice_to_leader_amqp(client, conn_info)
         end
       rescue
         client.close rescue nil
@@ -612,13 +711,14 @@ module LavinMQ
         local_addr = client.local_address
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, ctx, sync_close: true)
         if ensure_promoted_leader?
-          conn_info = ConnectionInfo.new(remote_addr, local_addr)
+          conn_info = extract_connection_info(ssl_client, remote_addr, local_addr)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
           @amqp_server.handle_connection(ssl_client, conn_info)
         else
-          splice_to_leader_amqp(ssl_client)
+          conn_info = extract_follower_connection_info(ssl_client, remote_addr, local_addr)
+          splice_to_leader_amqp(ssl_client, conn_info)
         end
       rescue
         client.close rescue nil
@@ -628,18 +728,21 @@ module LavinMQ
         if ensure_promoted_leader?
           @amqp_server.handle_connection(client, ConnectionInfo.local)
         else
-          splice_to_leader_amqp(client)
+          splice_to_leader_amqp(client, ConnectionInfo.local)
         end
       rescue
         client.close rescue nil
       end
 
       private def handle_mqtt_socket(client : TCPSocket) : Nil
+        remote_addr = client.remote_address
+        local_addr = client.local_address
         if ensure_promoted_leader?
-          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+          conn_info = extract_connection_info(client, remote_addr, local_addr)
           @mqtt_server.handle_connection(client, conn_info)
         else
-          splice_to_leader_mqtt(client)
+          conn_info = extract_follower_connection_info(client, remote_addr, local_addr)
+          splice_to_leader_mqtt(client, conn_info)
         end
       rescue
         client.close rescue nil
@@ -650,13 +753,14 @@ module LavinMQ
         local_addr = client.local_address
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, ctx, sync_close: true)
         if ensure_promoted_leader?
-          conn_info = ConnectionInfo.new(remote_addr, local_addr)
+          conn_info = extract_connection_info(ssl_client, remote_addr, local_addr)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
           @mqtt_server.handle_connection(ssl_client, conn_info)
         else
-          splice_to_leader_mqtt(ssl_client)
+          conn_info = extract_follower_connection_info(ssl_client, remote_addr, local_addr)
+          splice_to_leader_mqtt(ssl_client, conn_info)
         end
       rescue
         client.close rescue nil
@@ -666,28 +770,28 @@ module LavinMQ
         if ensure_promoted_leader?
           @mqtt_server.handle_connection(client, ConnectionInfo.local)
         else
-          splice_to_leader_mqtt(client)
+          splice_to_leader_mqtt(client, ConnectionInfo.local)
         end
       rescue
         client.close rescue nil
       end
 
-      private def splice_to_leader_amqp(client : IO) : Nil
+      private def splice_to_leader_amqp(client : IO, conn_info : ConnectionInfo) : Nil
         leader = @node.leader_member
         if leader.nil? || leader.node_id == @node.node_id || leader.amqp_uri.empty?
           client.close rescue nil
           return
         end
-        splice_to_upstream(client, leader.amqp_uri, "amqps", 5672, 5671)
+        splice_to_upstream(client, leader.amqp_uri, "amqps", 5672, 5671, conn_info)
       end
 
-      private def splice_to_leader_mqtt(client : IO) : Nil
+      private def splice_to_leader_mqtt(client : IO, conn_info : ConnectionInfo) : Nil
         leader = @node.leader_member
         if leader.nil? || leader.node_id == @node.node_id || leader.mqtt_uri.empty?
           client.close rescue nil
           return
         end
-        splice_to_upstream(client, leader.mqtt_uri, "mqtts", 1883, 8883)
+        splice_to_upstream(client, leader.mqtt_uri, "mqtts", 1883, 8883, conn_info)
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -695,7 +799,8 @@ module LavinMQ
                                      target_uri : String,
                                      tls_scheme : String,
                                      default_port : Int32,
-                                     default_tls_port : Int32) : Nil
+                                     default_tls_port : Int32,
+                                     conn_info : ConnectionInfo) : Nil
         uri = URI.parse(target_uri)
         host = uri.host || "127.0.0.1"
         port = uri.port || (uri.scheme == tls_scheme ? default_tls_port : default_port)
@@ -713,6 +818,7 @@ module LavinMQ
         else
           tcp_sock
         end
+        write_splice_header(upstream, conn_info)
         client.sync = true if client.responds_to?(:sync=)
         client.read_buffering = false if client.responds_to?(:read_buffering=)
 

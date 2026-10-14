@@ -209,19 +209,19 @@ describe LavinMQ::ClusteringV2::IngressRouter do
       cfg.http_port = http_p
       cfg.clustering_bind = "0.0.0.0"
       cfg.clustering_port = free_port
-      cfg.clustering_advertised_uri = "tcp://127.0.0.1:#{free_port}"
+      cfg.clustering_advertised_uri = "tcp://node1.example:#{free_port}"
       cfg.clustering_peers = [] of String
 
       cn = LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "test-secret", config: cfg)
       begin
         cn.start_from_config(cfg)
 
-        cn.raft.peer_uri.should eq("tcp://127.0.0.1:#{free_port}")
+        cn.raft.peer_uri.should eq("tcp://node1.example:#{free_port}")
         self_member = cn.raft.members.find! { |m| m.node_id == 1_u64 }
-        self_member.peer_uri.should eq("tcp://127.0.0.1:#{free_port}")
-        self_member.amqp_uri.should eq("amqp://127.0.0.1:#{amqp_p}")
-        self_member.mqtt_uri.should eq("mqtt://127.0.0.1:#{mqtt_p}")
-        self_member.http_uri.should eq("http://127.0.0.1:#{http_p}")
+        self_member.peer_uri.should eq("tcp://node1.example:#{free_port}")
+        self_member.amqp_uri.should eq("amqp://node1.example:#{amqp_p}")
+        self_member.mqtt_uri.should eq("mqtt://node1.example:#{mqtt_p}")
+        self_member.http_uri.should eq("http://node1.example:#{http_p}")
       ensure
         cn.close
       end
@@ -344,6 +344,91 @@ describe LavinMQ::ClusteringV2::IngressRouter do
         target_follower.server.vhosts["/"].connections.any? do |c|
           c.is_a?(LavinMQ::MQTT::Client) && c.client_id == "mqtt-l4-spliced"
         end.should be_true
+
+        MQTT::Protocol::Disconnect.new.to_io(mqtt_io)
+      end
+    ensure
+      nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "preserves original client remote_address across follower-to-leader splicing and enforces loopback user restrictions" do
+    base_dir = File.tempname("lavinmq_cv2_splice_addr")
+    Dir.mkdir_p(base_dir)
+    nodes = Array(LavinMQ::ClusteringV2::ClusterNode).new
+
+    begin
+      infos = (1_u64..2_u64).map do |id|
+        ndir = File.join(base_dir, "node#{id}")
+        cfg = LavinMQ::Config.new
+        cfg.data_dir = ndir
+        cfg.tcp_proxy_protocol = true
+        cn = LavinMQ::ClusteringV2::ClusterNode.new(ndir, id, secret: "test-secret", config: cfg)
+        cn.raft.heartbeat_interval = 20.milliseconds
+        cn.raft.election_timeout_min = 90.milliseconds
+        cn.raft.election_timeout_max = 160.milliseconds
+        nodes << cn
+        cn.bind(mqtt_port: 0)
+      end
+
+      nodes.each(&.raft.configure_cluster(infos))
+      nodes[0].raft.trigger_election!
+
+      wait_until { nodes.count(&.raft.leader?) == 1 }.should be_true
+      leader = nodes.find!(&.raft.leader?)
+      follower = nodes.reject(&.raft.leader?).first
+
+      # Create a non-loopback user on the leader and wait for replication
+      leader.server.users.create("remote_user", "secret123", [LavinMQ::Tag::Administrator])
+      leader.server.users.add_permission("remote_user", "/", /.*/, /.*/, /.*/)
+      leader.replicator.wait_for_followers
+
+      # 1. Non-loopback client (via PROXY protocol header on the follower) attempting to log in as "guest"
+      #    over MQTT through the follower (which splices over 127.0.0.1 to the leader) MUST be rejected!
+      TCPSocket.open("127.0.0.1", follower.router.mqtt_port) do |sock|
+        sock.read_timeout = 2.seconds
+        sock << "PROXY TCP4 198.51.100.42 127.0.0.1 54321 #{follower.router.mqtt_port}\r\n"
+        sock.flush
+        mqtt_io = MQTT::Protocol::IO.new(sock)
+        MQTT::Protocol::Connect.new(
+          client_id: "mqtt-spoofed-guest",
+          clean_session: true,
+          keepalive: 30_u16,
+          username: "guest",
+          password: "guest".to_slice,
+          will: nil
+        ).to_io(mqtt_io)
+        pkt = MQTT::Protocol::Packet.from_io(mqtt_io)
+        pkt.should be_a(MQTT::Protocol::Connack)
+        pkt.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::NotAuthorized)
+      end
+
+      # 2. Non-loopback client logging in as "remote_user" through the follower succeeds and
+      #    records the original client IP (198.51.100.42:54321) on the leader's connection list.
+      TCPSocket.open("127.0.0.1", follower.router.mqtt_port) do |sock|
+        sock.read_timeout = 2.seconds
+        sock << "PROXY TCP4 198.51.100.42 127.0.0.1 54321 #{follower.router.mqtt_port}\r\n"
+        sock.flush
+        mqtt_io = MQTT::Protocol::IO.new(sock)
+        MQTT::Protocol::Connect.new(
+          client_id: "mqtt-remote-user",
+          clean_session: true,
+          keepalive: 30_u16,
+          username: "remote_user",
+          password: "secret123".to_slice,
+          will: nil
+        ).to_io(mqtt_io)
+        pkt = MQTT::Protocol::Packet.from_io(mqtt_io)
+        pkt.should be_a(MQTT::Protocol::Connack)
+        pkt.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+
+        mqtt_conn = leader.server.vhosts["/"].connections.find! do |c|
+          c.is_a?(LavinMQ::MQTT::Client) && c.client_id == "mqtt-remote-user"
+        end
+        mqtt_conn.connection_info.remote_address.address.should eq("198.51.100.42")
+        mqtt_conn.connection_info.remote_address.port.should eq(54321_u16)
+        mqtt_conn.connection_info.loopback?.should be_false
 
         MQTT::Protocol::Disconnect.new.to_io(mqtt_io)
       end

@@ -491,9 +491,22 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       lagging_follower.raft.set_isolated(true)
 
       leader_vh = leader.server.vhosts["/"]
+      leader.server.vhosts.create("snap_vh")
+      leader.server.users.create("snap_user", "snap_pass", [LavinMQ::Tag::Management])
+      leader_vh.add_policy("snap_pol", "^snap_", "queues", {"max-length" => JSON::Any.new(1000_i64)}, 1_i8)
       leader_vh.declare_queue("snap_q", true, false)
       leader_vh.declare_exchange("snap_ex", "direct", true, false)
       leader_vh.bind_queue("snap_q", "snap_ex", "rk")
+      leader_vh.mqtt_broker.raw_retain_store.retain(
+        MQTT::Protocol::Publish.new(
+          topic: "sensors/temp",
+          payload: "21.5C".to_slice,
+          packet_id: nil,
+          qos: 0_u8,
+          retain: true,
+          dup: false
+        )
+      )
 
       q_leader = leader_vh.queue("snap_q")
       24.times do |i|
@@ -508,10 +521,10 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       leader.replicator.wait_for_followers
 
       wait_until { live_follower.server.vhosts["/"].queue?("snap_q").try(&.message_count) == 20 }.should be_true
-      leader.raft.log.first_lsn.should be > 1_u64
+      leader.raft.log.first_lsn.should be > 10_u64
 
-      # Reconnect lagging_follower: leader must send InstallSnapshot (applying control_records with FLAG_FROM_LEADER stripped
-      # and consistent segment snapshots) followed by any subsequent AppendEntries without double-counting.
+      # Reconnect lagging_follower: leader must send InstallSnapshot (restoring compacted vhosts, users,
+      # definitions, policies, retained messages, and consistent segment snapshots) followed by AppendEntries.
       lagging_follower.raft.set_isolated(false)
       leader.raft.pause_peer(lagging_follower.raft.node_id, false)
 
@@ -522,9 +535,18 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
 
       wait_until(10.seconds) do
         vh = lagging_follower.server.vhosts["/"]
-        !vh.exchange?("snap_ex").nil? &&
+        !lagging_follower.server.vhosts["snap_vh"]?.nil? &&
+          !lagging_follower.server.users["snap_user"]?.nil? &&
+          vh.policies.has_key?("snap_pol") &&
+          !vh.exchange?("snap_ex").nil? &&
           vh.queue?("snap_q").try(&.message_count) == 22
       end.should be_true
+
+      retained_topics = Array(String).new
+      lagging_follower.server.vhosts["/"].mqtt_broker.raw_retain_store.each("sensors/temp") do |topic, _body_io, _size|
+        retained_topics << topic
+      end
+      retained_topics.should eq(["sensors/temp"])
     ensure
       nodes.each(&.close)
       FileUtils.rm_rf(base_dir)
@@ -639,6 +661,22 @@ describe LavinMQ::ClusteringV2::LogicalReplicator do
       wait_until do
         leader.raft.follower? && q_leader.message_count == 1
       end.should be_true
+
+      # 3. Attempting a publish on the stepped-down leader must roll back the local segment append,
+      #    raise ReplicationError from MessageStore#push, and return PublishResult::Closed from Queue#publish
+      #    without leaving phantom messages in the store.
+      expect_raises(LavinMQ::Clustering::Replicator::ReplicationError) do
+        q_leader.as(LavinMQ::AMQP::DurableQueue).@msg_store.push(make_test_message("after-stepdown-raw", routing_key: "trunc_q"))
+      end
+      q_leader.publish(make_test_message("after-stepdown", routing_key: "trunc_q")).should eq(LavinMQ::AMQP::Queue::PublishResult::Closed)
+      q_leader.message_count.should eq(1)
+
+      # 4. Replaying an already-applied follower publish at the same segment/position is idempotent.
+      f1_q = f1.server.vhosts["/"].queue("trunc_q").as(LavinMQ::AMQP::DurableQueue)
+      f1_seg = f1_q.@msg_store.current_segment_mfile(1_u32) || raise "Expected segment 1"
+      existing_bytes = f1_seg.to_slice(4, (f1_seg.size - 4).to_i32).dup
+      f1_q.@msg_store.apply_follower_publish(1_u32, 4_u32, existing_bytes)
+      f1_q.message_count.should eq(1)
     ensure
       nodes.each(&.close)
       FileUtils.rm_rf(base_dir)
