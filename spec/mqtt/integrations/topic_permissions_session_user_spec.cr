@@ -124,6 +124,36 @@ module MqttSpecs
       end
     end
 
+    it "keeps the user of a session bound outside a SUBSCRIBE across a restart" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
+        service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
+        service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
+          pingpong(io)
+          disconnect(io)
+        end
+        # As the HTTP API or a definitions import would
+        server.vhosts["/"].bind_queue("mqtt.dev", LavinMQ::MQTT::EXCHANGE, "chat/#", LavinMQ::MQTT.qos_arguments(1u8))
+
+        restart_server(server)
+
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 1u8, packet_id: 1u16)
+          pingpong(pub_io)
+        end
+        server.vhosts["/"].session("mqtt.dev").message_count.should eq 1
+      end
+    end
+
     it "writes no metadata file for a persistent session that never subscribed" do
       with_server do |server|
         metadata_file = File.join(server.vhosts["/"].data_dir, Digest::SHA1.hexdigest("mqtt.dev"), ".metadata")

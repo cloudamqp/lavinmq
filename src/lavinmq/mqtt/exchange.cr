@@ -61,8 +61,9 @@ module LavinMQ
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
+        # Before routing to it, so the session's storage is ready
         destination.subscription_bound(routing_key, qos)
+        @tree.subscribe(routing_key, destination, qos)
 
         binding_key = SubscriptionKey.new(routing_key, qos)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)

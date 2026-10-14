@@ -383,10 +383,9 @@ module LavinMQ
       end
 
       # The username decides which messages a session gets while no client is
-      # attached, after a restart too. Only a session that subscribed gets
-      # messages, so it is kept from the first SUBSCRIBE on, which also
-      # created the session's segment: a publish-only client's session
-      # writes no file.
+      # attached, after a restart too. Only a session with a subscription gets
+      # messages, so it is kept from the first one on, which also created the
+      # session's segment: a publish-only client's session writes no file.
       private def persist_username : Nil
         return unless durable? && @msg_store.has_segments?
         username = @permission_context.username || return
@@ -407,13 +406,6 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
-        # Messages only reach a session through its subscriptions. Creating the
-        # segment here keeps it out of the publish that first routes to it,
-        # which a fanout to many new subscribers would pay for each of them.
-        @msg_store_lock.synchronize do
-          @msg_store.open_first_segment unless @msg_store.closed
-        end
-        persist_username
         if current = @subscriptions[tf]?
           return if current == qos
           unbind(tf, MQTT.qos_arguments(current))
@@ -427,7 +419,19 @@ module LavinMQ
         end
       end
 
+      # Called for every binding, whether from a SUBSCRIBE, the HTTP API, a
+      # definitions import or a restore at startup
       protected def subscription_bound(filter : String, qos : UInt8) : Nil
+        unless closed?
+          # Messages only reach a session through its subscriptions. Creating
+          # the segment here keeps it out of the publish that first routes to
+          # it, which a fanout to many new subscribers would pay for each of
+          # them. First, so a failure leaves the subscription unrecorded.
+          @msg_store_lock.synchronize do
+            @msg_store.open_first_segment unless @msg_store.closed
+          end
+          persist_username
+        end
         @subscriptions[filter] = qos
       end
 

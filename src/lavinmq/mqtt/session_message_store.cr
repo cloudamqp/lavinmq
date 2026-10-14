@@ -13,7 +13,7 @@ module LavinMQ
       @original_packet_ids = Hash(SegmentPosition, UInt16).new
 
       # A publish-only client's session never receives a message, so it
-      # shouldn't hold a mapped segment. Session#subscribe creates it.
+      # shouldn't hold a mapped segment. Its first subscription creates it.
       private def lazy_first_segment? : Bool
         true
       end
