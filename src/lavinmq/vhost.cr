@@ -36,7 +36,16 @@ module LavinMQ
     STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
                   "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
-    rate_stats(STATS_KEYS)
+    rate_stats(STATS_KEYS, {"messages_ready", "messages_unacknowledged"})
+
+    # Ready and unacked messages in all queues and sessions, as of the last stats tick
+    getter messages_ready = 0_u32
+    getter messages_unacknowledged = 0_u32
+
+    def update_message_totals(ready : UInt64, unacked : UInt64) : Nil
+      @messages_ready = Math.min(ready, UInt32::MAX).to_u32
+      @messages_unacknowledged = Math.min(unacked, UInt32::MAX).to_u32
+    end
 
     DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
