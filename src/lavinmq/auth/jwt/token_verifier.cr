@@ -34,12 +34,22 @@ module LavinMQ
       class TokenVerifier
         Log = LavinMQ::Log.for "oauth2"
 
-        getter :fetcher
+        # Everything a verification depends on. A reload swaps in a new State
+        # as one reference, and a verification reads @state once, so each token
+        # is checked entirely against either the old or the new config, even
+        # when ensure_keys blocks while a reload runs.
+        private record State, config : Config, parser : TokenParser,
+          fetcher : JWKSFetcher, expected_issuer : String
+
         @disabled = false
 
-        def initialize(@config : Config, @fetcher : JWKSFetcher)
-          @expected_issuer = @config.oauth_issuer_url.to_s.chomp("/")
-          @parser = TokenParser.new(@config)
+        def initialize(config : Config, fetcher : JWKSFetcher)
+          @state = State.new(config, TokenParser.new(config), fetcher,
+            config.oauth_issuer_url.to_s.chomp("/"))
+        end
+
+        def fetcher : JWKSFetcher
+          @state.fetcher
         end
 
         # Applies a reloaded config. Claim, scope and audience settings are read
@@ -47,46 +57,51 @@ module LavinMQ
         # TTL are bound to the fetcher, so it's replaced when either changes.
         # The verifier itself is kept, as OAuthUsers hold it for UpdateSecret.
         def reload(config : Config) : Nil
-          @config = config
-          @parser = TokenParser.new(config)
+          state = @state
+          parser = TokenParser.new(config)
           uri = config.oauth_issuer_url
           unless uri
-            Log.warn { "oauth issuer removed from the config, a restart is required to disable OAuth" }
+            Log.warn { "oauth issuer removed from the config, keeping the current issuer" }
+            @state = state.copy_with(config: config, parser: parser)
             return
           end
           issuer = uri.to_s.chomp("/")
-          return if issuer == @fetcher.issuer_url && config.oauth_jwks_cache_ttl == @fetcher.default_cache_ttl
+          if issuer == state.fetcher.issuer_url && config.oauth_jwks_cache_ttl == state.fetcher.default_cache_ttl
+            @state = state.copy_with(config: config, parser: parser)
+            return
+          end
           Log.info { "OAuth issuer or jwks_cache_ttl changed, refetching JWKS from #{issuer}" }
           fetcher = JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
           fetcher.start_refresh_loop
-          old_fetcher = @fetcher
-          @fetcher = fetcher
-          @expected_issuer = issuer
-          old_fetcher.cleanup
+          @state = State.new(config, parser, fetcher, issuer)
+          state.fetcher.cleanup
         end
 
         def parse_token(token : String) : TokenClaim
-          token = verify_token(token)
-          @parser.parse(token)
+          state = @state
+          state.parser.parse(verify_token(token, state))
         end
 
         # Stops the JWKS fetcher and rejects all tokens from now on, e.g. token
         # refreshes from connections authenticated before OAuth was disabled.
         def disable : Nil
           @disabled = true
-          @fetcher.cleanup
+          @state.fetcher.cleanup
         end
 
         def verify_token(token : String) : Token
+          verify_token(token, @state)
+        end
+
+        private def verify_token(token : String, state : State) : Token
           raise JWT::VerificationError.new("OAuth authentication is disabled") if @disabled
           prevalidate_token(token)
           # After prevalidation so malformed tokens can't trigger network fetches
-          fetcher = @fetcher # a reload may replace it while ensure_keys blocks
-          fetcher.ensure_keys
-          verified_token = fetcher.public_keys.decode(token)
+          state.fetcher.ensure_keys
+          verified_token = state.fetcher.public_keys.decode(token)
           payload = verified_token.payload
-          validate_issuer(payload)
-          validate_audience(payload) if @config.oauth_verify_aud?
+          validate_issuer(payload, state.expected_issuer)
+          validate_audience(payload, state.config) if state.config.oauth_verify_aud?
           verified_token
         end
 
@@ -119,23 +134,23 @@ module LavinMQ
           end
         end
 
-        protected def validate_issuer(payload : JWT::Payload)
+        protected def validate_issuer(payload : JWT::Payload, expected_issuer = @state.expected_issuer)
           issuer = payload.iss
           raise JWT::DecodeError.new("Missing or invalid iss claim in token") unless issuer
 
-          if issuer.chomp("/") != @expected_issuer
+          if issuer.chomp("/") != expected_issuer
             raise JWT::VerificationError.new("Token issuer does not match the expected issuer")
           end
         end
 
-        private def validate_audience(payload : JWT::Payload)
+        private def validate_audience(payload : JWT::Payload, config = @state.config)
           aud = payload.aud
           raise JWT::VerificationError.new("Missing aud claim in token") unless aud
 
           audiences = payload.audiences
           raise JWT::DecodeError.new("Invalid aud claim format") unless audiences
 
-          expected = @config.oauth_audience || @config.oauth_resource_server_id
+          expected = config.oauth_audience || config.oauth_resource_server_id
 
           # RFC 7519 Section 4.1.3: if the token has an audience claim and we have
           # no expected audience configured, reject it
