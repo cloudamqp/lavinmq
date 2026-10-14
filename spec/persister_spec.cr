@@ -6,7 +6,6 @@ end
 
 private def last_sync(s : LavinMQ::Server) : LavinMQ::Persister::SyncRecord
   s.persister.last_sync.should_not be_nil
-  s.persister.last_sync.not_nil!
 end
 
 # The ISR can't be changed anymore, as on a node that lost its leadership
@@ -94,7 +93,10 @@ describe LavinMQ::Persister do
       with_channel(s) do |ch|
         q = ch.queue("acked")
         10.times { |i| q.publish "m#{i}" }
-        10.times { q.get(no_ack: false).not_nil!.ack }
+        10.times do
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.ack
+        end
         should_eventually(be_true) { s.vhosts["/"].queue("acked").message_count.zero? }
         q.publish_confirm "confirmed"
         last_sync(s).paths.none?(&.includes?("acks.")).should be_true
@@ -108,7 +110,8 @@ describe LavinMQ::Persister do
         q = ch.queue("tx")
         q.publish "m"
         ch.tx_select
-        q.get(no_ack: false).not_nil!.ack
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.ack
         q.publish "tx publish"
         ch.tx_commit
         last_sync(s).syncfs.should be_true

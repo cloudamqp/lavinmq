@@ -130,7 +130,7 @@ private class SimCluster
   # Runs until there's a serving leader and has it commit `isr`.
   def elect(isr : Set(Int32)) : Raft::Core
     run_until { leader.try &.serving_leader? }
-    l = leader.not_nil!
+    l = leader.should_not(be_nil)
     propose(l, isr)
     advance(100.milliseconds)
     l
@@ -169,7 +169,7 @@ private class SimCluster
   private def new_core(id, seed, state = nil)
     address = @addresses[id]
     Raft::Core.new(id, address, @seeds, "tcp://#{address}:5679", ELECTION, HEARTBEAT,
-      @now, state, Random.new(seed + id - 1), bootstrap: @bootstrap.nil? || @bootstrap.not_nil!.includes?(id))
+      @now, state, Random.new(seed + id - 1), bootstrap: @bootstrap.nil? || @bootstrap.should_not(be_nil).includes?(id))
   end
 end
 
@@ -191,7 +191,7 @@ describe Raft::Core do
     sim.run_until { sim.leader }
     sim.advance(1.second)
     sim.leaders.size.should eq 1
-    leader = sim.leader.not_nil!
+    leader = sim.leader.should_not(be_nil)
     sim.cores.each_value do |c|
       c.term.should eq leader.term
       c.leader_uri.should eq "tcp://n#{leader.id}:5679"
@@ -210,17 +210,17 @@ describe Raft::Core do
     sim.leader.should be_nil
     sim.restart(2)
     sim.run_until { sim.leader.try &.serving_leader? }
-    sim.leader.not_nil!.id.should eq 2
+    sim.leader.should_not(be_nil).id.should eq 2
   end
 
   it "lets a node without bootstrap campaign once it has joined" do
     sim = SimCluster.new(3, bootstrap: [1])
     sim.run_until { sim.leader.try &.serving_leader? }
-    sim.propose(sim.leader.not_nil!, Set{1, 2, 3})
+    sim.propose(sim.leader.should_not(be_nil), Set{1, 2, 3})
     sim.advance(100.milliseconds)
     sim.crash(1)
     sim.run_until { sim.leader.try &.serving_leader? }
-    sim.leader.not_nil!.id.should_not eq 1
+    sim.leader.should_not(be_nil).id.should_not eq 1
   end
 
   it "doesn't let unbootstrapped nodes elect each other after hearing from the first leader" do
@@ -235,26 +235,26 @@ describe Raft::Core do
   it "fails over to an ISR member that missed an entry committed through a non-ISR node" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    a = sim.leader.not_nil!
+    a = sim.leader.should_not(be_nil)
     b, c = sim.cores.keys.reject(a.id)
     isr = Set{a.id, b}
     sim.propose(a, isr)
     sim.advance(100.milliseconds)
     sim.isolated << b
-    index = sim.propose(a, isr).not_nil!
+    index = sim.propose(a, isr).should_not(be_nil)
     a.commit_index.should be >= index
     sim[c].last_index.should be > sim[b].last_index
     sim.crash(a.id)
     sim.isolated.delete(b)
     sim.run_until { sim.leader.try &.serving_leader? }
-    sim.leader.not_nil!.id.should eq b
+    sim.leader.should_not(be_nil).id.should eq b
   end
 
   it "commits an ISR change on a majority" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    leader = sim.leader.not_nil!
-    index = sim.propose(leader, Set{1, 2, 3}).not_nil!
+    leader = sim.leader.should_not(be_nil)
+    index = sim.propose(leader, Set{1, 2, 3}).should_not(be_nil)
     leader.commit_index.should be >= index
     sim.advance(100.milliseconds)
     sim.cores.each_value(&.committed_isr.should(eq(Set{1, 2, 3})))
@@ -263,9 +263,9 @@ describe Raft::Core do
   it "doesn't commit without a majority" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    leader = sim.leader.not_nil!
+    leader = sim.leader.should_not(be_nil)
     sim.cores.each_key { |id| sim.isolated << id unless id == leader.id }
-    index = sim.propose(leader, Set{1}).not_nil!
+    index = sim.propose(leader, Set{1}).should_not(be_nil)
     sim.advance(50.milliseconds)
     leader.commit_index.should be < index
   end
@@ -273,18 +273,18 @@ describe Raft::Core do
   it "fails over when the leader crashes" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    old = sim.leader.not_nil!
+    old = sim.leader.should_not(be_nil)
     sim.propose(old, Set{1, 2, 3})
     sim.advance(100.milliseconds)
     sim.crash(old.id)
     sim.run_until { (l = sim.leader) && l.id != old.id && l.serving_leader? }
-    sim.leader.not_nil!.term.should be > old.term
+    sim.leader.should_not(be_nil).term.should be > old.term
   end
 
   it "never elects a node outside the ISR" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    leader = sim.leader.not_nil!
+    leader = sim.leader.should_not(be_nil)
     in_sync, lagging = sim.cores.keys.reject(leader.id)
     sim.propose(leader, Set{leader.id, in_sync})
     sim.advance(100.milliseconds)
@@ -296,13 +296,13 @@ describe Raft::Core do
     # The in-sync node comes back and can win together with the lagging vote
     sim.restart(in_sync)
     sim.run_until { sim.leader.try &.serving_leader? }
-    sim.leader.not_nil!.id.should eq in_sync
+    sim.leader.should_not(be_nil).id.should eq in_sync
   end
 
   it "lets a leader step down when it loses the majority" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    old = sim.leader.not_nil!
+    old = sim.leader.should_not(be_nil)
     sim.isolated << old.id
     sim.advance(SimCluster::ELECTION * 2)
     old.role.leader?.should be_false
@@ -312,7 +312,7 @@ describe Raft::Core do
     it "elects, keeps and fails over a leader" do
       sim = SimCluster.new(3)
       sim.advance_by_deadlines(1.second)
-      leader = sim.leader.not_nil!
+      leader = sim.leader.should_not(be_nil)
       leader.serving_leader?.should be_true
       sim.propose(leader, Set{1, 2, 3})
       # Heartbeats keep the followers from campaigning
@@ -322,13 +322,13 @@ describe Raft::Core do
       sim.crash(leader.id)
       sim.advance_by_deadlines(1.second)
       (l = sim.leader).should_not be_nil
-      l.not_nil!.term.should be > leader.term
+      l.should_not(be_nil).term.should be > leader.term
     end
 
     it "steps down within an election timeout of losing the majority" do
       sim = SimCluster.new(3)
       sim.advance_by_deadlines(1.second)
-      old = sim.leader.not_nil!
+      old = sim.leader.should_not(be_nil)
       sim.isolated << old.id
       sim.advance_by_deadlines(SimCluster::ELECTION + SimCluster::HEARTBEAT)
       old.role.leader?.should be_false
@@ -337,7 +337,7 @@ describe Raft::Core do
     it "doesn't count a peer's expired ack as its next deadline" do
       sim = SimCluster.new(3)
       sim.advance_by_deadlines(1.second)
-      leader = sim.leader.not_nil!
+      leader = sim.leader.should_not(be_nil)
       sim.crash(sim.cores.keys.reject(leader.id).first)
       sim.advance_by_deadlines(1.second)
       leader.role.leader?.should be_true
@@ -364,7 +364,7 @@ describe Raft::Core do
     sim = SimCluster.new(3)
     old = sim.elect(Set{1, 2, 3})
     isr = Set{old.id, sim.cores.keys.find! { |id| id != old.id }}
-    index = sim.propose(old, isr).not_nil!
+    index = sim.propose(old, isr).should_not(be_nil)
     sim.advance(50.milliseconds)
     sim.cores.each_value(&.committed_isr.should(eq(isr)))
     # The sim only saves what has to be saved before sending, like a node
@@ -380,7 +380,7 @@ describe Raft::Core do
   it "doesn't let a rejoining node depose a healthy leader" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    leader = sim.leader.not_nil!
+    leader = sim.leader.should_not(be_nil)
     follower = sim.cores.keys.find! { |id| id != leader.id }
     sim.isolated << follower
     sim.advance(2.seconds) # pre-vote keeps the isolated node's term flat
@@ -518,13 +518,13 @@ describe Raft::Core do
   it "hands leadership over to a caught up in-sync peer" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    old = sim.leader.not_nil!
+    old = sim.leader.should_not(be_nil)
     sim.propose(old, sim.cores.keys.to_set)
     sim.advance(100.milliseconds)
     old.transfer_leadership.should eq Raft::TransferResult::Sent
     sim.pump
     sim.advance(50.milliseconds) # well within the election timeout
-    new_leader = sim.leader.not_nil!
+    new_leader = sim.leader.should_not(be_nil)
     new_leader.id.should_not eq old.id
   end
 
@@ -677,12 +677,12 @@ describe Raft::Core, "membership" do
     index = sim.change(leader, Raft::MembershipChange::AddLearner, 4).as(Int64)
     sim.advance(200.milliseconds)
     leader.commit_index.should be >= index
-    sim[4].latest_membership.not_nil!.learners.should eq Set{4}
+    sim[4].latest_membership.should_not(be_nil).learners.should eq Set{4}
     leader.quorum.should eq 2
 
     # With both voters cut off the learner has the entry but it can't commit
     sim.cores.each_key { |id| sim.isolated << id if id.in?(1, 2, 3) && id != leader.id }
-    pending = sim.propose(leader, Set{1, 2, 3, 4}).not_nil!
+    pending = sim.propose(leader, Set{1, 2, 3, 4}).should_not(be_nil)
     sim.advance(50.milliseconds)
     sim[4].last_index.should be >= pending
     leader.commit_index.should be < pending
@@ -773,16 +773,16 @@ describe Raft::Core, "membership" do
     old = sim.elect(Set{1, 2, 3})
     sim.cores.each_key { |id| sim.isolated << id unless id == old.id }
     sim.change(old, Raft::MembershipChange::AddLearner, 4).should be_a Int64
-    old.latest_membership.not_nil!.learners.should eq Set{4}
+    old.latest_membership.should_not(be_nil).learners.should eq Set{4}
     sim.isolated.clear
     sim.isolated << old.id
     sim.run_until { (l = sim.leader) && l.id != old.id && l.serving_leader? }
     sim.isolated.clear
     sim.advance(500.milliseconds)
     old.role.leader?.should be_false
-    old.latest_membership.not_nil!.learners.should be_empty
-    old.committed_membership.not_nil!.learners.should be_empty
-    sim.leader.not_nil!.latest_membership.not_nil!.learners.should be_empty
+    old.latest_membership.should_not(be_nil).learners.should be_empty
+    old.committed_membership.should_not(be_nil).learners.should be_empty
+    sim.leader.should_not(be_nil).latest_membership.should_not(be_nil).learners.should be_empty
   end
 
   it "adopts the membership from the snapshot when joining with an empty log" do
@@ -793,8 +793,8 @@ describe Raft::Core, "membership" do
     campaigns?(n4, sim.now).should be_false
     sim.change(leader, Raft::MembershipChange::AddLearner, 4)
     sim.advance(200.milliseconds)
-    n4.latest_membership.not_nil!.voters.should eq Set{1, 2, 3}
-    n4.latest_membership.not_nil!.learners.should eq Set{4}
+    n4.latest_membership.should_not(be_nil).voters.should eq Set{1, 2, 3}
+    n4.latest_membership.should_not(be_nil).learners.should eq Set{4}
     n4.voter?(4).should be_false
     n4.leader.should eq leader.id
     campaigns?(n4, sim.now).should be_false
@@ -808,8 +808,8 @@ describe Raft::Core, "membership" do
     sim.advance(200.milliseconds)
     leader.commit_index.should be >= index
     leader.committed_isr.should eq Set{1, 2, 3} - Set{removed}
-    leader.committed_membership.not_nil!.members.should_not contain(removed)
-    leader.committed_membership.not_nil!.addresses.has_key?(removed).should be_false
+    leader.committed_membership.should_not(be_nil).members.should_not contain(removed)
+    leader.committed_membership.should_not(be_nil).addresses.has_key?(removed).should be_false
     leader.quorum.should eq 2
   end
 
@@ -821,7 +821,7 @@ describe Raft::Core, "membership" do
     index = sim.change(leader, Raft::MembershipChange::Remove, removed).as(Int64)
     sim.advance(200.milliseconds)
     leader.commit_index.should be >= index
-    sim[removed].latest_membership.not_nil!.voters.size.should eq 3
+    sim[removed].latest_membership.should_not(be_nil).voters.size.should eq 3
     sim.crash(leader.id)
     sim.isolated.delete(removed)
     sim.advance(3.seconds)
@@ -836,12 +836,12 @@ describe Raft::Core, "membership" do
     sim.isolated << removed
     sim.change(leader, Raft::MembershipChange::Remove, removed)
     sim.advance(100.milliseconds)
-    sim[removed].latest_membership.not_nil!.includes?(removed).should be_true
+    sim[removed].latest_membership.should_not(be_nil).includes?(removed).should be_true
     leader.departing.should eq [removed]
     leader.connect_to.should contain("n#{removed}")
     sim.isolated.delete(removed)
     sim.advance(100.milliseconds)
-    sim[removed].latest_membership.not_nil!.includes?(removed).should be_false
+    sim[removed].latest_membership.should_not(be_nil).includes?(removed).should be_false
     leader.departing.should be_empty
     leader.connect_to.should_not contain("n#{removed}")
     campaigns?(sim[removed], sim.now).should be_false
@@ -907,9 +907,9 @@ describe Raft::Core, "membership" do
     leaders = Hash(Int64, Int32).new
     sim.run_until do
       sim.leaders.each { |l| (leaders[l.term] ||= l.id).should eq l.id }
-      sim.leader.try(&.serving_leader?) && sim.leader.not_nil!.term > leader.term
+      sim.leader.try(&.serving_leader?) && sim.leader.should_not(be_nil).term > leader.term
     end
-    sim.leader.not_nil!.id.should be <= 3
+    sim.leader.should_not(be_nil).id.should be <= 3
     sim[4].role.leader?.should be_false
     sim[5].role.leader?.should be_false
   end
@@ -932,17 +932,17 @@ describe Raft::Core, "membership" do
     leader = sim.elect(Set{1, 2, 3})
     moved = sim.cores.keys.find! { |id| id != leader.id }
     sim.move(moved, "n#{moved}b")
-    sim.run_until { leader.committed_membership.not_nil!.addresses[moved] == "n#{moved}b" }
+    sim.run_until { leader.committed_membership.should_not(be_nil).addresses[moved] == "n#{moved}b" }
     sim[moved].moved_from.should be_nil
-    membership = leader.committed_membership.not_nil!
+    membership = leader.committed_membership.should_not(be_nil)
     membership.learners.should eq Set{moved}
     membership.relocated.should eq Set{moved}
     leader.quorum.should eq 2
-    sim.run_until { leader.committed_membership.not_nil!.voters.includes?(moved) }
-    leader.committed_membership.not_nil!.relocated.should be_empty
+    sim.run_until { leader.committed_membership.should_not(be_nil).voters.includes?(moved) }
+    leader.committed_membership.should_not(be_nil).relocated.should be_empty
     leader.quorum.should eq 2
     sim.advance(100.milliseconds)
-    sim[moved].committed_membership.not_nil!.addresses[moved].should eq "n#{moved}b"
+    sim[moved].committed_membership.should_not(be_nil).addresses[moved].should eq "n#{moved}b"
     sim[moved].voter?(moved).should be_true
   end
 
@@ -962,11 +962,11 @@ describe Raft::Core, "membership" do
     sim.cores.each_value(&.trusting_moved?.should(be_false))
     sim.run_until(3.seconds) { sim.leader.try &.serving_leader? }
     sim.run_until do
-      m = sim.leader.not_nil!.committed_membership.not_nil!
+      m = sim.leader.should_not(be_nil).committed_membership.should_not(be_nil)
       m.addresses[a] == "n#{a}b" && m.addresses[b] == "n#{b}b"
     end
     sim.advance(SimCluster::ELECTION)
-    membership = sim.leader.not_nil!.committed_membership.not_nil!
+    membership = sim.leader.should_not(be_nil).committed_membership.should_not(be_nil)
     membership.voters.should eq Set{1, 2, 3}
     membership.learners.should be_empty
     sim.cores.each_value do |c|
@@ -989,7 +989,7 @@ describe Raft::Core, "membership" do
     sim.run_until { sim.cores.each_value.all? { |c| c.committed_membership.try(&.addresses.values.all?(&.ends_with?("b"))) } }
     sim.cores.each_value do |c|
       c.moved_from.should be_nil
-      c.committed_membership.not_nil!.voters.should eq Set{1, 2, 3}
+      c.committed_membership.should_not(be_nil).voters.should eq Set{1, 2, 3}
     end
   end
 
@@ -1015,9 +1015,9 @@ describe Raft::Core, "membership" do
     sim.advance(100.milliseconds)
     sim.move(moved, "n#{moved}b")
     sim.advance(500.milliseconds)
-    leader.committed_membership.not_nil!.learners.should eq Set{moved}
+    leader.committed_membership.should_not(be_nil).learners.should eq Set{moved}
     sim.propose(leader, Set{1, 2, 3})
-    sim.run_until { leader.committed_membership.not_nil!.voters.includes?(moved) }
+    sim.run_until { leader.committed_membership.should_not(be_nil).voters.includes?(moved) }
   end
 
   it "takes a removed node back at a new address with the same data dir" do
@@ -1034,7 +1034,7 @@ describe Raft::Core, "membership" do
     sim.advance(200.milliseconds)
     sim.propose(leader, Set{1, 2, 3})
     sim.advance(100.milliseconds)
-    leader.committed_isr.not_nil!.should contain(moved)
+    leader.committed_isr.should_not(be_nil).should contain(moved)
     sim.change(leader, Raft::MembershipChange::Promote, moved).should be_a Int64
   end
 end
@@ -1047,7 +1047,7 @@ describe Raft::Core, "leadership transfer" do
     old.transfer_leadership(target).should eq Raft::TransferResult::Sent
     sim.pump
     sim.advance(50.milliseconds)
-    sim.leader.not_nil!.id.should eq target
+    sim.leader.should_not(be_nil).id.should eq target
   end
 
   it "sends TimeoutNow to a lagging target once it has caught up" do
@@ -1060,7 +1060,7 @@ describe Raft::Core, "leadership transfer" do
     old.transfer_leadership(target).should eq Raft::TransferResult::Pending
     sim.isolated.delete(target)
     sim.advance(100.milliseconds)
-    sim.leader.not_nil!.id.should eq target
+    sim.leader.should_not(be_nil).id.should eq target
   end
 
   it "gives up on a lagging target at the deadline" do
@@ -1091,7 +1091,7 @@ describe Raft::Core, "leadership transfer" do
   it "refuses a target outside the ISR, a learner and an unknown node" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    old = sim.leader.not_nil!
+    old = sim.leader.should_not(be_nil)
     others = sim.cores.keys.reject(old.id)
     not_in_isr = others.last
     sim.propose(old, Set{old.id, others.first})
@@ -1111,7 +1111,7 @@ describe Raft::Core, "leadership transfer" do
   it "says why a transfer can't be done, without doing anything" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
-    old = sim.leader.not_nil!
+    old = sim.leader.should_not(be_nil)
     in_isr, not_in_isr = sim.cores.keys.reject(old.id)
     sim.propose(old, Set{old.id, in_isr})
     sim.advance(100.milliseconds)
@@ -1140,6 +1140,6 @@ describe Raft::Core, "leadership transfer" do
     sim.isolated.delete(behind)
     old.transfer_leadership.should eq Raft::TransferResult::Pending
     sim.advance(100.milliseconds)
-    sim.leader.not_nil!.id.should eq behind
+    sim.leader.should_not(be_nil).id.should eq behind
   end
 end

@@ -1246,7 +1246,7 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/foobar_localhost_certificate.pem
         tls_key = spec/resources/foobar_localhost_key.pem
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
         served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
 
@@ -1271,7 +1271,7 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/server_certificate.pem
         tls_key = spec/resources/server_key.pem
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
 
         # Add an SNI host and reload, as a SIGHUP would.
@@ -1296,7 +1296,7 @@ describe LavinMQ::Launcher do
         tls_key = spec/resources/server_key.pem
         tls_prefer_server_ciphers = true
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
 
         File.write(config_file.path, <<-INI)
@@ -1318,7 +1318,7 @@ describe LavinMQ::Launcher do
         tls_min_version = 1.3
         tls_ciphersuites = TLS_AES_128_GCM_SHA256
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         negotiated_cipher(amqp_ctx).should eq "TLS_AES_128_GCM_SHA256"
 
         File.write(config_file.path, <<-INI)

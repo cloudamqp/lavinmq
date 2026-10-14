@@ -42,6 +42,8 @@ describe "control socket" do
     socket = LavinMQ::HTTP::ControlSocket.new(path)
     socket.bind.should be_true
     File.info(path).permissions.value.should eq 0o660
+    socket.close
+    File.exists?(path).should be_false
   ensure
     socket.try &.close
     File.delete?(path) if path
@@ -121,6 +123,8 @@ describe "control socket" do
       socket = LavinMQ::HTTP::ControlSocket.new(socket_path)
       socket.bind.should be_false
       expect_raises(LavinMQ::HTTP::ControlSocketInUseError) { socket.bind! }
+      socket.close
+      File.exists?(socket_path).should be_true # left to the node serving it
     ensure
       leader.try &.close
       File.delete?(socket_path) if socket_path
@@ -128,7 +132,7 @@ describe "control socket" do
 
     it "skips binding instead of raising when the socket can not be prepared" do
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      File.touch(socket_path) # not a socket: ControlSocket.prepare raises a plain Exception
+      File.touch(socket_path) # not a socket: ControlSocket.prepare raises
       LavinMQ::HTTP::ControlSocket.new(socket_path).bind.should be_false
     ensure
       File.delete?(socket_path) if socket_path

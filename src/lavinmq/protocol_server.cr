@@ -2,6 +2,8 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "./proxy_protocol"
+require "../stdlib/io_buffered"
 
 module LavinMQ
   enum Protocol
@@ -231,6 +233,7 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
+        set_tls_tcp_read_buffer(client)
         # A PROXY header comes before TLS, e.g. from a follower forwarding
         # the connection, see ClientListeners
         conn_info = extract_conn_info(client)
@@ -306,9 +309,32 @@ module LavinMQ
       socket.write_timeout = @config.tcp_send_timeout.seconds
     end
 
+    # The TCP socket under a TLS socket buffers OpenSSL's reads (a record
+    # header, then its body). Pooled, so idle TLS connections don't hold it.
+    # Writes aren't buffered (sync), OpenSSL writes whole records.
+    private def set_tls_tcp_read_buffer(socket)
+      if @config.socket_buffer_size.positive?
+        socket.buffer_pool = buffer_pool
+        socket.read_buffering = true
+      end
+    end
+
+    @buffer_pool : IO::BufferPool?
+
+    # The pool for the configured socket_buffer_size, cached so that accepting
+    # a connection doesn't take IO::BufferPool.for's lock. Looked up again when
+    # a config reload changes the size.
+    private def buffer_pool : IO::BufferPool
+      size = @config.socket_buffer_size
+      if (pool = @buffer_pool) && pool.buffer_size == size
+        return pool
+      end
+      @buffer_pool = IO::BufferPool.for(size)
+    end
+
     private def set_buffer_size(socket)
       if @config.socket_buffer_size.positive?
-        socket.buffer_size = @config.socket_buffer_size
+        socket.buffer_pool = buffer_pool
         socket.sync = false
         socket.read_buffering = true
       else

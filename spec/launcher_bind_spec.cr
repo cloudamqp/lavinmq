@@ -33,7 +33,7 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
 
       expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.not_nil!.run
+        launcher.run
       end
     ensure
       launcher.try &.stop
@@ -74,6 +74,7 @@ describe LavinMQ::Launcher do
       other = UNIXServer.new(config.control_unix_path)
       launcher = LavinMQ::Launcher.new(config)
       expect_raises(SpecExit, /Exiting with code 1/) { launcher.run }
+      File.exists?(config.control_unix_path).should be_true # left to the process serving it
     ensure
       other.try &.close
     end

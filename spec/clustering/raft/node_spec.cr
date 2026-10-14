@@ -80,7 +80,7 @@ private class TCPRaftCluster
   def wait_for_leader(except : Raft::Node? = nil) : Raft::Node
     node = nil
     wait_for(5.seconds) { (node = leader) && node != except }
-    node.not_nil!
+    node.should_not(be_nil)
   end
 
   def close
@@ -109,7 +109,7 @@ private class StallingTransport < Raft::Transport
   end
 
   def send(to : String, msg : Raft::Message) : Nil
-    node = @node.not_nil!
+    node = @node.should_not(be_nil)
     id = @node_ids[to]
     case msg
     when Raft::RequestVote
@@ -193,7 +193,7 @@ describe Raft::Node do
         m = x if s && x && x.is_leader && x.leader == s.id && x.term == s.term && x.isr_size == 3 &&
                  x.proposals_pending == 0 && x.peers.size == 2 && x.peers.values.all?
       end
-      m = m.not_nil!
+      m = m.should_not(be_nil)
       m.leader_contact.should eq Time::Span.zero
       m.leader_changes.should be >= 1
       m.save_count.should be > 0
@@ -203,8 +203,8 @@ describe Raft::Node do
       follower = c.nodes.values.find! { |n| n != leader }
       fm = nil
       wait_for { fm = follower.metrics.try { |x| x if !x.is_leader && x.leader == m.leader && x.isr_size } }
-      fm = fm.not_nil!
-      fm.leader_contact.not_nil!.should be < 1.second
+      fm = fm.should_not(be_nil)
+      fm.leader_contact.should_not(be_nil).should be < 1.second
 
       c.stop(c.nodes.key_for(leader))
       wait_for do
@@ -226,7 +226,7 @@ describe Raft::Node do
     node.run(transport)
     # Its seeded membership, which no caller proposed, can't commit
     wait_for { node.metrics.try &.is_leader }
-    node.metrics.not_nil!.proposals_pending.should be > 0
+    node.metrics.should_not(be_nil).proposals_pending.should be > 0
   ensure
     node.try &.close
     FileUtils.rm_rf dir if dir
@@ -241,7 +241,7 @@ describe Raft::Node do
     transport.node = node
     node.run(transport)
     wait_for { node.serving.value }
-    first = node.metrics.not_nil!
+    first = node.metrics.should_not(be_nil)
     first.leader_changes.should eq 1
     # No followers answering: it steps down on losing its quorum, and the
     # votes they still grant elect it again
@@ -297,11 +297,11 @@ describe Raft::Node do
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
-      status = leader.status.not_nil!
+      status = leader.status.should_not(be_nil)
       status.role.leader?.should be_true
-      status.membership.not_nil!.voters.should eq Set{1, 2, 3}
-      status.membership.not_nil!.addresses.values.to_set.should eq c.nodes.keys.to_set
-      status.membership.not_nil!.learners.should be_empty
+      status.membership.should_not(be_nil).voters.should eq Set{1, 2, 3}
+      status.membership.should_not(be_nil).addresses.values.to_set.should eq c.nodes.keys.to_set
+      status.membership.should_not(be_nil).learners.should be_empty
       status.resolve(c.address(1)).should eq 2
       status.resolve("2").should eq 2
       status.resolve("9").should be_nil
@@ -311,7 +311,7 @@ describe Raft::Node do
       leader_json["leader"].should eq status.address
       leader_json["local"]?.should be_nil
       leader_json["members"].as_a.all?(&.["caught_up"].as_bool?).should be_true
-      follower_status = follower.status.not_nil!
+      follower_status = follower.status.should_not(be_nil)
       local = JSON.parse(JSON.build { |j| follower_status.to_json(j) })
       local["local"].as_bool.should be_true
       local["role"].should eq "follower"
@@ -408,7 +408,7 @@ describe Raft::Node do
       # With its 100 ms election timeout a loaded runner can move leadership
       # between finding the leader and asking it, so ask whoever leads then
       on_current_leader(c, &.add_learner(addr)).should be_nil
-      membership = c.wait_for_leader.membership.not_nil!
+      membership = c.wait_for_leader.membership.should_not(be_nil)
       membership.learners.should eq Set{40}
       membership.addresses[40].should eq addr
       on_current_leader(c, &.add_learner("127.0.0.1:1")).should eq Raft::MembershipError::Unreachable
@@ -443,7 +443,7 @@ describe Raft::Node do
       FileUtils.cp(File.join(c.dirs[index], ".raft_state"), copy_dir)
       _, copy = c.start_extra(index + 1, [c.address(0), c.address(1), c.address(2)], copy_dir)
       sleep 1.second
-      membership = leader.membership.not_nil!
+      membership = leader.membership.should_not(be_nil)
       membership.addresses[index + 1].should eq original
       membership.voters.should eq Set{1, 2, 3}
       copy.leader_uri.should be_nil
@@ -616,7 +616,7 @@ describe Raft::Storage do
         Raft::Entry.new(7, Set{2}, Raft::Membership.new(Set{1, 2}, Set(Int32).new, {1 => "a:1", 2 => "b:1"})),
       ], members)
       storage.save(state)
-      loaded = storage.load.not_nil!
+      loaded = storage.load.should_not(be_nil)
       loaded.should eq state
       loaded.snapshot_membership.should eq members
     end

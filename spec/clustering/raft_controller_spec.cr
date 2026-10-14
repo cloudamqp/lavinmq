@@ -139,7 +139,7 @@ private class ControllerCluster
   end
 
   def address(controller : LavinMQ::Clustering::RaftController) : String
-    @configs[@controllers.index!(controller)].clustering_raft_advertised_address.not_nil!
+    @configs[@controllers.index!(controller)].clustering_raft_advertised_address.should_not(be_nil)
   end
 
   # Starts a new controller with the config of a stopped one, like a
@@ -176,7 +176,7 @@ private class ControllerCluster
     server = LavinMQ::Clustering::Server.new(config, controller.coordinator, controller.id)
     @servers[controller] = server
     tcp = @replication_listeners.delete(@configs.index!(config)) ||
-          TCPServer.new(config.clustering_bind.not_nil!, config.clustering_port) # a restarted leader
+          TCPServer.new(config.clustering_bind.should_not(be_nil), config.clustering_port) # a restarted leader
     spawn(name: "replication spec #{controller.id}") { server.listen(tcp) }
   end
 
@@ -311,7 +311,7 @@ describe LavinMQ::Clustering::RaftController do
       leader = cluster.next_leader
       leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       follower = cluster.controllers.find! { |c| c != leader }
-      term = leader.node.status.not_nil!.term
+      term = leader.node.status.should_not(be_nil).term
       busy_until = Time.instant + 300.milliseconds * 5
       # Watches from a thread of its own how long the follower's raft node
       # takes to answer, and how long ago it heard from the leader
@@ -320,7 +320,7 @@ describe LavinMQ::Clustering::RaftController do
         max = Time::Span.zero
         until Time.instant >= busy_until
           asked = Time.instant
-          status = follower.node.status.not_nil!
+          status = follower.node.status.should_not(be_nil)
           max = {max, Time.instant - asked, status.leader_heard_ago || Time::Span.zero}.max
           sleep 20.milliseconds
         end
@@ -337,8 +337,8 @@ describe LavinMQ::Clustering::RaftController do
       end
       hogs.wait
       worst.receive.should be < 300.milliseconds
-      leader.node.status.not_nil!.role.leader?.should be_true
-      cluster.controllers.each(&.node.status.not_nil!.term.should(eq(term)))
+      leader.node.status.should_not(be_nil).role.leader?.should be_true
+      cluster.controllers.each(&.node.status.should_not(be_nil).term.should(eq(term)))
     end
   end
 
@@ -525,10 +525,10 @@ describe LavinMQ::Clustering::RaftController do
       d.node.leader_uri.should be_nil
 
       a.node.add_learner(d_addr).should be_nil
-      a.node.membership.not_nil!.learners.should eq Set{d.id}
+      a.node.membership.should_not(be_nil).learners.should eq Set{d.id}
       # It gets the broker data from the leader and ends up in the ISR
       wait_for(10.seconds) { a.node.committed_isr.try(&.includes?(d.id)) }
-      a.node.membership.not_nil!.voters.size.should eq 3
+      a.node.membership.should_not(be_nil).voters.size.should eq 3
 
       deadline = Time.instant + 10.seconds
       while error = a.node.promote(d.id)
@@ -536,7 +536,7 @@ describe LavinMQ::Clustering::RaftController do
         fail "not promoted: #{error.message}" if Time.instant > deadline
         sleep 50.milliseconds
       end
-      a.node.membership.not_nil!.voters.should contain(d.id)
+      a.node.membership.should_not(be_nil).voters.should contain(d.id)
 
       a.request_transfer("127.0.0.1:1").should be_a String # not a member
       plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
@@ -565,15 +565,15 @@ describe LavinMQ::Clustering::RaftController do
 
       d.node.remove_member(a.id).should be_nil
       d.node.remove_member(a.id).should eq LavinMQ::Clustering::Raft::MembershipError::UnknownMember
-      d.node.committed_isr.not_nil!.should_not contain(a.id)
-      d.node.membership.not_nil!.members.should_not contain(a.id)
+      d.node.committed_isr.should_not(be_nil).should_not contain(a.id)
+      d.node.membership.should_not(be_nil).members.should_not contain(a.id)
 
       # It's told, disconnected and refused when it comes back
       wait_for(10.seconds) { !a.node.self_member? }
       wait_for(10.seconds) { cluster.servers[d].all_followers.none? { |f| f.id == a.id } }
       sleep 2.5.seconds # a few reconnect attempts
       cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true
-      d.node.committed_isr.not_nil!.should_not contain(a.id)
+      d.node.committed_isr.should_not(be_nil).should_not contain(a.id)
     end
   end
 
@@ -582,7 +582,7 @@ describe LavinMQ::Clustering::RaftController do
       cluster.start_all
       leader = cluster.next_leader
       other = cluster.controllers.find! { |c| c != leader }
-      term = leader.node.status.not_nil!.term
+      term = leader.node.status.should_not(be_nil).term
       # As when a request raced with losing leadership and this node leads again
       leader.step_down(LavinMQ::Clustering::RaftController::Transfer.new(other.id, cluster.address(other), term - 1))
       receive_within(cluster.demotions, 1.second).should be_nil

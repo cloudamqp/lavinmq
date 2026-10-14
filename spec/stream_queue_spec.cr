@@ -49,6 +49,41 @@ end
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
+  describe "Arguments" do
+    it "should refuse the retry arguments" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /x-delayed-retry-min/) do
+            ch.queue("stream-retry-args", args: AMQP::Client::Arguments.new({
+              "x-queue-type"        => "stream",
+              "x-delayed-retry-min" => 1000,
+            }))
+          end
+        end
+      end
+    end
+  end
+
+  describe "Requeue" do
+    it "should not requeue messages into the store on channel close" do
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, "stream-close-requeue", 2)
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream-close-requeue", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false) do |msg|
+            msgs.send msg
+          end
+          msgs.receive
+        end
+        sleep 50.milliseconds
+        sq = s.vhosts["/"].queue("stream-close-requeue")
+        sq.message_count.should eq 2
+      end
+    end
+  end
+
   describe "Consume" do
     it "should get message with offset 2" do
       with_amqp_server do |s|
@@ -308,7 +343,7 @@ describe LavinMQ::AMQP::Stream do
         end
       end
     ensure
-      LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!
+      LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!("original config value not saved")
     end
 
     it "yields to other fibers while scanning past filtered-out messages" do
@@ -1491,9 +1526,8 @@ describe LavinMQ::AMQP::Stream do
 
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         store.@size.should eq 2
-        env = store.read(seg_id, torn_pos)
-        env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        env = store.read(seg_id, torn_pos).should_not be_nil
+        String.new(env.message.body).should eq body
         store.close
       end
     end
@@ -1661,8 +1695,10 @@ describe LavinMQ::AMQP::Stream do
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)
 
-            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
-            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            env1 = store.read(first_seg, 4u32).should_not be_nil
+            sp1 = env1.segment_position
+            env2 = store.read(first_seg, 4u32 + sp1.bytesize).should_not be_nil
+            sp2 = env2.segment_position
             consumer.requeued.push(sp1)
             consumer.requeued.push(sp2)
 

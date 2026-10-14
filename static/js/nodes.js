@@ -4,6 +4,7 @@ import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 import { DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
@@ -12,8 +13,8 @@ if (vhost && vhost !== '_all') {
   url += HTTP.url`?vhost=${vhost}`
 }
 
-function update (cb) {
-  HTTP.request('GET', url).then((response) => {
+function update (cb, signal) {
+  return HTTP.request('GET', url, { signal }).then((response) => {
     render(response)
     if (cb) {
       cb(response)
@@ -30,8 +31,7 @@ function render (data) {
 }
 
 function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
+  Poller.start(signal => update(cb, signal))
 }
 
 const gcStatsFields = [
@@ -253,7 +253,7 @@ const queueChurnChart = Chart.render('queueChurnChart', '/s')
 const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
 
 const followersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   update (items) { this.items = items }
   reload () { }
 })()
@@ -278,7 +278,7 @@ let followersById = {}
 // answers 400/404 otherwise, so use fetch directly instead of HTTP.request
 // to not alert about that.
 const clusterDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   update (items) { this.items = items }
   reload () { }
 })()
@@ -338,15 +338,19 @@ function updateFollowersVisibility () {
   document.getElementById('followers-section').hidden = !hasFollowers || !document.getElementById('cluster-section').hidden
 }
 
-function updateCluster () {
-  return window.fetch('api/cluster').then((response) => {
+// Stops polling when there's no raft cluster, or for a non-administrator
+let clusterPolling = true
+
+function updateCluster (signal) {
+  if (!clusterPolling) return
+  return window.fetch('api/cluster', { signal }).then((response) => {
     const section = document.getElementById('cluster-section')
     if (!response.ok) {
       // No raft cluster, or not an administrator, which won't change
       if ([400, 403, 404].includes(response.status)) {
         section.hidden = true
         updateFollowersVisibility()
-        clearInterval(clusterPoll)
+        clusterPolling = false
       }
       // Otherwise (409 not the leader, 503 no answer) it is transient, e.g.
       // during a leadership change, so keep showing the last known members
@@ -377,8 +381,7 @@ document.getElementById('addClusterMember').addEventListener('submit', function 
     }).catch(() => {})
 })
 
-updateCluster()
-const clusterPoll = setInterval(updateCluster, 5000)
+Poller.start(updateCluster)
 
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {

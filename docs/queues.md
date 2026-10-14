@@ -44,6 +44,9 @@ A non-durable, non-exclusive queue is called a transient queue. Its messages are
 | `x-cache-size` | Int (>= 0) | Deduplication cache size |
 | `x-cache-ttl` | Int (>= 0) | Deduplication cache TTL in milliseconds |
 | `x-deduplication-header` | String | Header to use for deduplication key |
+| `x-delayed-retry-min` | Int (>= 1) | Enable automatic retries with this initial backoff delay in milliseconds. See [Automatic Retries](automatic-retries.md). |
+| `x-delayed-retry-multiplier` | Int (>= 1) | Backoff shape: omit for linear, 1 for constant, 2 or more for exponential |
+| `x-delayed-retry-max` | Int (>= 1) | Cap on a single retry delay in milliseconds |
 
 ## Overflow Behavior
 
