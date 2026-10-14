@@ -109,6 +109,10 @@ class TestableTokenVerifier < LavinMQ::Auth::JWT::TokenVerifier
   def test_validate_audience(payload : LavinMQ::Auth::JWT::Payload)
     validate_audience(payload)
   end
+
+  def test_parse(token : LavinMQ::Auth::JWT::Token) : LavinMQ::Auth::JWT::TokenClaim
+    @state.parser.parse(token)
+  end
 end
 
 describe LavinMQ::Auth::JWT::TokenVerifier do
@@ -314,6 +318,32 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com", exp: RoughTime.utc.to_unix + 3600, aud: "other-api")
       payload["preferred_username"] = JSON::Any.new("testuser")
       expect_raises(LavinMQ::Auth::JWT::VerificationError, /Token audience does not match/) do
+        verifier.test_validate_audience(payload)
+      end
+    end
+  end
+
+  describe "config snapshot" do
+    it "isn't affected when Config#reload changes the config in place" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      config.oauth_preferred_username_claims = ["preferred_username"]
+      config.oauth_audience = "my-api"
+      verifier = TestableTokenVerifier.new(config, MockJWKSFetcher.new)
+      payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com", exp: RoughTime.utc.to_unix + 3600, aud: "my-api")
+      payload["preferred_username"] = JSON::Any.new("testuser")
+      token = JWTTestHelper.create_mock_token(payload)
+
+      # Config#reload overwrites the fields of the live Config
+      config.oauth_audience = "other-api"
+      config.oauth_preferred_username_claims = ["sub"]
+      verifier.test_validate_audience(payload)
+      verifier.test_parse(token).username.should eq "testuser"
+
+      # The state created by #reload holds a copy too
+      verifier.reload(config)
+      config.oauth_audience = "my-api"
+      expect_raises(LavinMQ::Auth::JWT::VerificationError, /audience does not match/) do
         verifier.test_validate_audience(payload)
       end
     end
