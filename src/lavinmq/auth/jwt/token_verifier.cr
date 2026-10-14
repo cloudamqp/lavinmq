@@ -1,6 +1,7 @@
 require "./../../config"
 require "./jwt"
 require "./public_keys"
+require "./jwks_fetcher"
 require "openssl"
 require "http/client"
 require "./lib_crypto_ext"
