@@ -1,5 +1,6 @@
 require "http/client"
 require "http/server"
+require "openssl"
 require "socket"
 require "uri"
 require "../server"
@@ -60,6 +61,30 @@ module LavinMQ
     end
   end
 
+  module AMQP
+    class Server < ProtocolServer
+      property leader_check : (-> Bool)?
+
+      def handle_connection(socket, connection_info)
+        if (check = @leader_check) && !check.call
+          socket.close rescue nil
+          return
+        end
+        if client = @connection_factory.create(socket, connection_info)
+          vhost = client.vhost
+          vhost.add_connection(client)
+          begin
+            client.run
+          ensure
+            vhost.rm_connection(client)
+          end
+        else
+          socket.close
+        end
+      end
+    end
+  end
+
   module MQTT
     class Server < ProtocolServer
       property leader_check : (-> Bool)?
@@ -102,7 +127,7 @@ module LavinMQ
         method = context.request.method
         path = context.request.path
 
-        if FollowerHttpRouterHandler.serve_locally_on_follower?(method, path)
+        if FollowerHttpRouterHandler.serve_locally_on_follower?(method, path, context.request.headers)
           @local_served_count.add(1_u64, :relaxed)
           context.response.headers["X-LavinMQ-Cluster-Role"] = "follower"
           context.response.headers["X-LavinMQ-Node-Id"] = @node.node_id.to_s
@@ -114,8 +139,19 @@ module LavinMQ
         end
       end
 
-      def self.serve_locally_on_follower?(method : String, path : String) : Bool
+      def self.websocket_upgrade_request?(headers : ::HTTP::Headers?) : Bool
+        return false unless hdrs = headers
+        upgrade = hdrs["Upgrade"]? || return false
+        connection = hdrs["Connection"]? || return false
+        upgrade.compare("websocket", case_insensitive: true) == 0 &&
+          connection.downcase.includes?("upgrade")
+      end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      def self.serve_locally_on_follower?(method : String, path : String, headers : ::HTTP::Headers? = nil) : Bool
         return false unless method == "GET" || method == "HEAD"
+        return false if websocket_upgrade_request?(headers)
+        return false if path == "/ws" || path.starts_with?("/ws/") || path == "/mqtt"
 
         # Connection, channel, and consumer listings reflect live TCP sockets on the leader
         return false if path == "/api/connections" || path.starts_with?("/api/connections/")
@@ -139,6 +175,11 @@ module LavinMQ
         uri = URI.parse(leader.http_uri)
         host = uri.host || "127.0.0.1"
         port = uri.port || 15672
+
+        if FollowerHttpRouterHandler.websocket_upgrade_request?(context.request.headers)
+          proxy_websocket_to_leader(context, leader, uri, host, port)
+          return
+        end
 
         req_headers = ::HTTP::Headers.new
         context.request.headers.each do |k, values|
@@ -176,6 +217,74 @@ module LavinMQ
         context.response.content_type = "application/json"
         context.response.print(%({"error":"Failed to proxy request to leader: #{ex.message}"}))
       end
+
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def proxy_websocket_to_leader(context : ::HTTP::Server::Context,
+                                            leader : MemberInfo,
+                                            uri : URI,
+                                            host : String,
+                                            port : Int32) : Nil
+        tcp_sock = TCPSocket.new(host, port, connect_timeout: 2.seconds)
+        tcp_sock.tcp_nodelay = true
+        tcp_sock.sync = true
+        tcp_sock.read_buffering = false
+        upstream : IO = if uri.scheme == "https"
+          tls_ctx = OpenSSL::SSL::Context::Client.new
+          tls_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+          ssl_sock = OpenSSL::SSL::Socket::Client.new(tcp_sock, context: tls_ctx, sync_close: true, hostname: host)
+          ssl_sock.sync = true
+          ssl_sock
+        else
+          tcp_sock
+        end
+
+        req_headers = ::HTTP::Headers.new
+        context.request.headers.each do |k, values|
+          next if k.compare("Host", case_insensitive: true) == 0
+          values.each { |v| req_headers.add(k, v) }
+        end
+        req_headers["Host"] = "#{host}:#{port}"
+
+        up_req = ::HTTP::Request.new(context.request.method, context.request.resource, headers: req_headers)
+        up_req.to_io(upstream)
+        upstream.flush
+
+        resp = ::HTTP::Client::Response.from_io(upstream, ignore_body: true)
+        context.response.status = resp.status
+        resp.headers.each do |k, values|
+          values.each { |v| context.response.headers.add(k, v) }
+        end
+        context.response.headers["X-LavinMQ-Cluster-Role"] = "follower"
+        context.response.headers["X-LavinMQ-Proxied-To-Leader"] = "true"
+        context.response.headers["X-LavinMQ-Leader-Id"] = leader.node_id.to_s
+
+        if resp.status.switching_protocols?
+          context.response.upgrade do |client_io|
+            client_io.sync = true if client_io.responds_to?(:sync=)
+            client_io.read_buffering = false if client_io.responds_to?(:read_buffering=)
+            done = ::Channel(Nil).new(2)
+            spawn(name: "ClusteringV2 ws proxy upstream->client") do
+              IO.copy(upstream, client_io)
+            rescue IO::Error
+            ensure
+              upstream.close rescue nil
+              client_io.close rescue nil
+              done.send(nil) rescue nil
+            end
+            begin
+              IO.copy(client_io, upstream)
+            rescue IO::Error
+            ensure
+              upstream.close rescue nil
+              client_io.close rescue nil
+              done.send(nil) rescue nil
+            end
+            2.times { done.receive? }
+          end
+        else
+          upstream.close rescue nil
+        end
+      end
     end
 
     # Manages permanent AMQP, MQTT, and HTTP listener sockets across role transitions.
@@ -187,9 +296,9 @@ module LavinMQ
 
       private struct ActiveSplice
         getter client_sock : IO
-        getter upstream_sock : TCPSocket
+        getter upstream_sock : IO
 
-        def initialize(@client_sock : IO, @upstream_sock : TCPSocket)
+        def initialize(@client_sock : IO, @upstream_sock : IO)
         end
 
         def close : Nil
@@ -225,6 +334,7 @@ module LavinMQ
                      execution_context : Fiber::ExecutionContext? = nil)
         @execution_context = execution_context || Fiber::ExecutionContext.default
         @amqp_server = LavinMQ::AMQP::Server.new(@server, config)
+        @amqp_server.leader_check = -> { ensure_promoted_leader? }
         @mqtt_server = LavinMQ::MQTT::Server.new(@server, config)
         @mqtt_server.leader_check = -> { ensure_promoted_leader? }
         @http_router = FollowerHttpRouterHandler.new(@node)
@@ -449,12 +559,21 @@ module LavinMQ
 
         uri = URI.parse(leader.amqp_uri)
         host = uri.host || "127.0.0.1"
-        port = uri.port || 5672
+        port = uri.port || (uri.scheme == "amqps" ? 5671 : 5672)
 
-        upstream = TCPSocket.new(host, port, connect_timeout: 2.seconds)
-        upstream.tcp_nodelay = true
-        upstream.sync = true
-        upstream.read_buffering = false
+        tcp_sock = TCPSocket.new(host, port, connect_timeout: 2.seconds)
+        tcp_sock.tcp_nodelay = true
+        tcp_sock.sync = true
+        tcp_sock.read_buffering = false
+        upstream : IO = if uri.scheme == "amqps"
+          tls_ctx = OpenSSL::SSL::Context::Client.new
+          tls_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+          ssl_sock = OpenSSL::SSL::Socket::Client.new(tcp_sock, context: tls_ctx, sync_close: true, hostname: host)
+          ssl_sock.sync = true
+          ssl_sock
+        else
+          tcp_sock
+        end
         client.sync = true if client.responds_to?(:sync=)
         client.read_buffering = false if client.responds_to?(:read_buffering=)
 
@@ -505,6 +624,7 @@ module LavinMQ
       getter replicator : LogicalReplicator
       getter server : LavinMQ::Server
       getter router : IngressRouter
+      @had_persisted_members : Bool
 
       def self.from_config(config : Config) : self
         role = config.clustering_role.downcase == "learner" ? MemberRole::Learner : MemberRole::Voter
@@ -551,6 +671,7 @@ module LavinMQ
           cfg.data_dir = @data_dir
         end
         @log = RaftLog.new(@data_dir, capacity: ring_capacity, node_id: node_id)
+        @had_persisted_members = @log.meta_existed? && (!@log.committed_members.empty? || !@log.members.empty?)
         @raft = RaftNode.new(@log, secret: secret, initial_role: initial_role, execution_context: @execution_context)
         @replicator = LogicalReplicator.new(@data_dir, @raft, commit_gated_delivery: commit_gated_delivery)
         @server = LavinMQ::Server.new(@config, @replicator)
@@ -608,13 +729,15 @@ module LavinMQ
           @raft.http_uri,
           @raft.role.learner? ? MemberRole::Learner : MemberRole::Voter
         )
-        members_by_id = {self_info.node_id => self_info}
-        config.clustering_peers.each do |peer_spec|
-          next if peer_spec.empty?
-          info = ClusterNode.parse_peer_spec(peer_spec)
-          members_by_id[info.node_id] = info unless info.node_id == self_info.node_id
+        unless @had_persisted_members
+          members_by_id = {self_info.node_id => self_info}
+          config.clustering_peers.each do |peer_spec|
+            next if peer_spec.empty?
+            info = ClusterNode.parse_peer_spec(peer_spec)
+            members_by_id[info.node_id] = info unless info.node_id == self_info.node_id
+          end
+          @raft.configure_cluster(members_by_id.values)
         end
-        @raft.configure_cluster(members_by_id.values)
         self_info
       end
 

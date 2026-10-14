@@ -30,8 +30,10 @@ module LavinMQ
       getter commit_index : UInt64 = 0_u64
       getter applied_index : UInt64 = 0_u64
       getter members = Array(MemberInfo).new
+      getter committed_members = Array(MemberInfo).new
       getter? meta_existed : Bool = false
       property? track_applied : Bool = false
+      property? sync : Bool = true
 
       @snapshot_members = Array(MemberInfo).new
       @mask : UInt64
@@ -59,6 +61,7 @@ module LavinMQ
         load_or_init_meta
         @idx_mfile = open_or_init_idx
         @ctrl_mfile = open_or_init_ctrl
+        recompute_members_unsafe if @meta_existed
       end
 
       def on_truncate(&block : LogIndexEntry -> Nil) : Nil
@@ -81,6 +84,7 @@ module LavinMQ
       def set_members(members : Array(MemberInfo)) : Nil
         cb, new_members = @lock.synchronize do
           @snapshot_members = members.dup
+          @committed_members = members.dup
           @members = members.dup
           recompute_members_unsafe
           save_meta!
@@ -92,7 +96,19 @@ module LavinMQ
       def upsert_member(member : MemberInfo) : Nil
         cb, new_members = @lock.synchronize do
           upsert_into_list(@snapshot_members, member)
+          upsert_into_list(@committed_members, member)
           upsert_into_list(@members, member)
+          save_meta!
+          {@on_membership_change, @members.dup}
+        end
+        cb.try &.call(new_members)
+      end
+
+      def update_member_uris(node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String) : Nil
+        cb, new_members = @lock.synchronize do
+          update_uris_in_list(@snapshot_members, node_id, peer_uri, amqp_uri, http_uri)
+          update_uris_in_list(@committed_members, node_id, peer_uri, amqp_uri, http_uri)
+          update_uris_in_list(@members, node_id, peer_uri, amqp_uri, http_uri)
           save_meta!
           {@on_membership_change, @members.dup}
         end
@@ -102,6 +118,7 @@ module LavinMQ
       def remove_member(node_id : UInt64) : Nil
         cb, new_members = @lock.synchronize do
           @snapshot_members.reject! { |m| m.node_id == node_id }
+          @committed_members.reject! { |m| m.node_id == node_id }
           @members.reject! { |m| m.node_id == node_id }
           save_meta!
           {@on_membership_change, @members.dup}
@@ -454,6 +471,7 @@ module LavinMQ
           end
 
           membership_changed = false
+          log_mutated = false
           entries.each do |rec|
             existing_term = term_at(rec.lsn)
             if existing_term && existing_term != rec.term
@@ -461,17 +479,24 @@ module LavinMQ
               membership_changed |= truncate_from_unsafe(rec.lsn, truncated)
               _, cc_changed = append_follower_record_unsafe(rec)
               membership_changed |= cc_changed
+              log_mutated = true
             elsif existing_term.nil?
               _, cc_changed = append_follower_record_unsafe(rec)
               membership_changed |= cc_changed
+              log_mutated = true
             end
           end
 
           last_new_lsn = prev_log_lsn + entries.size.to_u64
           if leader_commit > @commit_index
             new_commit = Math.min(leader_commit, last_new_lsn)
-            advance_commit_index_unsafe(new_commit) if new_commit > @commit_index
+            if new_commit > @commit_index
+              membership_changed |= advance_commit_index_unsafe(new_commit)
+              log_mutated = true
+            end
           end
+
+          fsync_unsafe if log_mutated && @sync
 
           if membership_changed
             { {true, last_new_lsn, 0_u64, 0_u64}, @on_truncate, @on_membership_change, @members.dup }
@@ -488,12 +513,32 @@ module LavinMQ
         res
       end
 
-      def advance_commit_index(new_commit : UInt64) : Bool
+      def first_uncommitted_conf_change_lsn : UInt64?
         @lock.synchronize do
-          return false if new_commit <= @commit_index || new_commit > @last_lsn
-          advance_commit_index_unsafe(new_commit)
-          true
+          return if @last_lsn <= @commit_index || @last_lsn < @first_lsn
+          lsn = Math.max(@first_lsn, @commit_index + 1)
+          while lsn <= @last_lsn
+            raw = entry_ptr(lsn).value
+            return lsn if raw.lsn == lsn && raw.command.conf_change?
+            lsn += 1
+          end
+          nil
         end
+      end
+
+      def advance_commit_index(new_commit : UInt64) : Bool
+        cb, members_snapshot = @lock.synchronize do
+          return false if new_commit <= @commit_index || new_commit > @last_lsn
+          if advance_commit_index_unsafe(new_commit)
+            {@on_membership_change, @members.dup}
+          else
+            {nil, nil}
+          end
+        end
+        if cb && members_snapshot
+          cb.call(members_snapshot)
+        end
+        true
       end
 
       def advance_applied_index(new_applied : UInt64) : Bool
@@ -505,9 +550,28 @@ module LavinMQ
         end
       end
 
-      private def advance_commit_index_unsafe(new_commit : UInt64) : Nil
+      private def advance_commit_index_unsafe(new_commit : UInt64) : Bool
+        old_commit = @commit_index
         @commit_index = new_commit
+        conf_committed = false
+        if @last_lsn >= @first_lsn && new_commit > old_commit
+          lsn = Math.max(@first_lsn, old_commit + 1)
+          limit = Math.min(@last_lsn, new_commit)
+          while lsn <= limit
+            raw = entry_ptr(lsn).value
+            if raw.lsn == lsn && raw.command.conf_change?
+              payload = resolve_payload_unsafe(raw)
+              unless payload.empty?
+                apply_conf_change_to_list(@committed_members, payload)
+                conf_committed = true
+              end
+            end
+            lsn += 1
+          end
+        end
+        save_meta! if conf_committed
         write_idx_header_unsafe
+        conf_committed
       end
 
       # Truncates uncommitted entries from `from_lsn` through `@last_lsn` inclusive.
@@ -739,6 +803,8 @@ module LavinMQ
           @last_snapshot_lsn = last_included_lsn
           @last_snapshot_term = last_included_term
           @snapshot_members = members.dup
+          @commit_index = Math.max(@commit_index, last_included_lsn)
+          @applied_index = Math.max(@applied_index, last_included_lsn)
 
           if has_matching_entry && @last_lsn > last_included_lsn
             @first_lsn = last_included_lsn + 1
@@ -746,10 +812,9 @@ module LavinMQ
           else
             @first_lsn = last_included_lsn + 1
             @last_lsn = last_included_lsn
+            @committed_members = members.dup
             @members = members.dup
           end
-          @commit_index = Math.max(@commit_index, last_included_lsn)
-          @applied_index = Math.max(@applied_index, last_included_lsn)
           write_idx_header_unsafe
           save_meta!
           {@on_membership_change, @members.dup}
@@ -777,9 +842,13 @@ module LavinMQ
 
       def fsync : Nil
         @lock.synchronize do
-          @idx_mfile.fsync
-          @ctrl_mfile.fsync
+          fsync_unsafe
         end
+      end
+
+      private def fsync_unsafe : Nil
+        @idx_mfile.fsync unless @idx_mfile.closed?
+        @ctrl_mfile.fsync unless @ctrl_mfile.closed?
       end
 
       def close : Nil
@@ -799,6 +868,19 @@ module LavinMQ
           list[idx] = member
         else
           list << member
+        end
+      end
+
+      private def update_uris_in_list(list : Array(MemberInfo), node_id : UInt64, peer_uri : String, amqp_uri : String, http_uri : String) : Nil
+        if idx = list.index { |m| m.node_id == node_id }
+          existing = list[idx]
+          list[idx] = MemberInfo.new(
+            node_id,
+            peer_uri.empty? ? existing.peer_uri : peer_uri,
+            amqp_uri.empty? ? existing.amqp_uri : amqp_uri,
+            http_uri.empty? ? existing.http_uri : http_uri,
+            existing.role
+          )
         end
       end
 
@@ -826,18 +908,23 @@ module LavinMQ
 
       private def recompute_members_unsafe : Nil
         recomputed = @snapshot_members.dup
+        recomputed_committed = @snapshot_members.dup
         if @last_lsn >= @first_lsn
           lsn = @first_lsn
           while lsn <= @last_lsn
             raw = entry_ptr(lsn).value
             if raw.lsn == lsn && raw.command.conf_change?
               payload = resolve_payload_unsafe(raw)
-              apply_conf_change_to_list(recomputed, payload) unless payload.empty?
+              unless payload.empty?
+                apply_conf_change_to_list(recomputed, payload)
+                apply_conf_change_to_list(recomputed_committed, payload) if lsn <= @commit_index
+              end
             end
             lsn += 1
           end
         end
         @members = recomputed
+        @committed_members = recomputed_committed
       end
 
       private def normalize_entry_unsafe(raw_entry : LogIndexEntry) : LogIndexEntry
@@ -1154,6 +1241,7 @@ module LavinMQ
               else
                 @snapshot_members = @members.dup
               end
+              @committed_members = @members.dup
               @meta_existed = true
               return
             end

@@ -120,8 +120,68 @@ describe LavinMQ::ClusteringV2::IngressRouter do
       conns_resp.status_code.should eq(200)
       conns_resp.headers["X-LavinMQ-Proxied-To-Leader"]?.should eq("true")
       follower.router.http_router.proxied_to_leader_count.get.should eq(prev_proxied + 1)
+
+      # 4. WebSocket upgrades and /ws or /mqtt paths on the FOLLOWER must NOT be served locally;
+      #    they must be reverse-proxied and spliced to the leader.
+      LavinMQ::ClusteringV2::FollowerHttpRouterHandler.serve_locally_on_follower?(
+        "GET", "/ws", HTTP::Headers{"Upgrade" => "websocket", "Connection" => "Upgrade"}
+      ).should be_false
+      LavinMQ::ClusteringV2::FollowerHttpRouterHandler.serve_locally_on_follower?(
+        "GET", "/mqtt", HTTP::Headers{"Upgrade" => "websocket", "Connection" => "Upgrade"}
+      ).should be_false
+      LavinMQ::ClusteringV2::FollowerHttpRouterHandler.serve_locally_on_follower?(
+        "GET", "/api/queues", HTTP::Headers{"Upgrade" => "websocket", "Connection" => "Upgrade"}
+      ).should be_false
     ensure
       nodes.each(&.close)
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "preserves dynamic Raft membership across ClusterNode restart when start_from_config is called" do
+    base_dir = File.tempname("lavinmq_cv2_restart_membership")
+    Dir.mkdir_p(base_dir)
+    begin
+      m1 = LavinMQ::ClusteringV2::MemberInfo.new(1_u64, "tcp://127.0.0.1:65401", "amqp://127.0.0.1:5671", "http://127.0.0.1:15671", LavinMQ::ClusteringV2::MemberRole::Voter)
+      m2 = LavinMQ::ClusteringV2::MemberInfo.new(2_u64, "tcp://127.0.0.1:65402", "amqp://127.0.0.1:5672", "http://127.0.0.1:15672", LavinMQ::ClusteringV2::MemberRole::Voter)
+      m4 = LavinMQ::ClusteringV2::MemberInfo.new(4_u64, "tcp://127.0.0.1:65404", "amqp://127.0.0.1:5674", "http://127.0.0.1:15674", LavinMQ::ClusteringV2::MemberRole::Learner)
+
+      cn1 = LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "test-secret")
+      begin
+        # Initial boot with static seed peers [m1, m2], plus dynamically added m4 in persisted snapshot/log state
+        cn1.raft.configure_cluster([m1, m2, m4])
+        cn1.raft.members.map(&.node_id).should eq([1_u64, 2_u64, 4_u64])
+      ensure
+        cn1.close
+      end
+
+      # Restart ClusterNode on the same data_dir and call start_from_config with only static seeds [1, 2]
+      srv = TCPServer.new("127.0.0.1", 0)
+      free_port = srv.local_address.port
+      srv.close
+
+      cfg = LavinMQ::Config.new
+      cfg.data_dir = base_dir
+      cfg.amqp_port = -1
+      cfg.mqtt_port = -1
+      cfg.http_port = -1
+      cfg.clustering_bind = "127.0.0.1"
+      cfg.clustering_port = free_port
+      cfg.clustering_advertised_uri = "tcp://127.0.0.1:#{free_port}"
+      cfg.clustering_peers = ["2@tcp://127.0.0.1:65402"]
+
+      cn2 = LavinMQ::ClusteringV2::ClusterNode.new(base_dir, 1_u64, secret: "test-secret", config: cfg)
+      begin
+        cn2.start_from_config(cfg)
+
+        # Dynamically added member 4 must still be present, and member 1's restarted peer_uri is updated
+        cn2.raft.members.map(&.node_id).should eq([1_u64, 2_u64, 4_u64])
+        cn2.raft.committed_members.map(&.node_id).should eq([1_u64, 2_u64, 4_u64])
+        cn2.raft.members.find! { |m| m.node_id == 1_u64 }.peer_uri.should eq("tcp://127.0.0.1:#{free_port}")
+      ensure
+        cn2.close
+      end
+    ensure
       FileUtils.rm_rf(base_dir)
     end
   end

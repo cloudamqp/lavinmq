@@ -876,6 +876,7 @@ module LavinMQ
           when LogCommandType::Publish
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               mfile = q.apply_follower_publish(entry.segment_id, entry.position, record.payload)
+              mfile.fsync if Config.instance.sync? && @raft_log.sync?
               @raft_log.register_segment(entry.vhost_id, entry.queue_id, entry.segment_id, mfile)
               @raft_log.bind_publish_segment(entry.lsn, entry.segment_id, entry.position, record.payload.size.to_u32)
             end
@@ -975,7 +976,7 @@ module LavinMQ
           remove_queue!(vhost_id, q_id)
           drain_pending_apply_cache_ops
         end
-        vh.apply(frame, loading: false, fsync: false)
+        vh.apply(frame, loading: false, fsync: Config.instance.sync? && @raft_log.sync?)
         if frame.is_a?(AMQP::Frame::Queue::Declare)
           if q = vh.queue?(frame.queue_name)
             q_id = index_queue!(vh, vhost_id, q)

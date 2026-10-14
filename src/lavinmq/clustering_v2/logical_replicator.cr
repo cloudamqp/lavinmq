@@ -409,9 +409,11 @@ module LavinMQ
       end
 
       def request_fsync(paths : Enumerable(String)) : Nil
+        @node.log.fsync if Config.instance.sync? && @node.log.sync?
       end
 
       def request_syncfs : Nil
+        @node.log.fsync if Config.instance.sync? && @node.log.sync?
       end
 
       def close

@@ -124,9 +124,9 @@ module LavinMQ
           @lock.synchronize { on_log_membership_changed_unsafe(members) }
         end
 
-        if @log.meta_existed? && !@log.members.empty?
+        if @log.meta_existed? && (!@log.committed_members.empty? || !@log.members.empty?)
           @cluster_configured = true
-          if me = @log.members.find { |m| m.node_id == @node_id }
+          if me = @log.committed_members.find { |m| m.node_id == @node_id } || @log.members.find { |m| m.node_id == @node_id }
             @role = me.learner? ? Role::Learner : Role::Follower
           end
         elsif !@peer_uri.empty?
@@ -207,12 +207,17 @@ module LavinMQ
       def leader_member : MemberInfo?
         @lock.synchronize do
           return if @leader_id == 0
-          @log.members.find { |m| m.node_id == @leader_id }
+          @log.members.find { |m| m.node_id == @leader_id } ||
+            @log.committed_members.find { |m| m.node_id == @leader_id }
         end
       end
 
       def members : Array(MemberInfo)
         @log.members
+      end
+
+      def committed_members : Array(MemberInfo)
+        @log.committed_members
       end
 
       def match_index_for(peer_id : UInt64) : UInt64
@@ -231,11 +236,12 @@ module LavinMQ
         @lock.synchronize do
           @started = true
           if @cluster_configured
-            my_role = @role.learner? ? MemberRole::Learner : MemberRole::Voter
-            if existing = @log.members.find { |m| m.node_id == @node_id }
-              my_role = existing.role
+            if @log.members.empty? && @log.committed_members.empty?
+              my_role = @role.learner? ? MemberRole::Learner : MemberRole::Voter
+              @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role))
+            elsif @log.members.any? { |m| m.node_id == @node_id } || @log.committed_members.any? { |m| m.node_id == @node_id }
+              @log.update_member_uris(@node_id, @peer_uri, @amqp_uri, @http_uri)
             end
-            @log.upsert_member(MemberInfo.new(@node_id, @peer_uri, @amqp_uri, @http_uri, my_role))
           end
           sync_peer_sessions_unsafe
           @current_election_timeout = random_election_timeout
@@ -456,7 +462,7 @@ module LavinMQ
       end
 
       private def voter_unsafe?(node_id : UInt64) : Bool
-        @log.members.any? { |m| m.node_id == node_id && m.voter? }
+        @log.committed_members.any? { |m| m.node_id == node_id && m.voter? }
       end
 
       private def accept_loop(server : TCPServer) : Nil
@@ -543,7 +549,7 @@ module LavinMQ
         return false unless @cluster_configured
         voter_count = 0
         only_voter_id = 0_u64
-        @log.members.each do |m|
+        @log.committed_members.each do |m|
           next unless m.voter?
           voter_count += 1
           only_voter_id = m.node_id
@@ -561,7 +567,7 @@ module LavinMQ
       private def check_leader_lease_expired_unsafe(now : Time::Instant) : Bool
         voter_count = 0
         active = 0
-        @log.members.each do |m|
+        @log.committed_members.each do |m|
           next unless m.voter?
           voter_count += 1
           if m.node_id == @node_id
@@ -681,7 +687,16 @@ module LavinMQ
           @log.set_term_and_vote(new_term, 0_u64)
         end
 
-        me = @log.members.find { |m| m.node_id == @node_id }
+        if was_leader
+          if @log.last_lsn > @log.commit_index
+            @log.truncate_from(@log.commit_index + 1)
+          end
+          @pending_conf_change_lsn = 0_u64
+          @commit_waiters.each(&.channel.try_send(false))
+          @commit_waiters.clear
+        end
+
+        me = @log.committed_members.find { |m| m.node_id == @node_id } || @log.members.find { |m| m.node_id == @node_id }
         @role = (me && me.learner?) ? Role::Learner : Role::Follower
         @leader_id = new_leader_id
         @promoted_term = 0_u64
@@ -691,14 +706,6 @@ module LavinMQ
         @votes_granted.clear
         @peer_in_flight_until.clear
         @snapshot_in_flight.clear
-
-        if was_leader
-          if @log.last_lsn > @log.commit_index
-            @log.truncate_from(@log.commit_index + 1)
-          end
-          @commit_waiters.each(&.channel.try_send(false))
-          @commit_waiters.clear
-        end
         was_leader
       end
 
@@ -796,10 +803,10 @@ module LavinMQ
           if resp.term > @log.current_term
             stepped_down = step_down_unsafe(resp.term)
             stepped_down_term = resp.term
-            return
+            next
           end
 
-          return unless resp.voter_id == peer_id && voter_unsafe?(resp.voter_id)
+          next unless resp.voter_id == peer_id && voter_unsafe?(resp.voter_id)
 
           if resp.pre_vote? && @role.pre_candidate? && resp.vote_granted?
             @pre_votes_granted.add(resp.voter_id)
@@ -876,7 +883,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      private def handle_append_entries_response(peer_id : UInt64, resp : AppendEntriesResponse) : Nil
+      def handle_append_entries_response(peer_id : UInt64, resp : AppendEntriesResponse) : Nil
         stepped_down = false
         stepped_down_term = 0_u64
         learner_to_promote : MemberInfo? = nil
@@ -887,9 +894,9 @@ module LavinMQ
           if resp.term > @log.current_term
             stepped_down = step_down_unsafe(resp.term)
             stepped_down_term = resp.term
-            return
+            next
           end
-          return unless @role.leader? && resp.term == @log.current_term
+          next unless @role.leader? && resp.term == @log.current_term
 
           @last_ack_at[resp.follower_id] = Time.instant
           @peer_in_flight_until.delete(resp.follower_id)
@@ -905,7 +912,7 @@ module LavinMQ
                             (@log.commit_index > 0 && @commit_waiters.any? { |w| w.target_lsn <= @log.commit_index })
 
             if @auto_promote_learners && @pending_conf_change_lsn <= @log.commit_index
-              if member = @log.members.find { |m| m.node_id == resp.follower_id && m.learner? }
+              if member = @log.committed_members.find { |m| m.node_id == resp.follower_id && m.learner? }
                 lag = @log.last_lsn > resp.match_lsn ? (@log.last_lsn - resp.match_lsn) : 0_u64
                 if lag <= @learner_promote_threshold
                   learner_to_promote = MemberInfo.new(
@@ -1030,7 +1037,7 @@ module LavinMQ
         end
       end
 
-      private def handle_install_snapshot_response(peer_id : UInt64, resp : InstallSnapshotResponse) : Nil
+      def handle_install_snapshot_response(peer_id : UInt64, resp : InstallSnapshotResponse) : Nil
         stepped_down = false
         stepped_down_term = 0_u64
         has_committed = false
@@ -1042,9 +1049,9 @@ module LavinMQ
           if resp.term > @log.current_term
             stepped_down = step_down_unsafe(resp.term)
             stepped_down_term = resp.term
-            return
+            next
           end
-          return unless @role.leader? && resp.term == @log.current_term
+          next unless @role.leader? && resp.term == @log.current_term
 
           @last_ack_at[resp.follower_id] = Time.instant
           @match_index[resp.follower_id] = Math.max(@match_index[resp.follower_id]? || 0_u64, resp.match_lsn)
@@ -1176,7 +1183,7 @@ module LavinMQ
             term = @log.current_term
             snap_lsn = @last_applied
             snap_term = @log.term_at(snap_lsn) || @log.last_snapshot_term
-            members_list = @log.members.dup
+            members_list = @log.committed_members.dup
             true
           end
           return unless ok
@@ -1200,14 +1207,14 @@ module LavinMQ
         end
       end
 
-      private def try_advance_commit_index_unsafe : Nil
+      private def compute_quorum_lsn_unsafe(members : Array(MemberInfo)) : UInt64
         @quorum_scratch.clear
-        @log.members.each do |m|
+        members.each do |m|
           next unless m.voter?
           lsn = m.node_id == @node_id ? @log.last_lsn : (@match_index[m.node_id]? || 0_u64)
           @quorum_scratch << lsn
         end
-        return if @quorum_scratch.empty?
+        return 0_u64 if @quorum_scratch.empty?
 
         # In-place descending insertion sort on pre-allocated buffer (zero heap allocations)
         i = 1
@@ -1223,10 +1230,24 @@ module LavinMQ
         end
 
         quorum_idx = @quorum_scratch.size // 2
-        quorum_lsn = @quorum_scratch[quorum_idx]
+        @quorum_scratch[quorum_idx]
+      end
 
-        if quorum_lsn > @log.commit_index && @log.term_at(quorum_lsn) == @log.current_term
-          @log.advance_commit_index(quorum_lsn)
+      private def try_advance_commit_index_unsafe : Nil
+        loop do
+          quorum_lsn = compute_quorum_lsn_unsafe(@log.committed_members)
+          return if quorum_lsn <= @log.commit_index
+
+          if (cc_lsn = @log.first_uncommitted_conf_change_lsn) && quorum_lsn >= cc_lsn
+            return unless @log.term_at(cc_lsn) == @log.current_term
+            @log.advance_commit_index(cc_lsn)
+            next
+          end
+
+          if @log.term_at(quorum_lsn) == @log.current_term
+            @log.advance_commit_index(quorum_lsn)
+          end
+          break
         end
       end
 
@@ -1508,7 +1529,7 @@ module LavinMQ
       end
 
       private def on_log_membership_changed_unsafe(members : Array(MemberInfo)) : Nil
-        if me = members.find { |m| m.node_id == @node_id }
+        if me = @log.committed_members.find { |m| m.node_id == @node_id } || members.find { |m| m.node_id == @node_id }
           if me.learner? && !@role.leader?
             @role = Role::Learner
           elsif me.voter? && @role.learner?
@@ -1516,7 +1537,7 @@ module LavinMQ
           end
         end
 
-        active_ids = members.map(&.node_id)
+        active_ids = (members.map(&.node_id) + @log.committed_members.map(&.node_id)).uniq!
         @peers.keys.each do |pid|
           unless active_ids.includes?(pid)
             if ch = @peer_notify.delete(pid)
@@ -1551,7 +1572,7 @@ module LavinMQ
       end
 
       private def sync_peer_sessions_unsafe : Nil
-        @log.members.each do |m|
+        (@log.committed_members + @log.members).each do |m|
           next if m.node_id == @node_id
           if existing = @peers[m.node_id]?
             existing.peer_uri = m.peer_uri unless m.peer_uri.empty?
@@ -1562,7 +1583,7 @@ module LavinMQ
       end
 
       private def quorum_size_unsafe : Int32
-        voters = @log.members.count(&.voter?)
+        voters = @log.committed_members.count(&.voter?)
         (voters // 2) + 1
       end
 

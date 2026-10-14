@@ -472,4 +472,135 @@ describe LavinMQ::ClusteringV2::RaftNode do
       FileUtils.rm_rf(base_dir)
     end
   end
+
+  it "invokes on_step_down callback when a higher term is seen in vote, AppendEntries, or InstallSnapshot responses" do
+    base_dir = File.tempname("lavinmq_raft_stepdown_cb_")
+    Dir.mkdir_p(base_dir)
+    log = LavinMQ::ClusteringV2::RaftLog.new(base_dir, capacity: 64_u64, node_id: 1_u64)
+    node = LavinMQ::ClusteringV2::RaftNode.new(
+      log: log,
+      secret: "test-secret",
+      peer_uri: "tcp://127.0.0.1:65530",
+      amqp_uri: "amqp://127.0.0.1:5671",
+      http_uri: "http://127.0.0.1:15671",
+      initial_role: LavinMQ::ClusteringV2::MemberRole::Voter
+    )
+    begin
+      node.configure_cluster([
+        LavinMQ::ClusteringV2::MemberInfo.new(1_u64, "tcp://127.0.0.1:65530", "amqp://127.0.0.1:5671", "http://127.0.0.1:15671", LavinMQ::ClusteringV2::MemberRole::Voter),
+      ])
+
+      stepped_down_terms = Array(UInt64).new
+      node.on_step_down do |new_term|
+        stepped_down_terms << new_term
+      end
+
+      node.trigger_election!
+      node.leader?.should be_true
+      node.handle_vote_response(2_u64, LavinMQ::ClusteringV2::VoteResponse.new(
+        pre_vote: false,
+        term: 5_u64,
+        voter_id: 2_u64,
+        vote_granted: false
+      ))
+      node.leader?.should be_false
+      node.current_term.should eq(5_u64)
+      stepped_down_terms.should eq([5_u64])
+
+      node.trigger_election!
+      node.leader?.should be_true
+      node.handle_append_entries_response(2_u64, LavinMQ::ClusteringV2::AppendEntriesResponse.new(
+        term: 10_u64,
+        follower_id: 2_u64,
+        success: false,
+        match_lsn: 0_u64,
+        conflict_lsn: 1_u64
+      ))
+      node.leader?.should be_false
+      node.current_term.should eq(10_u64)
+      stepped_down_terms.should eq([5_u64, 10_u64])
+
+      node.trigger_election!
+      node.leader?.should be_true
+      node.handle_install_snapshot_response(2_u64, LavinMQ::ClusteringV2::InstallSnapshotResponse.new(
+        term: 15_u64,
+        follower_id: 2_u64,
+        match_lsn: 0_u64
+      ))
+      node.leader?.should be_false
+      node.current_term.should eq(15_u64)
+      stepped_down_terms.should eq([5_u64, 10_u64, 15_u64])
+    ensure
+      node.close
+      FileUtils.rm_rf(base_dir)
+    end
+  end
+
+  it "uses committed membership rather than uncommitted ConfChange entries for quorum calculation" do
+    base_dir = File.tempname("lavinmq_raft_committed_quorum_")
+    Dir.mkdir_p(base_dir)
+    log = LavinMQ::ClusteringV2::RaftLog.new(base_dir, capacity: 64_u64, node_id: 1_u64)
+    node = LavinMQ::ClusteringV2::RaftNode.new(
+      log: log,
+      secret: "test-secret",
+      peer_uri: "tcp://127.0.0.1:65521",
+      amqp_uri: "amqp://127.0.0.1:5671",
+      http_uri: "http://127.0.0.1:15671",
+      initial_role: LavinMQ::ClusteringV2::MemberRole::Voter
+    )
+    begin
+      m1 = LavinMQ::ClusteringV2::MemberInfo.new(1_u64, "tcp://127.0.0.1:65521", "amqp://127.0.0.1:5671", "http://127.0.0.1:15671", LavinMQ::ClusteringV2::MemberRole::Voter)
+      m2 = LavinMQ::ClusteringV2::MemberInfo.new(2_u64, "tcp://127.0.0.1:65522", "amqp://127.0.0.1:5672", "http://127.0.0.1:15672", LavinMQ::ClusteringV2::MemberRole::Voter)
+      node.configure_cluster([m1, m2])
+
+      # Elect node 1 in term 1 with peer 2's pre-vote and real vote
+      node.trigger_election!
+      node.handle_vote_response(2_u64, LavinMQ::ClusteringV2::VoteResponse.new(
+        pre_vote: true,
+        term: 0_u64,
+        voter_id: 2_u64,
+        vote_granted: true
+      ))
+      node.handle_vote_response(2_u64, LavinMQ::ClusteringV2::VoteResponse.new(
+        pre_vote: false,
+        term: 1_u64,
+        voter_id: 2_u64,
+        vote_granted: true
+      ))
+      node.leader?.should be_true
+      # Peer 2 acknowledges LeaderNoOp at LSN 1
+      node.handle_append_entries_response(2_u64, LavinMQ::ClusteringV2::AppendEntriesResponse.new(
+        term: 1_u64,
+        follower_id: 2_u64,
+        success: true,
+        match_lsn: 1_u64,
+        conflict_lsn: 0_u64
+      ))
+      node.commit_index.should eq(1_u64)
+
+      # Propose removing voter 2 at LSN 2.
+      # Uncommitted @log.members now has only 1 voter (node 1), while @log.committed_members still has 2 voters (1 and 2).
+      conf_entry = node.propose_conf_change(LavinMQ::ClusteringV2::ConfChangeType::RemoveNode, m2)
+      conf_entry.lsn.should eq(2_u64)
+      node.members.map(&.node_id).should eq([1_u64])
+      node.committed_members.map(&.node_id).should eq([1_u64, 2_u64])
+
+      # Because committed membership still requires 2 voters for quorum, LSN 2 must NOT commit on node 1 alone!
+      node.commit_index.should eq(1_u64)
+
+      # Once peer 2 acknowledges LSN 2, the 2-voter committed quorum is met and LSN 2 commits.
+      node.handle_append_entries_response(2_u64, LavinMQ::ClusteringV2::AppendEntriesResponse.new(
+        term: 1_u64,
+        follower_id: 2_u64,
+        success: true,
+        match_lsn: 2_u64,
+        conflict_lsn: 0_u64
+      ))
+      node.commit_index.should eq(2_u64)
+      node.committed_members.map(&.node_id).should eq([1_u64])
+    ensure
+      node.close
+      FileUtils.rm_rf(base_dir)
+    end
+  end
 end
