@@ -86,6 +86,21 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
   end
 
+  describe "JWKS refresh loop" do
+    it "stops on cleanup while it is retrying an unreachable provider" do
+      with_stub_idp_server(healthy: false) do |addr, paths|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        fetcher.start_refresh_loop(retry_delay: 10.milliseconds)
+        wait_for { paths.size >= 2 }
+        authenticator.cleanup
+        sleep 50.milliseconds
+        requests = paths.size
+        sleep 100.milliseconds
+        paths.size.should eq requests
+      end
+    end
+  end
+
   describe "#authenticate with invalid tokens" do
     it "rejects tokens that don't start with 'ey'" do
       authenticator = create_test_authenticator
