@@ -1,5 +1,6 @@
 require "openssl/hmac"
 require "random/secure"
+require "../mfile"
 
 module LavinMQ
   module ClusteringV2

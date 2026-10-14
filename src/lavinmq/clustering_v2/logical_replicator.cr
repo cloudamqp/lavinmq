@@ -366,6 +366,7 @@ module LavinMQ
         if parts.size == 1 && !parts[0].empty?
           vhost_dir = parts[0]
           vhost_id = ResourceId.vhost_id_for_dir(vhost_dir)
+          @applier.remove_vhost!(vhost_id)
           entry = @node.propose_command(LogCommandType::VHostDelete, vhost_dir.to_slice, vhost_id: vhost_id)
           @last_proposed_lsn.set(entry.lsn)
         end
@@ -489,7 +490,10 @@ module LavinMQ
           end
           {LogCommandType::QueueDeclare, q_id}
         when AMQP::Frame::Queue::Delete
-          {LogCommandType::QueueDelete, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))}
+          vh_id = ResourceId.vhost_id_for_dir(vhost_dir)
+          q_id = ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.queue_name))
+          @applier.remove_queue!(vh_id, q_id)
+          {LogCommandType::QueueDelete, q_id}
         when AMQP::Frame::Exchange::Declare
           {LogCommandType::ExchangeDeclare, ResourceId.queue_id_for_dirs(vhost_dir, Digest::SHA1.hexdigest(frame.exchange_name))}
         when AMQP::Frame::Exchange::Delete

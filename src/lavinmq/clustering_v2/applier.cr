@@ -396,8 +396,10 @@ module LavinMQ
         @msg_store
       end
 
+      @clustering_v2_dir_name : String? = nil
+
       def queue_dir_name : String
-        File.basename(@data_dir)
+        @clustering_v2_dir_name ||= File.basename(@data_dir)
       end
 
       def enable_commit_gate!(committed_seg_id : UInt32? = nil, committed_end_pos : UInt32? = nil) : Nil
@@ -598,9 +600,11 @@ module LavinMQ
       @vhost_dir_by_id = Hash(UInt64, String).new
       @queue_by_key = Hash(QueueKey, AMQP::Queue).new
       @queue_name_by_key = Hash(QueueKey, String).new
-      @cache_epoch = Atomic(UInt64).new(1_u64)
+      @deleted_queue_keys = Set(QueueKey).new
       @apply_queue_cache = Hash(QueueKey, AMQP::Queue).new
-      @apply_cache_epoch : UInt64 = 0_u64
+      @pending_apply_cache_ops = Deque(Tuple(QueueKey, AMQP::Queue?)).new
+      @reset_apply_cache = false
+      @has_pending_apply_ops = Atomic(Bool).new(false)
 
       def initialize(@raft_log : RaftLog, @server : LavinMQ::Server? = nil, &suppress_callback : Bool -> Nil)
         @suppress_callback = suppress_callback
@@ -626,7 +630,10 @@ module LavinMQ
           @vhost_dir_by_id.clear
           @queue_by_key.clear
           @queue_name_by_key.clear
-          @cache_epoch.add(1_u64)
+          @deleted_queue_keys.clear
+          @pending_apply_cache_ops.clear
+          @reset_apply_cache = true
+          @has_pending_apply_ops.set(true, :release)
           srv = @server || return
           srv.vhosts.each_value do |vh|
             vh_id = index_vhost!(vh)
@@ -637,13 +644,14 @@ module LavinMQ
         end
       end
 
-      private def sync_missing_resources_unsafe : Nil
+      private def sync_missing_resources_unsafe(target_vhost_id : UInt64? = nil) : Nil
         srv = @server || return
         srv.vhosts.each_value do |vh|
           vh_id = ResourceId.vhost_id_for_dir(vh.dir)
           unless @vhost_by_id.has_key?(vh_id)
             index_vhost!(vh)
           end
+          next if target_vhost_id && vh_id != target_vhost_id
           vh.queues.each do |q|
             q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
             key = {vh_id, q_id}
@@ -677,8 +685,38 @@ module LavinMQ
           end
           @queue_by_key[key] = q
           @queue_name_by_key[key] = q.name
-          @cache_epoch.add(1_u64)
+          @deleted_queue_keys.delete(key)
+          @pending_apply_cache_ops.push({key, q})
+          @has_pending_apply_ops.set(true, :release)
           q_id
+        end
+      end
+
+      def remove_queue!(vh_id : UInt64, q_id : UInt64) : Nil
+        key = {vh_id, q_id}
+        @cache_lock.synchronize do
+          @queue_by_key.delete(key)
+          @deleted_queue_keys.add(key)
+          @pending_apply_cache_ops.push({key, nil})
+          @has_pending_apply_ops.set(true, :release)
+        end
+      end
+
+      def remove_vhost!(vh_id : UInt64) : Nil
+        @cache_lock.synchronize do
+          keys_to_remove = Array(QueueKey).new
+          @queue_by_key.each_key do |k|
+            keys_to_remove << k if k[0] == vh_id
+          end
+          keys_to_remove.each do |k|
+            @queue_by_key.delete(k)
+            @queue_name_by_key.delete(k)
+            @deleted_queue_keys.add(k)
+            @pending_apply_cache_ops.push({k, nil})
+          end
+          @vhost_by_id.delete(vh_id)
+          @vhost_dir_by_id.delete(vh_id)
+          @has_pending_apply_ops.set(true, :release)
         end
       end
 
@@ -696,18 +734,36 @@ module LavinMQ
           if vh = @vhost_by_id[vhost_id]?
             return vh
           end
-          sync_missing_resources_unsafe
+          sync_missing_resources_unsafe(vhost_id)
           @vhost_by_id[vhost_id]?
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def resolve_queue(vhost_id : UInt64, queue_id : UInt64) : AMQP::Queue?
         key = {vhost_id, queue_id}
         @cache_lock.synchronize do
           if q = @queue_by_key[key]?
             return q unless q.closed?
+            if (q_name = @queue_name_by_key[key]?) && (vh = @vhost_by_id[vhost_id]?)
+              if (replacement = vh.queue?(q_name)) && !replacement.closed?
+                index_queue!(vh, vhost_id, replacement)
+                return replacement
+              end
+            end
+            remove_queue!(vhost_id, queue_id)
+            return
           end
-          sync_missing_resources_unsafe
+          if @deleted_queue_keys.includes?(key)
+            if (q_name = @queue_name_by_key[key]?) && (vh = @vhost_by_id[vhost_id]?)
+              if (redeclared = vh.queue?(q_name)) && !redeclared.closed?
+                index_queue!(vh, vhost_id, redeclared)
+                return redeclared
+              end
+            end
+            return
+          end
+          sync_missing_resources_unsafe(vhost_id)
           if q = @queue_by_key[key]?
             return q unless q.closed?
           end
@@ -715,23 +771,39 @@ module LavinMQ
         end
       end
 
-      # Fast-path queue lookup for the single Raft applier fiber without taking `@cache_lock`
-      # on steady-state Publish/Ack commits.
-      private def resolve_queue_for_applier(vhost_id : UInt64, queue_id : UInt64) : AMQP::Queue?
-        epoch = @cache_epoch.get(:acquire)
-        key = {vhost_id, queue_id}
-        if epoch == @apply_cache_epoch
-          if q = @apply_queue_cache[key]?
-            return q unless q.closed?
-          end
-        end
-        q = resolve_queue(vhost_id, queue_id)
+      private def drain_pending_apply_cache_ops : Nil
         @cache_lock.synchronize do
-          @apply_queue_cache.clear
-          @queue_by_key.each { |k, v| @apply_queue_cache[k] = v }
-          @apply_cache_epoch = @cache_epoch.get(:acquire)
+          if @reset_apply_cache
+            @reset_apply_cache = false
+            @apply_queue_cache.clear
+          end
+          while op = @pending_apply_cache_ops.shift?
+            k, q = op
+            if q
+              @apply_queue_cache[k] = q
+            else
+              @apply_queue_cache.delete(k)
+            end
+          end
+          @has_pending_apply_ops.set(false, :release)
         end
-        q
+      end
+
+      # Fast-path queue lookup for the single Raft applier fiber without taking `@cache_lock`
+      # on steady-state Publish/Ack commits, updating `@apply_queue_cache` one key at a time.
+      private def resolve_queue_for_applier(vhost_id : UInt64, queue_id : UInt64) : AMQP::Queue?
+        drain_pending_apply_cache_ops if @has_pending_apply_ops.get(:acquire)
+        key = {vhost_id, queue_id}
+        if q = @apply_queue_cache[key]?
+          return q unless q.closed?
+          @apply_queue_cache.delete(key)
+        end
+        if q = resolve_queue(vhost_id, queue_id)
+          drain_pending_apply_cache_ops if @has_pending_apply_ops.get(:acquire)
+          @apply_queue_cache[key] = q
+          return q
+        end
+        nil
       end
 
       def register_all_segments! : Nil
@@ -765,10 +837,17 @@ module LavinMQ
       def apply_committed(record : LogEntryRecord, from_leader : Bool) : Nil
         entry = record.entry
         if from_leader
-          if entry.command == LogCommandType::Publish
+          case entry.command
+          when LogCommandType::Publish
             if q = resolve_queue_for_applier(entry.vhost_id, entry.queue_id)
               q.advance_committed(entry.segment_id, entry.position + entry.byte_size)
             end
+          when LogCommandType::QueueDelete
+            remove_queue!(entry.vhost_id, entry.queue_id)
+            drain_pending_apply_cache_ops
+          when LogCommandType::VHostDelete
+            remove_vhost!(entry.vhost_id)
+            drain_pending_apply_cache_ops
           end
           return
         end
@@ -876,14 +955,10 @@ module LavinMQ
             vh.queues.each do |q|
               q_id = ResourceId.queue_id_for_dirs(vh.dir, q.queue_dir_name)
               @raft_log.unregister_queue_segments(vh_id, q_id)
-              key = {vh_id, q_id}
-              @queue_by_key.delete(key)
-              @queue_name_by_key.delete(key)
             end
-            @vhost_by_id.delete(vh_id)
-            @vhost_dir_by_id.delete(vh_id)
-            @cache_epoch.add(1_u64)
           end
+          remove_vhost!(vh_id)
+          drain_pending_apply_cache_ops
           srv.vhosts.delete(vh.name)
         end
       end
@@ -897,18 +972,15 @@ module LavinMQ
           q_dir = vh.queue?(frame.queue_name).try(&.queue_dir_name) || Digest::SHA1.hexdigest(frame.queue_name)
           q_id = ResourceId.queue_id_for_dirs(vh.dir, q_dir)
           @raft_log.unregister_queue_segments(vhost_id, q_id)
-          key = {vhost_id, q_id}
-          @cache_lock.synchronize do
-            @queue_by_key.delete(key)
-            @queue_name_by_key.delete(key)
-            @cache_epoch.add(1_u64)
-          end
+          remove_queue!(vhost_id, q_id)
+          drain_pending_apply_cache_ops
         end
         vh.apply(frame, loading: false, fsync: false)
         if frame.is_a?(AMQP::Frame::Queue::Declare)
           if q = vh.queue?(frame.queue_name)
             q_id = index_queue!(vh, vhost_id, q)
             register_queue_segments(vhost_id, q_id, q)
+            drain_pending_apply_cache_ops
           end
         end
       end
