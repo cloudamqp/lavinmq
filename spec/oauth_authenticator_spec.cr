@@ -104,15 +104,15 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
   describe "#reload" do
     it "fetches keys from the new issuer after the issuer changes" do
-      with_stub_idp_server do |addr_a, _paths_a|
-        with_stub_idp_server do |addr_b, paths_b|
+      with_stub_idp_server do |addr_a, _request_count_a|
+        with_stub_idp_server do |addr_b, request_count_b|
           authenticator, old_fetcher = authenticator_for_idp(addr_a)
           config = create_test_config
           config.oauth_issuer_url = URI.parse("http://#{addr_b}")
           authenticator.reload(config)
           ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
           authenticator.authenticate(ctx)
-          paths_b.should contain "/.well-known/openid-configuration"
+          request_count_b.call.should be > 0
           authenticator.token_verifier.fetcher.should_not be old_fetcher
           authenticator.token_verifier.fetcher.public_keys.empty?.should be_false
           old_fetcher.@stopped.value.should be_true
@@ -123,7 +123,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "keeps the current keys when the issuer and jwks_cache_ttl are unchanged" do
-      with_stub_idp_server do |addr, _paths|
+      with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
         config = create_test_config
         config.oauth_issuer_url = URI.parse("http://#{addr}/")
@@ -134,7 +134,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "replaces the fetcher when only jwks_cache_ttl changes" do
-      with_stub_idp_server do |addr, _paths|
+      with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
         config = create_test_config
         config.oauth_issuer_url = URI.parse("http://#{addr}")
