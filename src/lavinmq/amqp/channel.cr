@@ -498,23 +498,7 @@ module LavinMQ
       @tx_acks = Array(TxAck).new
 
       def basic_ack(frame)
-        if @tx
-          if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-            if last_tag = @unacked.last_tag?
-              @tx_acks.push(TxAck.new last_tag, frame.multiple, false, false)
-            end
-            return
-          elsif @unacked.includes?(frame.delivery_tag)
-            if double_ack?(frame.delivery_tag)
-              @client.send_precondition_failed(frame, "Delivery tag already acked")
-              return
-            end
-            @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, false, false)
-            return
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, frame.multiple, false, false) if @tx
 
         found = false
         if frame.multiple
@@ -543,18 +527,7 @@ module LavinMQ
       end
 
       def basic_reject(frame)
-        if @tx
-          if @unacked.includes?(frame.delivery_tag)
-            if double_ack?(frame.delivery_tag)
-              @client.send_precondition_failed(frame, "Delivery tag already acked")
-              return
-            end
-            @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue)
-            return
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, false, true, frame.requeue) if @tx
 
         @log.debug { "Rejecting #{frame.inspect}" }
         if unack = @unacked.delete(frame.delivery_tag)
@@ -565,23 +538,7 @@ module LavinMQ
       end
 
       def basic_nack(frame)
-        if @tx
-          if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-            if last_tag = @unacked.last_tag?
-              @tx_acks.push(TxAck.new last_tag, true, true, frame.requeue)
-            end
-            return
-          elsif @unacked.includes?(frame.delivery_tag)
-            if double_ack?(frame.delivery_tag)
-              @client.send_precondition_failed(frame, "Delivery tag already acked")
-              return
-            end
-            @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, true, frame.requeue)
-            return
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, frame.multiple, true, frame.requeue) if @tx
 
         found = false
         if frame.multiple
@@ -599,8 +556,20 @@ module LavinMQ
         end
       end
 
-      private def double_ack?(delivery_tag) : Bool
-        @tx_acks.any? { |tx_ack| tx_ack.delivery_tag == delivery_tag }
+      # Defers an ack, nack or reject until tx.commit, validating it against
+      # the outstanding deliveries and the ones already pending in the tx
+      private def tx_ack(frame, delivery_tag, multiple, negative, requeue) : Nil
+        if delivery_tag.zero? && multiple # all msgs so far
+          if last_tag = @unacked.last_tag?
+            @tx_acks.push(TxAck.new last_tag, true, negative, requeue)
+          end
+        elsif !@unacked.includes?(delivery_tag)
+          @client.send_precondition_failed(frame, unknown_tag(delivery_tag))
+        elsif delivery_tag_is_in_tx?(delivery_tag)
+          @client.send_precondition_failed(frame, "Delivery tag already acked")
+        else
+          @tx_acks.push(TxAck.new delivery_tag, multiple, negative, requeue)
+        end
       end
 
       private def unknown_tag(delivery_tag)
@@ -793,7 +762,8 @@ module LavinMQ
       private def process_tx_acks
         @tx_acks.each do |tx_ack|
           if tx_ack.multiple
-            @unacked.delete_upto(tx_ack.delivery_tag) do |unack|
+            # tags below it can already be gone through an earlier tx ack
+            @unacked.delete_through(tx_ack.delivery_tag) do |unack|
               apply_tx_ack(tx_ack, unack)
             end
           elsif unack = @unacked.delete(tx_ack.delivery_tag)

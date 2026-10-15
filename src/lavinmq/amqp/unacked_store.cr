@@ -82,6 +82,16 @@ module LavinMQ
         end
       end
 
+      # Removes and yields every delivery with a tag up to and including tag,
+      # without requiring tag itself to be outstanding
+      def delete_through(tag : UInt64, & : Unack -> Nil) : Nil
+        update_capacity do
+          while (unack = @unacked.first?) && unack.tag <= tag
+            yield remove(@unacked.shift)
+          end
+        end
+      end
+
       # Removes every delivery for which the block returns true
       def reject!(& : Unack -> Bool) : Nil
         update_capacity do

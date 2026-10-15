@@ -138,6 +138,56 @@ describe "Transactions" do
       end
     end
 
+    it "acks the rest with ack of all after a single ack of the last tag" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("txall")
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(3_u64)
+          ch.basic_ack(0_u64, multiple: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queues.find! &.name.== "txall"
+          sq.unacked_count.should eq 0
+          sq.message_count.should eq 0
+        end
+      end
+    end
+
+    it "acks the rest with a multiple ack after a single ack below it" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("txmulti")
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(2_u64)
+          ch.basic_ack(3_u64, multiple: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queues.find! &.name.== "txmulti"
+          sq.unacked_count.should eq 0
+          sq.message_count.should eq 0
+        end
+      end
+    end
+
+    it "closes the channel on an ack covered by a pending multiple ack" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(2_u64, multiple: true)
+          ch.basic_ack(1_u64)
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+            ch.tx_commit
+          end
+        end
+      end
+    end
+
     it "keeps a tx-pending ack across basic.recover" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
