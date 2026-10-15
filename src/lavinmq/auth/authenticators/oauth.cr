@@ -35,8 +35,12 @@ module LavinMQ
         Log.error(exception: ex) { "authentication failed for user \"#{context.username}\": #{ex.message}" }
       end
 
+      def reload(config : Config) : Nil
+        @token_verifier.reload(config)
+      end
+
       def cleanup
-        @token_verifier.fetcher.cleanup
+        @token_verifier.disable
       end
     end
   end

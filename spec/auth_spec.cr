@@ -227,6 +227,67 @@ describe LavinMQ::Auth::Chain do
     end
   end
 
+  describe "#reload" do
+    it "enables OAuth when oauth is added to auth_backends" do
+      config = LavinMQ::Config.new
+      config.auth_backends = ["local"]
+      with_datadir do |data_dir|
+        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        chain = LavinMQ::Auth::Chain.create(config, users)
+        local = chain.backends[0]
+        config.auth_backends = ["local", "oauth"]
+        config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+        chain.reload(config)
+        chain.backends.size.should eq 2
+        chain.backends[0].should be local
+        chain.backends[1].should be_a LavinMQ::Auth::OAuthAuthenticator
+      ensure
+        chain.try &.cleanup
+      end
+    end
+
+    it "disables OAuth when oauth is removed from auth_backends" do
+      config = LavinMQ::Config.new
+      config.auth_backends = ["local", "oauth"]
+      config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+      with_datadir do |data_dir|
+        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        chain = LavinMQ::Auth::Chain.create(config, users)
+        oauth = chain.backends[1].as(LavinMQ::Auth::OAuthAuthenticator)
+        user = LavinMQ::Auth::OAuthUser.new("testuser", [] of LavinMQ::Tag,
+          {} of String => LavinMQ::Auth::BaseUser::Permissions, Time.utc + 1.hour, oauth.token_verifier)
+        config.auth_backends = ["local"]
+        chain.reload(config)
+        chain.backends.size.should eq 1
+        chain.backends[0].should be_a LavinMQ::Auth::LocalAuthenticator
+        # Connections authenticated with OAuth can't refresh their token
+        expect_raises(LavinMQ::Auth::JWT::VerificationError, /disabled/) do
+          user.refresh("eyJhbGciOiJSUzI1NiJ9.e30.c2ln")
+        end
+      ensure
+        chain.try &.cleanup
+      end
+    end
+
+    it "keeps the OAuth authenticator when oauth stays in auth_backends" do
+      config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
+      config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+      with_datadir do |data_dir|
+        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        chain = LavinMQ::Auth::Chain.create(config, users)
+        oauth = chain.backends[0]
+        config.auth_backends = ["local", "oauth"]
+        chain.reload(config)
+        chain.backends.size.should eq 2
+        chain.backends[0].should be_a LavinMQ::Auth::LocalAuthenticator
+        chain.backends[1].should be oauth
+      ensure
+        chain.try &.cleanup
+      end
+    end
+  end
+
   describe "auth chaining fallback behavior" do
     it "tries local first, then oauth when both configured" do
       config = LavinMQ::Config.new
