@@ -100,7 +100,8 @@ describe LavinMQ::VHost do
       vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "test").as(LavinMQ::AMQP::Queue))
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
       sleep 10.milliseconds
-      vhost.queue("test").policy.not_nil!.name.should eq "ml"
+      policy = vhost.queue("test").policy.should_not be_nil
+      policy.name.should eq "ml"
     end
   end
 
@@ -151,7 +152,8 @@ describe LavinMQ::VHost do
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
       sleep 10.milliseconds
-      vhost.queue("test2").policy.not_nil!.name.should eq "ml2"
+      policy = vhost.queue("test2").policy.should_not be_nil
+      policy.name.should eq "ml2"
     end
   end
 
@@ -292,7 +294,8 @@ describe LavinMQ::VHost do
         q = ch.queue("delivery-limit", exclusive: true, args: args)
         q.publish_confirm "m1"
         q.publish_confirm "m2"
-        q.get(no_ack: false).not_nil!.reject(requeue: true)
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.reject(requeue: true)
         ch.queue_declare("delivery-limit", passive: true)[:message_count].should eq 2
         s.vhosts["/"].add_policy("delivery-limit", "^.*$", "all", defs, 12_i8)
         sleep 10.milliseconds

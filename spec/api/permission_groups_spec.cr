@@ -261,7 +261,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         [import, async { http.put("/api/mqtt/permission-groups/%2f/grp").status_code }]
       end
 
-      group = s.vhosts["/"].mqtt_permission_service["grp"]?.not_nil!
+      group = s.vhosts["/"].mqtt_permission_service["grp"]?.should_not be_nil
       group.members.should eq ["alice"]
       group.rules.map(&.identifier).should eq ["sensors"]
       imported.should eq 200

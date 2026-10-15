@@ -22,7 +22,7 @@ module UpstreamSpecHelpers
       LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
       msg_ttl: nil, prefetch: prefetch, reconnect_delay: reconnect_delay
     )
-    downstream_vhost.upstreams.not_nil!.add(upstream)
+    downstream_vhost.upstreams.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
 
@@ -57,7 +57,7 @@ module UpstreamSpecHelpers
   # in the accept loop would share its variables, which the next accept?
   # overwrites, with nil once the proxy closes.
   private def self.forward(client : TCPSocket, target : URI)
-    server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
+    server = TCPSocket.new(target.hostname.not_nil!("URI has no host"), target.port.not_nil!("URI has no port"))
     spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
     spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
   rescue IO::Error
@@ -578,7 +578,7 @@ describe LavinMQ::Federation::Upstream do
             downstream_q.subscribe { |msg| msgs << msg }
             upstream_ex.publish_confirm "federate me", "rk"
             wait_for { msgs.size == 1 }
-            msgs.first.not_nil!.body_io.to_s.should eq("federate me")
+            msgs.first.body_io.to_s.should eq("federate me")
           end
         end
         upstream_vhost.queues.all?(&.empty).should be_true
@@ -1242,7 +1242,7 @@ describe LavinMQ::Federation::Upstream do
     it "removes a deleted upstream from sets even when a non-matching entry comes first" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        store = vhost.upstreams.not_nil!
+        store = vhost.upstreams
         store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         # The set lists a non-matching upstream ("a") before the one we
@@ -1261,7 +1261,7 @@ describe LavinMQ::Federation::Upstream do
     it "dups the upstream and applies per-entry overrides without sharing state" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        store = vhost.upstreams.not_nil!
+        store = vhost.upstreams
         store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}", "prefetch-count": 10})))
         # A set entry with more than the "upstream" key dups the upstream and
         # applies the overrides to the copy. This used to crash by reading the
@@ -1290,7 +1290,7 @@ describe LavinMQ::Federation::Upstream do
     it "stops links owned by a set member with overrides" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        store = vhost.upstreams.not_nil!
+        store = vhost.upstreams
         store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
@@ -1316,7 +1316,7 @@ describe LavinMQ::Federation::Upstream do
     it "stops links of set entries with overrides when the queue is deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        store = vhost.upstreams.not_nil!
+        store = vhost.upstreams
         store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
@@ -1337,7 +1337,7 @@ describe LavinMQ::Federation::Upstream do
     it "stops the links of a set member with overrides when the set is replaced or deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        store = vhost.upstreams.not_nil!
+        store = vhost.upstreams
         store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         set_config = JSON.parse(%([{"upstream": "a", "prefetch-count": 99}]))
         vhost.declare_exchange("ex", "topic", false, false)

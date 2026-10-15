@@ -734,8 +734,8 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def delete_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
@@ -849,12 +849,12 @@ module LavinMQ
       end
 
       private def bind_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
           # according to spec if both queue name and routing key is empty,
           # then substitute them with the name of the last declared queue
           if frame.routing_key.empty?
-            frame.routing_key = @last_queue_name.not_nil!
+            frame.routing_key = last_queue_name
           end
         end
         return unless valid_q_bind_unbind?(frame)
@@ -891,8 +891,8 @@ module LavinMQ
       end
 
       private def unbind_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         return unless valid_q_bind_unbind?(frame)
 
@@ -973,8 +973,8 @@ module LavinMQ
       end
 
       private def purge_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         unless @user.can_read?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
@@ -1007,8 +1007,8 @@ module LavinMQ
       end
 
       private def consume(frame)
-        if frame.queue.empty? && @last_queue_name
-          frame.queue = @last_queue_name.not_nil!
+        if frame.queue.empty? && (last_queue_name = @last_queue_name)
+          frame.queue = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
@@ -1022,8 +1022,8 @@ module LavinMQ
       end
 
       private def basic_get(frame)
-        if frame.queue.empty? && @last_queue_name
-          frame.queue = @last_queue_name.not_nil!
+        if frame.queue.empty? && (last_queue_name = @last_queue_name)
+          frame.queue = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")

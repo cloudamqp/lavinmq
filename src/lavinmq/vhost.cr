@@ -608,15 +608,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
     end
 
     def mqtt_broker : MQTT::Broker
-      @mqtt_broker.not_nil!
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -663,7 +663,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end
