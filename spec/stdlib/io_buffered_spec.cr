@@ -118,6 +118,27 @@ describe IO::Buffered do
       writer.try &.close
     end
 
+    it "doesn't hold an emptied read buffer while waiting for more data" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      read = Channel(UInt8).new
+      spawn { 2.times { read.send reader.read_byte.not_nil!("unexpected EOF") } }
+      writer.write_byte 1_u8
+      writer.flush
+      read.receive.should eq 1_u8
+      # read_byte keeps the emptied buffer, the next read_byte waits without it
+      Fiber.yield
+      reader.@in_buffer.null?.should be_true
+      writer.write_byte 2_u8
+      writer.flush
+      read.receive.should eq 2_u8
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
     it "can be closed while a fiber waits for data" do
       pool = IO::BufferPool.new(1024)
       reader, writer = UNIXSocket.pair
