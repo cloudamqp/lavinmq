@@ -19,6 +19,8 @@ require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 require "./mqtt/broker"
+require "./mqtt/subscription_tree"
+require "./mqtt/subscriber"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -38,6 +40,9 @@ module LavinMQ
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
+    # Routing index for MQTT publishes. Owned by the vhost so that it exists
+    # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
+    getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -597,15 +602,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
     end
 
     def mqtt_broker : MQTT::Broker
-      @mqtt_broker.not_nil!
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -652,7 +657,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end

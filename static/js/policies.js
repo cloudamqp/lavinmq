@@ -73,8 +73,5 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
     })
     .catch(() => {})
 })
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('createPolicy', 'definition', e)
-})
 
 Helpers.addVhostOptions('createPolicy')

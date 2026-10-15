@@ -213,13 +213,11 @@ describe LavinMQ::Config do
       end
 
       config.sni_manager.empty?.should be_false
-      config.sni_manager.get_host("example.com").should_not be_nil
-      config.sni_manager.get_host("mtls.example.com").should_not be_nil
+      example_host = config.sni_manager.get_host("example.com").should_not be_nil
+      mtls_host = config.sni_manager.get_host("mtls.example.com").should_not be_nil
 
-      example_host = config.sni_manager.get_host("example.com").not_nil!
       example_host.tls_verify_peer?.should be_false
 
-      mtls_host = config.sni_manager.get_host("mtls.example.com").not_nil!
       mtls_host.tls_verify_peer?.should be_true
       mtls_host.http_tls_verify_peer.should be_false
     ensure
