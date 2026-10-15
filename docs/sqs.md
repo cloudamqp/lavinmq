@@ -205,6 +205,17 @@ not block a message group while one of its messages is in flight, so
 consumers that need strict per-group ordering must receive one message at a
 time.
 
+## Monitoring
+
+When the SQS listener is enabled, `/metrics` exports request counts by action
+and result code, request time by action, and message flow: messages sent,
+received, deleted and timed out, messages in flight and waiting long polls.
+The `sqs_metrics` family of `/metrics/detailed` breaks the message flow down
+per vhost. See [Monitoring](monitoring.md#sqs) for the full list.
+
+SQS queues are ordinary queues, so per-queue depth, unacked counts and
+delivery rates come from the regular queue metrics.
+
 ## Supported actions
 
 `CreateQueue`, `GetQueueUrl`, `ListQueues`, `DeleteQueue`,

@@ -42,7 +42,9 @@ module LavinMQ
 
       getter queue : AMQP::Queue
 
-      def initialize(@queue : AMQP::Queue)
+      # `on_expire` is called with the number of messages a visibility
+      # timeout made visible again
+      def initialize(@queue : AMQP::Queue, &@on_expire : Int32 ->)
         @entries = Hash(String, Entry).new
         @heap = MinHeap(HeapItem).new
         # Receive count and first receive time per message, kept while the
@@ -162,11 +164,14 @@ module LavinMQ
             expired << entry
           end
         end
+        requeued = 0
         expired.each do |entry|
           @queue.reject(entry.sp, true)
+          requeued += 1
         rescue ex
           Log.warn(exception: ex) { "Could not requeue #{entry.sp} in #{@queue.name} after visibility timeout" }
         end
+        @on_expire.call(requeued) if requeued > 0
       end
     end
   end

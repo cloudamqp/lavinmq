@@ -125,6 +125,23 @@ Crystal GC stats, prefixed with `<prefix>_gc_`.
 | `gc_since_recent_collection_explicitly_freed_bytes` | counter | Bytes freed explicitly since the recent GC |
 | `gc_from_os_obtained_bytes_total` | counter | Total memory obtained from OS, in bytes |
 
+#### SQS
+
+Only present when the [SQS listener](sqs.md) is enabled. The counters are
+process-wide, so they don't decrease when a vhost is deleted, and the `vhost`
+parameter only filters `sqs_messages_in_flight`.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `sqs_requests_total` | counter | Requests by `action` and result `code` (`OK` or the SQS error code). Unrecognized actions are counted as `unknown` |
+| `sqs_request_duration_seconds_total` | counter | Time spent serving requests by `action`, including long poll waits |
+| `sqs_messages_sent_total` | counter | Messages accepted by `SendMessage` and `SendMessageBatch` |
+| `sqs_messages_received_total` | counter | Messages handed out by `ReceiveMessage`, redeliveries included |
+| `sqs_messages_deleted_total` | counter | Messages deleted by `DeleteMessage` and `DeleteMessageBatch` |
+| `sqs_visibility_timeouts_total` | counter | Received messages made visible again because their visibility timeout expired |
+| `sqs_messages_in_flight` | gauge | Received messages not yet deleted or timed out |
+| `sqs_long_polls_waiting` | gauge | `ReceiveMessage` requests currently waiting for a message |
+
 #### Scrape telemetry
 
 Self-metrics about the metrics endpoint itself, always prefixed with `telemetry_` regardless of the `prefix` query parameter.
@@ -146,6 +163,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
+| `sqs_metrics` | Per-vhost SQS messages sent, received, deleted, timed out and in flight (`detailed_sqs_*`), when SQS is enabled |
 
 ## Event Types
 

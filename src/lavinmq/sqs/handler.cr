@@ -5,6 +5,7 @@ require "./errors"
 require "./request"
 require "./actions"
 require "./queue_url"
+require "./metrics"
 require "../auth/user_store"
 require "../auth/context"
 require "../config"
@@ -31,17 +32,28 @@ module LavinMQ
       def call(context) : Nil
         request_id = UUID.random.to_s
         context.response.headers["x-amzn-RequestId"] = request_id
+        action = Metrics.action_label(context.request.headers["X-Amz-Target"]?)
+        started = Time.instant
+        code = Metrics::OK
         begin
           handle(context, request_id)
         rescue ex : Error
+          code = ex.code
           render_error(context, ex, request_id)
         rescue ex : JSON::ParseException
-          render_error(context, SerializationException.new("Malformed JSON: #{ex.message}"), request_id)
+          error = SerializationException.new("Malformed JSON: #{ex.message}")
+          code = error.code
+          render_error(context, error, request_id)
         rescue ex : IO::Error | ::HTTP::Server::ClientError
+          code = "ConnectionError"
           Log.info { "request_id=#{request_id} error=#{ex.inspect}" }
         rescue ex
+          error = InternalError.new
+          code = error.code
           Log.error(exception: ex) { "request_id=#{request_id} action failed" }
-          render_error(context, InternalError.new, request_id)
+          render_error(context, error, request_id)
+        ensure
+          Metrics.record_request(action, code, Time.instant - started)
         end
       end
 

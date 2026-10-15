@@ -1,6 +1,7 @@
 require "http/server"
 require "openssl"
 require "./handler"
+require "./metrics"
 require "../server"
 require "../config"
 
@@ -18,6 +19,7 @@ module LavinMQ
       def initialize(@server : LavinMQ::Server, @config : Config = Config.instance)
         @closed = false
         @bound = false
+        Metrics.enable
         handlers = [
           (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           Handler.new(@server.users, @server.vhosts, @config),

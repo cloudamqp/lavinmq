@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../sqs/spec_helper"
 require "string_scanner"
 
 describe LavinMQ::HTTP::PrometheusController do
@@ -517,6 +518,74 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
 
       after = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
       after.should be >= before
+    end
+  end
+end
+
+describe "LavinMQ::HTTP::PrometheusController SQS metrics" do
+  value = ->(metrics : Array(NamedTuple(key: String, attrs: Hash(String, String), value: Float64)), key : String, attrs : Hash(String, String)) do
+    metrics.find { |m| m[:key] == key && m[:attrs] == attrs }.try(&.[:value]) || 0.0
+  end
+
+  it "counts requests, message flow and visibility timeouts" do
+    with_sqs_server do |sqs, s|
+      serve_metrics(s) do |http|
+        vhost = s.vhosts.create("sqs_metrics")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        before = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+
+        url = sqs.json("CreateQueue", {QueueName: "m", Attributes: {VisibilityTimeout: "1"}}, path: "/sqs_metrics")["QueueUrl"].as_s
+        sqs.json("SendMessage", {QueueUrl: url, MessageBody: "a"})
+        sqs.json("SendMessage", {QueueUrl: url, MessageBody: "b"})
+        received = sqs.json("ReceiveMessage", {QueueUrl: url, MaxNumberOfMessages: 10})["Messages"].as_a
+        received.size.should eq 2
+        sqs.json("DeleteMessage", {QueueUrl: url, ReceiptHandle: received[0]["ReceiptHandle"].as_s})
+        # the other message times out and is received again
+        sqs.json("ReceiveMessage", {QueueUrl: url, WaitTimeSeconds: 3})["Messages"].as_a.size.should eq 1
+        sqs.error("GetQueueUrl", {QueueName: "missing"}, path: "/sqs_metrics")[1].should eq "QueueDoesNotExist"
+        sqs.error("Frobnicate")[1].should eq "InvalidAction"
+
+        after = PrometheusSpecHelper.parse_prometheus(http.get("/metrics?vhost=sqs_metrics").body)
+        delta = ->(key : String, attrs : Hash(String, String)) do
+          value.call(after, "lavinmq_#{key}", attrs) - value.call(before, "lavinmq_#{key}", attrs)
+        end
+        none = Hash(String, String).new
+        delta.call("sqs_requests_total", {"action" => "SendMessage", "code" => "OK"}).should eq 2
+        delta.call("sqs_requests_total", {"action" => "ReceiveMessage", "code" => "OK"}).should eq 2
+        delta.call("sqs_requests_total", {"action" => "GetQueueUrl", "code" => "QueueDoesNotExist"}).should eq 1
+        delta.call("sqs_requests_total", {"action" => "unknown", "code" => "InvalidAction"}).should eq 1
+        delta.call("sqs_request_duration_seconds_total", {"action" => "ReceiveMessage"}).should be > 0.5
+        delta.call("sqs_messages_sent_total", none).should eq 2
+        delta.call("sqs_messages_received_total", none).should eq 3
+        delta.call("sqs_messages_deleted_total", none).should eq 1
+        delta.call("sqs_visibility_timeouts_total", none).should eq 1
+        value.call(after, "lavinmq_sqs_messages_in_flight", none).should eq 1
+
+        detailed = PrometheusSpecHelper.parse_prometheus(http.get("/metrics/detailed?family=sqs_metrics").body)
+        labels = {"vhost" => "sqs_metrics"}
+        value.call(detailed, "lavinmq_detailed_sqs_messages_sent_total", labels).should eq 2
+        value.call(detailed, "lavinmq_detailed_sqs_messages_received_total", labels).should eq 3
+        value.call(detailed, "lavinmq_detailed_sqs_messages_deleted_total", labels).should eq 1
+        value.call(detailed, "lavinmq_detailed_sqs_visibility_timeouts_total", labels).should eq 1
+        value.call(detailed, "lavinmq_detailed_sqs_messages_in_flight", labels).should eq 1
+      end
+    end
+  end
+
+  it "reports long polls that are waiting for a message" do
+    with_sqs_server do |sqs, s|
+      serve_metrics(s) do |http|
+        url = sqs.create_queue("long-poll-metric")
+        done = Channel(Nil).new
+        spawn do
+          sqs.json("ReceiveMessage", {QueueUrl: url, WaitTimeSeconds: 2})
+          done.send nil
+        end
+        sleep 0.3.seconds
+        metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        value.call(metrics, "lavinmq_sqs_long_polls_waiting", Hash(String, String).new).should be >= 1
+        done.receive
+      end
     end
   end
 end

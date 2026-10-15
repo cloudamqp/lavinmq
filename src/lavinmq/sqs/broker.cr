@@ -6,6 +6,7 @@ require "./queue_meta_store"
 require "./message_attributes"
 require "./message_mapping"
 require "./inflight"
+require "./metrics"
 require "../vhost"
 require "../logger"
 
@@ -39,6 +40,24 @@ module LavinMQ
 
       getter vhost : VHost
       getter metas : QueueMetaStore
+
+      # Per-vhost counters for the `sqs_metrics` detailed Prometheus family;
+      # each is also added to the process-wide `Metrics`
+      @messages_sent = Atomic(UInt64).new(0_u64)
+      @messages_received = Atomic(UInt64).new(0_u64)
+      @messages_deleted = Atomic(UInt64).new(0_u64)
+      @visibility_timeouts = Atomic(UInt64).new(0_u64)
+
+      {% for name in %w[messages_sent messages_received messages_deleted visibility_timeouts] %}
+        def {{ name.id }} : UInt64
+          @{{ name.id }}.get(:relaxed)
+        end
+
+        private def add_{{ name.id }}(count : Int = 1) : Nil
+          @{{ name.id }}.add(count.to_u64, :relaxed)
+          Metrics.add_{{ name.id }}(count)
+        end
+      {% end %}
 
       def initialize(@vhost : VHost)
         @metas = QueueMetaStore.new(@vhost.data_dir, @vhost.replicator, @vhost.name)
@@ -178,6 +197,7 @@ module LavinMQ
           raise InternalError.new if q.closed?
           raise OverLimit.new("The queue #{q.name} rejected the message because it is full.")
         end
+        add_messages_sent
         SendResult.new(message_id, Checksums.md5_hex(body),
           Checksums.md5_attributes(attrs), Checksums.md5_attributes(system_attrs))
       end
@@ -197,6 +217,7 @@ module LavinMQ
               @vhost.event_tick(EventType::ClientGet)
               @vhost.add_send_bytes(env.message.bodysize)
               messages << ReceivedMessage.new(handle, received, entry.receive_count, entry.first_receive_ts)
+              add_messages_received
             end
             break unless got
           end
@@ -206,12 +227,13 @@ module LavinMQ
           break unless q.empty.value
           remaining = deadline - Time.instant
           break if remaining <= Time::Span.zero
-          select
-          when q.empty.when_false.receive
-          when timeout remaining
-            break
+          timed_out = Metrics.long_polling do
+            select
+            when q.empty.when_false.receive then false
+            when timeout remaining then true
+            end
           end
-          break if q.closed?
+          break if timed_out || q.closed?
         end
         messages
       end
@@ -221,6 +243,7 @@ module LavinMQ
           "The input receipt handle \"#{handle}\" is not a valid receipt handle.")
         q.ack(sp)
         @vhost.event_tick(EventType::ClientAck)
+        add_messages_deleted
       end
 
       def change_visibility(q : AMQP::Queue, handle : String, visibility_timeout : Time::Span) : Nil
@@ -251,6 +274,11 @@ module LavinMQ
         @lock.synchronize { @inflights[q.name]?.try(&.size) } || 0
       end
 
+      # Messages received and neither deleted nor timed out, over all queues
+      def inflight_count : Int32
+        @lock.synchronize { @inflights.sum { |_, i| i.size } }
+      end
+
       def close : Nil
         @lock.synchronize do
           @inflights.each_value &.close
@@ -265,7 +293,7 @@ module LavinMQ
             return inflight if inflight.queue.same?(q)
             inflight.close
           end
-          @inflights[q.name] = Inflight.new(q)
+          @inflights[q.name] = Inflight.new(q) { |count| add_visibility_timeouts(count) }
         end
       end
 

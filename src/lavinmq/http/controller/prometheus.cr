@@ -3,6 +3,7 @@ require "benchmark"
 require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
+require "../../sqs/metrics"
 require "../../../stdlib/io_buffered"
 
 module LavinMQ
@@ -246,6 +247,7 @@ module LavinMQ
             buffer_pool_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
+            sqs_metrics(vhosts, writer)
           end
           context
         end
@@ -258,26 +260,30 @@ module LavinMQ
           vhosts = target_vhosts(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
-            families.each do |family|
-              case family
-              when "connection_churn_metrics"
-                detailed_connection_churn_metrics(vhosts, writer)
-              when "queue_coarse_metrics"
-                detailed_queue_coarse_metrics(vhosts, writer)
-              when "queue_consumer_count"
-                detailed_queue_consumer_count(vhosts, writer)
-              when "connection_coarse_metrics", "connection_metrics"
-                detailed_connection_coarse_metrics(vhosts, writer)
-              when "channel_metrics"
-                detailed_channel_metrics(vhosts, writer)
-              when "exchange_metrics"
-                detailed_exchange_metrics(vhosts, writer)
-              when "vhost_message_stats"
-                detailed_vhost_message_stats(vhosts, writer)
-              end
-            end
+            families.each { |family| detailed_family(family, vhosts, writer) }
           end
           context
+        end
+      end
+
+      private def detailed_family(family : String, vhosts, writer) : Nil
+        case family
+        when "connection_churn_metrics"
+          detailed_connection_churn_metrics(vhosts, writer)
+        when "queue_coarse_metrics"
+          detailed_queue_coarse_metrics(vhosts, writer)
+        when "queue_consumer_count"
+          detailed_queue_consumer_count(vhosts, writer)
+        when "connection_coarse_metrics", "connection_metrics"
+          detailed_connection_coarse_metrics(vhosts, writer)
+        when "channel_metrics"
+          detailed_channel_metrics(vhosts, writer)
+        when "exchange_metrics"
+          detailed_exchange_metrics(vhosts, writer)
+        when "vhost_message_stats"
+          detailed_vhost_message_stats(vhosts, writer)
+        when "sqs_metrics"
+          detailed_sqs_metrics(vhosts, writer)
         end
       end
 
@@ -642,6 +648,70 @@ module LavinMQ
           vhost.each_exchange do |e|
             labels = {exchange: e.name, vhost: vhost.name}
             writer.write_value("detailed_exchange_deduplication", e.dedup_count, labels)
+          end
+        end
+      end
+
+      # Counters are process-wide so they stay monotonic when a vhost is
+      # deleted; the in-flight gauge is summed over the selected vhosts.
+      private def sqs_metrics(vhosts, writer)
+        return unless SQS::Metrics.enabled?
+        writer.write_header("sqs_requests_total", "counter",
+          "SQS API requests by action and result code (OK, or the SQS error code)")
+        SQS::Metrics.requests.each do |key, count|
+          writer.write_value("sqs_requests_total", count, {"action" => key.action, "code" => key.code})
+        end
+        writer.write_header("sqs_request_duration_seconds_total", "counter",
+          "Total time spent serving SQS API requests by action, including long poll waits")
+        SQS::Metrics.durations.each do |action, seconds|
+          writer.write_value("sqs_request_duration_seconds_total", seconds, {"action" => action})
+        end
+        writer.write({name:  "sqs_messages_sent_total",
+                      value: SQS::Metrics.messages_sent,
+                      type:  "counter",
+                      help:  "Messages accepted by SendMessage and SendMessageBatch"})
+        writer.write({name:  "sqs_messages_received_total",
+                      value: SQS::Metrics.messages_received,
+                      type:  "counter",
+                      help:  "Messages handed out by ReceiveMessage, redeliveries included"})
+        writer.write({name:  "sqs_messages_deleted_total",
+                      value: SQS::Metrics.messages_deleted,
+                      type:  "counter",
+                      help:  "Messages deleted by DeleteMessage and DeleteMessageBatch"})
+        writer.write({name:  "sqs_visibility_timeouts_total",
+                      value: SQS::Metrics.visibility_timeouts,
+                      type:  "counter",
+                      help:  "Received messages made visible again because their visibility timeout expired"})
+        writer.write({name:  "sqs_messages_in_flight",
+                      value: vhosts.sum { |v| v.sqs_broker?.try(&.inflight_count) || 0 },
+                      type:  "gauge",
+                      help:  "Received messages not yet deleted or timed out"})
+        writer.write({name:  "sqs_long_polls_waiting",
+                      value: SQS::Metrics.long_polls_waiting,
+                      type:  "gauge",
+                      help:  "ReceiveMessage requests currently waiting for a message"})
+      end
+
+      private def detailed_sqs_metrics(vhosts, writer)
+        return unless SQS::Metrics.enabled?
+        brokers = vhosts.compact_map { |v| v.sqs_broker?.try { |b| {v.name, b} } }
+        {
+          {"detailed_sqs_messages_sent_total", "counter", "Messages accepted by SendMessage and SendMessageBatch on a vhost"},
+          {"detailed_sqs_messages_received_total", "counter", "Messages handed out by ReceiveMessage on a vhost"},
+          {"detailed_sqs_messages_deleted_total", "counter", "Messages deleted by DeleteMessage and DeleteMessageBatch on a vhost"},
+          {"detailed_sqs_visibility_timeouts_total", "counter", "Messages made visible again by an expired visibility timeout on a vhost"},
+          {"detailed_sqs_messages_in_flight", "gauge", "Received SQS messages not yet deleted or timed out on a vhost"},
+        }.each do |name, type, help|
+          writer.write_header(name, type, help)
+          brokers.each do |vhost_name, broker|
+            value = case name
+                    when "detailed_sqs_messages_sent_total"       then broker.messages_sent
+                    when "detailed_sqs_messages_received_total"   then broker.messages_received
+                    when "detailed_sqs_messages_deleted_total"    then broker.messages_deleted
+                    when "detailed_sqs_visibility_timeouts_total" then broker.visibility_timeouts
+                    else                                               broker.inflight_count
+                    end
+            writer.write_value(name, value, {vhost: vhost_name})
           end
         end
       end

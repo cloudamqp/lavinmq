@@ -614,6 +614,11 @@ module LavinMQ
       @sqs_broker_lock.synchronize { @sqs_broker ||= SQS::Broker.new(self) }
     end
 
+    # The SQS broker if an SQS request has reached this vhost, without creating one
+    def sqs_broker? : SQS::Broker?
+      @sqs_broker_lock.synchronize { @sqs_broker }
+    end
+
     def shovels
       @shovels.not_nil!("shovels not initialized")
     end
