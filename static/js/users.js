@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 
@@ -56,10 +55,6 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
       evt.target.reset()
     })
     .catch(() => {})
-})
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelper('createUser', 'tags', e)
 })
 
 document.querySelector('#generatePassword').addEventListener('click', generatePassword)

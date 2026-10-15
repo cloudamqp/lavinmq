@@ -9,6 +9,13 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "advertises the stats interval on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Stats-Interval"].should eq LavinMQ::Config.instance.stats_interval.to_s
+      end
+    end
+
     it "is not set on static/HTML responses" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/login")
