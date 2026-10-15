@@ -156,10 +156,6 @@ function updateAutocomplete (val) {
 updateAutocomplete('q')
 document.getElementById('dest-type').addEventListener('change', (e) => updateAutocomplete(e.target.value))
 
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})
-
 // Handle navigation to another exchange via hash change
 window.addEventListener('hashchange', () => {
   window.location.reload()

@@ -111,10 +111,6 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
     .catch(() => {})
 })
 
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelper('updateUser', 'tags', e)
-})
-
 document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const url = HTTP.url`api/users/${user}`
