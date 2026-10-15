@@ -410,8 +410,8 @@ describe "LavinMQ::HTTP::PrometheusController dead-lettered metrics" do
         plain, dlx = declare_dead_letter_queues(ch, {} of String => AMQ::Protocol::Field)
         plain.publish_confirm "m"
         dlx.publish_confirm "m"
-        plain.get(no_ack: false).not_nil!.reject(requeue: false)
-        dlx.get(no_ack: false).not_nil!.nack(requeue: false)
+        plain.get(no_ack: false).should_not(be_nil).reject(requeue: false)
+        dlx.get(no_ack: false).should_not(be_nil).nack(requeue: false)
 
         should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "disabled") }
         should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "at_most_once") }
@@ -453,7 +453,7 @@ describe "LavinMQ::HTTP::PrometheusController dead-lettered metrics" do
         plain, dlx = declare_dead_letter_queues(ch, {"x-delivery-limit" => 1} of String => AMQ::Protocol::Field)
         {plain, dlx}.each do |q|
           q.publish_confirm "m"
-          2.times { wait_for { q.get(no_ack: false) }.not_nil!.reject(requeue: true) }
+          2.times { wait_for { q.get(no_ack: false) }.should_not(be_nil).reject(requeue: true) }
         end
 
         should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "disabled") }
