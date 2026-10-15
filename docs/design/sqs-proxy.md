@@ -560,7 +560,8 @@ Decisions taken when phase 1 landed, where they differ from the plan above:
   secrets). Existing per-vhost permission regexes authorize each action.
 - **Protocols**: JSON 1.0 only. Query protocol clients receive an
   `InvalidAction` error in XML form.
-- **Default port**: enabled on 9324, bound to `127.0.0.1`. TLS port `-1`.
+- **Default port**: disabled (`-1`), opt in with `[sqs] port`; 9324 is the
+  documented choice. Binds to `127.0.0.1`. TLS port `-1`.
 - **Scope**: everything listed for phases 1 and 2 except `RedrivePolicy`
   enforcement, mutable `MessageRetentionPeriod` (stored but only applied at
   create time), `ApproximateNumberOfMessagesDelayed` (always `0`),

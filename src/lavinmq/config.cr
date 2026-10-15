@@ -440,6 +440,11 @@ module LavinMQ
       !@tls_cert_path.empty?
     end
 
+    # True when any SQS listener (plain, TLS or unix socket) is configured
+    def sqs_enabled? : Bool
+      @sqs_port > 0 || (@sqss_port > 0 && tls_configured?) || !@sqs_unix_path.empty?
+    end
+
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
       return if false?(str)
       if keepalive = str.try &.split(":")

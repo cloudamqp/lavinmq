@@ -178,9 +178,9 @@ module LavinMQ
       @[IniOpt(ini_name: bind, section: "sqs")]
       property sqs_bind = "127.0.0.1"
 
-      @[CliOpt("", "--sqs-port=PORT", "SQS port to listen on (default: 9324)", section: "bindings")]
+      @[CliOpt("", "--sqs-port=PORT", "SQS port to listen on, e.g. 9324 (default: -1, disabled)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "sqs")]
-      property sqs_port = 9324
+      property sqs_port = -1
 
       @[CliOpt("", "--sqss-port=PORT", "SQS over TLS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "sqs")]

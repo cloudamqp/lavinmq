@@ -62,7 +62,7 @@ module LavinMQ
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
         @mqtt_tls_context = create_tls_context
-        @sqs_tls_context = create_tls_context
+        @sqs_tls_context = create_tls_context if @config.sqs_enabled?
         @http_tls_context = create_tls_context
         warn_if_ktls_unavailable if @config.tls_ktls?
       end
@@ -78,7 +78,9 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @sqs_server = sqs_server = LavinMQ::SQS::Server.new(server, @config)
+      # SQS is opt-in: without a configured listener no SQS server or
+      # per-vhost brokers are created at all
+      @sqs_server = sqs_server = LavinMQ::SQS::Server.new(server, @config) if @config.sqs_enabled?
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
       start_listeners(amqp_server, mqtt_server, sqs_server, http_server)
       @metrics_server.try &.leader = server
@@ -220,7 +222,9 @@ module LavinMQ
     private def start_listeners(amqp_server, mqtt_server, sqs_server, http_server)
       bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
       bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
-      bind_listeners(sqs_server, @config.sqs_bind, @config.sqs_port, @config.sqss_port, @sqs_tls_context, @config.sqs_unix_path)
+      if sqs_server
+        bind_listeners(sqs_server, @config.sqs_bind, @config.sqs_port, @config.sqss_port, @sqs_tls_context, @config.sqs_unix_path)
+      end
       bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
       http_server.bind_internal_unix
 
@@ -234,7 +238,7 @@ module LavinMQ
           mqtt_server.listen
         end
       end
-      if sqs_server.bound?
+      if sqs_server && sqs_server.bound?
         spawn(name: "SQS listener") do
           sqs_server.listen
         end

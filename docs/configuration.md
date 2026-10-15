@@ -105,7 +105,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | INI Key | CLI Flag | Env Var | Type | Default | Description |
 |---------|----------|---------|------|---------|-------------|
 | `bind` | `--sqs-bind` | — | String | `127.0.0.1` | SQS bind address |
-| `port` | `--sqs-port` | — | Int | `9324` | SQS port (`-1` disables) |
+| `port` | `--sqs-port` | — | Int | `-1` | SQS port, e.g. `9324` (`-1` disables) |
 | `tls_port` | `--sqss-port` | — | Int | `-1` | SQS over TLS port |
 | `unix_path` | `--sqs-unix-path` | — | String | (empty) | SQS Unix socket path |
 | `public_url` | — | — | String | (empty) | `scheme://host[:port]` used in queue URLs instead of the request `Host` header |

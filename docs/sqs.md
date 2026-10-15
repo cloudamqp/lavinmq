@@ -24,11 +24,28 @@ for msg in sqs.receive_message(QueueUrl=url, WaitTimeSeconds=20).get("Messages",
     sqs.delete_message(QueueUrl=url, ReceiptHandle=msg["ReceiptHandle"])
 ```
 
+## Enabling SQS
+
+The SQS listener is disabled by default. Enable it by setting a port, either
+in the config file or on the command line:
+
+```ini
+[sqs]
+port = 9324
+```
+
+```sh
+lavinmq --sqs-port=9324
+```
+
+Port 9324 is the conventional choice, the same as ElasticMQ, so existing
+local setups keep working.
+
 ## Ports
 
 | Protocol | Default Port | Config Key |
 |----------|--------------|------------|
-| SQS (HTTP) | 9324 | `port` in `[sqs]` |
+| SQS (HTTP) | disabled (`-1`) | `port` in `[sqs]` |
 | SQS over TLS | disabled (`-1`) | `tls_port` in `[sqs]` |
 
 The SQS listener is separate from the management HTTP port. Like the other
@@ -210,5 +227,5 @@ tls_port = -1
 ; public_url = https://sqs.example.com
 ```
 
-Set `port = -1` to disable the SQS listener. TLS uses the certificate
-configured in `[main]`.
+The listener only starts when `port`, `tls_port` or `unix_path` is set.
+TLS uses the certificate configured in `[main]`.

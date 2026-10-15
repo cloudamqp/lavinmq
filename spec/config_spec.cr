@@ -54,11 +54,28 @@ describe LavinMQ::Config do
     config.sqs_public_url.should eq "https://sqs.example.com"
   end
 
-  it "has the SQS listener enabled on 9324 by default" do
+  it "has the SQS listener disabled by default" do
     config = LavinMQ::Config.new
-    config.sqs_port.should eq 9324
+    config.sqs_port.should eq -1
     config.sqss_port.should eq -1
     config.sqs_bind.should eq "127.0.0.1"
+    config.sqs_enabled?.should be_false
+  end
+
+  it "enables SQS when a plain, TLS or unix listener is configured" do
+    config = LavinMQ::Config.new
+    config.sqs_port = 9324
+    config.sqs_enabled?.should be_true
+
+    config = LavinMQ::Config.new
+    config.sqss_port = 9325
+    config.sqs_enabled?.should be_false # no certificate, so no TLS listener
+    config.tls_cert_path = "spec/resources/server_certificate.pem"
+    config.sqs_enabled?.should be_true
+
+    config = LavinMQ::Config.new
+    config.sqs_unix_path = "/tmp/sqs.sock"
+    config.sqs_enabled?.should be_true
   end
 
   it "should prioritize CLI arguments over other arguments" do

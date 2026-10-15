@@ -9,7 +9,7 @@ module LavinMQ
   module SQS
     Log = LavinMQ::Log.for "sqs"
 
-    # The SQS listener: a dedicated HTTP server (default port 9324) so queue
+    # The SQS listener: a dedicated HTTP server (disabled by default, conventionally port 9324) so queue
     # URLs are self-contained and management authentication does not apply.
     class Server
       Log = LavinMQ::Log.for "sqs.server"
