@@ -196,6 +196,19 @@ module LavinMQ
         refresh_capacity
       end
 
+      # Not preallocated: they stay empty until the session gets a message,
+      # see #update_rates
+      protected def self.stats_log_capacity : Int32
+        0
+      end
+
+      # A session that never got a message keeps empty stats logs rather than
+      # filling 14 of them with zeros: most are publish-only clients'.
+      def update_rates : Nil
+        return if @publish_log.empty? && @publish_count.get(:relaxed).zero? && message_count.zero?
+        previous_def
+      end
+
       def consumer_count : UInt32
         @client.nil? ? 0u32 : 1u32
       end
