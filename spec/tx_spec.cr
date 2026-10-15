@@ -123,5 +123,88 @@ describe "Transactions" do
         end
       end
     end
+
+    it "treats ack of all with nothing outstanding as a no-op" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.tx_select
+          ch.basic_ack(0_u64, multiple: true)
+          ch.tx_commit
+          q = ch.queue # the connection must still be usable
+          q.publish "m1"
+          ch.tx_commit
+          q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m1"
+        end
+      end
+    end
+
+    it "acks the rest with ack of all after a single ack of the last tag" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("txall")
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(3_u64)
+          ch.basic_ack(0_u64, multiple: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queues.find! &.name.== "txall"
+          sq.unacked_count.should eq 0
+          sq.message_count.should eq 0
+        end
+      end
+    end
+
+    it "acks the rest with a multiple ack after a single ack below it" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("txmulti")
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(2_u64)
+          ch.basic_ack(3_u64, multiple: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queues.find! &.name.== "txmulti"
+          sq.unacked_count.should eq 0
+          sq.message_count.should eq 0
+        end
+      end
+    end
+
+    it "closes the channel on an ack covered by a pending multiple ack" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          3.times { |i| q.publish "m#{i}" }
+          3.times { ch.basic_get(q.name, no_ack: false).should_not be_nil }
+          ch.tx_select
+          ch.basic_ack(2_u64, multiple: true)
+          ch.basic_ack(1_u64)
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+            ch.tx_commit
+          end
+        end
+      end
+    end
+
+    it "keeps a tx-pending ack across basic.recover" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("txrec")
+          q.publish "m1"
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false) { |m| msgs.send m }
+          msg = msgs.receive
+          ch.tx_select
+          ch.basic_ack(msg.delivery_tag)
+          ch.basic_recover(requeue: true) # must not drop the tx-pending tag
+          ch.tx_commit                    # applies tx acks before sending CommitOk
+          sq = s.vhosts["/"].queues.find! &.name.== "txrec"
+          sq.unacked_count.should eq 0
+          sq.message_count.should eq 0
+        end
+      end
+    end
   end
 end

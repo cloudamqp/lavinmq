@@ -12,6 +12,7 @@ require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
 require "../persister"
+require "./unacked_store"
 
 module LavinMQ
   module AMQP
@@ -21,7 +22,10 @@ module LavinMQ
       include Persister::ConfirmTarget
 
       getter id, name, client
+      # Stops being running when the channel is closing, see #close(reason)
       property? running = true
+      # Torn down, see #close
+      getter? closed = false
       getter? flow = true
       @consumers = Array(AMQP::Consumer).new
 
@@ -46,10 +50,8 @@ module LavinMQ
       end
 
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
-      getter global_prefetch_count = 0_u16
-      getter has_capacity = BoolChannel.new(true)
-      getter unacked = Deque(Unack).new
-      @basic_get_unacked_count = Atomic(UInt32).new(0)
+      getter unacked = UnackedStore.new
+      delegate has_capacity, has_capacity?, global_prefetch_count, to: @unacked
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
@@ -60,7 +62,6 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = Atomic(UInt64).new(1_u64)
-      @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
       @tx = false
@@ -76,13 +77,6 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
-      record Unack,
-        tag : UInt64,
-        queue : Queue,
-        sp : SegmentPosition,
-        consumer : AMQP::Consumer?,
-        delivered_at : Time::Instant
-
       def details_tuple
         {
           number:                  @id,
@@ -91,7 +85,7 @@ module LavinMQ
           user:                    @client.user.name,
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
-          global_prefetch_count:   @global_prefetch_count,
+          global_prefetch_count:   @unacked.global_prefetch_count,
           confirm:                 @confirm,
           transactional:           @tx,
           messages_unacknowledged: @unacked.size,
@@ -503,81 +497,26 @@ module LavinMQ
         end
       end
 
-      private def delete_unacked(delivery_tag) : Unack?
-        found = nil
-        notify_has_capacity do
-          # @unacked is always sorted so can do a binary search
-          # optimization for acking first unacked
-          if @unacked[0]?.try(&.tag) == delivery_tag
-            # @log.debug { "Unacked found tag:#{delivery_tag} at front" }
-            found = @unacked.shift
-          elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
-            return unless @unacked[idx].tag == delivery_tag
-            # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-            found = @unacked.delete_at(idx)
-          end
-          @basic_get_unacked_count.sub(1u32, :relaxed) if found.try &.consumer.nil?
-        end
-        found
-      end
-
-      private def delete_multiple_unacked(delivery_tag, & : Unack -> Nil)
-        notify_has_capacity do
-          if delivery_tag.zero?
-            until @unacked.empty?
-              u = @unacked.shift
-              @basic_get_unacked_count.sub(1u32, :relaxed) if u.consumer.nil?
-              yield u
-            end
-          else
-            idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
-            return unless idx
-            return unless @unacked[idx].tag == delivery_tag
-            # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-            (idx + 1).times do
-              u = @unacked.shift
-              @basic_get_unacked_count.sub(1u32, :relaxed) if u.consumer.nil?
-              yield u
-            end
-          end
-        end
-      end
-
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
       @tx_acks = Array(TxAck).new
 
       def basic_ack(frame)
-        if @tx
-          @unack_lock.synchronize do
-            if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, frame.multiple, false, false)
-              return
-            elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
-              check_double_ack!(frame.delivery_tag)
-              @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, false, false)
-              return
-            end
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, frame.multiple, false, false) if @tx
 
         found = false
         if frame.multiple
           found = true if frame.delivery_tag.zero?
-          delete_multiple_unacked(frame.delivery_tag) do |unack|
+          @unacked.delete_upto(frame.delivery_tag) do |unack|
             found = true
             do_ack(unack)
           end
-        elsif unack = delete_unacked(frame.delivery_tag)
+        elsif unack = @unacked.delete(frame.delivery_tag)
           found = true
           do_ack(unack)
         end
         unless found
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
       private def do_ack(unack)
@@ -591,66 +530,48 @@ module LavinMQ
       end
 
       def basic_reject(frame)
-        if @tx
-          @unack_lock.synchronize do
-            if @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
-              check_double_ack!(frame.delivery_tag)
-              @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue)
-              return
-            end
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, false, true, frame.requeue) if @tx
 
         @log.debug { "Rejecting #{frame.inspect}" }
-        if unack = delete_unacked(frame.delivery_tag)
+        if unack = @unacked.delete(frame.delivery_tag)
           do_reject(frame.requeue, unack)
         else
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
       def basic_nack(frame)
-        if @tx
-          @unack_lock.synchronize do
-            if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, true, true, frame.requeue)
-              return
-            elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
-              check_double_ack!(frame.delivery_tag)
-              @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, true, frame.requeue)
-              return
-            end
-          end
-          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
-          return
-        end
+        return tx_ack(frame, frame.delivery_tag, frame.multiple, true, frame.requeue) if @tx
 
         found = false
         if frame.multiple
-          delete_multiple_unacked(frame.delivery_tag) do |unack|
+          found = true if frame.delivery_tag.zero?
+          @unacked.delete_upto(frame.delivery_tag) do |unack|
             found = true
             do_reject(frame.requeue, unack)
           end
-        elsif unack = delete_unacked(frame.delivery_tag)
+        elsif unack = @unacked.delete(frame.delivery_tag)
           found = true
           do_reject(frame.requeue, unack)
         end
         unless found
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
-      private class DoubleAck < Error; end
-
-      private def check_double_ack!(delivery_tag)
-        if @tx_acks.any? { |tx_ack| tx_ack.delivery_tag == delivery_tag }
-          raise DoubleAck.new
+      # Defers an ack, nack or reject until tx.commit, validating it against
+      # the outstanding deliveries and the ones already pending in the tx
+      private def tx_ack(frame, delivery_tag, multiple, negative, requeue) : Nil
+        if delivery_tag.zero? && multiple # all msgs so far
+          if last_tag = @unacked.last_tag?
+            @tx_acks.push(TxAck.new last_tag, true, negative, requeue)
+          end
+        elsif !@unacked.includes?(delivery_tag)
+          @client.send_precondition_failed(frame, unknown_tag(delivery_tag))
+        elsif delivery_tag_is_in_tx?(delivery_tag)
+          @client.send_precondition_failed(frame, "Delivery tag already acked")
+        else
+          @tx_acks.push(TxAck.new delivery_tag, multiple, negative, requeue)
         end
       end
 
@@ -672,9 +593,7 @@ module LavinMQ
       def basic_qos(frame) : Nil
         @client.send_not_implemented(frame) if frame.prefetch_size != 0
         if frame.global
-          notify_has_capacity do
-            @global_prefetch_count = frame.prefetch_count
-          end
+          @unacked.global_prefetch_count = frame.prefetch_count
         else
           self.prefetch_count = frame.prefetch_count
         end
@@ -687,31 +606,45 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
-        notify_has_capacity do
-          if frame.requeue
-            @unacked.each do |unack|
-              next if delivery_tag_is_in_tx?(unack.tag)
-              if consumer = unack.consumer
-                consumer.reject(unack.sp, requeue: true)
-              end
-              unack.queue.requeue(unack.sp)
+        if frame.requeue
+          @unacked.reject! do |unack|
+            next false if delivery_tag_is_in_tx?(unack.tag)
+            if consumer = unack.consumer
+              consumer.reject(unack.sp, requeue: true)
             end
-            @unacked.clear
-          else # redeliver to the original recipient
-            @unacked.reject! do |unack|
-              next if delivery_tag_is_in_tx?(unack.tag)
-              if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
-              else
-                unack.queue.requeue(unack.sp)
-                true
-              end
+            requeue_unack(unack)
+            true
+          end
+        else # redeliver to the original recipient, keeping the original delivery tag
+          redeliver = Array({AMQP::Consumer, UnackedStore::Unack}).new
+          @unacked.reject! do |unack|
+            next false if delivery_tag_is_in_tx?(unack.tag)
+            if (consumer = unack.consumer) && !consumer.closed?
+              redeliver << {consumer, unack}
+              false
+            else
+              requeue_unack(unack)
+              true
+            end
+          end
+          redeliver.each do |consumer, unack|
+            next if consumer.closed?
+            # The channel can be closed (consumer timeout, management API) while
+            # waiting for the queue's store lock or a socket write, and close
+            # has requeued the message, which can then be acked elsewhere and
+            # its segment deleted, so read it leased
+            unack.queue.read_with_lease?(unack.sp) do |env|
+              return unless @running
+              consumer.redeliver(env.message, unack.tag)
             end
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      end
+
+      private def requeue_unack(unack : UnackedStore::Unack) : Nil
+        unack.queue.requeue(unack.sp)
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
       end
 
       private def delivery_tag_is_in_tx?(delivery_tag) : Bool
@@ -724,8 +657,11 @@ module LavinMQ
         end
       end
 
+      # Tears the channel down. Only called by the connection's fiber, so it
+      # can't race with frames being processed on the channel.
       def close : Bool
-        return false unless @running
+        return false if @closed
+        @closed = true
         @running = false
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
@@ -737,77 +673,45 @@ module LavinMQ
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumer_delete(drc)
         end
-        @unack_lock.synchronize do
-          @unacked.each do |unack|
-            @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.requeue(unack.sp)
-            unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
-          end
-          @unacked.clear
+        @unacked.delete_all do |unack|
+          @log.debug { "Requeing unacked msg #{unack.sp}" }
+          requeue_unack(unack)
         end
-        @has_capacity.close
+        @unacked.close
         @next_msg_body_file.try &.close
         @log.debug { "Closed" }
         true
       end
 
-      # Closes the channel from the server side, e.g. from the management API.
-      # The client is told why with a Channel::Close frame. Consumers, unacked
-      # messages and buffers are released right away, so a client that never
-      # replies with Channel::CloseOk can't keep any of them alive.
+      # Closes the channel from the server side, from another fiber than the
+      # connection's, e.g. from the management API or on a consumer timeout.
+      # The client is told why with a Channel::Close frame, and the channel
+      # stops delivering and discards incoming frames right away. It's torn
+      # down by the connection's fiber when the client replies with
+      # Channel::CloseOk, see Client#await_channel_close_ok.
       def close(reason : String) : Nil
+        return unless @running
         code = ChannelReplyCode::PRECONDITION_FAILED
         send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
-        @client.close_channel(self)
+        @running = false
+        @client.await_channel_close_ok(self)
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag.add(1, :relaxed)
-        unless no_ack
-          @unack_lock.synchronize do
-            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
-          end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
-          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
-        end
-        tag
+        return @delivery_tag.add(1, :relaxed) if no_ack
+        @unacked.push(queue, sp, consumer) { @delivery_tag.add(1, :relaxed) }
       end
 
-      # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
+      # Closes the channel if any message has been unacked longer than its queue's consumer timeout
       def check_consumer_timeout
-        @unack_lock.synchronize do
-          queues = Set(Queue).new # only check first delivered message per queue
-          @unacked.each do |unack|
-            if queues.add? unack.queue
-              if timeout = unack.queue.consumer_timeout
-                unacked_ms = RoughTime.instant - unack.delivered_at
-                if unacked_ms > timeout.milliseconds
-                  code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
-                  break
-                end
-              end
-            end
-          end
-        end
+        close("consumer timeout") if consumer_timed_out?
       end
 
-      def has_capacity? : Bool
-        return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
-        consumer_unacked < @global_prefetch_count
-      end
-
-      # Notify has capcity if no capcity before the block but after
-      private def notify_has_capacity(&)
-        @unack_lock.synchronize do
-          had_capacity = has_capacity?
-          begin
-            yield
-          ensure
-            @has_capacity.set(true) if !had_capacity && has_capacity?
-          end
+      private def consumer_timed_out? : Bool
+        now = RoughTime.instant
+        @unacked.any? do |unack|
+          timeout = unack.queue.consumer_timeout
+          !timeout.nil? && now - unack.delivered_at > timeout.milliseconds
         end
       end
 
@@ -869,33 +773,24 @@ module LavinMQ
       end
 
       private def process_tx_acks
-        notify_has_capacity do
-          @tx_acks.each do |tx_ack|
-            if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
-              raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
-              @log.debug { "Unacked bsearch found tag:#{tx_ack.delivery_tag} at index:#{idx}" }
-              if tx_ack.multiple
-                (idx + 1).times do
-                  unack = @unacked.shift
-                  @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
-                  if tx_ack.negative
-                    do_reject(tx_ack.requeue, unack)
-                  else
-                    do_ack(unack)
-                  end
-                end
-              else
-                unack = @unacked.delete_at(idx)
-                @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
-                if tx_ack.negative
-                  do_reject(tx_ack.requeue, unack)
-                else
-                  do_ack(unack)
-                end
-              end
+        @tx_acks.each do |tx_ack|
+          if tx_ack.multiple
+            # tags below it can already be gone through an earlier tx ack
+            @unacked.delete_through(tx_ack.delivery_tag) do |unack|
+              apply_tx_ack(tx_ack, unack)
             end
+          elsif unack = @unacked.delete(tx_ack.delivery_tag)
+            apply_tx_ack(tx_ack, unack)
           end
-          @tx_acks.clear
+        end
+        @tx_acks.clear
+      end
+
+      private def apply_tx_ack(tx_ack : TxAck, unack : UnackedStore::Unack) : Nil
+        if tx_ack.negative
+          do_reject(tx_ack.requeue, unack)
+        else
+          do_ack(unack)
         end
       end
 

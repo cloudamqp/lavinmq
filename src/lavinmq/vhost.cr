@@ -248,12 +248,18 @@ module LavinMQ
         when closed.when_true.receive?
           return
         end
+        next unless consumer_timeouts?
         each_connection do |c|
           c.each_channel do |ch|
             ch.check_consumer_timeout
           end
         end
       end
+    end
+
+    private def consumer_timeouts? : Bool
+      definitions.each_queue { |q| return true if q.consumer_timeout }
+      false
     end
 
     def enqueue_ack(target : Persister::ConfirmTarget, id : UInt64)

@@ -171,6 +171,32 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  # Regression: basic.recover redelivers an unacked message outside the
+  # queue's @msg_store_lock, while the channel can be closed, the message
+  # requeued, consumed and acked elsewhere and its segment deleted
+  describe "#envelope_with_lease?" do
+    it "keeps the segment mapped until the block returns" do
+      with_store do |store|
+        sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        lock = Mutex.new
+        found = store.envelope_with_lease?(lock, sp) do |env|
+          store.close # unmaps every segment without a lease
+          String.new(env.message.body).should eq "body"
+          env.redelivered.should be_false
+        end
+        found.should be_true
+      end
+    end
+
+    it "returns false without yielding when the segment is gone" do
+      with_store do |store|
+        sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        gone = LavinMQ::SegmentPosition.new(sp.segment + 1, sp.position, sp.bytesize)
+        store.envelope_with_lease?(Mutex.new, gone) { fail "yielded" }.should be_false
+      end
+    end
+  end
+
   # Regression: avg_bytesize is read without the queue's lock (HTTP API,
   # stats), so the store can become empty between its zero check and the
   # division, which turned into Infinity and raised OverflowError

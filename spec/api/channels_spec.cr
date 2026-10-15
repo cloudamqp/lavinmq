@@ -235,6 +235,53 @@ describe LavinMQ::HTTP::ChannelsController do
       end
     end
 
+    it "should keep the channel's unacked messages until the client replies close-ok" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("close_ok_requeue", false, false)
+        queue = s.vhosts["/"].queue("close_ok_requeue")
+        queue.publish(LavinMQ::Message.new("", "close_ok_requeue", ""))
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Basic::Get.new(1_u16, 0_u16, "close_ok_requeue", false),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Basic::GetOk)
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Header) # empty body, no body frame
+
+          http.delete("/api/channels/#{channel_name(http)}").status_code.should eq 204
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::Close)
+          # torn down by the connection's own fiber, when the client replies
+          queue.unacked_count.should eq 1
+
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          wait_for { queue.message_count == 1 }
+          queue.unacked_count.should eq 0
+        end
+      end
+    end
+
+    it "should close the connection if the client doesn't reply close-ok", tags: "slow" do
+      with_http_server do |http, s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          http.delete("/api/channels/#{channel_name(http)}").status_code.should eq 204
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::Close)
+
+          io.read_timeout = 10.seconds
+          close = stream.next_frame.should be_a(AMQ::Protocol::Frame::Connection::Close)
+          close.reply_text.should contain "close-ok"
+          io.write_bytes AMQ::Protocol::Frame::Connection::CloseOk.new, IO::ByteFormat::NetworkEndian
+          io.flush
+          wait_for { s.connections.empty? }
+        end
+      end
+    end
+
     it "should return 404 if the channel does not exist" do
       with_http_server do |http, _|
         response = http.delete("/api/channels/no-such-channel")

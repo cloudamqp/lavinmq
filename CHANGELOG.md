@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Channel unacked bookkeeping: `basic.recover` and transactional ack/nack of all no longer close the connection with a 541, transactional acks and the global prefetch window count the right deliveries, the queue's unacked API no longer lists duplicate or stale deliveries, and a channel closed by a consumer timeout or the management API stops delivering right away and has its connection closed if the client doesn't reply within 5 seconds [#2245](https://github.com/cloudamqp/lavinmq/pull/2245)
 - A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
 - A WebSocket connection that broke could log an unhandled exception (e.g. `SSL_write` for `wss`), from trying to send a close frame over the broken connection [#2430](https://github.com/cloudamqp/lavinmq/pull/2430)
 - A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)

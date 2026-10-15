@@ -60,6 +60,8 @@ When a high-priority consumer has reached its prefetch limit, messages are deliv
 
 If the oldest unacknowledged message on a consumer has been waiting longer than the configured timeout, LavinMQ closes the channel. The timeout is measured from when the message was delivered, not from last channel activity, so acknowledging other messages does not reset the timer.
 
+The channel stops delivering messages right away. Its unacknowledged messages are requeued when the client confirms the close with `channel.close-ok`. A client that hasn't done so within 5 seconds has its connection closed. The same applies to a channel closed from the management API.
+
 A per-queue override can be set with the `x-consumer-timeout` queue argument (milliseconds).
 
 | Config Key | Section | Default | Description |
