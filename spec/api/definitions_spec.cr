@@ -357,7 +357,8 @@ describe LavinMQ::HTTP::Server do
           u = s.users[name]?
           next unless u
           u.should be_a(LavinMQ::Auth::BaseUser)
-          ok = u.not_nil!.password.not_nil!.verify "hej"
+          password = u.password.should_not be_nil
+          ok = password.verify "hej"
           {u.name, ok}.should(eq({u.name, true}))
         end
       end
@@ -397,10 +398,9 @@ describe LavinMQ::HTTP::Server do
         body = %({"users":[{"name":"legacy","password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==","hashing_algorithm":null,"tags":""}]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        u = s.users["legacy"]?
-        u.should_not be_nil
-        u.not_nil!.password.should_not be_nil
-        u.not_nil!.password.not_nil!.verify("hej").should be_true
+        u = s.users["legacy"]?.should_not be_nil
+        password = u.password.should_not be_nil
+        password.verify("hej").should be_true
       end
     end
 
@@ -698,7 +698,7 @@ describe LavinMQ::HTTP::Server do
         # after this spec has finished
         sleep 0.1.seconds # Start the shovel
         wait_for do
-          shovels = s.vhosts["/"].shovels.not_nil!
+          shovels = s.vhosts["/"].shovels
           shovels.values.all? &.running?
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
@@ -945,9 +945,8 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         queues = body["queues"].as_a
-        durable = queues.find { |v| v["name"] == "mqtt.durable" }
-        durable.should_not be_nil
-        durable.not_nil!["arguments"]["x-queue-type"].should eq "mqtt"
+        durable = queues.find { |v| v["name"] == "mqtt.durable" }.should_not be_nil
+        durable["arguments"]["x-queue-type"].should eq "mqtt"
         queues.find { |v| v["name"] == "mqtt.transient" }.should be_nil
       end
     end
@@ -1014,16 +1013,16 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["mqtt_permissions"].as_a.empty?.should be_false
-        exported = body["mqtt_permissions"].as_a.find { |g| g["name"] == "testers" }
-        exported.should_not be_nil
-        exported.not_nil!["members"].as_a.map(&.as_s).should contain("alice")
+        exported = body["mqtt_permissions"].as_a.find { |g| g["name"] == "testers" }.should_not be_nil
+        exported["members"].as_a.map(&.as_s).should contain("alice")
 
         s.vhosts["/"].mqtt_permission_service.delete("testers")
         s.vhosts["/"].mqtt_permission_service["testers"]?.should be_nil
 
         response = http.post("/api/definitions", body: body.to_json)
         response.status_code.should eq 200
-        s.vhosts["/"].mqtt_permission_service["testers"]?.not_nil!.members.should contain("alice")
+        imported = s.vhosts["/"].mqtt_permission_service["testers"]?.should_not be_nil
+        imported.members.should contain("alice")
       end
     end
 
@@ -1399,7 +1398,8 @@ describe LavinMQ::HTTP::Server do
 
       u = s.users[name]
       u.should be_a(LavinMQ::Auth::BaseUser)
-      ok = u.not_nil!.password.not_nil!.verify "hej"
+      password = u.password.should_not be_nil
+      ok = password.verify "hej"
       {u.name, ok}.should eq({name, true})
 
       update_body = <<-JSON
@@ -1416,7 +1416,8 @@ describe LavinMQ::HTTP::Server do
 
       u = s.users[name]
       u.should be_a(LavinMQ::Auth::BaseUser)
-      ok = u.not_nil!.password.not_nil!.verify "test"
+      password = u.password.should_not be_nil
+      ok = password.verify "test"
       {u.name, ok}.should eq({name, true})
     end
   end

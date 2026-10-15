@@ -384,21 +384,19 @@ describe "OAuth2" do
           response.headers["Location"].should eq("..")
 
           set_cookies = response.headers.get?("Set-Cookie") || [] of String
-          token_cookie = set_cookies.find { |c| c.starts_with?("oauth_token=") && !c.starts_with?("oauth_token=;") }
-          identity_cookie = set_cookies.find(&.starts_with?("m=|oauth:"))
+          token_cookie = set_cookies.find { |c| c.starts_with?("oauth_token=") && !c.starts_with?("oauth_token=;") }.should_not be_nil
+          identity_cookie = set_cookies.find(&.starts_with?("m=|oauth:")).should_not be_nil
 
-          token_cookie.should_not be_nil
-          token_lower = token_cookie.not_nil!.downcase
+          token_lower = token_cookie.downcase
           token_lower.should contain("secure")
           token_lower.should contain("httponly")
           token_lower.should contain("samesite=lax")
 
-          identity_cookie.should_not be_nil
-          identity_lower = identity_cookie.not_nil!.downcase
+          identity_lower = identity_cookie.downcase
           identity_lower.should contain("secure")
           identity_lower.should contain("samesite=lax")
           identity_lower.should_not contain("httponly")
-          identity_cookie.not_nil!.should contain("YWxpY2VAZXhhbXBsZS5jb206")
+          identity_cookie.should contain("YWxpY2VAZXhhbXBsZS5jb206")
         end
       ensure
         idp_server.close
@@ -467,11 +465,11 @@ describe "OAuth2" do
             headers: headers)
 
           set_cookies = response.headers.get?("Set-Cookie") || [] of String
-          token_cookie = set_cookies.find { |c| c.starts_with?("oauth_token=") && !c.starts_with?("oauth_token=;") }
-          identity_cookie = set_cookies.find(&.starts_with?("m=|oauth:"))
+          token_cookie = set_cookies.find { |c| c.starts_with?("oauth_token=") && !c.starts_with?("oauth_token=;") }.should_not be_nil
+          identity_cookie = set_cookies.find(&.starts_with?("m=|oauth:")).should_not be_nil
 
-          token_cookie.not_nil!.should contain("path=/lavinmq")
-          identity_cookie.not_nil!.should contain("path=/lavinmq")
+          token_cookie.should contain("path=/lavinmq")
+          identity_cookie.should contain("path=/lavinmq")
         end
       ensure
         idp_server.close
@@ -517,17 +515,16 @@ describe "OAuth2" do
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
         response.status_code.should eq 200
         set_cookies = response.headers.get?("Set-Cookie") || [] of String
-        state_cookie = set_cookies.find(&.starts_with?("oauth_state="))
-        state_cookie.should_not be_nil
-        state_cookie.not_nil!.downcase.should contain("secure")
-        state_cookie.not_nil!.downcase.should contain("httponly")
-        state_cookie.not_nil!.downcase.should contain("samesite=lax")
+        state_cookie = set_cookies.find(&.starts_with?("oauth_state=")).should_not be_nil
+        state_cookie.downcase.should contain("secure")
+        state_cookie.downcase.should contain("httponly")
+        state_cookie.downcase.should contain("samesite=lax")
         # Path must be "/" so the state cookie is sent back on the callback even
         # when the UI is mounted under a reverse-proxy base path (a stripping
         # proxy means the server can't know the prefix; "/oauth" would not match
         # the public /<prefix>/oauth/callback path).
-        state_cookie.not_nil!.downcase.should contain("path=/")
-        state_cookie.not_nil!.downcase.should_not contain("path=/oauth")
+        state_cookie.downcase.should contain("path=/")
+        state_cookie.downcase.should_not contain("path=/oauth")
       end
     end
 
@@ -633,9 +630,8 @@ describe "OAuth2" do
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
         set_cookies = response.headers.get?("Set-Cookie") || [] of String
-        state_cookie = set_cookies.find(&.starts_with?("oauth_state="))
-        state_cookie.should_not be_nil
-        state_cookie.not_nil!.downcase.should_not contain("secure")
+        state_cookie = set_cookies.find(&.starts_with?("oauth_state=")).should_not be_nil
+        state_cookie.downcase.should_not contain("secure")
       end
     end
   end
