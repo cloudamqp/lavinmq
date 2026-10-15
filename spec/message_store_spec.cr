@@ -438,7 +438,7 @@ describe LavinMQ::MessageStore do
         store = LavinMQ::MessageStore.new(dir, nil)
         6.times { store.push(big) } # seg 1 = [m1, m2], seg 2 = [m3, m4], seg 3 = [m5, m6]
         envs = Array(LavinMQ::Envelope).new
-        4.times { envs << store.shift?.not_nil! }
+        4.times { envs << store.shift?.should_not be_nil }
         store.delete(envs[2].segment_position) # ack m3 only, seg 2 is partially acked
         store.close
 
@@ -767,9 +767,8 @@ describe LavinMQ::MessageStore do
         store.push(LavinMQ::Message.new("ex", "rk", body))
         store.@size.should eq 1
 
-        env = store.shift?
-        env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq body
         store.@size.should eq 0
         store.close
       end
@@ -829,7 +828,7 @@ describe LavinMQ::MessageStore do
 
         # Push-shift-ack one small msg; rfile.pos is now at end of segment 1.
         store.push(LavinMQ::Message.new("ex", "rk", body))
-        env = store.shift?.not_nil!
+        env = store.shift?.should_not be_nil
         store.delete(env.segment_position)
         store.empty?.should be_true
 
@@ -864,7 +863,7 @@ describe LavinMQ::MessageStore do
         # Shift+ack m1 - leaves seg 1 partially acked (one ready msg, one ack).
         # purge_all keeps seg 1 (it's the rfile) and the shift loop finishes
         # draining it.
-        env = store.shift?.not_nil!
+        env = store.shift?.should_not be_nil
         store.delete(env.segment_position)
 
         store.purge_all
@@ -878,7 +877,7 @@ describe LavinMQ::MessageStore do
     it "shift? from @requeued keeps @size consistent when the segment is gone" do
       with_store do |store|
         store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        env = store.shift?.not_nil!
+        env = store.shift?.should_not be_nil
         store.requeue(env.segment_position)
         store.@size.should eq 1
 
@@ -898,7 +897,7 @@ describe LavinMQ::MessageStore do
     it "does not raise when @requeued sp points to a missing segment" do
       with_store do |store|
         store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        env = store.shift?.not_nil!
+        env = store.shift?.should_not be_nil
         store.requeue(env.segment_position)
 
         # Simulate a race where the requeued sp's segment was deleted before
@@ -948,11 +947,11 @@ describe LavinMQ::MessageStore do
         store.push(big)
 
         # Ack M1 -> seg 1 auto-deletes. Shift the rest; ack M4 (wfile, kept).
-        env = store.shift?.not_nil!
+        env = store.shift?.should_not be_nil
         store.delete(env.segment_position)
-        env_m2 = store.shift?.not_nil!
-        env_m3 = store.shift?.not_nil!
-        env_m4 = store.shift?.not_nil!
+        env_m2 = store.shift?.should_not be_nil
+        env_m3 = store.shift?.should_not be_nil
+        env_m4 = store.shift?.should_not be_nil
         store.delete(env_m4.segment_position)
 
         # Requeue m2/m3 -> @requeued holds sps to seg 2, no longer rfile/wfile.

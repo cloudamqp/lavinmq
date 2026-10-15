@@ -65,7 +65,7 @@ LavinMQ acquires an exclusive file lock on the data directory to prevent multipl
 | `free_disk_min` | `[main]` | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | `[main]` | `0` | Warning threshold (bytes). Emits warnings when free space drops below this value. |
 
-Publishing is blocked when free disk space drops below `3 * segment_size` or below `free_disk_min` (whichever is higher). With the default `free_disk_min = 0`, the `3 * segment_size` threshold (default ~24 MB) is the active trigger. When publishing is blocked, the server returns `precondition_failed` channel errors on `basic.publish`.
+Publishing is blocked when free disk space drops below `3 * segment_size` or below `free_disk_min` (whichever is higher). With the default `free_disk_min = 0`, the `3 * segment_size` threshold (default ~24 MB) is the active trigger. When publishing is blocked, the server returns `precondition_failed` channel errors on `basic.publish`. Publishing resumes once free disk space is at least `3 * segment_size` above that threshold, so that the burst of writes when publishing resumes doesn't exhaust the disk again.
 
 ## Definitions Compaction
 

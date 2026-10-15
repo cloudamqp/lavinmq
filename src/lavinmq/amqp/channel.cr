@@ -256,11 +256,11 @@ module LavinMQ
       private def finish_publish(body_io)
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
-        props = @next_msg_props.not_nil!
+        props = @next_msg_props.not_nil!("No message headers received")
         props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
         msg = Message.new(RoughTime.unix_ms,
-          @next_publish_exchange_name.not_nil!,
-          @next_publish_routing_key.not_nil!,
+          @next_publish_exchange_name.not_nil!("No publish started"),
+          @next_publish_routing_key.not_nil!("No publish started"),
           props,
           @next_msg_size,
           body_io)
@@ -310,7 +310,7 @@ module LavinMQ
       # Yields to the block which must return an `Exchange::PublishResult`, then
       # sends a publisher confirm based on the outcome:
       # * if the block raises, send NACK and re-raise
-      # * if any matched queue rejected on overflow, send NACK
+      # * if any matched queue rejected on overflow, or was closed, send NACK
       # * otherwise send ACK
       # When publisher confirms are disabled the block is just yielded.
       private def confirm(&)
@@ -318,7 +318,7 @@ module LavinMQ
           msgid = @confirm_total &+= 1
           begin
             result = yield
-            if result.overflowed?
+            if result.rejected?
               confirm_nack(msgid)
             else
               confirm_ack(msgid)
@@ -694,7 +694,7 @@ module LavinMQ
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
-              unack.queue.reject(unack.sp, requeue: true)
+              unack.queue.requeue(unack.sp)
             end
             @unacked.clear
           else # redeliver to the original recipient
@@ -705,7 +705,7 @@ module LavinMQ
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
                 false
               else
-                unack.queue.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
                 true
               end
             end
@@ -740,7 +740,7 @@ module LavinMQ
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.reject(unack.sp, true)
+            unack.queue.requeue(unack.sp)
             unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear

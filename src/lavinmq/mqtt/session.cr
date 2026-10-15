@@ -232,10 +232,12 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
+      # A concurrent API deletion can make the bind fail.
+      # TODO: Check session identity under the definitions lock before binding.
+      def subscribe(tf, qos) : Bool
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
+          return true if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)

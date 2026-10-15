@@ -2,7 +2,7 @@ require "./spec_helper"
 
 # Uses DelayedExchangeQueue as the test subject since it's the simplest
 # internal queue to create. The internal? check in client.cr applies to
-# all internal queues (DelayedExchangeQueue, RetryQueue, etc.).
+# all internal queues (DelayedExchangeQueue, DelayedRetryQueue, etc.).
 describe "Internal Queue Access" do
   x_name = "delayed-topic-internal-spec"
   internal_q_name = "amq.delayed-#{x_name}"

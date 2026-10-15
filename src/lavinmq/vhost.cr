@@ -42,7 +42,8 @@ module LavinMQ
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    # Set by the server's disk space monitor, read by every publishing client
+    @flow = Atomic(Bool).new(true)
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
@@ -50,13 +51,12 @@ module LavinMQ
     @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
@@ -190,6 +190,10 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections.add client
+      # Added after #close closed the connections, it'd be served by a
+      # closed vhost. Not #close, an MQTT client's waits for its read loop,
+      # which only starts after this.
+      client.force_close if closed?
     end
 
     def rm_connection(client : Client)
@@ -521,8 +525,9 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
-      # then force close the remaining (close tcp socket)
-      each_connection &.force_close
+      # then force close the remaining (close tcp socket), a copy as they
+      # delete themselves when closed
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
@@ -592,15 +597,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
     end
 
     def mqtt_broker : MQTT::Broker
-      @mqtt_broker.not_nil!
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -647,7 +652,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end
