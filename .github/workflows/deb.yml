@@ -24,7 +24,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-26.04, ubuntu-24.04, ubuntu-22.04, debian-13, debian-12, debian-11]
+        os: [ubuntu-26.04, ubuntu-24.04, ubuntu-22.04, debian-13, debian-12]
+        include:
+          # Crystal 1.22.0 crashes on ubuntu-22.04's PCRE2 10.39
+          - os: ubuntu-22.04
+            crystal: 1.21.1
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,7 +51,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:latest-${{ matrix.os }}
+            build_image=84codes/crystal:${{ matrix.crystal || 'latest' }}-${{ matrix.os }}
             version=${{ env.version }}
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
