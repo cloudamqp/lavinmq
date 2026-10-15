@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
 - Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)
+- A `SIGHUP` config reload resets a setting removed from the config file to its default, instead of keeping its previous value. Command line arguments and environment variables also keep taking precedence over the config file after a reload, as they do at startup [#2458](https://github.com/cloudamqp/lavinmq/pull/2458)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
@@ -61,7 +62,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Dead-lettered messages could be lost, delivered twice, or crash the broker when a queue dead-lettered from several threads at once [#2403](https://github.com/cloudamqp/lavinmq/pull/2403)
 - A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
 - Publishing now resumes after a disk alarm only once free disk space is `3 * segment_size` above the alarm threshold, avoiding SIGBUS crashes from the burst of writes right after recovery [#2457](https://github.com/cloudamqp/lavinmq/pull/2457)
-- A `SIGHUP` config reload resets a setting removed from the config file to its default, instead of keeping its previous value. Command line arguments and environment variables also keep taking precedence over the config file after a reload, as they do at startup [#2456](https://github.com/cloudamqp/lavinmq/issues/2456)
 - A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
 - With `tls_ktls` enabled, idle AMQP connections were closed at half the heartbeat interval instead of being sent a heartbeat, as a kTLS read timeout surfaced as end of file, making clients reconnect over and over. Idle MQTT connections were logged as unexpectedly closed instead of as keepalive timeouts [#2432](https://github.com/cloudamqp/lavinmq/pull/2432)
 - A WebSocket connection that broke could log an unhandled exception (e.g. `SSL_write` for `wss`), from trying to send a close frame over the broken connection [#2430](https://github.com/cloudamqp/lavinmq/pull/2430)
