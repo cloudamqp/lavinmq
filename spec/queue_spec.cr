@@ -1395,17 +1395,18 @@ describe LavinMQ::AMQP::Queue do
             q.add_consumer(first)
             ready = Atomic(Int32).new(0)
             added = Atomic(Bool).new(false)
-            wg = WaitGroup.new(2)
-            ctx.spawn do
+            remove = -> do
               ready.add(1)
               while ready.get < 2
                 Fiber.yield
               end
+              # Stagger the sides, so that each wins some of the rounds on any
+              # number of threads
+              (i % 4).times { Fiber.yield }
               q.rm_consumer(first)
-            ensure
-              wg.done
+              nil
             end
-            ctx.spawn do
+            add = -> do
               ready.add(1)
               while ready.get < 2
                 Fiber.yield
@@ -1416,8 +1417,15 @@ describe LavinMQ::AMQP::Queue do
               rescue LavinMQ::AMQP::Queue::ClosedError
                 # the last consumer left first, the queue is being auto-deleted
               end
-            ensure
-              wg.done
+              nil
+            end
+            wg = WaitGroup.new(2)
+            (i.even? ? {remove, add} : {add, remove}).each do |side|
+              ctx.spawn do
+                side.call
+              ensure
+                wg.done
+              end
             end
             wg.wait
             if added.get
