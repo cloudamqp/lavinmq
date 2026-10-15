@@ -256,11 +256,11 @@ module LavinMQ
       private def finish_publish(body_io)
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
-        props = @next_msg_props.not_nil!
+        props = @next_msg_props.not_nil!("No message headers received")
         props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
         msg = Message.new(RoughTime.unix_ms,
-          @next_publish_exchange_name.not_nil!,
-          @next_publish_routing_key.not_nil!,
+          @next_publish_exchange_name.not_nil!("No publish started"),
+          @next_publish_routing_key.not_nil!("No publish started"),
           props,
           @next_msg_size,
           body_io)

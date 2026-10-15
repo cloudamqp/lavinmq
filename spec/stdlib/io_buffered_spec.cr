@@ -107,7 +107,7 @@ describe IO::Buffered do
       reader.buffer_pool = pool
       reader.read_buffering = true
       read = Channel(UInt8).new
-      spawn { read.send reader.read_byte.not_nil! }
+      spawn { read.send reader.read_byte.not_nil!("unexpected EOF") }
       Fiber.yield
       reader.@in_buffer.null?.should be_true
       writer.write_byte 7_u8

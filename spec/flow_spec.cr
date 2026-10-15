@@ -59,4 +59,19 @@ describe "Flow" do
   ensure
     LavinMQ::Config.instance.free_disk_min = 0
   end
+
+  it "should require a margin above the alarm threshold to recover from disk alarm" do
+    with_amqp_server do |s|
+      s.update_system_metrics(nil)
+      segment_size = LavinMQ::Config.instance.segment_size.to_i64
+      # Not full, but within 3 segments of the alarm threshold
+      LavinMQ::Config.instance.free_disk_min = s.disk_free - segment_size
+      s.disk_full?.should be_false
+      s.disk_recovered?.should be_false
+      LavinMQ::Config.instance.free_disk_min = s.disk_free - 3 * segment_size
+      s.disk_recovered?.should be_true
+    end
+  ensure
+    LavinMQ::Config.instance.free_disk_min = 0
+  end
 end
