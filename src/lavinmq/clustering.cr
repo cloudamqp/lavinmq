@@ -19,6 +19,17 @@ module LavinMQ
     # or rolling back .raft_state could let the node vote twice in a term.
     NODE_LOCAL_FILES = {".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
 
+    # Whether the data dir has broker data, i.e. anything but this node's own
+    # files and the replication checksums
+    def self.broker_data?(data_dir : String) : Bool
+      return false unless Dir.exists?(data_dir)
+      Dir.each_child(data_dir) do |child|
+        next if child.in?(NODE_LOCAL_FILES) || child.starts_with?("checksums.sha1")
+        return true
+      end
+      false
+    end
+
     # The header is part of the MAC so a response can't be replayed against
     # the raft port, which uses the same password but MACs its challenge bare.
     def self.challenge_response(password : String, challenge : Bytes) : Bytes

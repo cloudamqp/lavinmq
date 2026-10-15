@@ -76,14 +76,19 @@ private class ControllerCluster
   @reserved_ports = Hash(Int32, TCPServer).new
   @closed = Channel(Nil).new
 
-  def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300)
+  # `data`: the nodes with broker data, so with one the first leader is
+  # known, see Raft::Core#bootstrap_choice. `etcd_endpoints`: where they read
+  # the etcd backend's ISR from, nothing listens there by default. `ids`:
+  # the nodes' clustering ids, random by default.
+  def initialize(size : Int32, data = [0], @replication = false, @election_timeout = 300,
+                 @etcd_endpoints = "localhost:1", @ids = [] of Int32)
     ports = Array.new(size) { reserve_port }
     # Another process can take a reserved port between its release and the
     # node binding it, so don't let a node join someone else's cluster
     @password = Random::Secure.hex(16)
     seeds = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
-      add_node(port, seeds, bootstrap == @dirs.size)
+      add_node(port, seeds, data.includes?(@dirs.size))
     end
   end
 
@@ -95,14 +100,16 @@ private class ControllerCluster
     port
   end
 
-  # A node that isn't started yet. Doesn't bootstrap unless told to.
-  def add_node(port : Int32, seeds : String, bootstrap = false) : LavinMQ::Clustering::RaftController
+  # A node that isn't started yet, with broker data if `data`
+  def add_node(port : Int32, seeds : String, data = false) : LavinMQ::Clustering::RaftController
     dir = File.tempname("lavinmq", "controller-spec")
     Dir.mkdir_p dir
+    File.write(File.join(dir, "spec-broker-data"), "") if data
+    @ids[@dirs.size]?.try { |id| File.write(File.join(dir, ".clustering_id"), id.to_s(36)) }
     @dirs << dir
     config = LavinMQ::Config.new
     @configs << config
-    config.clustering_bootstrap = bootstrap
+    config.clustering_etcd_endpoints = @etcd_endpoints
     config.data_dir = dir
     config.clustering = true
     config.clustering_bind = "127.0.0.1"
@@ -214,8 +221,9 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, bootstrap : Int32? = 0, replication = false, election_timeout = 300, &)
-  cluster = ControllerCluster.new(size, bootstrap, replication, election_timeout)
+private def with_controllers(size = 3, data = [0], replication = false, election_timeout = 300,
+                             etcd_endpoints = "localhost:1", ids = [] of Int32, &)
+  cluster = ControllerCluster.new(size, data, replication, election_timeout, etcd_endpoints, ids)
   yield cluster
 ensure
   cluster.try &.close
@@ -381,10 +389,12 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  it "doesn't elect nodes without raft state, unless bootstrapped", tags: "slow" do
-    # Even with empty data dirs: a majority of new nodes could otherwise
-    # outvote a node with data
-    with_controllers(bootstrap: nil) do |cluster|
+  it "elects the only node with data first, and none while several have data", tags: "slow" do
+    with_controllers(data: [1]) do |cluster|
+      cluster.start_all
+      cluster.next_leader.should eq cluster.controllers[1]
+    end
+    with_controllers(data: [0, 1]) do |cluster|
       cluster.start_all
       select
       when c = cluster.serving.receive
@@ -392,16 +402,23 @@ describe LavinMQ::Clustering::RaftController do
       when timeout(1.second)
       end
     end
-    with_controllers(bootstrap: 1) do |cluster|
-      cluster.start_all
-      cluster.next_leader.should eq cluster.controllers[1]
+  end
+
+  it "elects a node that was in the etcd backend's ISR first, after a migration", tags: %w[etcd slow] do
+    with_etcd do
+      # Not the lowest id, which leads among equals
+      LavinMQ::Etcd.new("127.0.0.1:12379").put("lavinmq/isr", 200.to_s(36))
+      with_controllers(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
+        cluster.start_all
+        cluster.next_leader.id.should eq 200
+      end
     end
   end
 
   it "reports raft metrics without a leader and while following", tags: "slow" do
-    # Nodes without raft state can't elect a leader unless one may bootstrap.
+    # Several nodes with data and no raft state can't elect a first leader.
     # All nodes start at once, a node started later could find its port taken.
-    with_controllers(bootstrap: nil) do |cluster|
+    with_controllers(data: [0, 1]) do |cluster|
       with_metrics_of(cluster.controllers[0]) do |scrape|
         cluster.start_all
         peer = cluster.controllers[1].id.to_s(36)
@@ -538,12 +555,12 @@ describe LavinMQ::Clustering::RaftController do
       end
       a.node.membership.should_not(be_nil).voters.should contain(d.id)
 
-      a.request_transfer("127.0.0.1:1").should be_a String # not a member
+      a.request_transfer("localhost:1").should be_a String # not a member
       plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
       plan.target.should eq d.id
       plan.address.should eq d_addr
       # A second request before the step down can't override the accepted one
-      a.request_transfer("127.0.0.1:1").as(String).should contain "already in progress"
+      a.request_transfer("localhost:1").as(String).should contain "already in progress"
       a.request_transfer(d_addr).as(String).should contain "already in progress"
       a.step_down(plan)
       leader = cluster.next_leader(10.seconds)

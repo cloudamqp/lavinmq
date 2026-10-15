@@ -47,6 +47,28 @@ module LavinMQ
       raise Error.new("key #{key} not set")
     end
 
+    # Like #get, but asks each endpoint once and returns nil when none
+    # answers, where #get retries and exits the process. For an optional
+    # lookup when etcd may be gone.
+    def try_get(key) : String?
+      body = %({"key":"#{Base64.strict_encode key}"})
+      @endpoints.shuffle.each do |e|
+        address = "#{e.host}:#{e.port}"
+        tcp = create_tcp_socket(e.host, e.port)
+        tcp.read_timeout = tcp.write_timeout = 5.seconds
+        socket = e.tls ? wrap_with_tls(tcp, e.host) : tcp
+        begin
+          json = post_request(socket, address, e.auth, "/v3/kv/range", body)
+          return json.dig?("kvs", 0, "value").try { |v| Base64.decode_string(v.as_s) }
+        ensure
+          socket.close rescue nil
+        end
+      rescue ex : IO::Error | Error | OpenSSL::SSL::Error
+        Log.debug { "Could not read #{key} from #{address}: #{ex.message}" }
+      end
+      nil
+    end
+
     def get(key) : String?
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}"}))
       if value = json.dig?("kvs", 0, "value").try(&.as_s)
