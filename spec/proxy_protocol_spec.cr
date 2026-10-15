@@ -7,7 +7,7 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = LavinMQ::ProxyProtocol::V1.parse(r).not_nil!
+      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
       conn_info.local_address.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
@@ -113,10 +113,9 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = LavinMQ::ProxyProtocol.parse(r)
-      conn_info.should_not be_nil
-      conn_info.not_nil!.remote_address.to_s.should eq "1.2.3.4:34567"
-      conn_info.not_nil!.local_address.to_s.should eq "127.0.0.2:1234"
+      conn_info = LavinMQ::ProxyProtocol.parse(r).should_not be_nil
+      conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
+      conn_info.local_address.to_s.should eq "127.0.0.2:1234"
     end
 
     it "auto-detects V2 protocol" do
@@ -138,11 +137,10 @@ describe "ProxyProtocol" do
       )
       w.write pp_bytes.to_slice
 
-      conn_info = LavinMQ::ProxyProtocol.parse(r)
-      conn_info.should_not be_nil
-      conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
-      conn_info.not_nil!.ssl?.should be_true
-      conn_info.not_nil!.proxied?.should be_true
+      conn_info = LavinMQ::ProxyProtocol.parse(r).should_not be_nil
+      conn_info.remote_address.to_s.should eq "127.0.0.1:37424"
+      conn_info.ssl?.should be_true
+      conn_info.proxied?.should be_true
     end
 
     it "returns nil for AMQP protocol header" do
@@ -194,9 +192,8 @@ describe "ProxyProtocol" do
       Fiber.yield
       w.write pp_bytes.to_slice[6..]
 
-      conn_info = ch.receive
-      conn_info.should_not be_nil
-      conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
+      conn_info = ch.receive.should_not be_nil
+      conn_info.remote_address.to_s.should eq "127.0.0.1:37424"
     end
 
     it "detects a V1 header split across TCP segments" do
@@ -209,9 +206,8 @@ describe "ProxyProtocol" do
       Fiber.yield
       w.write header[3..]
 
-      conn_info = ch.receive
-      conn_info.should_not be_nil
-      conn_info.not_nil!.remote_address.to_s.should eq "1.2.3.4:34567"
+      conn_info = ch.receive.should_not be_nil
+      conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
     end
   end
 
