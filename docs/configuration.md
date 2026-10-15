@@ -50,12 +50,14 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
 | `tcp_send_timeout` | — | — | Int | `15` | Seconds a client may go without reading what the server sends before it's disconnected (must be positive) |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
+| `sync` | `--no-sync` | `LAVINMQ_SYNC` | Bool | `true` | Sync (fsync/msync/syncfs) data to disk before confirming publishes. Disabling leaves durability to the OS (unsafe). See [Publisher Confirms](publisher-confirms.md#durability-and-synchronization) |
 | `syncfs_threshold` | — | — | Int | `64` | Files a publish confirm depends on above which the whole filesystem is synced (syncfs) instead of each file individually |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
 | `consumer_timeout` | — | — | UInt64 | (none) | Consumer idle timeout (ms) |
 | `consumer_timeout_loop_interval` | — | — | Int | `60` | Consumer timeout check interval (s) |
+| `workers` | `--workers` | `LAVINMQ_WORKERS` | Int | `CRYSTAL_WORKERS` or `1` | Worker threads for connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one per CPU. Experimental: values above 1 are not yet safe. |
 | `log_exchange` | — | — | Bool | `false` | Enable the log exchange |
 | `auth_backends` | — | — | Array | `[]` | Authentication backends |
 | `default_consumer_prefetch` | `--default-consumer-prefetch` | `LAVINMQ_DEFAULT_CONSUMER_PREFETCH` | UInt16 | `65535` | Default consumer prefetch |

@@ -118,8 +118,8 @@ module LavinMQ
     end
 
     # Keeps the segment mapped until #release, even if it's deleted or its
-    # store closed meanwhile. Use MessageStore#shift_with_lease? rather than
-    # calling these directly.
+    # store closed meanwhile. Prefer the stores' *_with_lease? helpers, which
+    # release when their block returns.
     protected def lease : self
       @segment.lease
       self

@@ -57,7 +57,7 @@ describe LavinMQ::VHost do
   it "should be able to persist durable exchanges" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       restart_server(s)
       s.vhosts["test"].exchange("e").should_not be_nil
@@ -70,7 +70,7 @@ describe LavinMQ::VHost do
       # This spec is to verify a fix where a server couldn't start again after a crash if
       # an delayed exchange had been declared by specifiying the type as "x-delayed-message".
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       arguments = AMQ::Protocol::Table.new({"x-delayed-type": "direct"})
       v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
 
@@ -86,7 +86,7 @@ describe LavinMQ::VHost do
   it "should be able to persist durable queues" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_queue("q", true, false)
       restart_server(s)
       s.vhosts["test"].queue("q").should_not be_nil
@@ -96,7 +96,7 @@ describe LavinMQ::VHost do
   it "should be able to persist bindings" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
@@ -108,27 +108,27 @@ describe LavinMQ::VHost do
   it "should not write bind frame to definition file for existing binding" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      pos = v.@definitions.not_nil!.@definitions_file.pos
+      pos = v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos
       s.vhosts["test"].bind_queue("q", "e", "q")
-      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos.should eq pos
     end
   end
 
   it "should not write unbind frame to definition file for non-existing binding" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      pos = v.@definitions.not_nil!.@definitions_file.pos
+      pos = v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos.should eq pos
     end
   end
 
@@ -140,10 +140,10 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      file_size = v.@definitions.not_nil!.@definitions_file.size
+      file_size = v.@definitions.not_nil!("definitions not initialized").@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.size.should be < file_size
     end
   end
 
@@ -237,6 +237,37 @@ describe LavinMQ::VHost do
         vhost.max_connections = -1
         with_channel(s) do |_ch3|
         end
+      end
+    end
+  end
+
+  # A closed connection removes itself from the vhost, which must not make
+  # the close skip the next one: that one would be served by a closed vhost
+  it "closes every connection, also when they're removed while closing" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      conns = Array.new(3) { AMQP::Client.new(port: amqp_port(s)).connect }
+      begin
+        wait_for { vhost.connections_size == conns.size }
+        clients = vhost.connections.map(&.as(LavinMQ::AMQP::Client))
+        # Runs when closing yields, like the first one's read loop ending
+        spawn { vhost.rm_connection(clients.first) }
+        vhost.@connections.close_all("Broker shutdown", vhost.@log)
+        clients.reject(&.closed?).map(&.name).should be_empty
+      ensure
+        conns.each { |c| c.close rescue nil }
+      end
+    end
+  end
+
+  it "closes a connection that's added once it's closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |_ch|
+        client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+        closed_vhost = s.vhosts.create("closed")
+        closed_vhost.close
+        closed_vhost.add_connection(client)
+        client.closed?.should be_true
       end
     end
   end

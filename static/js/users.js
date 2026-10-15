@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
 
@@ -8,7 +7,6 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
   const tableOptions = {
     url: 'api/users',
     keyColumns: ['vhost', 'name'],
-    autoReloadTimeout: 0,
     pagination: true,
     columnSelector: true,
     search: true
@@ -57,10 +55,6 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
       evt.target.reset()
     })
     .catch(() => {})
-})
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelper('createUser', 'tags', e)
 })
 
 document.querySelector('#generatePassword').addEventListener('click', generatePassword)
