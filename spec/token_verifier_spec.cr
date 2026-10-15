@@ -347,7 +347,10 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_audience = "my-api"
-      verifier = TestableTokenVerifier.new(config, MockJWKSFetcher.new)
+      # Same issuer as the config, so #reload keeps this fetcher. It's never
+      # started and the spec never fetches keys, so it makes no requests.
+      fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(URI.parse("https://auth.example.com"), 1.hour)
+      verifier = TestableTokenVerifier.new(config, fetcher)
       payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com", exp: RoughTime.utc.to_unix + 3600, aud: "my-api")
       payload["preferred_username"] = JSON::Any.new("testuser")
       token = JWTTestHelper.create_mock_token(payload)
@@ -360,6 +363,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
 
       # The state created by #reload holds a copy too
       verifier.reload(config)
+      verifier.fetcher.should be fetcher
       config.oauth_audience = "my-api"
       expect_raises(LavinMQ::Auth::JWT::VerificationError, /audience does not match/) do
         verifier.test_validate_audience(payload)
