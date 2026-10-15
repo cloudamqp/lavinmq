@@ -16,10 +16,12 @@ private def with_stats_logs(size : Int32, &)
   LavinMQ::Stats.counter_log = LavinMQ::StatsLog(UInt32).new(size)
   LavinMQ::Stats.byte_log = LavinMQ::StatsLog(UInt64).new(size, 256)
   LavinMQ::Stats.gauge_log = LavinMQ::StatsLog(Int64).new(size, 64)
+  LavinMQ::Stats.log_interval = nil # new logs, collected at the configured interval
   begin
     yield LavinMQ::Stats.counter_log
   ensure
     LavinMQ::Stats.counter_log, LavinMQ::Stats.byte_log, LavinMQ::Stats.gauge_log = counter_log, byte_log, gauge_log
+    LavinMQ::Stats.log_interval = nil
   end
 end
 
@@ -86,14 +88,16 @@ module LavinMQ
       [1, 50, 250, 500, 999, 1000, 5000, 30_000].each do |ms|
         it "yields finite rates with stats_interval=#{ms}ms" do
           with_stats_interval(ms) do
-            p = IntervalProbe.new
-            p.update_rates
-            p.x_rate.finite?.should be_true
-            p.x_rate.should eq 0.0
-            p.bump(1234_u64)
-            p.update_rates
-            p.x_rate.finite?.should be_true
-            p.x_rate.should be > 0.0
+            with_stats_logs(3) do
+              p = IntervalProbe.new
+              p.update_rates
+              p.x_rate.finite?.should be_true
+              p.x_rate.should eq 0.0
+              p.bump(1234_u64)
+              p.update_rates
+              p.x_rate.finite?.should be_true
+              p.x_rate.should be > 0.0
+            end
           end
         end
       end
@@ -213,14 +217,40 @@ module LavinMQ
         end
       end
 
+      it "divides by the interval a tick was collected over when stats_interval changes during it" do
+        with_stats_logs(3) do
+          p = IntervalProbe.new
+          with_stats_interval(5000) do
+            2.times do
+              p.bump(5u64)
+              Stats.tick(3, 5000) { p.update_rates }
+            end
+            p.x_log.to_a.should eq [1.0, 1.0]
+          end
+          with_stats_interval(1000) do
+            # reloaded while the stats loop slept the old interval
+            p.bump(5u64)
+            Stats.tick(3, 5000) { p.update_rates }
+            p.x_rate.should eq 1.0
+            p.x_log.to_a.should eq [1.0, 1.0, 1.0]
+            p.bump(5u64)
+            Stats.tick(3, 1000) { p.update_rates }
+            p.x_rate.should eq 5.0
+            p.x_log.to_a.should eq [5.0]
+          end
+        end
+      end
+
       it "reports events-per-second independent of the sampling interval" do
         {500 => 100.0, 1000 => 50.0, 5000 => 10.0}.each do |ms, expected|
           with_stats_interval(ms) do
-            p = IntervalProbe.new
-            p.update_rates
-            p.bump(50_u64)
-            p.update_rates
-            p.x_rate.should eq expected
+            with_stats_logs(3) do
+              p = IntervalProbe.new
+              p.update_rates
+              p.bump(50_u64)
+              p.update_rates
+              p.x_rate.should eq expected
+            end
           end
         end
       end

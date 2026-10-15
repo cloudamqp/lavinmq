@@ -14,10 +14,22 @@ module LavinMQ
     # stats_interval the increases in counter_log and byte_log were collected at
     @@log_interval : Int32? = nil
 
+    # Milliseconds the increases in the rate logs were collected over, which
+    # is what they're divided by to get rates. Lags the configured
+    # stats_interval after a reload until the next tick.
+    def self.log_interval : Int32
+      @@log_interval || Config.instance.stats_interval
+    end
+
+    # :nodoc:
+    def self.log_interval=(@@log_interval : Int32?)
+    end
+
     # Starts a new tick in all logs and yields to write it. Readers see the
-    # tick once the block returns. Increases are divided by the current
-    # *interval* when read, so if it changed the counter and byte logs are
-    # cleared, as their values would show the wrong rates.
+    # tick once the block returns. *interval* is the time the increases
+    # written in this tick were collected over. If it differs from that of
+    # earlier ticks the counter and byte logs are cleared, as their rates
+    # would be divided by the wrong interval.
     def self.tick(log_size : Int32, interval : Int32, & : -> _) : Nil
       if (log_interval = @@log_interval) && log_interval != interval
         counter_log.clear
@@ -77,13 +89,13 @@ module LavinMQ
           stats_log = {{ stats_log }}
           stats_log.rates(stats_log.ticks_since(@stats_log_start),
             {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }},
-            interval: Config.instance.stats_interval / 1000.0, digits: 1)
+            interval: Stats.log_interval / 1000.0, digits: 1)
         end
 
         # Adds the rate per second at each tick to *rates*, aligned at the latest tick
         def add_{{ name.id }}_log(rates : Array(Float64)) : Nil
           stats_log = {{ stats_log }}
-          interval = Config.instance.stats_interval / 1000.0
+          interval = Stats.log_interval / 1000.0
           stats_log.merge_into(rates, stats_log.ticks_since(@stats_log_start),
             {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }}) do |rate, increase|
             (rate + (increase / interval).round(1)).round(1)
@@ -114,7 +126,7 @@ module LavinMQ
       end
 
       def update_rates : Nil
-        interval = Config.instance.stats_interval / 1000.0
+        interval = Stats.log_interval / 1000.0
         {% for name in tracked %}
           {{ name.id }}_count = @{{ name.id }}_count.get(:relaxed)
           {{ name.id }}_increase = {{ name.id }}_count - @{{ name.id }}_count_prev

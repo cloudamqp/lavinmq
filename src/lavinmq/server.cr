@@ -215,9 +215,11 @@ module LavinMQ
       if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
+      # The interval slept before each tick, as a reload can change the config during the sleep
+      interval = @config.stats_interval
       until closed?
         @stats_collection_duration_seconds_total = Time.measure do
-          Stats.tick(@config.stats_log_size, @config.stats_interval) do
+          Stats.tick(@config.stats_log_size, interval) do
             @stats_rates_collection_duration_seconds = Time.measure do
               update_vhost_rates
             end
@@ -229,7 +231,8 @@ module LavinMQ
         @gc_stats = GC.prof_stats
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        interval = @config.stats_interval
+        sleep interval.milliseconds
       end
     ensure
       statm.try &.close
@@ -289,7 +292,7 @@ module LavinMQ
       # times, blocks for the IO
       def {{ m.id }}_log
         stats_log = Stats.counter_log
-        interval = Config.instance.stats_interval / 1000.0
+        interval = Stats.log_interval / 1000.0
         {% if m.id.ends_with? "_time" %} interval *= 1000 {% end %}
         stats_log.rates(stats_log.ticks_since(@stats_log_start), @{{ m.id }}_log, interval: interval, digits: 2)
       end
