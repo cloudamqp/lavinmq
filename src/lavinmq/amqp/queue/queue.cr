@@ -953,6 +953,8 @@ module LavinMQ::AMQP
               dead_letters[dead_letter_count] = sp
               dead_letter_count += 1
             else
+              # Counted here as it skips expire_msg, which counts the others
+              @vhost.count_dead_lettered(reason, dlx: false)
               delete_message(sp)
             end
           end
