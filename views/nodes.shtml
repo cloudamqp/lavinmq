@@ -29,7 +29,7 @@
           <tr>
             <th>
               <a class="prop-tooltip" data-tag="alternate-exchange">Memory usage<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">The amount of memory LavinMQ uses relative to the available system space</span>
+              <span class="prop-tooltiptext">Resident memory used by LavinMQ relative to the available memory - the cgroup limit or total physical memory</span>
               </a>
             </th>
             <td id="tr-memory"></td>
@@ -37,7 +37,7 @@
           <tr>
             <th>
               <a class="prop-tooltip" data-tag="alternate-exchange">Disk usage<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">The amount of disk memory the system uses relative to the available system space</span>
+              <span class="prop-tooltiptext">Disk space used on the data directory's filesystem. Message flow stops when free space drops below the watermark</span>
               </a>
             </th>
             <td id="tr-disk"></td>
@@ -58,7 +58,11 @@
         <div class="chart-container" id="memoryChart"></div>
       </section>
       <section class="card cols-4 cols-6-md">
-        <h3>IO</h3>
+        <h3>Disk usage</h3>
+        <div class="chart-container" id="diskChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Disk I/O</h3>
         <div class="chart-container" id="ioChart"></div>
       </section>
       <section class="card cols-4 cols-6-md">

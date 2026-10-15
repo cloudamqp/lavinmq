@@ -4,21 +4,24 @@ require "./subscription_tree"
 require "./session"
 require "./subscription_key"
 require "./subscription_details"
+require "./publish_context"
 
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
       def type : String
         "mqtt"
       end
 
       def initialize(vhost : VHost, name : String)
+        @tree = vhost.mqtt_subscription_tree
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : Protocol::Publish) : UInt32
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
+        ctx.reset
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -30,9 +33,9 @@ module LavinMQ
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         msg.needs_sync = packet.qos > 0
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
+        @tree.each_entry(packet.topic) do |subscriber, qos, filter|
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
+          if subscriber.deliver(msg, filter, ctx)
             count += 1
             msg.body_io.rewind
           end
@@ -42,16 +45,23 @@ module LavinMQ
         count
       end
 
+      # The tree is shared with x-mqtt-topic exchanges, so only MQTT::Session
+      # entries are this exchange's own bindings.
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
+        @tree.each_entry do |subscriber, qos, filter|
+          next unless session = subscriber.as?(MQTT::Session)
           result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
         end
         result
       end
 
       def binding_count : Int32
-        @tree.size
+        count = 0
+        @tree.each_entry do |subscriber, _qos, _filter|
+          count += 1 if subscriber.is_a?(MQTT::Session)
+        end
+        count
       end
 
       # Only here to make superclass happy
