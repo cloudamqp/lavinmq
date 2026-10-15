@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
+- Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `CRYSTAL_WORKERS` or `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
 ### Fixed
 

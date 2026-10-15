@@ -40,16 +40,18 @@ end
 LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
 init_config
 
-# Run the specs on several threads when CRYSTAL_WORKERS is set, to catch races
-if ENV.has_key?("CRYSTAL_WORKERS")
-  Fiber::ExecutionContext.default.resize(Fiber::ExecutionContext.default_workers_count)
+# Run the specs on several threads, to catch races, when LAVINMQ_WORKERS (or,
+# as for the server, CRYSTAL_WORKERS) is set
+SPEC_WORKERS = (ENV["LAVINMQ_WORKERS"]? || ENV["CRYSTAL_WORKERS"]?).try(&.to_i)
+if workers = SPEC_WORKERS
+  LavinMQ::Launcher.resize_default_execution_context(workers)
 end
 
-# Specs that start a Launcher use a fresh Config, whose `workers` is 1, and
-# would shrink the context back to one thread for the rest of the run
+# Specs that start a Launcher use a fresh Config, whose `workers` doesn't come
+# from the environment, and would resize the context for the rest of the run
 class LavinMQ::Launcher
   private def resize_default_execution_context
-    previous_def unless ENV.has_key?("CRYSTAL_WORKERS")
+    previous_def unless SPEC_WORKERS
   end
 end
 

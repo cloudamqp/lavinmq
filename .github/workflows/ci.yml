@@ -108,7 +108,7 @@ jobs:
     # Not required until the shared state is thread safe
     continue-on-error: true
     env:
-      CRYSTAL_WORKERS: 4
+      LAVINMQ_WORKERS: 4
     strategy:
       fail-fast: false
       matrix:
