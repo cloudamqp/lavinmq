@@ -346,11 +346,11 @@ describe LavinMQ::Shovel do
             tag3 = tag
           when timeout(2.seconds)
           end
-          tag3.should_not be_nil
+          tag3 = tag3.should_not be_nil
           sleep 50.milliseconds # a few ack timeouts on the same channel
           q.consumer_count.should eq 1
 
-          source.ack(tag3.not_nil!, batch: false)
+          source.ack(tag3, batch: false)
           should_eventually(eq 0) { q.unacked_count }
           q.message_count.should eq 0
           source.stop
@@ -523,7 +523,7 @@ describe LavinMQ::Shovel do
           # every in-flight message must be requeued there — otherwise a later
           # cumulative ack sweeps it away undelivered. When the whole shovel is
           # stopping the source is already closed and the Runner ignores it.
-          dest.@ch.not_nil!.cleanup
+          dest.@ch.not_nil!("destination channel not open").cleanup
           voided = listener.outcomes.select { |(_, outcome)| outcome.retry? }
           voided.size.should eq(50 - listener.outcomes.count { |(_, outcome)| outcome.confirmed? })
         end
@@ -611,7 +611,10 @@ describe LavinMQ::Shovel do
           left = q1.message_count
           (delivered.size + left).should eq 3
           delivered.uniq.size.should eq delivered.size
-          left_bodies = Array(String).new(left) { q1.get(no_ack: true).not_nil!.body_io.to_s }
+          left_bodies = Array(String).new(left) do
+            msg = q1.get(no_ack: true).should_not be_nil
+            msg.body_io.to_s
+          end
           (delivered + left_bodies).sort.should eq ["m1", "m2", "newer"]
         ensure
           server.try &.close
@@ -783,7 +786,8 @@ describe LavinMQ::Shovel do
           x.publish_confirm "a" * 200_000, "lm_q1"
           shovel.run
           sleep 10.milliseconds
-          q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 200_000
+          msg = q2.get(no_ack: true).should_not be_nil
+          msg.body_io.to_s.bytesize.should eq 200_000
         end
       end
     end
@@ -989,7 +993,8 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me", "od_q1"
           rmsg = nil
           wait_for { rmsg = q2.get(no_ack: true) }
-          rmsg.not_nil!.body_io.to_s.should eq "shovel me"
+          msg = rmsg.should_not be_nil
+          msg.body_io.to_s.should eq "shovel me"
         end
       ensure
         shovel.try &.terminate
@@ -1139,7 +1144,8 @@ describe LavinMQ::Shovel do
           shovel = LavinMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
           spawn { shovel.run }
           wait_for { shovel.details_tuple[:error] }
-          shovel.details_tuple[:error].not_nil!.should contain "ACCESS_REFUSED"
+          error = shovel.details_tuple[:error].should_not be_nil
+          error.should contain "ACCESS_REFUSED"
           shovel.terminate
           shovel.state.to_s.should eq "Terminated"
         end
