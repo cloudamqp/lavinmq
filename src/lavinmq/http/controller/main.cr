@@ -166,7 +166,7 @@ module LavinMQ
 
         get "/api/federation-links" do |context, _params|
           arr = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
+            vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
           end
@@ -175,7 +175,7 @@ module LavinMQ
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+            arr = vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
             page(context, arr)

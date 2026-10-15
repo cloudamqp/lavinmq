@@ -3,13 +3,11 @@ require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
-require "../../observable"
 require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
 require "./state"
-require "./event"
 require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
@@ -22,17 +20,20 @@ require "../../queue_stats"
 module LavinMQ::AMQP
   class Queue
     include PolicyTarget
-    include Observable(QueueEvent)
     include SortableJSON
     include QueueStats
 
     include ArgumentTarget
     include Argument::DeadLettering
 
-    VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
-    VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
-    VALIDATOR_STRING   = ArgumentValidator::StringValidator.new
-    VALIDATOR_BOOL     = ArgumentValidator::BoolValidator.new
+    VALIDATOR_INT_ZERO  = ArgumentValidator::IntValidator.new(min_value: 0)
+    VALIDATOR_INT_ONE   = ArgumentValidator::IntValidator.new(min_value: 1)
+    VALIDATOR_INT32_ONE = ArgumentValidator::IntValidator.new(min_value: 1, max_value: Int32::MAX)
+    VALIDATOR_STRING    = ArgumentValidator::StringValidator.new
+    VALIDATOR_BOOL      = ArgumentValidator::BoolValidator.new
+
+    DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
+    DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
 
     add_argument_validator "x-expires", VALIDATOR_INT_ONE
     add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
@@ -46,6 +47,9 @@ module LavinMQ::AMQP
     add_argument_validator "x-cache-size", VALIDATOR_INT_ZERO
     add_argument_validator "x-cache-ttl", VALIDATOR_INT_ZERO
     add_argument_validator "x-deduplication-header", VALIDATOR_STRING
+    add_argument_validator "x-delayed-retry-min", VALIDATOR_INT_ONE
+    add_argument_validator "x-delayed-retry-max", VALIDATOR_INT_ONE
+    add_argument_validator "x-delayed-retry-multiplier", VALIDATOR_INT32_ONE
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
@@ -60,6 +64,11 @@ module LavinMQ::AMQP
     @expires : Int64?
     @delivery_limit : Int64?
     @reject_on_overflow = false
+    @delayed_retry_min : Int64?
+    @delayed_retry_max : Int64?
+    @delayed_retry_multiplier : Int32?
+    @delayed_retry_queue : DelayedRetryQueue?
+    @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -237,6 +246,8 @@ module LavinMQ::AMQP
 
     getter name, arguments, vhost
     getter? auto_delete, exclusive
+    # The connection that declared this exclusive queue, told when the queue is deleted
+    property exclusive_owner : AMQP::Client?
     getter? closed = false
     getter state = QueueState::Running
     getter empty : BoolChannel
@@ -255,6 +266,7 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
+      fresh = !File.exists?(dotqueue_file)
       File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
       if durable?
         @vhost.replicator.try &.replace_file(dotqueue_file)
@@ -262,7 +274,12 @@ module LavinMQ::AMQP
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
-      start
+      begin
+        start
+      rescue ex
+        fresh ? delete : close
+        raise ex
+      end
     end
 
     private def start : Bool
@@ -555,12 +572,107 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
+      @delayed_retry_min = parse_header("x-delayed-retry-min", Int).try(&.to_i64)
+      if @delayed_retry_min
+        if @deduper
+          raise LavinMQ::Error::PreconditionFailed.new(
+            "x-delayed-retry-min cannot be combined with x-message-deduplication")
+        end
+        @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        @effective_args << "x-delayed-retry-min"
+        @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
+        @effective_args << "x-delayed-retry-multiplier" if @delayed_retry_multiplier
+        @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
+        @effective_args << "x-delayed-retry-max" if @delayed_retry_max
+        init_retry_queue
+      end
     end
 
     private macro parse_header(header, type)
       if value = @arguments["{{ header.id }}"]?
         value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
+    end
+
+    private def init_retry_queue
+      @retry_queue_lock.synchronize { create_retry_queue }
+    end
+
+    # Recreates the retry queue if it was deleted or closed itself on a store error.
+    private def active_retry_queue : DelayedRetryQueue?
+      @retry_queue_lock.synchronize do
+        if retry_queue = @delayed_retry_queue
+          next retry_queue unless retry_queue.closed?
+          @delayed_retry_queue = nil
+        end
+        next if @deleted || @closed
+        @log.info { "Recreating retry queue" }
+        create_retry_queue
+      end
+    rescue ex
+      @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
+      nil
+    end
+
+    # Only call while holding @retry_queue_lock
+    private def create_retry_queue : DelayedRetryQueue
+      if queue = @delayed_retry_queue
+        return queue
+      end
+      queue = DelayedRetryQueue.create(@vhost, self)
+      @delayed_retry_queue = queue
+      @vhost.register_queue(queue)
+      queue
+    end
+
+    # The message keeps its original timestamp while delayed, so x-message-ttl
+    # keeps applying to the message's total age; the delayed store expires at
+    # timestamp + x-delay, so the age since publish is folded into the delay
+    private def route_to_retry_queue(sp : SegmentPosition, msg : BytesMessage, retry_queue : DelayedRetryQueue, base_delay : Int64) : Bool
+      delivery_count = @msg_store_lock.synchronize { @deliveries.fetch(sp, 1) }
+      delay_ms = calculate_retry_delay(base_delay, delivery_count)
+      props = msg.properties
+      h = props.headers || AMQP::Table.new
+      h["x-delay"] = delay_from(msg.timestamp, delay_ms)
+      h["x-delivery-count"] = delivery_count
+      props.headers = h
+      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        props, msg.bodysize, IO::Memory.new(msg.body))
+      return false unless retry_queue.delay(retry_msg)
+      delete_message(sp)
+      true
+    end
+
+    protected def delay_from(timestamp : Int64, backoff : Int64) : UInt32
+      age = RoughTime.unix_ms - timestamp
+      age = 0_i64 if age < 0
+      Math.min(backoff + age, DELAYED_RETRY_MAX_DELAY_MS).to_u32
+    end
+
+    protected def retry_delay_for(delivery_count : Int32) : Int64
+      calculate_retry_delay(@delayed_retry_min || 1_i64, delivery_count)
+    end
+
+    # Delay for attempt n: base × n, or base × multiplier^(n-1) with a multiplier,
+    # clamped at x-delayed-retry-max and the UInt32 range of x-delay. The cap
+    # never ends retries; termination is governed by x-delivery-limit only.
+    private def calculate_retry_delay(base_delay : Int64, delivery_count : Int32) : Int64
+      cap = Math.min(@delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
+      delay = Math.min(base_delay, cap)
+      if mult = @delayed_retry_multiplier
+        (delivery_count - 1).times do
+          if delay > cap // mult
+            delay = cap
+            break
+          end
+          delay *= mult
+        end
+      elsif delivery_count > cap // delay
+        delay = cap
+      else
+        delay *= delivery_count
+      end
+      Math.min(delay, cap)
     end
 
     def immediate_delivery?
@@ -605,6 +717,8 @@ module LavinMQ::AMQP
       return false if @closed
       @closed = true
       @state = QueueState::Closed
+      # Before yielding or deleting, so a redeclared queue can't get this link
+      @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
       @paused.close
@@ -619,14 +733,14 @@ module LavinMQ::AMQP
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
+        @deliveries.clear
       end
-      @deliveries.clear
       @basic_get_unacked.clear
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
+      @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
       Fiber.yield
-      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -634,6 +748,12 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
+      @retry_queue_lock.synchronize do
+        if retry_queue = @delayed_retry_queue
+          @delayed_retry_queue = nil
+          retry_queue.delete
+        end
+      end
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -647,7 +767,7 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted, self)
+      @exclusive_owner.try &.exclusive_queue_deleted(self)
       true
     end
 
@@ -689,18 +809,33 @@ module LavinMQ::AMQP
 
     enum PublishResult
       Ok       # message accepted and stored
-      Dropped  # queue closed or message was a duplicate
+      Dropped  # message was a duplicate
       Overflow # rejected by max-length / max-length-bytes (overflow=reject-publish)
+      Closed   # queue closed, the message wasn't stored
     end
 
     class Closed < Exception; end
 
     def publish(msg : Message) : PublishResult
+      strip_delivery_count(msg)
       publish_internal(msg)
     end
 
+    # On retry-enabled queues the x-delivery-count header carries the retry
+    # budget through the retry queue round trip, so it must not be settable
+    # from outside: not by publishers and not inherited from an upstream
+    # queue's dead-lettering. The retry queue itself bypasses this by
+    # republishing through #publish_internal.
+    protected def strip_delivery_count(msg : Message) : Nil
+      return unless @delayed_retry_min
+      if (headers = msg.properties.headers) && headers.has_key?("x-delivery-count")
+        headers.delete("x-delivery-count")
+        msg.properties.headers = headers
+      end
+    end
+
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
-      return PublishResult::Dropped if @closed
+      return PublishResult::Closed if @closed
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -728,9 +863,9 @@ module LavinMQ::AMQP
       PublishResult::Ok
     rescue MessageStore::ClosedError
       # A racing delete closed the store. If push hadn't stored the message it's
-      # dropped (avoids an HTTP 500); if it had, a later ClosedError from the
+      # not stored (avoids an HTTP 500); if it had, a later ClosedError from the
       # post-publish expire-fiber check still means the publish succeeded.
-      pushed ? PublishResult::Ok : PublishResult::Dropped
+      pushed ? PublishResult::Ok : PublishResult::Closed
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
@@ -880,20 +1015,31 @@ module LavinMQ::AMQP
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       if sp.has_dlx? || @dead_letter.dlx
         @log.debug { "Expiring #{sp} now due to #{reason}" }
-        # Dead-lettering escapes @msg_store_lock — the message is published
-        # into other queues after this method's lock hold — while a concurrent
-        # purge or queue/vhost delete can unmap the segment it lives in, so a
-        # zero-copy view (`@msg_store[sp]`) would be read after munmap. Route
-        # a copy that owns its memory instead.
-        msg = begin
-          @msg_store_lock.synchronize { @msg_store.copy(sp) }
+        # The message is published into other queues outside @msg_store_lock,
+        # while a concurrent purge or queue/vhost delete can delete or close
+        # its segment, so the segment is leased until the routed callback has
+        # run. That can be after #route returns, when an outer dead-lettering
+        # chain publishes the queued copies (see DeadLetterer#route).
+        env = begin
+          @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
         rescue KeyError | MessageStore::ClosedError
           # The segment (or whole store) is already gone: a racing purge or
           # delete removed the message, so there is nothing left to route.
           return
         end
-        @dead_letter.route(msg, reason, dlx_tasks) do
-          delete_message sp
+        routed = false
+        begin
+          @dead_letter.route(env.message, reason, dlx_tasks) do
+            routed = true
+            begin
+              delete_message sp
+            ensure
+              env.release
+            end
+          end
+        rescue ex
+          env.release unless routed
+          raise ex
         end
       else
         delete_message sp
@@ -949,7 +1095,7 @@ module LavinMQ::AMQP
             expire_msg(env, :expired)
             next
           end
-          if @delivery_limit && !no_ack
+          if (@delivery_limit || @delayed_retry_min) && !no_ack
             env = with_delivery_count_header(env) || next
           end
           sp = env.segment_position
@@ -992,15 +1138,25 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit
+      if @delivery_limit || @delayed_retry_min
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
+        # Acks and rejects on other threads update @deliveries too
+        delivery_count = @msg_store_lock.synchronize do
+          count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
+          @deliveries[sp] = count + 1
+          count
+        end
         headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
+    end
+
+    # See #strip_delivery_count for why the header can be trusted here
+    private def delivery_count_from_header(headers) : Int32?
+      return unless @delayed_retry_min
+      headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -1021,12 +1177,13 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
+        @deliveries.delete(sp) if @delivery_limit || @delayed_retry_min
         @msg_store.delete(sp)
       end
     end
 
+    # Consumer-initiated reject (basic.reject and basic.nack): delays via the retry queue if configured
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
@@ -1034,24 +1191,7 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
-        if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
-          expire_msg(sp, :expired)
-        else
-          if delivery_limit = @delivery_limit
-            if @deliveries.fetch(sp, 0) > delivery_limit
-              return expire_msg(sp, :delivery_limit)
-            end
-          end
-          was_empty = false
-          @msg_store_lock.synchronize do
-            was_empty = @msg_store.empty?
-            @msg_store.requeue(sp)
-          end
-          drop_overflow
-          ensure_consumers_deliver_loops if was_empty
-          ensure_expire_fiber
-        end
+        redeliver_message(sp, route_to_retry: true)
       else
         expire_msg(sp, :rejected)
       end
@@ -1059,6 +1199,52 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
+    def requeue(sp : SegmentPosition)
+      return if @deleted || @closed
+      @log.debug { "Requeuing #{sp}" }
+      @reject_count.add(1, :relaxed)
+      @unacked_count.sub(1, :relaxed)
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
+      redeliver_message(sp, route_to_retry: false)
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
+    end
+
+    private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
+      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
+        return expire_msg(sp, :expired)
+      end
+      if delivery_limit = @delivery_limit
+        if @msg_store_lock.synchronize { @deliveries.fetch(sp, 0) } > delivery_limit
+          return expire_msg(sp, :delivery_limit)
+        end
+      end
+      if route_to_retry && (delayed_retry_min = @delayed_retry_min)
+        if retry_queue = active_retry_queue
+          # DelayedRetryQueue#delay writes the message to its own store before
+          # returning, so the lease only has to cover the call
+          env = @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
+          begin
+            return if route_to_retry_queue(sp, env.message, retry_queue, delayed_retry_min)
+          ensure
+            env.release
+          end
+        end
+      end
+      was_empty = false
+      @msg_store_lock.synchronize do
+        was_empty = @msg_store.empty?
+        @msg_store.requeue(sp)
+      end
+      drop_overflow
+      ensure_consumers_deliver_loops if was_empty
+      ensure_expire_fiber
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
@@ -1076,7 +1262,6 @@ module LavinMQ::AMQP
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -1097,7 +1282,6 @@ module LavinMQ::AMQP
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?
@@ -1131,11 +1315,23 @@ module LavinMQ::AMQP
         @message_ttl_change.try_send? nil
         ensure_expire_fiber
       end
+      delete_count += purge_delayed(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    # Delayed messages would otherwise be republished after their backoff,
+    # resurrecting messages the user just purged
+    private def purge_delayed(max_count) : UInt32
+      retry_queue = @delayed_retry_queue
+      return 0_u32 unless retry_queue && max_count > 0
+      retry_queue.purge(max_count)
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Failed to purge retry queue" }
+      0_u32
     end
 
     def match?(frame)
@@ -1204,3 +1400,6 @@ module LavinMQ::AMQP
     class ClosedError < Error; end
   end
 end
+
+# Required after the class: DelayedQueue and its children subclass Queue, so a top require would fail on the not-yet-defined superclass.
+require "./delayed_queue"

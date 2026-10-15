@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory high watermark in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
@@ -86,6 +86,25 @@ A joining follower first copies files in bulk and starts streaming once it is
 caught up. That phase is reported per follower by `GET /api/nodes`, where
 `uncompressed_bytes` and `compressed_bytes` cover every byte written to the
 follower, bulk transfer included.
+
+#### Socket buffer pool
+
+Client connections take their socket read and write buffers from a pool and
+return them when idle. Each thread caches up to 4 MiB of idle buffers per
+buffer size. The metrics are labeled by `buffer_size` in bytes, so after a
+config reload that changes `socket_buffer_size` there is a series for each
+size still in use.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `socket_buffer_pool_available` | gauge | Buffers cached for reuse |
+| `socket_buffer_pool_allocated_total` | counter | Buffers allocated because none was cached |
+| `socket_buffer_pool_reused_total` | counter | Buffers taken from the cache |
+| `socket_buffer_pool_released_total` | counter | Buffers returned to the cache |
+| `socket_buffer_pool_dropped_total` | counter | Buffers left to the GC because the cache was full |
+
+A steadily increasing `socket_buffer_pool_dropped_total` means more connections
+are busy at once than the cache holds, so buffers are reallocated.
 
 #### Garbage collection
 
@@ -179,6 +198,6 @@ The management API provides live log streaming via Server-Sent Events at `GET /a
 | Signal | Behavior |
 |--------|----------|
 | `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting connections, close existing connections, flush to disk, exit |
-| `SIGUSR1` | Print GC statistics and fiber dump to stdout |
+| `SIGUSR1` | Print GC statistics, a fiber dump with stack usage per fiber, and socket buffer pool statistics (buffer size, threads, and buffers available, allocated, reused, released to the pool, and dropped when a thread's cache is full) to stdout |
 | `SIGUSR2` | Run garbage collection |
 | `SIGHUP` | Reload server configuration |

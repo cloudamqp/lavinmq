@@ -3,6 +3,7 @@ require "benchmark"
 require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
+require "../../../stdlib/io_buffered"
 
 module LavinMQ
   module HTTP
@@ -12,6 +13,7 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
@@ -241,6 +243,7 @@ module LavinMQ
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
+            buffer_pool_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
           end
@@ -336,7 +339,7 @@ module LavinMQ
         writer.write({name:  "resident_memory_limit_bytes",
                       value: @server.mem_limit,
                       type:  "gauge",
-                      help:  "Memory high watermark in bytes"})
+                      help:  "Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set"})
       end
 
       private def global_metrics(writer)
@@ -468,6 +471,24 @@ module LavinMQ
                       value: MFile.mmap_count,
                       type:  "gauge",
                       help:  "Number of MFile memory-mapped files"})
+      end
+
+      private def buffer_pool_metrics(writer)
+        stats = IO::BufferPool.all.map(&.stats)
+        return if stats.empty?
+        {
+          {:available, "available", "gauge", "Socket buffers cached for reuse"},
+          {:allocated, "allocated_total", "counter", "Socket buffers allocated because none was cached"},
+          {:reused, "reused_total", "counter", "Socket buffers taken from the cache"},
+          {:released, "released_total", "counter", "Socket buffers returned to the cache"},
+          {:dropped, "dropped_total", "counter", "Socket buffers left to the GC because the cache was full"},
+        }.each do |field, key, type, help|
+          name = "socket_buffer_pool_#{key}"
+          writer.write_header(name, type, help)
+          stats.each do |s|
+            writer.write_value(name, s[field], {buffer_size: s[:buffer_size].to_s})
+          end
+        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
