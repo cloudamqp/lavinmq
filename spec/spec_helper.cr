@@ -110,12 +110,26 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
   address = state[:address] || return
   port = state[:port] || return
 
+  tcp_server = bind_restarted_listener(address, port)
   if tls_context = state[:tls_context]
-    server.bind_tls(address, port, tls_context)
+    server.bind_tls(tcp_server, tls_context)
   else
-    server.bind_tcp(address, port)
+    server.bind_tcp(tcp_server)
   end
   spawn(name: name) { server.listen } if state[:listening]
+end
+
+# On macOS the port of a just closed listener can't be bound again while
+# connections accepted on it are still closing, so retry for a moment
+# instead of letting ProtocolServer#bind_tcp abort the whole spec run.
+private def bind_restarted_listener(address : String, port : Int32, timeout = 5.seconds) : TCPServer
+  deadline = Time.instant + timeout
+  loop do
+    return TCPServer.new(address, port)
+  rescue ex : Socket::BindError
+    raise ex if Time.instant >= deadline
+    sleep 50.milliseconds
+  end
 end
 
 def restart_server(server : LavinMQ::Server)
