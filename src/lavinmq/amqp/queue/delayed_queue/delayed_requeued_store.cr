@@ -4,7 +4,7 @@ require "../../../min_heap"
 require "../queue"
 
 module LavinMQ::AMQP
-  class DelayedExchangeQueue < Queue
+  abstract class DelayedQueue < Queue
     class DelayedMessageStore < MessageStore
       class DelayedRequeuedStore < MessageStore::RequeuedStore
         record DelayedSegmentPosition,
@@ -32,7 +32,7 @@ module LavinMQ::AMQP
         def time_to_next_expiration? : Time::Span?
           sp = @segment_positions.first?
           return if sp.nil?
-          (sp.expire_at - RoughTime.unix_ms).milliseconds
+          Queue.time_to_expiration_wakeup(sp.expire_at)
         end
 
         def insert(sp : SegmentPosition) : Nil

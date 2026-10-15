@@ -15,6 +15,47 @@ describe MFile do
     end
   end
 
+  describe "leases" do
+    it "unmaps on close only when the last lease is released" do
+      path = File.tempname("mfile_spec")
+      begin
+        mfile = MFile.new(path, 4096)
+        mfile.write "hello".to_slice
+        slice = mfile.to_slice
+        mfile.lease
+        mfile.lease
+        mfile.close
+        mfile.closed?.should be_false
+        # Truncated right away, the deferred unmap won't truncate
+        File.size(path).should eq 5
+        String.new(slice).should eq "hello"
+        mfile.release_lease
+        mfile.closed?.should be_false
+        mfile.release_lease
+        mfile.closed?.should be_true
+      ensure
+        File.delete?(path)
+      end
+    end
+
+    it "doesn't truncate when the last lease is released" do
+      path = File.tempname("mfile_spec")
+      begin
+        mfile = MFile.new(path, 4096)
+        mfile.write "hello".to_slice
+        mfile.lease
+        mfile.close
+        # Opened again and written to before the lease is released
+        File.open(path, "a", &.print(" world"))
+        mfile.release_lease
+        mfile.closed?.should be_true
+        File.read(path).should eq "hello world"
+      ensure
+        File.delete?(path)
+      end
+    end
+  end
+
   it "can be read" do
     file = File.tempfile "mfile_spec"
     file.print "hello world"

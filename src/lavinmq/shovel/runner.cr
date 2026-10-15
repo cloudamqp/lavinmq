@@ -167,7 +167,7 @@ module LavinMQ
       end
 
       # Monotonic clock as an Int64 so the deadline can live in an Atomic. The
-      # rough (100ms) clock is plenty for backoff windows of 0.5s and up, and
+      # coarse clock is plenty for backoff windows of 0.5s and up, and
       # spares a clock read per delivered message.
       ORIGIN = RoughTime.instant
 

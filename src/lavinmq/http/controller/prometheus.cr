@@ -3,6 +3,7 @@ require "benchmark"
 require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
+require "../../../stdlib/io_buffered"
 
 module LavinMQ
   module HTTP
@@ -12,7 +13,9 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
+                           NamedTuple(dead_letter_strategy: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
                            NamedTuple(channel: String, vhost: String, connection: String)
@@ -241,6 +244,7 @@ module LavinMQ
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
+            buffer_pool_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
           end
@@ -336,7 +340,7 @@ module LavinMQ
         writer.write({name:  "resident_memory_limit_bytes",
                       value: @server.mem_limit,
                       type:  "gauge",
-                      help:  "Memory high watermark in bytes"})
+                      help:  "Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set"})
       end
 
       private def global_metrics(writer)
@@ -367,6 +371,27 @@ module LavinMQ
                              message_stats.sum { |ms| ms[:return_unroutable] },
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
+        dead_lettered_metrics(writer, deleted_stats)
+      end
+
+      DEAD_LETTER_REASONS = {
+        delivery_limit: "Total number of messages dead-lettered due to delivery-limit exceeded",
+        expired:        "Total number of messages dead-lettered due to message TTL exceeded",
+        maxlen:         "Total number of messages dead-lettered due to max-length or max-length-bytes exceeded",
+        rejected:       "Total number of messages dead-lettered due to basic.reject or basic.nack",
+      }
+
+      private def dead_lettered_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        {% for reason, help in DEAD_LETTER_REASONS %}
+          writer.write_header("global_messages_dead_lettered_{{ reason.id }}_total", "counter", {{ help }})
+          {% for strategy in {"disabled", "at_most_once"} %}
+            writer.write_value("global_messages_dead_lettered_{{ reason.id }}_total",
+              deleted_stats.dead_lettered_{{ reason.id }}_{{ strategy.id }} +
+              vhosts.sum { |_, v| v.dead_lettered_{{ reason.id }}_{{ strategy.id }}_count },
+              {dead_letter_strategy: {{ strategy }}})
+          {% end %}
+        {% end %}
       end
 
       private def overview_queue_metrics(vhosts, writer)
@@ -468,6 +493,24 @@ module LavinMQ
                       value: MFile.mmap_count,
                       type:  "gauge",
                       help:  "Number of MFile memory-mapped files"})
+      end
+
+      private def buffer_pool_metrics(writer)
+        stats = IO::BufferPool.all.map(&.stats)
+        return if stats.empty?
+        {
+          {:available, "available", "gauge", "Socket buffers cached for reuse"},
+          {:allocated, "allocated_total", "counter", "Socket buffers allocated because none was cached"},
+          {:reused, "reused_total", "counter", "Socket buffers taken from the cache"},
+          {:released, "released_total", "counter", "Socket buffers returned to the cache"},
+          {:dropped, "dropped_total", "counter", "Socket buffers left to the GC because the cache was full"},
+        }.each do |field, key, type, help|
+          name = "socket_buffer_pool_#{key}"
+          writer.write_header(name, type, help)
+          stats.each do |s|
+            writer.write_value(name, s[field], {buffer_size: s[:buffer_size].to_s})
+          end
+        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,

@@ -191,19 +191,16 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
         serve_metrics(s) do |http|
           body = http.get("/metrics").body
-          sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id})
-          acked = metric_value(body, "lavinmq_follower_bytes_acked_total", {"id" => follower_id})
-          sent.should_not be_nil
-          acked.should_not be_nil
-          sent.not_nil!.should be > 0
-          acked.not_nil!.should be > 0
+          sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id}).should_not be_nil
+          acked = metric_value(body, "lavinmq_follower_bytes_acked_total", {"id" => follower_id}).should_not be_nil
+          sent.should be > 0
+          acked.should be > 0
         end
 
         serve_follower_metrics(cluster.repli) do |http|
           body = http.get("/metrics").body
-          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total "))
-          line.should_not be_nil
-          line.not_nil!.split(' ').last.to_f.should be > 0
+          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total ")).should_not be_nil
+          line.split(' ').last.to_f.should be > 0
         end
       end
     end
@@ -470,7 +467,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       config = LavinMQ::Config.new
       config.data_dir = data_dir
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!)
+      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!("advertised URI not set"))
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
       controller = SelfLeaderController.new(config, etcd, coordinator)
       done = Channel(Exception?).new(1)
@@ -807,6 +804,24 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           q.delete
           wait_for { !Dir.exists?(replicated_qdir) }
         end
+      end
+    end
+  end
+
+  it "removes the vhost dir from follower when vhost is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        vhost = s.vhosts.create("churn")
+        with_channel(s, vhost: "churn") do |ch|
+          q = ch.queue("q", durable: true)
+          q.publish_confirm "hello"
+        end
+        replicated_dir = File.join(cluster.follower_config.data_dir, vhost.dir)
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        Dir.exists?(replicated_dir).should be_true
+        s.vhosts.delete("churn")
+        wait_for { !Dir.exists?(replicated_dir) }
       end
     end
   end

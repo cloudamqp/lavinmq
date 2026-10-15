@@ -4,12 +4,10 @@ require "../binding_details"
 require "../destination"
 require "../../error"
 require "../../exchange"
-require "../../observable"
 require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
-require "./event"
 
 module LavinMQ
   module AMQP
@@ -17,7 +15,6 @@ module LavinMQ
       include PolicyTarget
       include Stats
       include SortableJSON
-      include Observable(ExchangeEvent)
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
@@ -154,7 +151,17 @@ module LavinMQ
         @deleted = true
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
-        notify_observers(ExchangeEvent::Deleted)
+        @vhost.upstreams.try &.stop_link(self)
+      end
+
+      # Keep federation links' upstream bindings in sync. Call after the
+      # binding is stored, ExchangeLink's bindings snapshot relies on it.
+      private def upstreams_bound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_bound(self, binding)
+      end
+
+      private def upstreams_unbound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_unbound(self, binding)
       end
 
       # This outer macro will add a finished macro hook to all inherited classes
@@ -211,15 +218,15 @@ module LavinMQ
 
       # Result of routing a message through an exchange.
       # `Routed` is set if at least one queue accepted the message.
-      # `Overflowed` is set if at least one matched queue rejected the message
-      # due to a reject-publish overflow policy. The two flags are independent:
-      # a publish can be both routed (one queue accepted) and overflowed
-      # (another queue rejected), in which case the publisher should still be
-      # nack'ed on confirm channels.
+      # `Rejected` is set if at least one matched queue didn't store the
+      # message: due to a reject-publish overflow policy, or because it was
+      # closed, e.g. on shutdown. The two flags are independent: a publish can
+      # be both routed (one queue accepted) and rejected (another didn't), in
+      # which case the publisher should still be nack'ed on confirm channels.
       @[Flags]
       enum PublishResult
         Routed
-        Overflowed
+        Rejected
       end
 
       def publish(msg : Message, immediate : Bool,
@@ -247,7 +254,14 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
+        route_msg(msg, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
+      end
+
+      def route_msg(msg : Message, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
+        route_msg(msg, false, queues, exchanges)
+      ensure
+        queues.clear
+        exchanges.clear
       end
 
       private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
@@ -259,24 +273,24 @@ module LavinMQ
         end
 
         count = 0u32
-        overflow = false
+        rejected = false
         queues.each do |queue|
           case queue.publish(msg)
           in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
-          in .overflow?
-            overflow = true
+          in .overflow?, .closed?
+            rejected = true
           in .dropped?
-            # queue was closed or message was a duplicate; nothing to do
+            # message was a duplicate; nothing to do
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+        @unroutable_count.add(1, :relaxed) if count.zero? && !rejected
 
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?
-        result |= PublishResult::Overflowed if overflow
+        result |= PublishResult::Rejected if rejected
         result
       end
 

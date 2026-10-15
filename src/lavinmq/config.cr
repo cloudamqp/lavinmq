@@ -92,6 +92,11 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
+      # Without it a client that stops reading would block its writers, and
+      # closing the connection, forever
+      unless @tcp_send_timeout.positive?
+        raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
     end
 
     private def parse_config_from_cli(argv)

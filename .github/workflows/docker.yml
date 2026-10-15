@@ -39,12 +39,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Check if tag is the highest release
+        id: latest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git fetch --quiet --force --depth=1 origin 'refs/tags/v*:refs/tags/v*'
+          highest=$(git tag -l 'v*' | grep -vE -- '-(alpha|beta|rc)' | sort -V | tail -n1)
+          echo "enable=$([ "$highest" = "$GITHUB_REF_NAME" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: cloudamqp/lavinmq
+          flavor: latest=false
           tags: |
+            type=raw,value=latest,enable=${{ steps.latest.outputs.enable == 'true' }}
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}

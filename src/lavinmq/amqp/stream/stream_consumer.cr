@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
@@ -12,6 +13,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true
@@ -121,6 +123,8 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
+        # @requeued is pushed to under the queue's msg store lock, which is not
+        # taken here; a push this misses also sets @new_message_available
         if @offset > stream_queue.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
           flush
@@ -160,8 +164,10 @@ module LavinMQ
       def reject(sp, requeue : Bool)
         super
         if requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          # Set after the push, so a deliver loop that found @requeued empty
+          # is woken up by the notification instead
+          was_empty = stream_queue.push_requeued(self, sp)
+          @new_message_available.set(true) if was_empty
         end
       end
 

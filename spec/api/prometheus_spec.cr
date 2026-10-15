@@ -138,9 +138,30 @@ describe LavinMQ::HTTP::PrometheusController do
         response = http.get("/metrics")
         response.status_code.should eq 200
         parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
-        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
-        mfile_metric.should_not be_nil
-        mfile_metric.not_nil![:value].should be >= 0
+        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }.should_not be_nil
+        mfile_metric[:value].should be >= 0
+      end
+    end
+
+    it "should expose socket buffer pool stats" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("buffer_pool_metrics")
+          q.publish_confirm "m"
+          q.get.should_not be_nil
+        end
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        size = LavinMQ::Config.instance.socket_buffer_size.to_s
+        %w[available allocated_total reused_total released_total dropped_total].each do |key|
+          metric = parsed_metrics.find do |m|
+            m[:key] == "lavinmq_socket_buffer_pool_#{key}" && m[:attrs]["buffer_size"]? == size
+          end
+          metric.should_not be_nil, "lavinmq_socket_buffer_pool_#{key} missing"
+        end
+        reused = parsed_metrics.find! do |m|
+          m[:key] == "lavinmq_socket_buffer_pool_reused_total" && m[:attrs]["buffer_size"]? == size
+        end
+        reused[:value].should be > 0
       end
     end
 
@@ -296,8 +317,7 @@ describe LavinMQ::HTTP::PrometheusController do
 
           lines.size.should be > 0
           relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
-          relevant.should_not be_nil
-          line = relevant.not_nil!
+          line = relevant.should_not be_nil
           # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
           line.should match(/connection="[^"]+"/)
           line.should match(/channel="[^"]+"/)
@@ -329,18 +349,14 @@ describe LavinMQ::HTTP::PrometheusController do
 
         # Verify grouping: TYPE and HELP should immediately precede the values
         # Find TYPE line index, HELP should be next, then values should follow
-        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
-        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
-        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
-
-        type_idx.should_not be_nil
-        help_idx.should_not be_nil
-        first_value_idx.should_not be_nil
+        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{")).should_not be_nil
 
         # HELP should come right after TYPE
-        help_idx.should eq(type_idx.not_nil! + 1)
+        help_idx.should eq(type_idx + 1)
         # First value should come right after HELP
-        first_value_idx.should eq(help_idx.not_nil! + 1)
+        first_value_idx.should eq(help_idx + 1)
       end
     end
 
@@ -367,8 +383,8 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            delivered.not_nil![:value]
+            end.should_not be_nil
+            delivered[:value]
           end
 
           should_eventually(eq(2)) do
@@ -378,11 +394,94 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            acked.not_nil![:value]
+            end.should_not be_nil
+            acked[:value]
           end
         end
       end
+    end
+  end
+end
+
+describe "LavinMQ::HTTP::PrometheusController dead-lettered metrics" do
+  it "counts messages rejected or nacked without requeue" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+        plain.get(no_ack: false).should_not(be_nil).reject(requeue: false)
+        dlx.get(no_ack: false).should_not(be_nil).nack(requeue: false)
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "at_most_once") }
+        dead_lettered_counter(http, "expired", "disabled").should eq 0
+      end
+    end
+  end
+
+  it "counts messages expired by TTL" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-message-ttl" => 1} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages dropped by max-length and max-length-bytes as maxlen" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, _ = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        _, dlx = declare_dead_letter_queues(ch, {"x-max-length-bytes" => 1} of String => AMQ::Protocol::Field, suffix: "bytes")
+        3.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "disabled") }
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages exceeding the delivery limit" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-delivery-limit" => 1} of String => AMQ::Protocol::Field)
+        {plain, dlx}.each do |q|
+          q.publish_confirm "m"
+          2.times { wait_for { q.get(no_ack: false) }.should_not(be_nil).reject(requeue: true) }
+        end
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "at_most_once") }
+      end
+    end
+  end
+
+  it "keeps counters when queues and vhosts are deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("dl_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        2.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+      end
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "disabled") }
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+
+      vhost.delete_queue("dl_plain")
+      vhost.delete_queue("dl_dlx")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
+
+      s.vhosts.delete("dl_mono")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
     end
   end
 end
@@ -526,10 +625,48 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
   end
 end
 
+describe LavinMQ::HTTP::MetricsServer do
+  it "switches from follower to leader metrics on the same socket" do
+    with_amqp_server do |s|
+      h = LavinMQ::HTTP::MetricsServer.new
+      begin
+        addr = h.bind_tcp("127.0.0.1", 0)
+        spawn(name: "metrics listen") { h.listen }
+        Fiber.yield
+        http = HTTPSpecHelper.new(addr)
+        http.get("/metrics").body.should_not contain "lavinmq_identity_info"
+
+        h.leader = s
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        response.body.should contain "lavinmq_identity_info"
+      ensure
+        h.close
+      end
+    end
+  end
+end
+
 # Scrape /metrics and return the value of a single (unlabeled) counter series.
 def prometheus_counter(http, key : String) : Float64
   raw = http.get("/metrics").body
   PrometheusSpecHelper.parse_prometheus(raw).find! { |m| m[:key] == key }[:value]
+end
+
+def dead_lettered_counter(http, reason : String, strategy : String) : Float64
+  raw = http.get("/metrics").body
+  PrometheusSpecHelper.parse_prometheus(raw).find! do |m|
+    m[:key] == "lavinmq_global_messages_dead_lettered_#{reason}_total" &&
+      m[:attrs]["dead_letter_strategy"]? == strategy
+  end[:value]
+end
+
+def declare_dead_letter_queues(ch, args : Hash(String, AMQ::Protocol::Field), *, suffix = "")
+  ch.queue("dl_target#{suffix}")
+  plain = ch.queue("dl_plain#{suffix}", args: AMQP::Client::Arguments.new(args))
+  dlx_args = args.merge({"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dl_target#{suffix}"} of String => AMQ::Protocol::Field)
+  dlx = ch.queue("dl_dlx#{suffix}", args: AMQP::Client::Arguments.new(dlx_args))
+  {plain, dlx}
 end
 
 class PrometheusSpecHelper
