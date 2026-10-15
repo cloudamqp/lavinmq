@@ -38,6 +38,10 @@ test.describe('login', _ => {
   })
 })
 
+function whoAmICached (page) {
+  return expect.poll(() => page.evaluate(() => localStorage.getItem('lmq.whoami'))).not.toBeNull()
+}
+
 test.describe('whoAmI', _ => {
   test('logs out and redirects to /login on API failure', async ({ page, context }) => {
     await page.addInitScript(() => localStorage.removeItem('lmq.whoami'))
@@ -57,6 +61,7 @@ test.describe('whoAmI', _ => {
       await route.fallback()
     })
     await page.goto('/')
+    await whoAmICached(page)
     await page.goto('/')
     expect(callCount).toBe(1)
   })
@@ -70,8 +75,10 @@ test.describe('whoAmI', _ => {
       await route.fallback()
     })
     await page.goto('/')
+    await whoAmICached(page)
     await page.evaluate(() => localStorage.removeItem('lmq.whoami'))
     await page.goto('/')
+    await whoAmICached(page)
     expect(callCount).toBe(2)
   })
 
@@ -128,9 +135,9 @@ test.describe('user tag state classes', _ => {
       json: { name: 'guest', tags: 'administrator, monitoring' }
     }))
     await page.goto('/')
-    const classes = await page.evaluate(() => [...document.documentElement.classList])
-    expect(classes).toContain('user-is-administrator')
-    expect(classes).toContain('user-is-monitoring')
+    const html = page.locator('html')
+    await expect(html).toHaveClass(/user-is-administrator/)
+    await expect(html).toHaveClass(/user-is-monitoring/)
   })
 
   test('removes existing user-is-* classes before adding new ones', async ({ page }) => {
@@ -142,9 +149,9 @@ test.describe('user tag state classes', _ => {
       json: { name: 'guest', tags: 'administrator' }
     }))
     await page.goto('/')
-    const classes = await page.evaluate(() => [...document.documentElement.classList])
-    expect(classes).not.toContain('user-is-old-tag')
-    expect(classes).toContain('user-is-administrator')
+    const html = page.locator('html')
+    await expect(html).toHaveClass(/user-is-administrator/)
+    await expect(html).not.toHaveClass(/user-is-old-tag/)
   })
 
   test('adds no user-is-* classes when tags is empty', async ({ page }) => {
@@ -152,9 +159,10 @@ test.describe('user tag state classes', _ => {
     await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
       json: { name: 'guest', tags: '' }
     }))
+    const whoAmI = page.waitForResponse(r => r.url().endsWith('/api/whoami'))
     await page.goto('/')
-    const classes = await page.evaluate(() => [...document.documentElement.classList])
-    expect(classes.filter(c => c.startsWith('user-is-'))).toHaveLength(0)
+    await whoAmI
+    await expect(page.locator('html')).not.toHaveClass(/user-is-/)
   })
 
   test('removes user-is-* classes on logout', async ({ page }) => {
@@ -163,11 +171,11 @@ test.describe('user tag state classes', _ => {
       json: { name: 'guest', tags: 'administrator' }
     }))
     await page.goto('/')
+    await expect(page.locator('html')).toHaveClass(/user-is-administrator/)
     await Promise.all([
       page.waitForURL(/\/login$/),
       page.locator('#signoutLink').click()
     ])
-    const classes = await page.evaluate(() => [...document.documentElement.classList])
-    expect(classes.filter(c => c.startsWith('user-is-'))).toHaveLength(0)
+    await expect(page.locator('html')).not.toHaveClass(/user-is-/)
   })
 })

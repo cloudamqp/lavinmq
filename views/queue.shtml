@@ -85,7 +85,7 @@
           <h3>Arguments</h3>
           <pre class="arguments" id="q-arguments"></pre>
         </section>
-        <section class="card">
+        <section class="card cols-12 align-start">
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
