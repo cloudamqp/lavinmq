@@ -206,7 +206,7 @@ jobs:
     name: Filters for frontend specs
     runs-on: ubuntu-26.04
     outputs:
-      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' }}
+      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' || steps.changes.outputs.ci == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -218,6 +218,9 @@ jobs:
               - 'views/**'
             js:
               - '**/*.js'
+            ci:
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
 
   spec_frontend:
     name: Frontend specs (${{ matrix.browser }})
