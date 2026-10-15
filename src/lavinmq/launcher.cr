@@ -120,7 +120,11 @@ module LavinMQ
     end
 
     private def resize_default_execution_context
-      workers = @config.workers
+      Launcher.resize_default_execution_context(@config.workers)
+    end
+
+    # 0 workers uses CRYSTAL_WORKERS or one thread per CPU
+    def self.resize_default_execution_context(workers : Int32) : Nil
       workers = Fiber::ExecutionContext.default_workers_count if workers <= 0
       Fiber::ExecutionContext.default.resize(workers)
     end
