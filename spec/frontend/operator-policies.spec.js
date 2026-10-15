@@ -65,5 +65,30 @@ test.describe("operator-policies", _ => {
         expect(definition[helper.tag]).toBe(helper.value)
       })
     }
+
+    test('typing replaces the inserted value', async ({ page }) => {
+      await page.goto('/operator-policies')
+      const definitionTextarea = page.getByLabel('Definition')
+      await page.locator('#dataTags a[data-tag="max-length"]').click()
+      await page.keyboard.type('5000')
+      expect(JSON.parse(await definitionTextarea.inputValue())).toEqual({ 'max-length': 5000 })
+    })
+
+    test('typing over a string value keeps its quotes', async ({ page }) => {
+      await page.goto('/operator-policies')
+      const definitionTextarea = page.getByLabel('Definition')
+      await page.locator('#dataTags a[data-tag="max-age"]').click()
+      await page.keyboard.type('2D')
+      expect(JSON.parse(await definitionTextarea.inputValue())).toEqual({ 'max-age': '2D' })
+    })
+
+    test('selects the value of the inserted key, not a longer key with the same prefix', async ({ page }) => {
+      await page.goto('/operator-policies')
+      const definitionTextarea = page.getByLabel('Definition')
+      await page.locator('#dataTags a[data-tag="max-length-bytes"]').click()
+      await page.locator('#dataTags a[data-tag="max-length"]').click()
+      await page.keyboard.type('5000')
+      expect(JSON.parse(await definitionTextarea.inputValue())).toEqual({ 'max-length-bytes': 0, 'max-length': 5000 })
+    })
   })
 })
