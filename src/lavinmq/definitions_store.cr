@@ -377,7 +377,7 @@ module LavinMQ
           io.write_bytes f
         end
         @queues.each_value do |q|
-          next unless q.durable? && !q.internal?
+          next if !q.durable? || q.internal?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
