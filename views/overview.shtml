@@ -65,7 +65,7 @@
           <div class="chart-container relative" id="rateChart"></div>
         </div>
       </section>
-      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card align-start tb-card cols-6 require-administrator">
+      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card align-start tb-card cols-6 grid-break require-administrator">
         <h3 class="form-card-title">Upload definitions</h3>
         <div class="form-card-inner">
           <label>
