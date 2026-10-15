@@ -11,9 +11,8 @@ describe "Retry Queue" do
             "x-delayed-retry-min" => 1000,
           })
           ch.queue("retry-test", args: args)
-          retry_q = s.vhosts["/"].queue?("amq.retry-retry-test")
-          retry_q.should_not be_nil
-          retry_q.not_nil!.internal?.should be_true
+          retry_q = s.vhosts["/"].queue?("amq.retry-retry-test").should_not be_nil
+          retry_q.internal?.should be_true
         end
       end
     end
