@@ -55,7 +55,7 @@ describe LavinMQ::AMQP::Queue do
       body = "x" * (LavinMQ::Config.instance.segment_size // 2)
       4.times { q.publish(LavinMQ::Message.new("", "q", body)).should eq LavinMQ::AMQP::Queue::PublishResult::Ok }
       sps = Array.new(3) do
-        q.@msg_store_lock.synchronize { q.@msg_store.shift?.not_nil!.segment_position }
+        q.@msg_store_lock.synchronize { q.@msg_store.shift?.should_not(be_nil).segment_position }
       end
       q.purge
       q.delete_shifted(sps.first)
