@@ -87,13 +87,92 @@ module MqttSpecs
       end
     end
 
+    it "keeps the user that took over a session across a restart" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        server.users.create("bob", "bob")
+        server.users.add_permission("bob", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
+        service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
+        service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
+          subscribe(io, topic_filters: mk_topic_filters({"chat/#", 1}))
+          disconnect(io)
+        end
+        # Without a SUBSCRIBE of its own
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: false, username: "bob", password: "bob".to_slice)
+          pingpong(io)
+          disconnect(io)
+        end
+
+        restart_server(server)
+
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 1u8, packet_id: 1u16)
+          pingpong(pub_io)
+        end
+        # bob is not a member, so the session took nothing in
+        server.vhosts["/"].session("mqtt.dev").message_count.should eq 0
+      end
+    end
+
+    it "keeps the user of a session bound outside a SUBSCRIBE across a restart" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
+        service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
+        service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
+          pingpong(io)
+          disconnect(io)
+        end
+        # As the HTTP API or a definitions import would
+        server.vhosts["/"].bind_queue("mqtt.dev", LavinMQ::MQTT::EXCHANGE, "chat/#", LavinMQ::MQTT.qos_arguments(1u8))
+
+        restart_server(server)
+
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 1u8, packet_id: 1u16)
+          pingpong(pub_io)
+        end
+        server.vhosts["/"].session("mqtt.dev").message_count.should eq 1
+      end
+    end
+
+    it "writes no metadata file for a persistent session that never subscribed" do
+      with_server do |server|
+        metadata_file = File.join(server.vhosts["/"].data_dir, Digest::SHA1.hexdigest("mqtt.dev"), ".metadata")
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: false)
+          pingpong(io)
+          File.exists?(metadata_file).should be_false
+          subscribe(io, topic_filters: mk_topic_filters({"chat/#", 1}))
+          JSON.parse(File.read(metadata_file))["username"].as_s.should eq "guest"
+        end
+      end
+    end
+
     it "writes no metadata file for a clean session" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "dev", clean_session: true)
           pingpong(io)
           data_dir = File.join(server.vhosts["/"].data_dir, "transient", Digest::SHA1.hexdigest("mqtt.dev"))
-          Dir.exists?(data_dir).should be_true
           File.exists?(File.join(data_dir, ".metadata")).should be_false
         end
       end

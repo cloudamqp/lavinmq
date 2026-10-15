@@ -54,7 +54,7 @@ A PUBREC, PUBCOMP or PUBREL for a packet ID the session has no record of is trea
 
 Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 and QoS 2 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
 
-Every connection has a session, created at CONNECT whether or not the client ever subscribes [MQTT-3.1.2-4]. It holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session.
+Every connection has a session, created at CONNECT whether or not the client ever subscribes [MQTT-3.1.2-4]. It holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session. A session creates its message storage at its first subscription, so a client that only publishes at QoS 0 or QoS 1 keeps no files and maps no memory. A durable session that publishes at QoS 2 still keeps its `packet_ids.log`, see [QoS 2 exactly-once](#qos-2-exactly-once).
 
 ### Clean Sessions
 
