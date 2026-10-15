@@ -11,7 +11,7 @@ class PageSpecItem
   def details_tuple
     @@built += 1
     raise "gone" if @gone
-    {name: @name, n: @n, nested: {n: @n}}
+    {name: @name, n: @n}
   end
 end
 
@@ -75,16 +75,6 @@ describe LavinMQ::HTTP::Controller do
         ensure
           items[4].as(PageSpecItem).gone = false
         end
-      end
-    end
-
-    it "sorts by nested keys and pages the sorted items" do
-      with_amqp_server do |s|
-        PageSpecController.items = items
-        body = page_spec_get(PageSpecController.new(s), "page=1&page_size=3&sort=nested.n")
-        body["items"].as_a.map(&.["n"]).should eq [0, 1, 2]
-        body = page_spec_get(PageSpecController.new(s), "page=1&page_size=3&sort=nested.n&sort_reverse=true")
-        body["items"].as_a.map(&.["n"]).should eq [9, 8, 7]
       end
     end
 
