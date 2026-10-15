@@ -310,9 +310,23 @@ describe Raft::Node do
 
   it "reports the seeded membership and refuses changes on a follower" do
     with_raft_cluster do |c|
-      leader = c.propose_isr(Set{1, 2, 3})
+      c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
-      status = leader.status.should_not(be_nil)
+      # With a 100 ms election timeout a loaded machine can move leadership
+      # on its own, so read a leader's and a follower's status that agree
+      follower = nil
+      status = follower_status = nil
+      wait_for do
+        leader = c.wait_for_leader
+        follower = c.nodes.values.find! { |n| n != leader }
+        status = leader.status
+        follower_status = follower.status
+        status && follower_status && status.role.leader? && follower_status.role.follower? &&
+          follower_status.leader == status.id
+      end
+      status = status.should_not(be_nil)
+      follower_status = follower_status.should_not(be_nil)
+      follower = follower.should_not(be_nil)
       status.role.leader?.should be_true
       status.membership.should_not(be_nil).voters.should eq Set{1, 2, 3}
       status.membership.should_not(be_nil).addresses.values.to_set.should eq c.nodes.keys.to_set
@@ -321,12 +335,10 @@ describe Raft::Node do
       status.resolve("2").should eq 2
       status.resolve("9").should be_nil
       status.committed_isr.should eq Set{1, 2, 3}
-      follower = c.nodes.values.find! { |n| n != leader }
       leader_json = JSON.parse(JSON.build { |j| status.to_json(j) })
       leader_json["leader"].should eq status.address
       leader_json["local"]?.should be_nil
       leader_json["members"].as_a.all?(&.["caught_up"].as_bool?).should be_true
-      follower_status = follower.status.should_not(be_nil)
       local = JSON.parse(JSON.build { |j| follower_status.to_json(j) })
       local["local"].as_bool.should be_true
       local["role"].should eq "follower"
@@ -440,7 +452,8 @@ describe Raft::Node do
         !m.nil? && m.addresses[id]? == new_addr && m.voters.includes?(id)
       end
       wait_for { c.nodes[new_addr].membership.try(&.addresses[id]?) == new_addr }
-      c.nodes[new_addr].leader_uri.should eq leader.leader_uri
+      # Leadership may have moved meanwhile, follow whoever leads by then
+      wait_for { c.nodes[new_addr].leader_uri == c.wait_for_leader.leader_uri }
     end
   end
 
