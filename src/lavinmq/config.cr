@@ -20,18 +20,22 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    # The command line arguments given to #parse, replayed by #reload
+    @argv = Array(String).new
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize(@io : IO = STDERR)
+    # Protected rather than private so #reload can build a fresh config
+    protected def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      @argv = argv.dup
       parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
@@ -354,17 +358,30 @@ module LavinMQ
       @mqtt_bind = value
     end
 
-    # Re-read the config file into a fresh copy and swap it in only if parsing
-    # and validation fully succeed. On failure the running config is untouched
-    # and it raises, so the SIGHUP handler can log and keep serving.
+    # Rebuild the config the way #parse built it, starting from the defaults,
+    # and swap it in only if parsing and validation fully succeed. A setting
+    # removed from the config file therefore goes back to its default, and
+    # environment variables and command line arguments still take precedence
+    # over the file. Values set in code after #parse are not kept. On failure
+    # the running config is untouched and it raises, so the SIGHUP handler can
+    # log and keep serving.
     def reload
-      new_config = dup
-      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
-      new_config.parse_ini(@config_file)
-      new_config.validate!
-      new_config.try_to_open_log_file
+      new_config = Config.new(@io)
+      new_config.parse_for_reload(@config_file, @argv)
       apply(new_config)
       setup_logger
+    end
+
+    # The config file path is passed in, as #parse may have found it in the
+    # configuration directory rather than in the command line arguments
+    protected def parse_for_reload(config_file : String, argv : Array(String)) : Nil
+      @config_file = config_file
+      @argv = argv
+      parse_ini(config_file)
+      parse_env
+      parse_cli(argv)
+      validate!
+      try_to_open_log_file
     end
 
     # Try to open and immediately close the configured log file so an unopenable
@@ -375,10 +392,6 @@ module LavinMQ
       end
     rescue ex : File::Error
       raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
-    end
-
-    protected def fresh_sni_manager
-      @sni_manager = SNIManager.new
     end
 
     # Copy every instance variable from the parsed config in one non-yielding
