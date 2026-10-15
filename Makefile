@@ -202,5 +202,5 @@ node_modules/@playwright/test:
 
 .PHONY: test-frontend
 test-frontend: node_modules/@playwright/test
-	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS)
-	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(SPEC)
+	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS) $(if $(PLAYWRIGHT_BROWSER),$(sort chromium $(PLAYWRIGHT_BROWSER)))
+	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(if $(PLAYWRIGHT_BROWSER),--project=$(PLAYWRIGHT_BROWSER)) $(SPEC)
