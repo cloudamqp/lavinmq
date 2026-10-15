@@ -94,6 +94,15 @@ private class TCPRaftCluster
     node.should_not(be_nil)
   end
 
+  # Commits `isr` from whoever leads by then: with a 100 ms election timeout
+  # a loaded machine can move leadership between finding the leader and the
+  # commit. Returns the leader that committed it.
+  def propose_isr(isr : Set(Int32)) : Raft::Node
+    node = nil
+    wait_for(5.seconds) { (node = wait_for_leader).propose_isr(isr) }
+    node.should_not(be_nil)
+  end
+
   def close
     @nodes.keys.each { |a| stop(a) }
     dirs.each { |d| FileUtils.rm_rf d }
@@ -172,8 +181,7 @@ end
 describe Raft::Node do
   it "elects a leader over TCP and replicates the ISR" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
       c.nodes.values.count(&.leader?).should eq 1
       uris = c.nodes.values.map(&.leader_uri).uniq!
@@ -183,8 +191,7 @@ describe Raft::Node do
 
   it "fails over when the leader stops" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       c.stop(c.nodes.key_for(leader))
       c.wait_for_leader(except: leader)
     end
@@ -192,8 +199,7 @@ describe Raft::Node do
 
   it "reports metrics" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       # With a 100 ms election timeout a loaded machine can move leadership
       # on its own, so wait for a settled view rather than read it once
       m = nil
@@ -289,8 +295,7 @@ describe Raft::Node do
 
   it "hands over leadership on transfer" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
       # With a 100 ms election timeout a loaded machine can move leadership
       # on its own, so transfer from whoever leads by then
@@ -305,8 +310,7 @@ describe Raft::Node do
 
   it "reports the seeded membership and refuses changes on a follower" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
       status = leader.status.should_not(be_nil)
       status.role.leader?.should be_true
@@ -339,8 +343,7 @@ describe Raft::Node do
 
   it "keeps term and ISR across restarts" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
       addr = c.nodes.keys.find! { |a| c.nodes[a] != leader }
       c.stop(addr)
@@ -413,8 +416,7 @@ describe Raft::Node do
 
   it "adds a learner by address, asking it for its clustering id" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      c.propose_isr(Set{1, 2, 3})
       addr, _ = c.start_extra(40, [c.address(0)])
       # With its 100 ms election timeout a loaded runner can move leadership
       # between finding the leader and asking it, so ask whoever leads then
@@ -428,8 +430,7 @@ describe Raft::Node do
 
   it "takes a node back at a new address with its data dir" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
       index = (0..2).find! { |i| c.nodes[c.address(i)] != leader }
       id = index + 1
@@ -445,8 +446,7 @@ describe Raft::Node do
 
   it "elects a leader after every node moved at once, through the seeds" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
       new_addrs = c.move_all
       leader = c.wait_for_leader
@@ -459,8 +459,7 @@ describe Raft::Node do
 
   it "ignores a copy of a node's data dir while the original is connected" do
     with_raft_cluster do |c|
-      leader = c.wait_for_leader
-      leader.propose_isr(Set{1, 2, 3}).should be_true
+      leader = c.propose_isr(Set{1, 2, 3})
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
       index = (0..2).find! { |i| c.nodes[c.address(i)] != leader }
       original = c.address(index)
