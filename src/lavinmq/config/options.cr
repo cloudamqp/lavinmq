@@ -354,10 +354,11 @@ module LavinMQ
 
       # Threads in the default execution context, where connections, queues
       # and the HTTP API run. 0 uses CRYSTAL_WORKERS or the number of CPUs.
-      @[CliOpt("", "--workers=NUMBER", "Number of worker threads, 0 for one per CPU (default: 1)", section: "options")]
+      # CRYSTAL_WORKERS is also the default, when nothing else sets it.
+      @[CliOpt("", "--workers=NUMBER", "Number of worker threads, 0 for one per CPU (default: CRYSTAL_WORKERS or 1)", section: "options")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_WORKERS")]
-      property workers = 1
+      property workers : Int32 = ENV["CRYSTAL_WORKERS"]?.try(&.to_i?) || 1
 
       @[IniOpt(section: "experimental")]
       property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
