@@ -84,6 +84,22 @@ describe LavinMQ::AMQP::Channel do
     end
   end
 
+  [true, false].each do |requeue|
+    it "forgets basic.get deliveries on basic.recover with requeue=#{requeue}" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("recget")
+          q.publish "m"
+          q.get(no_ack: false).should_not be_nil
+          sq = s.vhosts["/"].queue("recget")
+          sq.basic_get_unacked_size.should eq 1
+          ch.basic_recover(requeue: requeue)
+          sq.basic_get_unacked_size.should eq 0
+        end
+      end
+    end
+  end
+
   it "lists each unacked delivery once when two consumers share a channel" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

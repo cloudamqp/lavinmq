@@ -609,7 +609,7 @@ module LavinMQ
             if consumer = unack.consumer
               consumer.reject(unack.sp, requeue: true)
             end
-            unack.queue.requeue(unack.sp)
+            requeue_unack(unack)
             true
           end
         else # redeliver to the original recipient, keeping the original delivery tag
@@ -620,7 +620,7 @@ module LavinMQ
               redeliver << {consumer, unack}
               false
             else
-              unack.queue.requeue(unack.sp)
+              requeue_unack(unack)
               true
             end
           end
@@ -634,6 +634,11 @@ module LavinMQ
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      end
+
+      private def requeue_unack(unack : UnackedStore::Unack) : Nil
+        unack.queue.requeue(unack.sp)
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
       end
 
       private def delivery_tag_is_in_tx?(delivery_tag) : Bool
@@ -661,8 +666,7 @@ module LavinMQ
         end
         @unacked.delete_all do |unack|
           @log.debug { "Requeing unacked msg #{unack.sp}" }
-          unack.queue.requeue(unack.sp)
-          unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+          requeue_unack(unack)
         end
         @unacked.close
         @next_msg_body_file.try &.close
