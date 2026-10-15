@@ -1122,6 +1122,43 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: every dead lettering from a queue shared one task queue,
+      # so rejects on several threads drained it concurrently, corrupting it
+      # and running each other's publishes and routed callbacks
+      it "dead letters rejects from several threads", tags: "slow" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          vhost.declare_queue("dlq", durable: true, auto_delete: false)
+          vhost.declare_queue("src", durable: true, auto_delete: false,
+            arguments: LavinMQ::AMQP::Table.new({
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlq",
+            }))
+          src = vhost.queue("src").as(LavinMQ::AMQP::Queue)
+          dlq = vhost.queue("dlq").as(LavinMQ::AMQP::Queue)
+          ctx = Fiber::ExecutionContext::Parallel.new("dlx-reject", 4)
+          per_fiber = 500
+          30.times do |round|
+            (4 * per_fiber).times { src.publish(LavinMQ::Message.new("", "src", "body")) }
+            sps = Array(LavinMQ::SegmentPosition).new(4 * per_fiber)
+            while src.basic_get(false) { |env| sps << env.segment_position }
+            end
+            wg = WaitGroup.new(4)
+            4.times do |i|
+              ctx.spawn do
+                sps[i * per_fiber, per_fiber].each { |sp| src.reject(sp, requeue: false) }
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            src.message_count.should eq 0
+            src.unacked_count.should eq 0
+            dlq.message_count.should eq (round + 1) * 4 * per_fiber
+          end
+        end
+      end
+
       # When cycle detection drops all destinations the routed callback
       # must still fire so the source message is removed from storage.
       # The queue self-binds to the fanout DLX: on first TTL the message
