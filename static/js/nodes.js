@@ -243,14 +243,14 @@ const updateStats = (nodeStats) => {
     }
   }
 }
-const memoryChart = Chart.render('memoryChart', 'MB')
+const memoryChart = Chart.render('memoryChart', 'bytes', true)
+const diskChart = Chart.render('diskChart', 'bytes', true)
 const ioChart = Chart.render('ioChart', 'ops')
 const cpuChart = Chart.render('cpuChart', '%', true)
+Chart.setScale(cpuChart, { fixedMax: 100 })
 const connectionChurnChart = Chart.render('connectionChurnChart', '/s')
 const channelChurnChart = Chart.render('channelChurnChart', '/s')
 const queueChurnChart = Chart.render('queueChurnChart', '/s')
-
-const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
 
 const followersDataSource = new (class extends DataSource {
   constructor () { super({ autoReload: false, useQueryState: false }) }
@@ -273,31 +273,56 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
 })
 
 function updateCharts (response) {
-  if (response[0].mem_used !== undefined) {
-    const memoryStats = {
-      mem_used_details: toMegaBytes(response[0].mem_used),
-      mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
-    }
+  if (response[0].mem_used_details !== undefined) {
+    const memoryStats = [
+      { key: 'mem_used', label: 'Memory used', desc: 'Resident memory used by the LavinMQ process', value: response[0].mem_used, log: response[0].mem_used_details.log }
+    ]
+    Chart.setScale(memoryChart, {
+      scaleCap: response[0].mem_limit,
+      refLines: [{
+        value: response[0].mem_limit,
+        label: 'capacity',
+        valueText: humanizeBytes(response[0].mem_limit),
+        tone: 'neutral',
+        align: 'left',
+        pinAbove: true
+      }]
+    })
     Chart.update(memoryChart, memoryStats)
   }
+  if (response[0].disk_total_details !== undefined && response[0].disk_free_details !== undefined) {
+    const totalLog = response[0].disk_total_details.log
+    const freeLog = response[0].disk_free_details.log
+    const diskStats = [
+      { key: 'disk_used', label: 'Disk used', desc: 'Disk space used on the data directory filesystem', value: response[0].disk_total - response[0].disk_free, log: freeLog.map((free, i) => (totalLog[i] ?? response[0].disk_total) - free) }
+    ]
+    Chart.setScale(diskChart, {
+      scaleCap: response[0].disk_total,
+      refLines: [{
+        value: response[0].disk_total,
+        label: 'capacity',
+        valueText: humanizeBytes(response[0].disk_total),
+        tone: 'neutral',
+        align: 'left',
+        pinAbove: true
+      }]
+    })
+    Chart.update(diskChart, diskStats)
+  }
   if (response[0].io_write_details !== undefined) {
-    const ioStats = {
-      io_write_details: response[0].io_write_details.log.slice(-1)[0],
-      io_write_details_log: response[0].io_write_details.log,
-      io_read_details: response[0].io_read_details.log.slice(-1)[0],
-      io_read_details_log: response[0].io_read_details.log
-    }
+    const ioStats = [
+      { key: 'io_write', label: 'Write', desc: 'Blocks written to disk by the process (filesystem output)', value: response[0].io_write_details.log.slice(-1)[0], log: response[0].io_write_details.log },
+      { key: 'io_read', label: 'Read', desc: 'Blocks read from disk by the process (filesystem input)', value: response[0].io_read_details.log.slice(-1)[0], log: response[0].io_read_details.log }
+    ]
     Chart.update(ioChart, ioStats)
   }
 
   if (response[0].cpu_user_details !== undefined) {
-    const cpuStats = {
-      user_time_details: response[0].cpu_user_details.log.slice(-1)[0] * 100,
-      system_time_details: response[0].cpu_sys_details.log.slice(-1)[0] * 100,
-      user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
-      system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
-    }
-    Chart.update(cpuChart, cpuStats, 'origin')
+    const cpuStats = [
+      { key: 'user_time', label: 'User time', value: response[0].cpu_user_details.log.slice(-1)[0] * 100, log: response[0].cpu_user_details.log.map(x => x * 100) },
+      { key: 'system_time', label: 'System time', value: response[0].cpu_sys_details.log.slice(-1)[0] * 100, log: response[0].cpu_sys_details.log.map(x => x * 100) }
+    ]
+    Chart.update(cpuChart, cpuStats)
   }
 
   if (response[0].connection_created_details !== undefined) {

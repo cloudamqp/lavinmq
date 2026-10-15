@@ -89,7 +89,7 @@
         <label>
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          <div id="dataTags" class="label">
+          <div class="arg-helpers" data-helper-for="arguments">
             <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
               <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>

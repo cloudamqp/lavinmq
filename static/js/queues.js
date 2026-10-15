@@ -187,7 +187,3 @@ queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')
   document.getElementById('multi-queue-count').textContent = checked.length
 })
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('declare', 'arguments', e)
-})
