@@ -19,6 +19,23 @@ class DeleteMessageQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Raises out of the next dead letter routing, like a store error would
+class FailingDeadLetterQueue < LavinMQ::AMQP::Queue
+  property? fail_next_expire = false
+
+  def overflow
+    drop_overflow
+  end
+
+  private def expire_msg(sp : LavinMQ::SegmentPosition, reason : Symbol, dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil)
+    if fail_next_expire?
+      @fail_next_expire = false
+      raise "routing failed"
+    end
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -68,6 +85,31 @@ describe LavinMQ::AMQP::Queue do
     end
   ensure
     LavinMQ::Config.instance.segment_size = segment_size if segment_size
+  end
+
+  # drop_messages shifts out a batch before routing it, so a routing that
+  # raises must not strand the rest of the batch outside the store
+  it "puts back the dead letters of a batch whose routing failed" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_queue("dlq", durable: false, auto_delete: false)
+      args = LavinMQ::AMQP::Table.new({
+        "x-max-length"              => 2,
+        "x-dead-letter-exchange"    => "",
+        "x-dead-letter-routing-key" => "dlq",
+      })
+      q = FailingDeadLetterQueue.create(vhost, "q", arguments: args)
+      10.times { q.@msg_store_lock.synchronize { q.@msg_store.push(LavinMQ::Message.new("", "q", "m")) } }
+      q.fail_next_expire = true
+      expect_raises(Exception, "routing failed") { q.overflow }
+      # The message whose routing failed is gone, the rest of the batch is back
+      q.message_count.should eq 9
+      q.overflow
+      q.message_count.should eq 2
+      vhost.queue("dlq").message_count.should eq 7
+    ensure
+      q.try &.delete
+    end
   end
 
   it "should not expire message before server is fully started" do

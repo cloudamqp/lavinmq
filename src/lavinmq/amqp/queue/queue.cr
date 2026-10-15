@@ -959,12 +959,32 @@ module LavinMQ::AMQP
         end
         # Shifted out but not deleted, so expire_msg can still copy them, unless
         # a purge or close removed them meanwhile
-        dead_letter_count.times { |i| expire_msg(dead_letters[i], reason, dlx_tasks) }
+        routed = 0
+        begin
+          while routed < dead_letter_count
+            sp = dead_letters[routed]
+            routed += 1
+            expire_msg(sp, reason, dlx_tasks)
+          end
+        ensure
+          # A routing that raised leaves the rest of the batch shifted out of
+          # the store, put it back
+          if routed < dead_letter_count
+            requeue_dropped(dead_letters.to_slice[routed, dead_letter_count - routed])
+          end
+        end
         dropped += shifted
         break if shifted < DROP_BATCH_SIZE
         Fiber.yield if dropped % (16 * 1024) == 0
       end
       dropped
+    end
+
+    private def requeue_dropped(sps : Slice(SegmentPosition)) : Nil
+      @msg_store_lock.synchronize do
+        sps.each { |sp| @msg_store.requeue(sp) }
+      end
+    rescue MessageStore::ClosedError
     end
 
     # Whether a dropped message goes through expire_msg (to be dead lettered)

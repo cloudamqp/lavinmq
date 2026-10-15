@@ -69,6 +69,9 @@ module LavinMQ
 
     def requeue(sp : SegmentPosition)
       raise ClosedError.new if @closed
+      # A purge deletes whole segments, also those of shifted messages that
+      # haven't been deleted or requeued yet
+      return unless @segments.has_key?(sp.segment)
       was_empty = @size.zero?
       @requeued.insert(sp)
       @bytesize += sp.bytesize
