@@ -57,7 +57,7 @@ describe LavinMQ::VHost do
   it "should be able to persist durable exchanges" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       restart_server(s)
       s.vhosts["test"].exchange("e").should_not be_nil
@@ -70,7 +70,7 @@ describe LavinMQ::VHost do
       # This spec is to verify a fix where a server couldn't start again after a crash if
       # an delayed exchange had been declared by specifiying the type as "x-delayed-message".
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       arguments = AMQ::Protocol::Table.new({"x-delayed-type": "direct"})
       v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
 
@@ -86,7 +86,7 @@ describe LavinMQ::VHost do
   it "should be able to persist durable queues" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_queue("q", true, false)
       restart_server(s)
       s.vhosts["test"].queue("q").should_not be_nil
@@ -96,7 +96,7 @@ describe LavinMQ::VHost do
   it "should be able to persist bindings" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
@@ -108,27 +108,27 @@ describe LavinMQ::VHost do
   it "should not write bind frame to definition file for existing binding" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      pos = v.@definitions.not_nil!.@definitions_file.pos
+      pos = v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos
       s.vhosts["test"].bind_queue("q", "e", "q")
-      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos.should eq pos
     end
   end
 
   it "should not write unbind frame to definition file for non-existing binding" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      v = s.vhosts["test"].not_nil!
+      v = s.vhosts["test"]
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      pos = v.@definitions.not_nil!.@definitions_file.pos
+      pos = v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.pos.should eq pos
     end
   end
 
@@ -140,10 +140,10 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      file_size = v.@definitions.not_nil!.@definitions_file.size
+      file_size = v.@definitions.not_nil!("definitions not initialized").@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
+      v.@definitions.not_nil!("definitions not initialized").@definitions_file.size.should be < file_size
     end
   end
 
