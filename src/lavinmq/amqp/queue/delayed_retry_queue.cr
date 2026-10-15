@@ -43,20 +43,27 @@ module LavinMQ::AMQP
     # the message's total age
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      # Published without @msg_store_lock held, so publish a copy, see Queue#expire_msg
-      msg = begin
-        @msg_store_lock.synchronize { @msg_store.copy(sp) }
+      # Published without @msg_store_lock held, while a purge or delete can
+      # unmap the segment, so it's leased meanwhile. publish_internal and delay
+      # write the message to a store before returning, see Queue#expire_msg.
+      env = begin
+        @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
       rescue KeyError | MessageStore::ClosedError
         return
       end
-      if headers = msg.properties.headers
-        headers.delete("x-delay")
-        msg.properties.headers = headers
+      begin
+        msg = env.message
+        if headers = msg.properties.headers
+          headers.delete("x-delay")
+          msg.properties.headers = headers
+        end
+        result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+          msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+        return redelay(sp, msg) unless result.ok?
+        delete_message sp
+      ensure
+        env.release
       end
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
-      return redelay(sp, msg) unless result.ok?
-      delete_message sp
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
