@@ -104,6 +104,23 @@ module LavinMQ::AMQP
         sp
       end
 
+      # Puts back a message shifted out with shift_delayed?, unless a purge
+      # deleted its segment meanwhile
+      def restore_delayed(sp : SegmentPosition) : Nil
+        raise ClosedError.new if @closed
+        segment = @segments[sp.segment]? || return
+        msg = begin
+          BytesMessage.from_bytes(segment.to_slice + sp.position)
+        rescue ex
+          raise MessageStore::Error.new(segment, cause: ex)
+        end
+        was_empty = @size.zero?
+        requeued.insert(sp, msg.timestamp)
+        @bytesize += sp.bytesize
+        @size += 1
+        @empty.set false if was_empty
+      end
+
       def purge_all
         while sp = @requeued.shift?
           @size -= 1

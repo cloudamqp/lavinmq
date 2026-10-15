@@ -36,6 +36,28 @@ class FailingDeadLetterQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# A delayed exchange queue that raises out of the next expiry, and whose
+# messages are only expired by explicit calls to expire_messages
+class FailingDelayedQueue < LavinMQ::AMQP::DelayedExchangeQueue
+  property? fail_next_expire = false
+
+  def self.make(vhost, exchange_name)
+    new(vhost, "amq.delayed-#{exchange_name}", false, false,
+      LavinMQ::AMQP::Table.new({"x-dead-letter-exchange" => exchange_name}))
+  end
+
+  private def message_expire_loop
+  end
+
+  private def expire_msg(sp : LavinMQ::SegmentPosition, reason : Symbol, dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil)
+    if fail_next_expire?
+      @fail_next_expire = false
+      raise "routing failed"
+    end
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -107,6 +129,26 @@ describe LavinMQ::AMQP::Queue do
       q.overflow
       q.message_count.should eq 2
       vhost.queue("dlq").message_count.should eq 7
+    ensure
+      q.try &.delete
+    end
+  end
+
+  it "puts back the delayed messages of a batch whose routing failed" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("dx", "fanout", durable: false, auto_delete: false)
+      vhost.declare_queue("out", durable: false, auto_delete: false)
+      vhost.bind_queue("out", "dx", "")
+      q = FailingDelayedQueue.make(vhost, "dx")
+      5.times { q.delay(LavinMQ::Message.new("dx", "", "m")).should be_true }
+      q.fail_next_expire = true
+      expect_raises(Exception, "routing failed") { q.expire_messages }
+      # The message whose routing failed is gone, the rest of the batch is back
+      q.message_count.should eq 4
+      q.expire_messages
+      q.message_count.should eq 0
+      vhost.queue("out").message_count.should eq 4
     ensure
       q.try &.delete
     end

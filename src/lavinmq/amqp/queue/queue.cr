@@ -982,9 +982,17 @@ module LavinMQ::AMQP
 
     private def requeue_dropped(sps : Slice(SegmentPosition)) : Nil
       @msg_store_lock.synchronize do
-        sps.each { |sp| @msg_store.requeue(sp) }
+        sps.each { |sp| put_back_dropped(sp) }
       end
     rescue MessageStore::ClosedError
+    rescue ex : MessageStore::Error
+      # Don't replace the error that the routing raised
+      @log.error(ex) { "Could not put back dropped messages" }
+    end
+
+    # Puts back a message that drop_messages shifted out but didn't route
+    private def put_back_dropped(sp : SegmentPosition) : Nil
+      @msg_store.requeue(sp)
     end
 
     # Whether a dropped message goes through expire_msg (to be dead lettered)

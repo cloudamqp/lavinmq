@@ -75,6 +75,11 @@ module LavinMQ::AMQP
       expire_at <= RoughTime.unix_ms
     end
 
+    # The delayed store can't requeue, it orders messages by delivery time
+    private def put_back_dropped(sp : SegmentPosition) : Nil
+      delayed_msg_store.restore_delayed(sp)
+    end
+
     private def delayed_msg_store
       @msg_store.as(DelayedMessageStore)
     end
