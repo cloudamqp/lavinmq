@@ -15,15 +15,21 @@ class MockJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
   end
 end
 
-# Mock JWKSFetcher whose fetch blocks until released
-class BlockingJWKSFetcher < MockJWKSFetcher
+# JWKSFetcher whose fetch blocks until released. Not a MockJWKSFetcher
+# subclass: that name is also defined in auth_spec.cr, so its constructors
+# depend on the order the spec files are compiled in.
+class BlockingJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
   getter fetching = Channel(Nil).new
   getter release = Channel(Nil).new
+
+  def initialize
+    super(URI.parse("https://mock.example.com"), 1.hour)
+  end
 
   def fetch_jwks : JWKSResult
     @fetching.send nil
     @release.receive
-    super
+    JWKSResult.new({"k1" => "not-a-pem"}, 1.hour)
   end
 end
 
@@ -365,7 +371,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
     it "rejects a token whose verification was waiting for keys" do
       config = LavinMQ::Config.new
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
-      fetcher = BlockingJWKSFetcher.new({"k1" => "not-a-pem"})
+      fetcher = BlockingJWKSFetcher.new
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, fetcher)
       token = JWTTestHelper.build_unsigned_token(JWTTestHelper.valid_header, JWTTestHelper.valid_payload)
       result = Channel(Exception?).new
