@@ -182,6 +182,8 @@ LavinMQ collects rate statistics at a configurable interval:
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
 | `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
 
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
+
 ## Logging
 
 | Config Key | Section | Description |
