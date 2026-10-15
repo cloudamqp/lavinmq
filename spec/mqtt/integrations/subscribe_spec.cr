@@ -285,4 +285,84 @@ module MqttSpecs
       end
     end
   end
+
+  describe "a session's subscriptions" do
+    it "follow SUBSCRIBE, a QoS change and UNSUBSCRIBE" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}, {"c/#", 1u8}))
+          session = server.vhosts["/"].session("mqtt.sub")
+          session.subscriptions.should eq({"a/b" => 0u8, "c/#" => 1u8})
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          session.subscriptions.should eq({"a/b" => 2u8, "c/#" => 1u8})
+          session.bindings.compact_map(&.as?(LavinMQ::MQTT::SubscriptionDetails)).map { |b| {b.routing_key, LavinMQ::MQTT.qos(b.arguments)} }
+            .sort!.should eq [{"a/b", 2u8}, {"c/#", 1u8}]
+          server.vhosts["/"].mqtt_exchange.binding_count.should eq 2
+          unsubscribe(io, topics: ["c/#"])
+          session.subscriptions.should eq({"a/b" => 2u8})
+          disconnect(io)
+        end
+      end
+    end
+
+    it "follow an unbind that didn't come from the client" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          server.vhosts["/"].unbind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", LavinMQ::MQTT.qos_arguments(1u8))
+          server.vhosts["/"].session("mqtt.sub").subscriptions.should be_empty
+          # Subscribing again binds it again, rather than taking it as bound
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          server.vhosts["/"].mqtt_exchange.binding_count.should eq 1
+          disconnect(io)
+        end
+      end
+    end
+
+    it "are restored at startup" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          disconnect(io)
+        end
+        restart_server(server)
+        session = server.vhosts["/"].session("mqtt.sub")
+        session.subscriptions.should eq({"a/b" => 1u8})
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          unsubscribe(io, topics: ["a/b"])
+          session.subscriptions.should be_empty
+          server.vhosts["/"].mqtt_exchange.binding_count.should eq 0
+          disconnect(io)
+        end
+      end
+    end
+
+    it "are the only ones a deleted session takes along" do
+      with_server do |server|
+        with_client_io(server) do |other|
+          connect(other, client_id: "other")
+          subscribe(other, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          with_client_io(server) do |io|
+            connect(io, client_id: "clean", clean_session: true)
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}, {"c/d", 0u8}))
+            server.vhosts["/"].mqtt_exchange.binding_count.should eq 3
+            disconnect(io)
+          end
+          wait_for { server.vhosts["/"].session?("mqtt.clean").nil? }
+          server.vhosts["/"].mqtt_exchange.binding_count.should eq 1
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            publish(pub, topic: "a/b", payload: "still".to_slice, qos: 0u8)
+            disconnect(pub)
+          end
+          String.new(read_publish(other).payload).should eq "still"
+          disconnect(other)
+        end
+      end
+    end
+  end
 end

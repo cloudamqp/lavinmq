@@ -70,7 +70,9 @@ module LavinMQ
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
       @msg_store_lock = Mutex.new(:reentrant)
-      @msg_store : SessionMessageStore
+      # Created by the first subscription, see #msg_store
+      @msg_store : SessionMessageStore? = nil
+      @data_dir : String
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
       @client : MQTT::Client? = nil
@@ -105,6 +107,13 @@ module LavinMQ
       @routing_generation = 0u32
       # Set once a wait fails while open: only a shutdown stops the persister
       @persister_stopped = false
+      @deliver_loop_started = false
+      # The username in the .metadata file, see #persist_username
+      @metadata_username : String? = nil
+      # This session's topic filters and their QoS, kept by the MQTT exchange
+      # as it binds and unbinds them, so finding a session's subscriptions
+      # doesn't walk every subscription in the vhost
+      getter subscriptions = Hash(String, UInt8).new
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -117,27 +126,56 @@ module LavinMQ
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
         @log = Logger.new(Log, @metadata)
-        data_dir = File.join(
+        @data_dir = File.join(
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        FileSystem.mkdir_p(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
-        @packet_id_log = durable? ? PacketIdLog.new(File.join(data_dir, "packet_ids.log"), @replicator, @vhost.persister) : nil
+        @packet_id_log = durable? ? PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister) : nil
         @packet_id_log.try { |log| @awaiting_pubrel.concat(log.awaiting_pubrel) }
         @durable_mailbox = durable? ? ::Channel(UInt64).new(1) : nil
-        @metadata_file = File.join(data_dir, ".metadata")
+        @metadata_file = File.join(@data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)
           @replicator.try &.register_file(@metadata_file)
-          username = read_metadata_file
+          username = @metadata_username = read_metadata_file
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
+        @msg_store = open_msg_store if segments_on_disk?
         restore_publish_sent
-        @msg_store.on_original_packet_id_dropped = ->original_packet_id_dropped(SegmentPosition, UInt16)
-        @msg_store.on_original_packet_id_released = ->original_packet_id_released(UInt16)
+        ensure_deliver_loop unless message_count.zero?
+      end
 
+      # Created by the first subscription, see #subscription_bound, as only a
+      # subscription routes messages to a session. Raises rather than creating
+      # it, to keep the creation out of the publish path.
+      private def msg_store : SessionMessageStore
+        @msg_store || raise "Session #{@name} has no message store"
+      end
+
+      private def open_msg_store : SessionMessageStore
+        raise MessageStore::ClosedError.new if closed?
+        # A clean session's directory is wiped at boot, so it needs no fsync
+        durable? ? FileSystem.mkdir_p(@data_dir) : Dir.mkdir_p(@data_dir)
+        store = SessionMessageStore.new(@data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+        store.on_original_packet_id_dropped = ->original_packet_id_dropped(SegmentPosition, UInt16)
+        store.on_original_packet_id_released = ->original_packet_id_released(UInt16)
+        store
+      end
+
+      # The store's first segment is created with it, so a session that ever
+      # had a store has one
+      private def segments_on_disk? : Bool
+        Dir.children(@data_dir).any?(&.starts_with?("msgs."))
+      rescue File::NotFoundError
+        false
+      end
+
+      # Started by the first message, as a fiber's stack costs mappings too.
+      # Only messages need it: requeues come from deliveries it made.
+      private def ensure_deliver_loop : Nil
+        return if @deliver_loop_started
+        @deliver_loop_started = true
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -151,8 +189,8 @@ module LavinMQ
       private def restore_publish_sent : Nil
         log = @packet_id_log || return
         log.publish_sent.each do |id, sp|
-          if @msg_store.includes?(sp)
-            @msg_store.remember_original_packet_id(sp, id)
+          if (store = @msg_store) && store.includes?(sp)
+            store.remember_original_packet_id(sp, id)
           else
             @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
           end
@@ -160,12 +198,25 @@ module LavinMQ
         refresh_capacity
       end
 
+      # Not preallocated: they stay empty until the session gets a message,
+      # see #update_rates
+      protected def self.stats_log_capacity : Int32
+        0
+      end
+
+      # A session that never got a message keeps empty stats logs rather than
+      # filling 14 of them with zeros: most are publish-only clients'.
+      def update_rates : Nil
+        return if @publish_log.empty? && @publish_count.get(:relaxed).zero? && message_count.zero?
+        previous_def
+      end
+
       def consumer_count : UInt32
         @client.nil? ? 0u32 : 1u32
       end
 
       def message_count : UInt32
-        @msg_store.size.to_u32
+        @msg_store.try(&.size.to_u32) || 0u32
       end
 
       def exclusive? : Bool
@@ -181,7 +232,7 @@ module LavinMQ
         @has_capacity.close
         @has_client.close
         @msg_store_lock.synchronize do
-          @msg_store.close
+          @msg_store.try &.close
         end
         @durable_mailbox.try &.close
         record_publish_received_on_close unless @deleted
@@ -213,9 +264,12 @@ module LavinMQ
         end
         close
         @msg_store_lock.synchronize do
-          @msg_store.delete
+          @msg_store.try &.delete
         end
         @packet_id_log.try &.delete
+        # A session without a store can still have a directory, for its
+        # packet_ids.log
+        FileUtils.rm_rf(@data_dir)
         @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
@@ -232,7 +286,7 @@ module LavinMQ
           # Above every `next`: `loop` is inlined, so a raise from a guard below
           # would leave the rescue holding the previous iteration's connection.
           client = @client
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          next msg_store.empty.when_false.receive? if msg_store.empty?
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
@@ -261,7 +315,7 @@ module LavinMQ
       # [MQTT-2.3.1-1]. Both fall back to a fresh id. The flag tells whether
       # the id is the original one.
       private def packet_id_for(sp : SegmentPosition) : {UInt16, Bool}?
-        if id = @msg_store.original_packet_id?(sp)
+        if id = msg_store.original_packet_id?(sp)
           return {id, true} unless id.zero? || @inflight.has_key?(id)
         end
         next_packet_id.try { |fresh| {fresh, false} }
@@ -306,8 +360,8 @@ module LavinMQ
           @msg_store_lock.synchronize do
             @inflight.each do |packet_id, inflight|
               if sp = inflight.sp
-                @msg_store.remember_original_packet_id(sp, packet_id)
-                @msg_store.requeue(sp)
+                msg_store.remember_original_packet_id(sp, packet_id)
+                msg_store.requeue(sp)
               else
                 awaiting_pubcomp << packet_id
               end
@@ -337,8 +391,8 @@ module LavinMQ
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
-          write_metadata_file(username) if durable?
         end
+        persist_username if client
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
@@ -358,6 +412,18 @@ module LavinMQ
         nil
       end
 
+      # The username decides which messages a session gets while no client is
+      # attached, after a restart too. Only a session with a subscription gets
+      # messages, so it is kept from the first one on, which also created the
+      # session's store: a publish-only client's session writes no file.
+      private def persist_username : Nil
+        return unless durable? && @msg_store
+        username = @permission_context.username || return
+        return if username == @metadata_username
+        write_metadata_file(username)
+        @metadata_username = username
+      end
+
       # Written to a temporary file and renamed into place, so a crash
       # mid-write leaves the previous file rather than a truncated one. Only for
       # a durable session: a lost username refuses the offline messages its
@@ -372,22 +438,38 @@ module LavinMQ
       # A concurrent API deletion can make the bind fail.
       # TODO: Check session identity under the definitions lock before binding.
       def subscribe(tf, qos) : Bool
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return true if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+        if current = @subscriptions[tf]?
+          return true if current == qos
+          unbind(tf, MQTT.qos_arguments(current))
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
       end
 
       def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
+        if qos = @subscriptions[tf]?
+          unbind(tf, MQTT.qos_arguments(qos))
         end
       end
 
       def deliver(msg : Message, filter : String, ctx : PublishContext) : Bool
         publish(msg)
+      end
+
+      # Called for every binding, whether from a SUBSCRIBE, the HTTP API, a
+      # definitions import or a restore at startup
+      protected def subscription_bound(filter : String, qos : UInt8) : Nil
+        unless closed?
+          # Creating the store here keeps it out of the publish that first
+          # routes to it, which a fanout to many new subscribers would pay for
+          # each of them. First, so a failure leaves the subscription unrecorded.
+          @msg_store_lock.synchronize { @msg_store ||= open_msg_store }
+          persist_username
+        end
+        @subscriptions[filter] = qos
+      end
+
+      protected def subscription_unbound(filter : String) : Nil
+        @subscriptions.delete(filter)
       end
 
       # Returns whether the message was accepted, so the exchange only counts
@@ -400,8 +482,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
-          @msg_store.push(msg)
+          msg_store.push(msg)
           drop_overflow
+          ensure_deliver_loop
         end
         @publish_count.add(1, :relaxed)
         true
@@ -409,10 +492,6 @@ module LavinMQ
 
       def bindings
         @vhost.queue_bindings(self)
-      end
-
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
       end
 
       private def unbind(rk, arguments)
@@ -424,7 +503,7 @@ module LavinMQ
         loop do
           # The payload is sent straight from the segment, which a close or
           # delete of the session can unmap while the send is suspended
-          @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+          msg_store.shift_with_lease?(@msg_store_lock) do |env|
             sp = env.segment_position
             # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
             # id would leak the slot. Nothing produces a nil today.
@@ -455,7 +534,7 @@ module LavinMQ
             @deliver_get_count.add(1, :relaxed)
           end
         rescue ex # requeue failed delivery
-          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          @msg_store_lock.synchronize { msg_store.requeue(sp) }
           raise ex
         end
         delete_message(sp)
@@ -465,7 +544,7 @@ module LavinMQ
       # requeued for the next attempt.
       private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Bool
         id, original = packet_id_for(sp) || begin
-          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          @msg_store_lock.synchronize { msg_store.requeue(sp) }
           # Without this the deliver_loop spins: the store is non-empty and
           # capacity still reads true. Recomputed rather than closed
           # outright, since an ack can free a slot while the requeue above
@@ -478,7 +557,7 @@ module LavinMQ
         packet = begin
           build_packet(env, id, original)
         rescue ex
-          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          @msg_store_lock.synchronize { msg_store.requeue(sp) }
           raise ex
         end
         begin
@@ -500,7 +579,7 @@ module LavinMQ
           end
           # `client=` may have requeued `sp` and remembered `id` during the
           # send; forgetting then costs the redelivery its id [MQTT-4.4.0-1].
-          @msg_store.forget_original_packet_id(sp) if booked?(id, sp)
+          msg_store.forget_original_packet_id(sp) if booked?(id, sp)
           refresh_capacity
         rescue ex # requeue failed delivery
           # Roll back only what is still ours: requeueing an entry `client=`
@@ -511,7 +590,7 @@ module LavinMQ
             # and a `sub` after that wraps an unsigned atomic.
             @unacked_count.sub(1, :relaxed)
             @unacked_bytesize.sub(sp.bytesize, :relaxed)
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            @msg_store_lock.synchronize { msg_store.requeue(sp) }
           end
           raise ex
         end
@@ -561,8 +640,8 @@ module LavinMQ
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         @msg_store_lock.synchronize do
-          @msg_store.remember_original_packet_id(sp, id)
-          @msg_store.requeue(sp)
+          msg_store.remember_original_packet_id(sp, id)
+          msg_store.requeue(sp)
         end
         refresh_capacity
       end
@@ -646,7 +725,7 @@ module LavinMQ
           # An id owed to a requeued message is not unknown: its PUBLISH is
           # about to be re-sent under it, and a PUBREL now would let the client
           # take that re-send for a new message.
-          if id.zero? || @msg_store.original_packet_id_in_use?(id)
+          if id.zero? || @msg_store.try(&.original_packet_id_in_use?(id))
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
@@ -675,7 +754,7 @@ module LavinMQ
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         delete_message(sp)
-        @msg_store_lock.synchronize { @msg_store.mark_delete_dirty(sp) } if durable?
+        @msg_store_lock.synchronize { msg_store.mark_delete_dirty(sp) } if durable?
         send_pubrel(id)
         # No `refresh_capacity`: the id is still booked, so the window is
         # unchanged.
@@ -756,7 +835,7 @@ module LavinMQ
       # as awaiting PUBCOMP before deleting), which is not a drop.
       private def original_packet_id_dropped(sp : SegmentPosition, id : UInt16) : Bool
         return false if @inflight.has_key?(id)
-        return false unless @msg_store[sp].properties.delivery_mode == 2u8
+        return false unless msg_store[sp].properties.delivery_mode == 2u8
         @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
         refresh_capacity
         true
@@ -787,7 +866,7 @@ module LavinMQ
         # Skips ids owed to requeued messages too: taking one makes its
         # message fall back to a fresh id, while the client still holds the
         # old one [MQTT-4.4.0-1].
-        while @inflight.has_key?(next_id) || @msg_store.original_packet_id_in_use?(next_id)
+        while @inflight.has_key?(next_id) || @msg_store.try(&.original_packet_id_in_use?(next_id))
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
           return if next_id == start_id
@@ -798,24 +877,25 @@ module LavinMQ
 
       private def delete_message(sp : SegmentPosition) : Nil
         @msg_store_lock.synchronize do
-          @msg_store.delete(sp)
+          msg_store.delete(sp)
         end
       end
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        store = @msg_store || return
         if ml = @max_length
           @msg_store_lock.synchronize do
-            while @msg_store.size > ml
-              env = @msg_store.shift? || break
+            while store.size > ml
+              env = store.shift? || break
               delete_message(env.segment_position)
             end
           end
         end
         if mlb = @max_length_bytes
           @msg_store_lock.synchronize do
-            while @msg_store.bytesize > mlb
-              env = @msg_store.shift? || break
+            while store.bytesize > mlb
+              env = store.shift? || break
               delete_message(env.segment_position)
             end
           end
@@ -847,13 +927,13 @@ module LavinMQ
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
-        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        count = @msg_store_lock.synchronize { @msg_store.try(&.purge(max_count)) || 0u32 }
         @log.info { "Purged #{count} messages" }
         count
       end
 
       def in_use? : Bool
-        !(@msg_store.empty? && @client.nil?)
+        !(message_count.zero? && @client.nil?)
       end
 
       def match?(durable, exclusive, auto_delete, arguments) : Bool
@@ -874,6 +954,8 @@ module LavinMQ
 
       def details_tuple
         stats = queue_stats_details
+        ready = message_count
+        ready_bytes = @msg_store.try(&.bytesize) || 0u64
         {
           name:                         @name,
           durable:                      durable?,
@@ -882,14 +964,14 @@ module LavinMQ
           arguments:                    NamedTuple.new, # "empty" AMQP::Table
           consumers:                    consumer_count,
           vhost:                        @vhost.name,
-          messages:                     @msg_store.size + stats[:messages_unacknowledged],
-          total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
-          messages_persistent:          durable? ? @msg_store.size + stats[:messages_unacknowledged] : 0,
-          ready:                        @msg_store.size,
-          messages_ready:               @msg_store.size,
-          ready_bytes:                  @msg_store.bytesize,
-          message_bytes_ready:          @msg_store.bytesize,
-          ready_avg_bytes:              @msg_store.avg_bytesize,
+          messages:                     ready + stats[:messages_unacknowledged],
+          total_bytes:                  ready_bytes + stats[:message_bytes_unacknowledged],
+          messages_persistent:          durable? ? ready + stats[:messages_unacknowledged] : 0,
+          ready:                        ready,
+          messages_ready:               ready,
+          ready_bytes:                  ready_bytes,
+          message_bytes_ready:          ready_bytes,
+          ready_avg_bytes:              @msg_store.try(&.avg_bytesize) || 0u32,
           unacked:                      stats[:unacked],
           messages_unacknowledged:      stats[:messages_unacknowledged],
           unacked_bytes:                stats[:unacked_bytes],

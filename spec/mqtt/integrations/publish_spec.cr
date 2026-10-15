@@ -119,8 +119,9 @@ module MqttSpecs
           end
           session = server.vhosts["/"].session("mqtt.slow")
           # Published asynchronously, wait for it to be stored in its own segment
-          wait_for { session.@msg_store.@segments.last_value.size > payload.size }
-          segment = session.@msg_store.@segments.last_value
+          wait_for { session.@msg_store.try { |store| store.@segments.last_value.size > payload.size } }
+          store = session.@msg_store.should_not be_nil
+          segment = store.@segments.last_value
           # Shifted, and the send is blocked as the subscriber doesn't read
           wait_for { session.message_count.zero? }
           session.close

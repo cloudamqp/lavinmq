@@ -70,12 +70,16 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        @tree.subscribe(routing_key, destination, MQTT.qos(arguments))
+        qos = MQTT.qos(arguments)
+        # Before routing to it, so the session's storage is ready
+        destination.subscription_bound(routing_key, qos)
+        @tree.subscribe(routing_key, destination, qos)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         @tree.unsubscribe(routing_key, destination)
+        destination.subscription_unbound(routing_key)
         delete if @auto_delete && @tree.empty?
         true
       end
