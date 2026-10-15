@@ -27,7 +27,7 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
 
       expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.not_nil!.start_for_spec
+        launcher.start_for_spec
       end
     ensure
       launcher.try &.stop
@@ -58,7 +58,7 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
 
       expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.not_nil!.start_for_spec
+        launcher.start_for_spec
       end
       File.exists?(socket_path).should be_true
     ensure

@@ -138,9 +138,8 @@ describe LavinMQ::HTTP::PrometheusController do
         response = http.get("/metrics")
         response.status_code.should eq 200
         parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
-        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
-        mfile_metric.should_not be_nil
-        mfile_metric.not_nil![:value].should be >= 0
+        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }.should_not be_nil
+        mfile_metric[:value].should be >= 0
       end
     end
 
@@ -318,8 +317,7 @@ describe LavinMQ::HTTP::PrometheusController do
 
           lines.size.should be > 0
           relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
-          relevant.should_not be_nil
-          line = relevant.not_nil!
+          line = relevant.should_not be_nil
           # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
           line.should match(/connection="[^"]+"/)
           line.should match(/channel="[^"]+"/)
@@ -351,18 +349,14 @@ describe LavinMQ::HTTP::PrometheusController do
 
         # Verify grouping: TYPE and HELP should immediately precede the values
         # Find TYPE line index, HELP should be next, then values should follow
-        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
-        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
-        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
-
-        type_idx.should_not be_nil
-        help_idx.should_not be_nil
-        first_value_idx.should_not be_nil
+        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{")).should_not be_nil
 
         # HELP should come right after TYPE
-        help_idx.should eq(type_idx.not_nil! + 1)
+        help_idx.should eq(type_idx + 1)
         # First value should come right after HELP
-        first_value_idx.should eq(help_idx.not_nil! + 1)
+        first_value_idx.should eq(help_idx + 1)
       end
     end
 
@@ -389,8 +383,8 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            delivered.not_nil![:value]
+            end.should_not be_nil
+            delivered[:value]
           end
 
           should_eventually(eq(2)) do
@@ -400,8 +394,8 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            acked.not_nil![:value]
+            end.should_not be_nil
+            acked[:value]
           end
         end
       end

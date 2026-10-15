@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory high watermark in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
@@ -181,6 +181,8 @@ LavinMQ collects rate statistics at a configurable interval:
 |-----------|---------|---------|-------------|
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
 | `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
+
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
 
 ## Logging
 
