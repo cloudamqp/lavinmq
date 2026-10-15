@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Two queues that dead-letter into each other (for example on overflow) could deadlock when publishes to both ran at the same time; dropped messages are now dead-lettered after the source queue's lock is released [#2396](https://github.com/cloudamqp/lavinmq/pull/2396)
+- Dead-lettered messages could be lost, delivered twice, or crash the broker when a queue dead-lettered from several threads at once [#2403](https://github.com/cloudamqp/lavinmq/pull/2403)
 - A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
 - Publishing now resumes after a disk alarm only once free disk space is `3 * segment_size` above the alarm threshold, avoiding SIGBUS crashes from the burst of writes right after recovery [#2457](https://github.com/cloudamqp/lavinmq/pull/2457)
 - A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
