@@ -45,7 +45,7 @@ module LavinMQ
       end
 
       def ensure_deliver_loop
-        return if @closed
+        return if @closed || !@channel.running?
         return if @deliver_loop_running.swap(true, :acquire_release)
         fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
         @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
@@ -74,7 +74,7 @@ module LavinMQ
         loop do
           wait_for_capacity
           loop do
-            raise ClosedError.new if @closed
+            raise ClosedError.new if @closed || !@channel.running?
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
             case wait_for_queue_ready

@@ -22,7 +22,10 @@ module LavinMQ
       include Persister::ConfirmTarget
 
       getter id, name, client
+      # Stops being running when the channel is closing, see #close(reason)
       property? running = true
+      # Torn down, see #close
+      getter? closed = false
       getter? flow = true
       @consumers = Array(AMQP::Consumer).new
 
@@ -654,8 +657,11 @@ module LavinMQ
         end
       end
 
+      # Tears the channel down. Only called by the connection's fiber, so it
+      # can't race with frames being processed on the channel.
       def close : Bool
-        return false unless @running
+        return false if @closed
+        @closed = true
         @running = false
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
@@ -677,14 +683,18 @@ module LavinMQ
         true
       end
 
-      # Closes the channel from the server side, e.g. from the management API.
-      # The client is told why with a Channel::Close frame. Consumers, unacked
-      # messages and buffers are released right away, so a client that never
-      # replies with Channel::CloseOk can't keep any of them alive.
+      # Closes the channel from the server side, from another fiber than the
+      # connection's, e.g. from the management API or on a consumer timeout.
+      # The client is told why with a Channel::Close frame, and the channel
+      # stops delivering and discards incoming frames right away. It's torn
+      # down by the connection's fiber when the client replies with
+      # Channel::CloseOk, see Client#await_channel_close_ok.
       def close(reason : String) : Nil
+        return unless @running
         code = ChannelReplyCode::PRECONDITION_FAILED
         send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
-        @client.close_channel(self)
+        @running = false
+        @client.await_channel_close_ok(self)
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64

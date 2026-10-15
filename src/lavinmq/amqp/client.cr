@@ -440,6 +440,21 @@ module LavinMQ
         end
       end
 
+      CHANNEL_CLOSE_OK_TIMEOUT = 5.seconds
+
+      # Waits for the client to reply to a Channel::Close sent from another
+      # fiber, see Channel#close(reason), and closes the connection if it
+      # doesn't. So the channel is always torn down by this connection's fiber,
+      # on Channel::CloseOk or in #cleanup when the read loop ends.
+      protected def await_channel_close_ok(channel : AMQP::Channel) : Nil
+        spawn(name: "Await Channel::CloseOk #{channel.name}") do
+          sleep CHANNEL_CLOSE_OK_TIMEOUT
+          unless channel.closed? || closed?
+            close("Channel #{channel.id} wasn't closed with close-ok within #{CHANNEL_CLOSE_OK_TIMEOUT.total_seconds.to_i}s")
+          end
+        end
+      end
+
       # The Channel::Close handshake is over, so the client can reuse the id.
       private def finish_channel_close(id : UInt16) : Nil
         close_channel(@channels.delete(id))

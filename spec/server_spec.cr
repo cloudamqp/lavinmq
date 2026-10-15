@@ -1382,7 +1382,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "tears the channel down at the broker when a consumer times out" do
+  it "closes the channel when a consumer times out and requeues on close-ok" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         args = AMQP::Client::Arguments.new({"x-consumer-timeout": 1})
@@ -1395,11 +1395,11 @@ describe LavinMQ::Server do
         delivered_at = channel.unacked.to_a.first.delivered_at
         wait_for { RoughTime.instant - delivered_at > 1.millisecond } # RoughTime ticks every 100ms
         channel.check_consumer_timeout
-        # torn down at the broker without waiting for the client's CloseOk
+        # stops at once, but is torn down by the connection's fiber on CloseOk
         channel.running?.should be_false
-        sq.unacked_count.should eq 0
-        sq.message_count.should eq 1
         channel.check_consumer_timeout # a second sweep must be a no-op
+        wait_for { sq.message_count == 1 }
+        sq.unacked_count.should eq 0
       end
     end
   end
