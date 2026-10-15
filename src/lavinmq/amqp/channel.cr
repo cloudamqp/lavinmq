@@ -708,15 +708,11 @@ module LavinMQ
       end
 
       private def consumer_timed_out? : Bool
-        queues = Set(Queue).new # only check first (oldest) delivered message per queue
         now = RoughTime.instant
-        @unacked.to_a.each do |unack|
-          next unless queues.add? unack.queue
-          if timeout = unack.queue.consumer_timeout
-            return true if now - unack.delivered_at > timeout.milliseconds
-          end
+        @unacked.any? do |unack|
+          timeout = unack.queue.consumer_timeout
+          !timeout.nil? && now - unack.delivered_at > timeout.milliseconds
         end
-        false
       end
 
       def cancel_consumer(frame)

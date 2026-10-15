@@ -116,6 +116,12 @@ module LavinMQ
         @lock.synchronize { @unacked.last?.try &.tag }
       end
 
+      # Whether the block returns true for any delivery, checked under the
+      # lock without copying, stopping at the first match
+      def any?(& : Unack -> Bool) : Bool
+        @lock.synchronize { @unacked.any? { |unack| yield unack } }
+      end
+
       # A snapshot, safe to iterate without holding the lock
       def to_a : Array(Unack)
         @lock.synchronize { @unacked.to_a }

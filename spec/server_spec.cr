@@ -1382,6 +1382,22 @@ describe LavinMQ::Server do
     end
   end
 
+  it "times out a consumer behind an older delivery from a queue without a timeout", tags: "slow" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        plain = ch.queue("no-timeout")
+        plain.publish_confirm("a")
+        plain.subscribe(no_ack: false) { }
+        wait_for { s.vhosts["/"].queue("no-timeout").unacked_count == 1 }
+        timed = ch.queue("timed", args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))
+        timed.publish_confirm("b")
+        expect_raises(AMQP::Client::Channel::ClosedException, /consumer timeout/) do
+          timed.subscribe(no_ack: false, tag: "c", block: true) { }
+        end
+      end
+    end
+  end
+
   it "closes the channel when a consumer times out and requeues on close-ok" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
