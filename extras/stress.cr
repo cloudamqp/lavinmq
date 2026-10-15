@@ -900,7 +900,7 @@ module Stress
         when :slow
           sleep Random.rand(5..20).milliseconds
         when :bursty
-          sleep Random.rand(50..200).milliseconds if seq % 200 == 0
+          sleep Random.rand(50..200).milliseconds if seq % 256 == 0
         end
       end
     end
