@@ -684,6 +684,28 @@ describe "Retry Queue" do
         end
       end
     end
+
+    it "should release the primary queue's segment after routing a message to the retry queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("retry-lease", args: args)
+          q.publish_confirm "delayed"
+          vhost = s.vhosts["/"]
+          segment = vhost.queue(q.name).@msg_store.@segments.first_value
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { vhost.queue("amq.retry-retry-lease").message_count == 1 }
+
+          vhost.delete_queue(q.name)
+          segment.closed?.should be_true
+        end
+      end
+    end
   end
 
   describe "Durability" do
