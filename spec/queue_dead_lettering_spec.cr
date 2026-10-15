@@ -810,6 +810,23 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: cycle detection raised KeyError on an x-death entry for a
+      # destination queue without a "reason", so the message was never routed
+      it "should dead letter a message with an x-death entry without reason" do
+        qargs = {
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => DLQ_NAME,
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          xdeath = [AMQ::Protocol::Table.new({"queue" => DLQ_NAME})] of AMQ::Protocol::Field
+          props = AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"x-death" => xdeath}))
+          ch.default_exchange.publish_confirm("msg1", q.name, props: props)
+
+          get1(dlq).body_io.to_s.should eq "msg1"
+        end
+      end
+
       it "should add x-death for message expiration" do
         with_dead_lettering_setup do |q, dlq, ch, _|
           props = AMQ::Protocol::Properties.new(expiration: "1")
