@@ -39,3 +39,18 @@ end
     end
   end
 {% end %}
+
+{% if OpenSSL.has_constant?(:KTLS) %}
+  # The stdlib BIO passes an Errno to OpenSSL as a 0 byte read, so a timeout
+  # surfaced as EOF. Remove once fixed in Crystal.
+  module OpenSSL::KTLS
+    def self.read_record(socket : Socket, data : UInt8*, length : Int32) : Int32 | Errno
+      ret = previous_def
+      # ETIMEDOUT from the polling event loop, ECANCELED from io_uring
+      if ret.in?(Errno::ETIMEDOUT, Errno::ECANCELED)
+        raise IO::TimeoutError.new("Read timed out")
+      end
+      ret
+    end
+  end
+{% end %}
