@@ -106,7 +106,7 @@ describe LavinMQ::AMQP::Queue do
         x = ch.default_exchange
         x.publish_confirm("ttl", q.name)
         msg = wait_for { dlq.get }
-        msg.not_nil!.body_io.to_s.should eq "ttl"
+        msg.body_io.to_s.should eq "ttl"
         q.get.should be_nil
       end
     end
@@ -186,7 +186,7 @@ describe LavinMQ::AMQP::Queue do
           {"x-dead-letter-exchange" => ""}
         ))
         ch.default_exchange.publish_confirm("", queue_name)
-        msg = q1.get(no_ack: false).not_nil!
+        msg = q1.get(no_ack: false).should_not be_nil
         msg.reject(requeue: false)
         q1.get(no_ack: false).should_not be_nil
       end
@@ -217,7 +217,7 @@ describe LavinMQ::AMQP::Queue do
     it "should be able to declare queue as paused" do
       with_amqp_server do |s|
         s.vhosts.create("/")
-        v = s.vhosts["/"].not_nil!
+        v = s.vhosts["/"]
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queue("q").pause!
@@ -232,7 +232,7 @@ describe LavinMQ::AMQP::Queue do
     it "should handle '.paused' files and rename to 'paused'" do
       with_amqp_server do |s|
         s.vhosts.create("/")
-        v = s.vhosts["/"].not_nil!
+        v = s.vhosts["/"]
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         File.touch(File.join(data_dir, ".paused"))
@@ -355,9 +355,8 @@ describe LavinMQ::AMQP::Queue do
           queue.restart!.should be_true
           queue.closed?.should be_false
           queue.message_count.should eq 1
-          msg = q.get(no_ack: true)
-          msg.should_not be_nil
-          msg.not_nil!.body_io.to_s.should eq "test message"
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.body_io.to_s.should eq "test message"
         end
       end
     end
@@ -548,11 +547,10 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue
         q.publish_confirm "a"
 
-        msg = q.get(no_ack: false)
-        msg.should_not be_nil
+        msg = q.get(no_ack: false).should_not be_nil
         sq = s.vhosts["/"].queue(q.name)
         sq.unacked_count.should eq 1
-        msg.not_nil!.ack
+        msg.ack
         sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
@@ -716,7 +714,7 @@ describe LavinMQ::AMQP::Queue do
           store.@wfile.path.should eq path
           store.push(LavinMQ::Message.new("", q.name, body))
         end.should be_true
-        store = reopened.not_nil!
+        store = reopened.not_nil!("basic_get did not yield")
         File.size(path).should be >= store.@wfile.size
         store.close
       end
@@ -937,7 +935,8 @@ describe LavinMQ::AMQP::Queue do
           }))
           ch.default_exchange.publish_confirm("body", queue_name, props: props)
           ch.default_exchange.publish_confirm("body", queue_name, props: props)
-          q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
+          msg = q1.get(no_ack: false).should_not be_nil
+          msg.body_io.to_s.should eq "body"
           q1.get(no_ack: false).should be_nil
         end
       end
@@ -1297,7 +1296,7 @@ describe LavinMQ::AMQP::Queue do
 
           msg = wait_for { dlq.get(no_ack: true) }
           msg.should_not be_nil
-          msg.not_nil!.body_io.to_s.should eq "short ttl"
+          msg.body_io.to_s.should eq "short ttl"
           q.get(no_ack: true).should be_nil
         end
       end
