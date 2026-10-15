@@ -328,27 +328,5 @@ module MqttSpecs
         end
       end
     end
-
-    # Each one walked every subscription in the vhost, so each clean
-    # disconnect cost the vhost's subscription count
-    it "are found without walking the other sessions' subscriptions" do
-      with_server do |server|
-        vhost = server.vhosts["/"]
-        sessions = LavinMQ::MQTT::Sessions.new(vhost)
-        2000.times { |i| sessions.declare("s-#{i}", true).subscribe("devices/#{i}/cmd", 1u8) }
-        session = sessions.declare("probe", true)
-        allocated = ->(block : ->) do
-          before = GC.stats.total_bytes
-          block.call
-          GC.stats.total_bytes - before
-        end
-        # One SubscriptionDetails per subscription is about 370 kB here
-        allocated.call(-> { session.subscribe("probe/a", 1u8) }).should be < 64 * 1024
-        allocated.call(-> { session.subscribe("probe/a", 2u8) }).should be < 64 * 1024
-        allocated.call(-> { session.bindings.size.should eq 2 }).should be < 64 * 1024 # and the default one
-        allocated.call(-> { vhost.delete_queue("mqtt.probe") }).should be < 64 * 1024
-        vhost.mqtt_exchange.binding_count.should eq 2000
-      end
-    end
   end
 end

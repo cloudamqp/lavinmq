@@ -16,6 +16,9 @@ module MqttSpecs
           session.@publish_log.should be_empty
           session.@deliver_log.should be_empty
           session.message_count_log.should be_empty
+          # Not preallocated either
+          session.@publish_log.@capacity.should eq 0
+          session.message_count_log.@capacity.should eq 0
           disconnect(io)
         end
       end

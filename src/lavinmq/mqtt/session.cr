@@ -144,11 +144,11 @@ module LavinMQ
         ensure_deliver_loop unless message_count.zero?
       end
 
-      # Created by the first subscription, as only a subscription routes
-      # messages to a session, so a publish-only client's session maps no
-      # segment. Everything that has a message to act on can use this.
+      # Created by the first subscription, see #subscription_bound, as only a
+      # subscription routes messages to a session. Raises rather than creating
+      # it, to keep the creation out of the publish path.
       private def msg_store : SessionMessageStore
-        @msg_store ||= open_msg_store
+        @msg_store || raise "Session #{@name} has no message store"
       end
 
       private def open_msg_store : SessionMessageStore
@@ -454,7 +454,7 @@ module LavinMQ
           # Creating the store here keeps it out of the publish that first
           # routes to it, which a fanout to many new subscribers would pay for
           # each of them. First, so a failure leaves the subscription unrecorded.
-          @msg_store_lock.synchronize { msg_store }
+          @msg_store_lock.synchronize { @msg_store ||= open_msg_store }
           persist_username
         end
         @subscriptions[filter] = qos
