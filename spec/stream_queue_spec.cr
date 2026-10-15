@@ -296,6 +296,34 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  # The close from a read error runs on a consumer's deliver loop, while
+  # tearing down waits for the deliver loops to exit
+  it "can be restarted after corrupt data closes the stream" do
+    with_amqp_server do |s|
+      q_name = "stream-corrupt"
+      StreamSpecHelpers.publish(s, q_name, 2)
+      stream = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::Stream)
+      # Corrupt the second message only, so that it's the deliver loop that
+      # reads it, not the consumer setup
+      mfile = stream.@msg_store.@segments.first_value
+      msg_size = (mfile.size - 4) // 2
+      File.open(mfile.path, "r+") do |f|
+        f.seek(4 + msg_size)
+        f.write(Bytes.new(msg_size, 0xff_u8))
+      end
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue(q_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"}), &.ack)
+        should_eventually(be_true) { stream.state.closed? }
+        should_eventually(be_true) { stream.@torn_down.value }
+      end
+      File.delete(mfile.path)
+      stream.restart!.should be_true
+      stream.state.running?.should be_true
+    end
+  end
+
   describe "deliver loop scheduling" do
     it "yields to other fibers after yield_each_delivered_bytes during a replay" do
       config = LavinMQ::Config.instance

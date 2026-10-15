@@ -231,7 +231,9 @@ module LavinMQ::AMQP
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
-      close
+      # Not on this fiber: on a consumer's deliver loop, tear_down would wait
+      # for this very loop to exit
+      spawn(name: "Stream#close #{@vhost.name}/#{@name}") { close }
       raise ClosedError.new(cause: ex)
     end
 
