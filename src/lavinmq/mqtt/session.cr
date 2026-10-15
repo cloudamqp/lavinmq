@@ -857,22 +857,18 @@ module LavinMQ
         # `>=` not `==`: the limit is mutable at runtime, so the window can
         # already be over it.
         return if @inflight.size >= Config.instance.max_inflight_messages
-        start_id = @last_packet_id
-        next_id : UInt16 = start_id &+ 1_u16
-        # `@last_packet_id` at 65535 wraps this to 0, which the loop below never
-        # corrects because 0 is never booked. Packet id 0 is illegal
-        # [MQTT-2.3.1-1].
-        next_id = 1u16 if next_id == 0
-        # Skips ids owed to requeued messages too: taking one makes its
-        # message fall back to a fresh id, while the client still holds the
-        # old one [MQTT-4.4.0-1].
-        while @inflight.has_key?(next_id) || @msg_store.try(&.original_packet_id_in_use?(next_id))
-          next_id &+= 1u16
-          next_id = 1u16 if next_id == 0
-          return if next_id == start_id
+        next_id = @last_packet_id
+        # Tries each of 1..65535 once, `@last_packet_id` itself last, as it can
+        # be the only id left. Packet id 0 is illegal [MQTT-2.3.1-1].
+        UInt16::MAX.times do
+          next_id = next_id == UInt16::MAX ? 1u16 : next_id + 1u16
+          # Skips ids owed to requeued messages too: taking one makes its
+          # message fall back to a fresh id, while the client still holds the
+          # old one [MQTT-4.4.0-1].
+          next if @inflight.has_key?(next_id) || @msg_store.try(&.original_packet_id_in_use?(next_id))
+          @last_packet_id = next_id
+          return next_id
         end
-        @last_packet_id = next_id
-        next_id
       end
 
       private def delete_message(sp : SegmentPosition) : Nil

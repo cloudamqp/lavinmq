@@ -369,6 +369,30 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
+    it "hands out the last packet id when it is the only one free" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          # Every id but the last one handed out is held, one short of the window
+          free = 100u16
+          pointerof(session.@last_packet_id).value = free
+          held = LavinMQ::MQTT::Session::Inflight.new(LavinMQ::MQTT::Session::Inflight::Awaiting::PubComp, nil)
+          (1u16..UInt16::MAX).each { |id| session.@inflight[id] = held unless id == free }
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+            disconnect(pub_io)
+          end
+
+          read_publish(io).packet_id.should eq free
+          disconnect(io)
+        end
+      end
+    end
+
     it "encodes PUBCOMP with the reserved flags at 0 [MQTT-3.7.1]" do
       with_server do |server|
         with_client_io(server) do |io|
