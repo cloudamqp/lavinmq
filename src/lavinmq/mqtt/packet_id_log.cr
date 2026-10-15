@@ -121,6 +121,8 @@ module LavinMQ
       private def compact : MFile
         live = HEADER_SIZE + @awaiting_pubrel.size * RECORD_SIZE + @publish_sent.size * PUBLISH_SENT_SIZE
         tmp_path = "#{@path}.tmp"
+        # The session's directory is created when it first needs a file
+        FileSystem.mkdir_p(File.dirname(@path)) unless @mfile
         File.delete?(tmp_path)
         mfile = map(tmp_path, Math.max(MIN_CAPACITY, 2 * live + PUBLISH_SENT_SIZE))
         begin

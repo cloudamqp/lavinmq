@@ -667,8 +667,9 @@ module MqttSpecs
         # Point the requeued second message at the id the PUBREL still owes, the
         # way `next_packet_id` could once its counter wraps. Reissuing it would put one
         # id on both a PUBREL and a PUBLISH.
-        sp = session.@msg_store.@original_packet_ids.keys.first
-        session.@msg_store.@original_packet_ids[sp] = owed
+        store = session.@msg_store.should_not be_nil
+        sp = store.@original_packet_ids.keys.first
+        store.@original_packet_ids[sp] = owed
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
@@ -705,7 +706,7 @@ module MqttSpecs
 
         session = server.vhosts["/"].session("mqtt.resumer")
         wait_for { session.client.nil? }
-        store = session.@msg_store
+        store = session.@msg_store.should_not be_nil
         # Message "1" falls back to a fresh id because its own is awaiting
         # PUBCOMP; point the counter so the fresh id would be message "2"'s.
         sp1 = store.@original_packet_ids.key_for(ids[0])
@@ -773,7 +774,8 @@ module MqttSpecs
           # Recreates the window where the PUBREC is handled before the resend
           # has forgotten the remembered id.
           sp = session.@inflight[id].sp.as(LavinMQ::SegmentPosition)
-          session.@msg_store.remember_original_packet_id(sp, id)
+          store = session.@msg_store.should_not be_nil
+          store.remember_original_packet_id(sp, id)
           pubrec(io, id)
           read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
           io.should be_silent
