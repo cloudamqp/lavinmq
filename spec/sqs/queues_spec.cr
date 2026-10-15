@@ -16,6 +16,7 @@ describe "SQS queue management" do
       url = sqs.create_queue("orders", {VisibilityTimeout: "60"})
       sqs.create_queue("orders", {VisibilityTimeout: "60"}).should eq url
       sqs.create_queue("orders").should eq url
+      sqs.create_queue("orders", {FifoQueue: "false"}).should eq url
       status, code, _ = sqs.error("CreateQueue", {QueueName: "orders", Attributes: {VisibilityTimeout: "61"}})
       status.should eq 400
       code.should eq "QueueNameExists"
@@ -42,6 +43,16 @@ describe "SQS queue management" do
       sqs.create_queue("amqp-q", {VisibilityTimeout: "5"}).should end_with "/amqp-q"
       attrs = sqs.json("GetQueueAttributes", {QueueUrl: sqs.create_queue("amqp-q"), AttributeNames: ["VisibilityTimeout"]})
       attrs["Attributes"]["VisibilityTimeout"].as_s.should eq "5"
+    end
+  end
+
+  it "mints usable urls for AMQP queues with special characters in the name" do
+    with_sqs_server do |sqs, s|
+      s.vhosts["/"].declare_queue("eu/orders q", true, false)
+      url = sqs.json("GetQueueUrl", {QueueName: "eu/orders q"})["QueueUrl"].as_s
+      url.should end_with "/000000000000/eu%2Forders%20q"
+      sqs.json("SendMessage", {QueueUrl: url, MessageBody: "x"})
+      s.vhosts["/"].queue("eu/orders q").message_count.should eq 1
     end
   end
 

@@ -30,9 +30,11 @@ module LavinMQ
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
+      @sqs_proxy : Proxy?
       @unix_amqp_proxy : Proxy?
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
+      @unix_sqs_proxy : Proxy?
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       getter streamed_bytes = 0_u64
@@ -77,9 +79,11 @@ module LavinMQ
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
           @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
+          @sqs_proxy = Proxy.new(@config.sqs_bind, @config.sqs_port) if @config.sqs_port > 0
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
+          @unix_sqs_proxy = Proxy.new(@config.sqs_unix_path) unless @config.sqs_unix_path.empty? || @config.sqs_port <= 0
         end
       end
 
@@ -98,24 +102,7 @@ module LavinMQ
         @host = host
         @port = port
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
+        start_proxies(host)
         loop do
           hash_local_files
           return if @closed
@@ -135,6 +122,33 @@ module LavinMQ
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def start_proxies(host : String)
+        if amqp_proxy = @amqp_proxy
+          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+        end
+        if http_proxy = @http_proxy
+          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if mqtt_proxy = @mqtt_proxy
+          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
+        end
+        if sqs_proxy = @sqs_proxy
+          spawn sqs_proxy.forward_to(host, @config.sqs_port), name: "SQS proxy"
+        end
+        if unix_amqp_proxy = @unix_amqp_proxy
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+        end
+        if unix_http_proxy = @unix_http_proxy
+          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if unix_mqtt_proxy = @unix_mqtt_proxy
+          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
+        if unix_sqs_proxy = @unix_sqs_proxy
+          spawn unix_sqs_proxy.forward_to(host, @config.sqs_port), name: "SQS proxy"
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -720,9 +734,11 @@ module LavinMQ
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
+        @sqs_proxy.try &.close
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
+        @unix_sqs_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)

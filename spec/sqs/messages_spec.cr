@@ -249,6 +249,9 @@ describe "SQS messages" do
       dup = [{Id: "same", MessageBody: "x"}, {Id: "same", MessageBody: "y"}]
       sqs.error("SendMessageBatch", {QueueUrl: url, Entries: dup})[1].should eq "BatchEntryIdsNotDistinct"
       sqs.error("SendMessageBatch", {QueueUrl: url, Entries: [{Id: "bad id!", MessageBody: "x"}]})[1].should eq "InvalidBatchEntryId"
+      status, code, _ = sqs.error("DeleteMessageBatch", {QueueUrl: url, Entries: ["not-a-map"]})
+      status.should eq 400
+      code.should eq "InvalidParameterValue"
       big = [{Id: "a", MessageBody: "x" * 200_000}, {Id: "b", MessageBody: "x" * 200_000}]
       sqs.error("SendMessageBatch", {QueueUrl: url, Entries: big})[1].should eq "BatchRequestTooLong"
     end

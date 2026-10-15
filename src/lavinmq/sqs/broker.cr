@@ -69,7 +69,9 @@ module LavinMQ
           if existing = @metas[name]?
             effective = existing.effective_attributes
             attributes.each do |k, v|
-              raise QueueNameExists.new unless effective[k]? == v
+              # An unset boolean (e.g. FifoQueue on a standard queue) is false
+              current = effective[k]? || ("false" if QueueAttributes::BOOLEANS.includes?(k))
+              raise QueueNameExists.new unless current == v
             end
             return existing
           end
@@ -264,16 +266,14 @@ module LavinMQ
 
       # Delayed messages are published through an internal delayed-message
       # exchange that routes to the queue by name once the delay has passed.
+      # Binding is idempotent (an existing binding is neither re-added nor
+      # re-stored), so this is cheap to call on every delayed send.
       private def ensure_delayed_binding(queue_name : String) : Nil
-        unless ex = @vhost.exchange?(DELAYED_EXCHANGE)
+        unless @vhost.exchange?(DELAYED_EXCHANGE)
           @vhost.declare_exchange(DELAYED_EXCHANGE, "x-delayed-message", true, false, false,
             AMQP::Table.new({"x-delayed-type": "direct"}))
-          ex = @vhost.exchange(DELAYED_EXCHANGE)
         end
-        bound = ex.bindings_details.any? do |b|
-          b.destination.name == queue_name && b.routing_key == queue_name
-        end
-        @vhost.bind_queue(queue_name, DELAYED_EXCHANGE, queue_name) unless bound
+        @vhost.bind_queue(queue_name, DELAYED_EXCHANGE, queue_name)
       end
     end
   end

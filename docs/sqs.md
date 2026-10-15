@@ -67,7 +67,9 @@ This means the SQS listener authenticates by user name alone. Keep it on a
 trusted network, or behind a proxy that authenticates, and use the user's
 [permissions](users-permissions.md) to limit what each name can do. A request
 without credentials is rejected with `MissingAuthenticationToken`, and an
-unknown user with `InvalidClientTokenId`.
+unknown user with `InvalidClientTokenId`. Users without a password are
+refused, and so is the default user from non-loopback addresses unless
+`default_user_only_loopback` is disabled.
 
 The user's per-vhost permission regexes are applied to the queue name:
 

@@ -13,6 +13,14 @@ describe "SQS authentication and authorization" do
     end
   end
 
+  it "rejects users without a password" do
+    with_sqs_server do |sqs, s|
+      s.users.add("nopass", "", "SHA256")
+      s.users.add_permission("nopass", "/", /.*/, /.*/, /.*/)
+      sqs.error("ListQueues", user: "nopass")[1].should eq "InvalidClientTokenId"
+    end
+  end
+
   it "requires credentials" do
     with_sqs_server do |sqs, _|
       headers = HTTP::Headers{"Content-Type" => "application/x-amz-json-1.0", "X-Amz-Target" => "AmazonSQS.ListQueues"}
@@ -90,6 +98,18 @@ describe "SQS protocol handling" do
       response = HTTP::Client.post(sqs.base_url, headers: hdrs, body: "{not json")
       response.status_code.should eq 400
       JSON.parse(response.body)["__type"].as_s.should eq "com.amazonaws.sqs#SerializationException"
+    end
+  end
+
+  it "rejects a chunked body larger than the limit" do
+    with_sqs_server do |sqs, _|
+      hdrs = sqs.headers("guest")
+      hdrs["X-Amz-Target"] = "AmazonSQS.ListQueues"
+      # An IO body is sent chunked, without Content-Length
+      body = IO::Memory.new(" " * (LavinMQ::SQS::Handler::MAX_BODY_SIZE + 1))
+      response = HTTP::Client.post(sqs.base_url, headers: hdrs, body: body)
+      response.status_code.should eq 400
+      JSON.parse(response.body)["__type"].as_s.should eq "com.amazonaws.sqs#InvalidParameterValue"
     end
   end
 

@@ -369,6 +369,7 @@ module LavinMQ
         raise EmptyBatchRequest.new if entries.empty?
         raise TooManyEntriesInBatchRequest.new if entries.size > MAX_BATCH_SIZE
         ids = entries.map do |e|
+          e.as_h? || raise InvalidParameterValue.new("Value for parameter Entries is invalid. Reason: Must be a list of maps.")
           id = e["Id"]?.try(&.as_s?) || raise InvalidBatchEntryId.new
           raise InvalidBatchEntryId.new unless id.matches?(BATCH_ID_PATTERN)
           id

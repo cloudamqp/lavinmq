@@ -6,6 +6,7 @@ require "./request"
 require "./actions"
 require "./queue_url"
 require "../auth/user_store"
+require "../auth/context"
 require "../config"
 
 module LavinMQ
@@ -79,11 +80,18 @@ module LavinMQ
       # The access key id of the SigV4 credential names the LavinMQ user. The
       # signature itself is not verified: LavinMQ only stores password hashes,
       # and SigV4 needs the plaintext secret to recompute the signature.
+      # Users that can't log in elsewhere are refused here too: users without
+      # a password, and the default user from non-loopback addresses when
+      # `default_user_only_loopback` is set.
       private def authenticate(request) : Tuple(Auth::User, String)
         access_key_id, region = credential(request)
         raise MissingAuthenticationToken.new if access_key_id.nil? || access_key_id.empty?
         user = @users[access_key_id]?
-        raise InvalidClientTokenId.new if user.nil? || Auth::UserStore.hidden?(access_key_id)
+        raise InvalidClientTokenId.new if user.nil? || user.hidden? || user.password.nil?
+        if access_key_id == @config.default_user && @config.default_user_only_loopback? &&
+           !Auth::Context.new(access_key_id, Bytes.empty, request.remote_address).loopback?
+          raise InvalidClientTokenId.new
+        end
         {user, region || DEFAULT_REGION}
       end
 
@@ -108,7 +116,12 @@ module LavinMQ
         if (length = request.content_length) && length > MAX_BODY_SIZE
           raise InvalidParameterValue.new("Request body too large.")
         end
-        content = body.gets_to_end
+        # A chunked body has no Content-Length, so cap what is read as well
+        content = String.build do |io|
+          if IO.copy(body, io, MAX_BODY_SIZE + 1) > MAX_BODY_SIZE
+            raise InvalidParameterValue.new("Request body too large.")
+          end
+        end
         return JSON::Any.new(Hash(String, JSON::Any).new) if content.blank?
         parsed = JSON.parse(content)
         raise SerializationException.new("Request body must be a JSON object.") unless parsed.as_h?

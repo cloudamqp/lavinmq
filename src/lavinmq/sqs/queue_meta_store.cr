@@ -1,6 +1,7 @@
 require "json"
 require "./queue_meta"
 require "../clustering/replicator"
+require "../filesystem"
 require "../logger"
 
 module LavinMQ
@@ -49,12 +50,7 @@ module LavinMQ
 
       # Caller must hold @lock
       private def save! : Nil
-        tmpfile = "#{@path}.tmp"
-        File.open(tmpfile, "w") do |f|
-          @metas.values.to_pretty_json(f)
-          f.fsync
-        end
-        File.rename tmpfile, @path
+        FileSystem.replace(@path) { |f| @metas.values.to_pretty_json(f) }
         @replicator.try &.replace_file @path
       end
 

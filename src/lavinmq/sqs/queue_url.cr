@@ -24,8 +24,10 @@ module LavinMQ
         decoded.matches?(ACCOUNT_ID_PATTERN) ? "/" : decoded
       end
 
+      # Queue names minted over SQS need no escaping, but queues declared over
+      # AMQP may contain any character, e.g. `/` or a space.
       def self.build(base_url : String, vhost : String, queue_name : String) : String
-        "#{base_url}/#{vhost_segment(vhost)}/#{queue_name}"
+        "#{base_url}/#{vhost_segment(vhost)}/#{URI.encode_path_segment(queue_name)}"
       end
 
       # Returns {vhost, queue_name}
@@ -35,7 +37,7 @@ module LavinMQ
         raise InvalidAddress.new("The address #{url} is not valid for this endpoint.") if path.nil? || uri.host.nil?
         parts = path.split('/', remove_empty: true)
         raise InvalidAddress.new("The address #{url} is not valid for this endpoint.") unless parts.size == 2
-        {vhost_from_segment(parts[0]), parts[1]}
+        {vhost_from_segment(parts[0]), URI.decode(parts[1])}
       rescue URI::Error
         raise InvalidAddress.new("The address #{url} is not valid for this endpoint.")
       end
