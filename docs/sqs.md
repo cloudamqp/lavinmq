@@ -7,6 +7,11 @@ pointing the client at a LavinMQ endpoint URL. No plugin, client-side shim or
 SDK patch is needed. Internally, SQS queues are ordinary durable AMQP queues,
 so AMQP and SQS clients can publish to and consume from the same queue.
 
+> Amazon SQS, Amazon Simple Queue Service, AWS and the AWS SDK names are
+> trademarks of Amazon.com, Inc. or its affiliates. LavinMQ implements an
+> Amazon SQS-compatible API and is not affiliated with, sponsored by or
+> endorsed by Amazon.
+
 ```python
 import boto3
 
@@ -240,3 +245,10 @@ tls_port = -1
 
 The listener only starts when `port`, `tls_port` or `unix_path` is set.
 TLS uses the certificate configured in `[main]`.
+
+## Trademarks
+
+Amazon SQS, Amazon Simple Queue Service, AWS and the AWS SDK names are
+trademarks of Amazon.com, Inc. or its affiliates. They are used here only to
+describe compatibility. LavinMQ is a trademark of 84codes AB and is not
+affiliated with, sponsored by or endorsed by Amazon.
