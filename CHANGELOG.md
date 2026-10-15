@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `deliver_get` is derived from `deliver`, `deliver_no_ack`, `get` and `get_no_ack` instead of counted on its own, one atomic increment less per delivery and get. Reading a stream from the HTTP API counts the messages as `get_no_ack`
 - The management UI charts are redrawn on uPlot instead of Chart.js. The legend is a table under the plot that shows the latest value, or the value under the cursor while hovering, with the sample time in the card heading. Hovering one chart moves the cursor on every chart on the page. Click a legend row to isolate a series, shift, cmd or ctrl-click to toggle one. Charts rebuild from the server history log on every refresh, so a slower or paused refresh leaves no gaps. The nodes page gets a Disk usage chart with capacity lines [#2448](https://github.com/cloudamqp/lavinmq/pull/2448)
 - Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Dead-lettered messages, and rejected messages moved to the retry queue, are routed straight from their message store segment instead of being copied out of it first [#2345](https://github.com/cloudamqp/lavinmq/pull/2345)

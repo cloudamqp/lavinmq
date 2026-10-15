@@ -641,18 +641,10 @@ module LavinMQ
       in EventType::ConsumerAdded          then @consumer_added_count.add(1, :relaxed)
       in EventType::ConsumerRemoved        then @consumer_removed_count.add(1, :relaxed)
       in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
-      in EventType::ClientGet
-        @get_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
-      in EventType::ClientGetNoAck
-        @get_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
-      in EventType::ClientDeliver
-        @deliver_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
-      in EventType::ClientDeliverNoAck
-        @deliver_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
+      in EventType::ClientGet              then @get_count.add(1, :relaxed)
+      in EventType::ClientGetNoAck         then @get_no_ack_count.add(1, :relaxed)
+      in EventType::ClientDeliver          then @deliver_count.add(1, :relaxed)
+      in EventType::ClientDeliverNoAck     then @deliver_no_ack_count.add(1, :relaxed)
       end
     end
 
