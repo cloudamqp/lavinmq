@@ -19,7 +19,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 ## Reloading
 
-Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
 
 Not every setting takes effect on reload. The log level and TLS certificates are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
 
