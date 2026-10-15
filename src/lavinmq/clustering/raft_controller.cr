@@ -43,7 +43,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?, execution_context: raft_context)
+      bootstrap: @config.clustering_bootstrap?, execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
@@ -293,14 +293,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node.run(transport)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
-  end
-
-  # Whether this node may win an election before it has any raft state: when
-  # it's the only seed, or when the operator says it has the latest data. An
-  # empty data dir isn't enough, a majority of new nodes would then elect one
-  # of themselves and wipe the data of the nodes that have it.
-  private def may_bootstrap? : Bool
-    @config.clustering_bootstrap? || @config.clustering_seed_addresses.all?(@config.clustering_raft_address)
   end
 
   # Switch leader to replicate from whenever the leader changes, until this

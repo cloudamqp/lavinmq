@@ -470,6 +470,25 @@ describe Raft::Node do
     end
   end
 
+  it "leads a single node cluster whose only seed names it differently" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    seeds = ["localhost:#{server.local_address.port}"]
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    node = Raft::Node.new(1, addr, seeds, "tcp://#{addr}", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds)
+    transport = Raft::TCPTransport.new("secret", 1, addr, seeds, ->node.deliver(Raft::TransportEvent))
+    spawn transport.listen(server)
+    node.run(transport)
+    wait_for(5.seconds) { node.serving.value }
+    node.membership.should eq Raft::Membership.new(Set{1}, Set(Int32).new, {1 => addr})
+  ensure
+    node.try &.close
+    server.try &.close
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "ignores a copy of a node's data dir while the original is connected" do
     with_raft_cluster do |c|
       leader = c.propose_isr(Set{1, 2, 3})
@@ -509,6 +528,19 @@ describe Raft::TCPTransport do
     first.try &.close
     copy.try &.close
     myself.try &.close
+  end
+
+  it "recognizes a connection to itself under another address" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    alias_addr = "localhost:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    transport = Raft::TCPTransport.new("secret", 1, addr, [alias_addr], ->(e : Raft::TransportEvent) { events.send e })
+    spawn transport.listen(server)
+    events.receive.should eq Raft::Identified.new(alias_addr, 1)
+    transport.probe(alias_addr).should eq 1
+  ensure
+    transport.try &.close
   end
 
   it "delivers frames that shrink and grow over one connection intact" do

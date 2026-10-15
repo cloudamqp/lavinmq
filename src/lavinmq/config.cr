@@ -1,5 +1,6 @@
 require "log"
 require "uri"
+require "socket"
 require "option_parser"
 require "ini"
 require "./version"
@@ -121,6 +122,22 @@ module LavinMQ
                         "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
       end
       clustering_seed_addresses.each { |seed| validate_seed!(seed) }
+      validate_clustering_bind_reachable!
+    end
+
+    # A node bound to loopback only can't be reached by any other node, so
+    # with a seed elsewhere it would never join or form the cluster.
+    private def validate_clustering_bind_reachable! : Nil
+      return unless loopback_host?(@clustering_bind)
+      remote = clustering_seed_addresses.find { |seed| !loopback_host?(seed.rpartition(':')[0]) } || return
+      raise Error.new("clustering bind is #{@clustering_bind}, so other nodes such as seed #{remote} can't reach " \
+                      "this node, set bind in [clustering] to 0.0.0.0, :: or an address they can reach")
+    end
+
+    private def loopback_host?(host : String) : Bool
+      host = host.lchop('[').rchop(']')
+      return true if host.compare("localhost", case_insensitive: true).zero?
+      Socket::IPAddress.valid?(host) && Socket::IPAddress.new(host, 0).loopback?
     end
 
     private def validate_seed!(seed : String) : Nil

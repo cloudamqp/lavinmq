@@ -670,6 +670,44 @@ describe Raft::Core, "membership" do
     core.latest_membership.should eq three_voters
   end
 
+  it "drops a seed that turns out to be itself under another name" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["alias1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1), bootstrap: true)
+    core.quorum.should eq 3
+    core.identified("alias1", 1)
+    core.quorum.should eq 2
+    core.connect_to.should eq Set{"n2", "n3"}
+    core.identified("n2", 2)
+    core.identified("n3", 3)
+    core.connected(2, "n2", now)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
+    core.latest_membership.should eq three_voters
+  end
+
+  it "leads alone once its only seed turns out to be itself" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["alias1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    campaigns?(core, now).should be_false
+    core.identified("alias1", 1)
+    core.quorum.should eq 1
+    # Pre-vote, election, then committing the no-op and the membership
+    3.times do
+      now += 1.second
+      core.tick(now)
+      core.take_outbox
+      core.persisted
+    end
+    core.role.leader?.should be_true
+    core.latest_membership.should eq Raft::Membership.new(Set{1}, Set(Int32).new, {1 => "n1"})
+  end
+
   it "replicates to a learner without counting it towards commit or quorum" do
     sim = SimCluster.new(3)
     leader = sim.elect(Set{1, 2, 3, 4})

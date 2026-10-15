@@ -108,9 +108,9 @@ module LavinMQ::Clustering::Raft
   #   lead. Any committed ISR is on a majority, which every winner needs
   #   votes from.
   # - A node that has never been part of the cluster (empty log) doesn't
-  #   campaign unless `bootstrap` is set: nothing tells it whether its data
-  #   is current, e.g. when starting a new cluster or after migrating from
-  #   etcd.
+  #   campaign unless `bootstrap` is set or it is its only seed: nothing
+  #   tells it whether its data is current, e.g. when starting a new cluster
+  #   or after migrating from etcd.
   # - Membership changes one server at a time (Raft dissertation §4.1): add as
   #   learner (not counted), promote (one more voter), remove. The latest
   #   membership entry in the log is in effect as soon as it's appended, so
@@ -181,7 +181,9 @@ module LavinMQ::Clustering::Raft
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
     @entries = Array(Entry).new
-    # The configured seeds, used until the log has a membership
+    # The configured seeds other than this node, used until the log has a
+    # membership. A seed that turns out to be this node under another name
+    # is dropped, see #identified.
     @seed_addresses : Array(String)
     # The clustering ids of the configured seeds that we know of
     @seed_ids = Hash(String, Int32).new
@@ -393,10 +395,18 @@ module LavinMQ::Clustering::Raft
     end
 
     # The node at `address` has clustering id `id`. Only matters for
-    # seeds, until there's a membership.
+    # seeds, until there's a membership. When it's this node, listed under
+    # another name than its own address (a short hostname, an IP), the seed
+    # is dropped: it would otherwise count as a voter that never answers, and
+    # the first leader would wait forever to learn its id.
     def identified(address : String, id : Int32) : Nil
-      return if id == @id || !@seed_addresses.includes?(address) || @seed_ids[address]? == id
-      @seed_ids[address] = id
+      if id == @id
+        return unless @seed_addresses.delete(address)
+        @seed_ids.delete(address)
+      else
+        return if !@seed_addresses.includes?(address) || @seed_ids[address]? == id
+        @seed_ids[address] = id
+      end
       return if latest_membership
       refresh_membership
       manage_membership
@@ -784,7 +794,7 @@ module LavinMQ::Clustering::Raft
       # unless there has been no leader to do so for a long time
       return false if moved_from && !@trust_moved
       return false unless in_isr?(latest_isr, @id)
-      @bootstrap || last_index > 0
+      @bootstrap || @seed_addresses.empty? || last_index > 0
     end
 
     private def start_pre_vote(now : Time::Instant) : Nil
