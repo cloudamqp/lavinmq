@@ -21,6 +21,7 @@ require "../src/lavinmq/amqp/server"
 require "../src/lavinmq/mqtt/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
+require "../src/lavinmq/launcher"
 require "http/client"
 require "amqp-client"
 require "./support/*"
@@ -38,6 +39,21 @@ end
 
 LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
 init_config
+
+# Run the specs on several threads, to catch races, when LAVINMQ_WORKERS (or,
+# as for the server, CRYSTAL_WORKERS) is set
+SPEC_WORKERS = (ENV["LAVINMQ_WORKERS"]? || ENV["CRYSTAL_WORKERS"]?).try(&.to_i)
+if workers = SPEC_WORKERS
+  LavinMQ::Launcher.resize_default_execution_context(workers)
+end
+
+# Specs that start a Launcher use a fresh Config, whose `workers` doesn't come
+# from the environment, and would resize the context for the rest of the run
+class LavinMQ::Launcher
+  private def resize_default_execution_context
+    previous_def unless SPEC_WORKERS
+  end
+end
 
 # Allow creating custom config objects for specs
 module LavinMQ
@@ -110,12 +126,26 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
   address = state[:address] || return
   port = state[:port] || return
 
+  socket = rebind_tcp(address, port)
   if tls_context = state[:tls_context]
-    server.bind_tls(address, port, tls_context)
+    server.bind_tls(socket, tls_context)
   else
-    server.bind_tcp(address, port)
+    server.bind_tcp(socket)
   end
   spawn(name: name) { server.listen } if state[:listening]
+end
+
+# The restart only just closed the listener on this port, and binding it again
+# right away sometimes fails with "Address already in use" on macOS, so retry
+# for a while. The port must stay the same, as specs may hold URLs to it.
+private def rebind_tcp(address : String, port : Int32) : TCPServer
+  deadline = Time.instant + 5.seconds
+  loop do
+    return TCPServer.new(address, port)
+  rescue ex : Socket::BindError
+    raise ex if Time.instant >= deadline
+    sleep 10.milliseconds
+  end
 end
 
 def restart_server(server : LavinMQ::Server)

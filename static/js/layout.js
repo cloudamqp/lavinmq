@@ -1,5 +1,6 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import './refresh-control.js'
 
 Auth.whoAmI().catch(() => Auth.logout())
 
@@ -168,3 +169,15 @@ sidebarMenu.addEventListener('scroll', (e) => {
 })
 
 updateMenuTooltips()
+
+// Helper links add their data-tag to the form field in data-helper-for, as JSON unless data-helper-format="list"
+document.addEventListener('click', e => {
+  const group = e.target.closest('[data-helper-for]')
+  if (!group) return
+  const formID = group.closest('form').id
+  if (group.dataset.helperFormat === 'list') {
+    Helpers.argumentHelper(formID, group.dataset.helperFor, e)
+  } else {
+    Helpers.argumentHelperJSON(formID, group.dataset.helperFor, e)
+  }
+})
