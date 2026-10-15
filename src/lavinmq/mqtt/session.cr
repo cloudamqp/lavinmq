@@ -103,6 +103,10 @@ module LavinMQ
       @routing_generation = 0u32
       # Set once a wait fails while open: only a shutdown stops the persister
       @persister_stopped = false
+      # This session's topic filters and their QoS, kept by the MQTT exchange
+      # as it binds and unbinds them, so finding a session's subscriptions
+      # doesn't walk every subscription in the vhost
+      getter subscriptions = Hash(String, UInt8).new
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -368,18 +372,27 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+        if current = @subscriptions[tf]?
+          return if current == qos
+          unbind(tf, MQTT.qos_arguments(current))
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
       end
 
       def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
+        if qos = @subscriptions[tf]?
+          unbind(tf, MQTT.qos_arguments(qos))
         end
+      end
+
+      # Called for every binding, whether from a SUBSCRIBE, the HTTP API, a
+      # definitions import or a restore at startup
+      protected def subscription_bound(filter : String, qos : UInt8) : Nil
+        @subscriptions[filter] = qos
+      end
+
+      protected def subscription_unbound(filter : String) : Nil
+        @subscriptions.delete(filter)
       end
 
       # Returns whether the message was accepted, so the exchange only counts
@@ -401,10 +414,6 @@ module LavinMQ
 
       def bindings
         @vhost.queue_bindings(self)
-      end
-
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
       end
 
       private def unbind(rk, arguments)
