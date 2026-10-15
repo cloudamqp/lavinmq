@@ -893,10 +893,10 @@ module Stress
         ch.basic_publish(STREAM_PAYLOAD, "", Q_STREAM, props: props)
         STATS.incr_stream_published
         # Throttle to keep the stream from crowding out the rest of the
-        # stress workload. Even "fast" yields every 50 msgs.
+        # stress workload. Even "fast" yields every 64 msgs.
         case mode
         when :fast
-          Fiber.yield if seq % 50 == 0
+          Fiber.yield if seq % 64 == 0
         when :slow
           sleep Random.rand(5..20).milliseconds
         when :bursty
