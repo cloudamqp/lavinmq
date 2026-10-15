@@ -296,8 +296,17 @@ function updateCharts (response) {
     const diskStats = [
       { key: 'disk_used', label: 'Disk used', desc: 'Disk space used on the data directory filesystem', value: response[0].disk_total - response[0].disk_free, log: freeLog.map((free, i) => (totalLog[i] ?? response[0].disk_total) - free) }
     ]
-    const diskLines = [{ value: response[0].disk_total, label: 'capacity', valueText: humanizeBytes(response[0].disk_total), tone: 'neutral', align: 'left' }]
-    Chart.setScale(diskChart, { fixedMax: response[0].disk_total, refLines: diskLines })
+    Chart.setScale(diskChart, {
+      scaleCap: response[0].disk_total,
+      refLines: [{
+        value: response[0].disk_total,
+        label: 'capacity',
+        valueText: humanizeBytes(response[0].disk_total),
+        tone: 'neutral',
+        align: 'left',
+        pinAbove: true
+      }]
+    })
     Chart.update(diskChart, diskStats)
   }
   if (response[0].io_write_details !== undefined) {
