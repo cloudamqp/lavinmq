@@ -679,6 +679,23 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "stats_log_size" do
+    it "rejects non-positive values" do
+      [0, -10].each do |n|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            stats_log_size = #{n}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /stats_log_size/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
@@ -691,6 +708,21 @@ describe LavinMQ::Config do
         File.write(config_file.path, "[main]\nstats_interval = 0\n")
         expect_raises(LavinMQ::Config::Error, /stats_interval/) { config.reload }
         config.stats_interval.should eq 5000 # unchanged
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps the running stats_log_size when a reload sets it to 0" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_log_size = 60\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        File.write(config_file.path, "[main]\nstats_log_size = 0\n")
+        expect_raises(LavinMQ::Config::Error, /stats_log_size/) { config.reload }
+        config.stats_log_size.should eq 60
       ensure
         File.delete?(config_file.path)
         Log.setup(:fatal)

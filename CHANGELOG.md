@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Less memory for stats history: all rate and gauge logs (queues, channels, connections, exchanges, vhosts and the node's CPU, IO, memory and disk) are kept in shared column stores outside the GC heap, and a series only takes space while it has been non-zero within the last `stats_log_size` intervals. Memory of idle and deleted objects is returned to the OS. Rates are logged as exact per-interval increases, and logs are serialized to JSON straight from the store, so the stats of 10k queues serialize in 47 ms instead of 530 ms without allocating. `deliver_get` is derived from `deliver`, `deliver_no_ack`, `get` and `get_no_ack`, and the overview's message count history is kept per vhost instead of per queue. `stats_log_size` must be at least 1 [#2342](https://github.com/cloudamqp/lavinmq/pull/2342)
 - The management UI charts are redrawn on uPlot instead of Chart.js. The legend is a table under the plot that shows the latest value, or the value under the cursor while hovering, with the sample time in the card heading. Hovering one chart moves the cursor on every chart on the page. Click a legend row to isolate a series, shift, cmd or ctrl-click to toggle one. Charts rebuild from the server history log on every refresh, so a slower or paused refresh leaves no gaps. The nodes page gets a Disk usage chart with capacity lines [#2448](https://github.com/cloudamqp/lavinmq/pull/2448)
 - Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Dead-lettered messages, and rejected messages moved to the retry queue, are routed straight from their message store segment instead of being copied out of it first [#2345](https://github.com/cloudamqp/lavinmq/pull/2345)
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reading a stream from the HTTP API counts the messages as `get_no_ack`, not only in `deliver_get` [#2342](https://github.com/cloudamqp/lavinmq/pull/2342)
 - Dead-lettering no longer fails for a message whose `x-death` header has an entry without a `reason` for one of the destination queues [#2462](https://github.com/cloudamqp/lavinmq/pull/2462)
 - Dead-lettered messages could be lost, delivered twice, or crash the broker when a queue dead-lettered from several threads at once [#2403](https://github.com/cloudamqp/lavinmq/pull/2403)
 - A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
