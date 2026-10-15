@@ -405,7 +405,7 @@ module Stress
         # scheduler and starve every other worker (and the stats printer).
         case mode
         when :fast
-          Fiber.yield if seq % 100 == 0
+          Fiber.yield if seq % 128 == 0
         when :slow
           sleep Random.rand(5..50).milliseconds
         when :bursty
