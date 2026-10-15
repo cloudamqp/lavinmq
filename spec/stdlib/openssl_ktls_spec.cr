@@ -33,6 +33,42 @@ ensure
   done.try &.receive
 end
 
+# Completes the handshake, then the peer never reads again so the server's
+# writes eventually fill the socket buffers and block.
+private def ktls_stalled_peer_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
+  tcp_server = TCPServer.new("localhost", 0)
+  port = tcp_server.local_address.port
+  stop = Channel(Nil).new
+  done = Channel(Nil).new
+
+  spawn do
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    tcp = TCPSocket.new("localhost", port)
+    ssl = OpenSSL::SSL::Socket::Client.new(tcp, client_ctx)
+    stop.receive
+    tcp.close
+    done.send nil
+  end
+
+  tcp_client = tcp_server.accept
+  ssl_client = OpenSSL::SSL::Socket::Server.new(tcp_client, server_ctx)
+
+  yield ssl_client
+ensure
+  if done
+    stop.try &.send nil
+    done.receive
+  end
+  # The peer is gone and the send buffer may be full, so shutdown can fail
+  begin
+    ssl_client.try &.close
+  rescue IO::Error
+  end
+  tcp_client.try &.close
+  tcp_server.try &.close
+end
+
 {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
   describe OpenSSL::SSL::Context do
     it "doesn't enable kTLS by default" do
@@ -91,6 +127,51 @@ describe OpenSSL::SSL::Socket do
           ssl.puts "ping"
           ssl.flush
           ssl.gets.should eq "pong"
+        end
+      end
+    {% end %}
+  end
+
+  describe "write timeout" do
+    # Baseline: plain TLS, no kTLS
+    it "raises IO::TimeoutError when the peer stops reading" do
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+
+      ktls_stalled_peer_handshake(ctx) do |ssl|
+        ssl.write_timeout = 100.milliseconds
+
+        chunk = Bytes.new(64 * 1024, 'x'.ord.to_u8)
+        expect_raises(IO::TimeoutError) do
+          # Bounded (256 MiB) so a missing timeout fails instead of hanging
+          4096.times { ssl.write(chunk) }
+          fail "write never blocked"
+        end
+      end
+    end
+  end
+
+  describe "kTLS write timeout" do
+    {% if flag?(:linux) && OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+      it "raises IO::TimeoutError when the peer stops reading" do
+        pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
+
+        ctx = OpenSSL::SSL::Context::Server.new
+        ctx.certificate_chain = "spec/resources/server_certificate.pem"
+        ctx.private_key = "spec/resources/server_key.pem"
+        ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS)
+
+        ktls_stalled_peer_handshake(ctx) do |ssl|
+          pending!("kTLS send offload not active") unless ssl.ktls_send?
+          ssl.write_timeout = 50.milliseconds
+
+          chunk = Bytes.new(64 * 1024, 'x'.ord.to_u8)
+          expect_raises(IO::TimeoutError) do
+            # Bounded (256 MiB) so a missing timeout fails instead of hanging
+            4096.times { ssl.write(chunk) }
+            fail "write never blocked"
+          end
         end
       end
     {% end %}
