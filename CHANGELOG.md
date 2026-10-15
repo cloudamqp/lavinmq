@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dead-lettered messages, and rejected messages moved to the retry queue, are routed straight from their message store segment instead of being copied out of it first [#2345](https://github.com/cloudamqp/lavinmq/pull/2345)
 - Client connections share per-thread pools of socket read and write buffers. Write buffers are returned after each flush, and idle connections no longer hold a read buffer while waiting for data (TLS connections still hold the TLS socket's read buffer, but no longer the underlying TCP socket's), lowering memory usage with many connections. Pool stats are exposed as `socket_buffer_pool_*` Prometheus metrics, and `SIGUSR1` debug output includes them and fiber stack usage [#2343](https://github.com/cloudamqp/lavinmq/pull/2343)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
@@ -38,7 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A `SIGHUP` config reload resets a setting removed from the config file to its default, instead of keeping its previous value. Command line arguments and environment variables also keep taking precedence over the config file after a reload, as they do at startup [#2458](https://github.com/cloudamqp/lavinmq/pull/2458)
+- Dead-lettering no longer fails for a message whose `x-death` header has an entry without a `reason` for one of the destination queues [#2462](https://github.com/cloudamqp/lavinmq/pull/2462)
+- Dead-lettered messages could be lost, delivered twice, or crash the broker when a queue dead-lettered from several threads at once [#2403](https://github.com/cloudamqp/lavinmq/pull/2403)
+- A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
+- Publishing now resumes after a disk alarm only once free disk space is `3 * segment_size` above the alarm threshold, avoiding SIGBUS crashes from the burst of writes right after recovery [#2457](https://github.com/cloudamqp/lavinmq/pull/2457)
 - A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
+- With `tls_ktls` enabled, idle AMQP connections were closed at half the heartbeat interval instead of being sent a heartbeat, as a kTLS read timeout surfaced as end of file, making clients reconnect over and over. Idle MQTT connections were logged as unexpectedly closed instead of as keepalive timeouts [#2432](https://github.com/cloudamqp/lavinmq/pull/2432)
 - A WebSocket connection that broke could log an unhandled exception (e.g. `SSL_write` for `wss`), from trying to send a close frame over the broken connection [#2430](https://github.com/cloudamqp/lavinmq/pull/2430)
 - A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
 - Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)
