@@ -1227,8 +1227,14 @@ module LavinMQ::AMQP
       end
       if route_to_retry && (delayed_retry_min = @delayed_retry_min)
         if retry_queue = active_retry_queue
-          retry_msg = @msg_store_lock.synchronize { @msg_store.copy(sp) }
-          return if route_to_retry_queue(sp, retry_msg, retry_queue, delayed_retry_min)
+          # DelayedRetryQueue#delay writes the message to its own store before
+          # returning, so the lease only has to cover the call
+          env = @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
+          begin
+            return if route_to_retry_queue(sp, env.message, retry_queue, delayed_retry_min)
+          ensure
+            env.release
+          end
         end
       end
       was_empty = false
