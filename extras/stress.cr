@@ -400,7 +400,12 @@ module Stress
         publish_for_kind(ch, exchange, kind, body, args)
         STATS.incr_published
 
+        # `basic_publish` only suspends when the socket write would block,
+        # so without an explicit yield :fast producers can monopolise the
+        # scheduler and starve every other worker (and the stats printer).
         case mode
+        when :fast
+          Fiber.yield if seq % 100 == 0
         when :slow
           sleep Random.rand(5..50).milliseconds
         when :bursty
