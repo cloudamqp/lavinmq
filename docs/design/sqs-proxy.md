@@ -76,7 +76,7 @@ A new `LavinMQ::SQS` module in `src/lavinmq/sqs/`, structured after
   unix), bound by `Launcher#start_listeners` exactly like `MetricsServer`.
   Separate from the management HTTP server on purpose: queue URLs must be
   self-contained, and mgmt auth (Basic/cookie/OAuth) does not apply.
-* **`SQS::Broker`** — per vhost (`SQS::Brokers` mirrors `MQTT::Brokers`),
+* **`SQS::Broker`** — per vhost, owned by the `VHost` like `MQTT::Broker`,
   owns queue lookup/creation, send, receive, in-flight tracking and
   attribute metadata. Keeps action classes thin and protocol-agnostic.
 * **`SQS::Inflight`** — per queue: receipt handle → `SegmentPosition`,
@@ -358,7 +358,7 @@ src/lavinmq/sqs.cr                      # requires
 src/lavinmq/sqs/
   CONTEXT.md                            # vocabulary, like shovel/CONTEXT.md
   server.cr                             # ::HTTP::Server, listeners, handler chain
-  brokers.cr / broker.cr                # per-vhost façade (like mqtt/brokers.cr)
+  broker.cr                             # per-vhost façade, owned by VHost
   request.cr / response.cr              # protocol-neutral request/response
   protocol/json.cr                      # JSON 1.0 parse + render
   protocol/query.cr                     # Query parse + XML render
@@ -571,3 +571,7 @@ Decisions taken when phase 1 landed, where they differ from the plan above:
 - **Delay**: implemented with the `sqs.delayed` delayed-message exchange
   bound lazily per queue, as planned.
 - **Metadata**: `sqs_queues.json` per vhost, replicated via `replace_file`.
+- **Broker ownership**: each `VHost` owns its `SQS::Broker`, matching how it
+  owns `MQTT::Broker`, and closes it in `VHost#close`. Unlike the MQTT broker
+  it is created lazily on the first SQS request, so a server without an SQS
+  listener holds no SQS state.

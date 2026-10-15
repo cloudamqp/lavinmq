@@ -185,6 +185,19 @@ describe "SQS messages" do
     end
   end
 
+  it "reports a reject-publish overflow as OverLimit" do
+    with_sqs_server do |sqs, s|
+      args = LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"})
+      s.vhosts["/"].declare_queue("bounded", true, false, args)
+      url = sqs.json("GetQueueUrl", {QueueName: "bounded"})["QueueUrl"].as_s
+      sqs.json("SendMessage", {QueueUrl: url, MessageBody: "fits"})
+      status, code, _ = sqs.error("SendMessage", {QueueUrl: url, MessageBody: "overflows"})
+      status.should eq 403
+      code.should eq "OverLimit"
+      s.vhosts["/"].queue("bounded").message_count.should eq 1
+    end
+  end
+
   it "delays messages" do
     with_sqs_server do |sqs, s|
       url = sqs.create_queue("delayed")
@@ -299,12 +312,12 @@ describe "SQS messages" do
 
         sqs.json("SendMessage", {QueueUrl: url, MessageBody: "from sqs",
                                  MessageAttributes: {"k" => {DataType: "String", StringValue: "v"}}})
-        amqp_msg = q.get(no_ack: true).not_nil!
+        amqp_msg = q.get(no_ack: true) || fail "expected a message"
         amqp_msg.body_io.to_s.should eq "from sqs"
         amqp_msg.properties.content_type.should eq "text/plain; charset=utf-8"
         amqp_msg.properties.delivery_mode.should eq 2
-        amqp_msg.properties.message_id.not_nil!.size.should eq 36
-        headers = amqp_msg.properties.headers.not_nil!
+        (amqp_msg.properties.message_id || fail "expected a message_id").size.should eq 36
+        headers = amqp_msg.properties.headers || fail "expected headers"
         headers["x-sqs-sender-id"].should eq "guest"
         headers["x-sqs-attributes"].as(AMQP::Client::Arguments)["k"].as(AMQP::Client::Arguments)["StringValue"].should eq "v"
       end

@@ -173,6 +173,22 @@ describe "SQS queue management" do
     end
   end
 
+  it "creates a vhost's SQS broker on first use and closes it with the vhost" do
+    with_sqs_server do |sqs, s|
+      vhost = s.vhosts.create("lazy")
+      s.users.add_permission("guest", "lazy", /.*/, /.*/, /.*/)
+      vhost.@sqs_broker.should be_nil
+      url = sqs.json("CreateQueue", {QueueName: "q"}, path: "/lazy")["QueueUrl"].as_s
+      sqs.json("SendMessage", {QueueUrl: url, MessageBody: "x"})
+      sqs.json("ReceiveMessage", {QueueUrl: url})["Messages"].as_a.size.should eq 1
+      broker = vhost.@sqs_broker.should_not be_nil
+      broker.inflight_count(vhost.queue("q")).should eq 1
+      s.vhosts.delete("lazy")
+      broker.inflight_count(vhost.queue("q")).should eq 0
+      sqs.error("SendMessage", {QueueUrl: url, MessageBody: "x"})[1].should eq "QueueDoesNotExist"
+    end
+  end
+
   it "honours sqs public_url when minting queue urls" do
     with_sqs_server do |sqs, s|
       s.@config.sqs_public_url = "https://sqs.example.com/"

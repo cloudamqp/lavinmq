@@ -172,7 +172,12 @@ module LavinMQ
           # is a success to the client; only a vanished queue is an error
           raise QueueDoesNotExist.new if queue?(q.name).nil?
         end
-        raise OverLimit.new("The queue #{q.name} rejected the message because it is full.") if result.overflowed?
+        if result.rejected?
+          # Not stored: a closed queue (e.g. during shutdown) is transient and
+          # SDKs retry an InternalError; otherwise a reject-publish overflow
+          raise InternalError.new if q.closed?
+          raise OverLimit.new("The queue #{q.name} rejected the message because it is full.")
+        end
         SendResult.new(message_id, Checksums.md5_hex(body),
           Checksums.md5_attributes(attrs), Checksums.md5_attributes(system_attrs))
       end

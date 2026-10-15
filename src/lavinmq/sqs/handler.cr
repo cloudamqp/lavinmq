@@ -24,8 +24,8 @@ module LavinMQ
       DEFAULT_REGION     = "us-east-1"
       XML_NAMESPACE      = "http://queue.amazonaws.com/doc/2012-11-05/"
 
-      def initialize(@users : Auth::UserStore, brokers : Brokers, @config : Config)
-        @actions = Actions.new(brokers)
+      def initialize(@users : Auth::UserStore, vhosts : VHostStore, @config : Config)
+        @actions = Actions.new(vhosts)
       end
 
       def call(context) : Nil

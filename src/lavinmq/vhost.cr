@@ -19,6 +19,7 @@ require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 require "./mqtt/broker"
+require "./sqs/broker"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -49,6 +50,8 @@ module LavinMQ
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @mqtt_broker : MQTT::Broker?
+    @sqs_broker : SQS::Broker?
+    @sqs_broker_lock = Mutex.new
     @connections = ConnectionStore.new
 
     def flow? : Bool
@@ -532,6 +535,7 @@ module LavinMQ
       each_queue &.close
       each_session &.close
       @mqtt_broker.try &.close
+      @sqs_broker_lock.synchronize { @sqs_broker.try &.close }
       each_exchange &.close
       Fiber.yield
       definitions.close
@@ -602,6 +606,12 @@ module LavinMQ
 
     def mqtt_broker : MQTT::Broker
       @mqtt_broker.not_nil!("mqtt_broker not initialized")
+    end
+
+    # Created on the first SQS request rather than in `initialize`, so vhosts
+    # on a server without an SQS listener carry no SQS state at all.
+    def sqs_broker : SQS::Broker
+      @sqs_broker_lock.synchronize { @sqs_broker ||= SQS::Broker.new(self) }
     end
 
     def shovels

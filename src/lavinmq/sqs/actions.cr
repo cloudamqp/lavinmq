@@ -3,7 +3,8 @@ require "base64"
 require "./errors"
 require "./request"
 require "./queue_url"
-require "./brokers"
+require "./broker"
+require "../vhost_store"
 
 module LavinMQ
   module SQS
@@ -15,7 +16,7 @@ module LavinMQ
       MAX_BATCH_SIZE   =   10
       MAX_LIST_RESULTS = 1000
 
-      def initialize(@brokers : Brokers)
+      def initialize(@vhosts : VHostStore)
       end
 
       def dispatch(req : Request, json : JSON::Builder) : Nil # ameba:disable Metrics/CyclomaticComplexity
@@ -237,7 +238,9 @@ module LavinMQ
       # Helpers
 
       private def broker_for(vhost : String) : Broker
-        @brokers[vhost]? || raise QueueDoesNotExist.new
+        v = @vhosts[vhost]?
+        raise QueueDoesNotExist.new if v.nil? || v.closed?
+        v.sqs_broker
       end
 
       # Resolves the QueueUrl parameter and checks the permission. Returns

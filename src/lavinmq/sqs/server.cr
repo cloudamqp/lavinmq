@@ -1,6 +1,5 @@
 require "http/server"
 require "openssl"
-require "./brokers"
 require "./handler"
 require "../server"
 require "../config"
@@ -9,20 +8,19 @@ module LavinMQ
   module SQS
     Log = LavinMQ::Log.for "sqs"
 
-    # The SQS listener: a dedicated HTTP server (disabled by default, conventionally port 9324) so queue
-    # URLs are self-contained and management authentication does not apply.
+    # The SQS listener: a dedicated HTTP server (disabled by default,
+    # conventionally port 9324) so queue URLs are self-contained and
+    # management authentication does not apply. Per-vhost state lives in
+    # `SQS::Broker`, owned and closed by each `VHost`.
     class Server
       Log = LavinMQ::Log.for "sqs.server"
 
-      getter brokers : Brokers
-
       def initialize(@server : LavinMQ::Server, @config : Config = Config.instance)
-        @brokers = Brokers.new(@server.vhosts)
         @closed = false
         @bound = false
         handlers = [
           (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
-          Handler.new(@server.users, @brokers, @config),
+          Handler.new(@server.users, @server.vhosts, @config),
         ].select(::HTTP::Handler)
         @http = ::HTTP::Server.new(handlers)
       end
@@ -66,7 +64,6 @@ module LavinMQ
         return if @closed
         @closed = true
         @http.close rescue nil
-        @brokers.close
       end
     end
   end
