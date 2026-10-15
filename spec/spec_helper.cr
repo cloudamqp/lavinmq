@@ -122,7 +122,7 @@ end
 # On macOS the port of a just closed listener can't be bound again while
 # connections accepted on it are still closing, so retry for a moment
 # instead of letting ProtocolServer#bind_tcp abort the whole spec run.
-private def bind_restarted_listener(address : String, port : Int32, timeout = 5.seconds) : TCPServer
+def bind_restarted_listener(address : String, port : Int32, timeout = 5.seconds) : TCPServer
   deadline = Time.instant + timeout
   loop do
     return TCPServer.new(address, port)

@@ -1423,3 +1423,30 @@ describe LavinMQ::Server do
     end
   end
 end
+
+# The listener re-bind in restart_server, with a port that is deliberately
+# kept busy rather than relying on the macOS race this retry is for
+describe "bind_restarted_listener" do
+  it "binds once the port is released" do
+    occupant = TCPServer.new("127.0.0.1", 0)
+    port = occupant.local_address.port
+    spawn do
+      sleep 200.milliseconds
+      occupant.close
+    end
+    listener = bind_restarted_listener("127.0.0.1", port)
+    listener.local_address.port.should eq port
+  ensure
+    listener.try &.close
+    occupant.try &.close
+  end
+
+  it "raises Socket::BindError when the port stays in use" do
+    occupant = TCPServer.new("127.0.0.1", 0)
+    expect_raises(Socket::BindError) do
+      bind_restarted_listener("127.0.0.1", occupant.local_address.port, timeout: 200.milliseconds)
+    end
+  ensure
+    occupant.try &.close
+  end
+end
