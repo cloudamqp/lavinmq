@@ -68,26 +68,43 @@ function argumentHelper (formID, name, e) {
 }
 
 function argumentHelperJSON (formID, name, e) {
+  const form = document.getElementById(formID)
   const key = e.target.dataset.tag
+  const formElement = form.elements[name]
   let value
   try {
     value = JSON.parse(e.target.dataset.value || '""')
   } catch (ex) {
     value = e.target.dataset.value
   }
-  const form = document.getElementById(formID)
   try {
-    let currentValue = form.elements[name].value.trim()
+    let currentValue = formElement.value.trim()
     if (currentValue.length === 0) {
       currentValue = '{}'
     }
     currentValue = JSON.parse(currentValue)
     if (currentValue[key] || !key) { return }
     currentValue[key] = value
-    form.elements[name].value = formatJSONargument(currentValue)
+    formElement.value = formatJSONargument(currentValue)
+    selectJsonValue(formElement, key, JSON.stringify(value))
   } catch {
-    form.elements[name].value += `\n"${key}": ${value}`
+    formElement.value += `\n"${key}": ${value}`
   }
+}
+
+function selectJsonValue (element, key, value) {
+  const prefix = `"${key}": `
+  const keyIdx = element.value.indexOf(prefix)
+  if (keyIdx === -1) { return }
+  let start = keyIdx + prefix.length
+  let end = start + value.length
+  // Leave string quotes unselected so typing over the value keeps the JSON valid
+  if (value.startsWith('"')) {
+    start++
+    end--
+  }
+  element.focus()
+  element.setSelectionRange(start, end)
 }
 
 function formatJSONargument (obj) {
