@@ -5,7 +5,7 @@ CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.shtml)
 VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
+JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
@@ -55,29 +55,18 @@ benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
 lib: shard.yml shard.lock
 	shards install --production
 
-bin static/js/lib man1 static/js/lib/chunks:
+bin static/js/lib man1:
 	mkdir -p $@
 
-static/js/lib/chart.js: | static/js/lib
-	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
-	tar -zxOf- package/dist/chart.js > $@
-	[ "038d0a4f9c61f0b35ff70f883e7591403a349542625a4caaf48caa141adedfd5 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
+static/js/lib/uplot.esm.js: | static/js/lib
+	curl --fail --retry 5 -sL https://registry.npmjs.org/uplot/-/uplot-1.6.32.tgz | \
+	tar -zxOf- package/dist/uPlot.esm.js > $@
+	[ "5dd9b3281aa64b461b42d9945f6adb2649d346502b12281a9ae0d46599a80eba *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
-static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
-	tar -zxOf- package/dist/chunks/helpers.segment.js > $@
-	[ "b4746b748fe583a18ef921e341b8b65166c2ebd0b737fde6527b254baaeb1aa1 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
-
-static/js/lib/luxon.js: | static/js/lib
-	curl --fail --retry 5 -sL https://registry.npmjs.org/luxon/-/luxon-3.7.2.tgz | \
-	tar -zxOf- package/build/es6/luxon.mjs > $@
-	[ "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a *$@" = "$$(openssl dgst -sha256 -r $@)" ]
-
-static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --fail --retry 5 -sL https://registry.npmjs.org/chartjs-adapter-luxon/-/chartjs-adapter-luxon-1.3.1.tgz | \
-	tar -zxOf- package/dist/chartjs-adapter-luxon.esm.js > $@
-	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
-	[ "17d7b6567d656a004f86b6b5cbdbe64cb308e9a2ebfa7675caa79ba0bc72ef91 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
+static/js/lib/uplot.css: | static/js/lib
+	curl --fail --retry 5 -sL https://registry.npmjs.org/uplot/-/uplot-1.6.32.tgz | \
+	tar -zxOf- package/dist/uPlot.min.css > $@
+	[ "df630c6a8d6f8eeaff264b50f73ce5b114f646ffd9a0bb74f049b0a00135fa04 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
 	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
@@ -202,5 +191,5 @@ node_modules/@playwright/test:
 
 .PHONY: test-frontend
 test-frontend: node_modules/@playwright/test
-	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS)
-	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(SPEC)
+	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS) $(if $(PLAYWRIGHT_BROWSER),$(sort chromium $(PLAYWRIGHT_BROWSER)))
+	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(if $(PLAYWRIGHT_BROWSER),--project=$(PLAYWRIGHT_BROWSER)) $(SPEC)
