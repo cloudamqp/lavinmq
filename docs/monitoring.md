@@ -55,10 +55,12 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
 | `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
-| `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded |
-| `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired |
-| `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow |
-| `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue |
+| `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue (labeled by `dead_letter_strategy`) |
+
+The `dead_letter_strategy` label is `at_most_once` when the message was published to a dead letter exchange, and `disabled` when there was no dead letter exchange and the message was discarded.
 
 #### Runtime and clustering
 
