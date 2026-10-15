@@ -2,6 +2,8 @@ require "log"
 require "file"
 require "systemd"
 require "./server"
+require "../stdlib/io_buffered"
+require "../stdlib/fiber"
 require "./amqp/server"
 require "./mqtt/server"
 require "./http/http_server"
@@ -31,6 +33,7 @@ module LavinMQ
     @metrics_server : LavinMQ::HTTP::MetricsServer?
 
     def initialize(@config : Config)
+      resize_default_execution_context
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -79,7 +82,7 @@ module LavinMQ
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
-    rescue ex : Socket::BindError
+    rescue ex : Socket::BindError | HTTP::ControlSocketError
       stop
       abort "Error: #{ex.message}"
     end
@@ -114,6 +117,16 @@ module LavinMQ
       @data_dir_lock = lock
     rescue ex : DataDirLock::Error
       abort "Error: #{ex.message}"
+    end
+
+    private def resize_default_execution_context
+      Launcher.resize_default_execution_context(@config.workers)
+    end
+
+    # 0 workers uses CRYSTAL_WORKERS or one thread per CPU
+    def self.resize_default_execution_context(workers : Int32) : Nil
+      workers = Fiber::ExecutionContext.default_workers_count if workers <= 0
+      Fiber::ExecutionContext.default.resize(workers)
     end
 
     private def print_environment_info
@@ -267,7 +280,26 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
+      total_stack = 0_u64
+      Fiber.list do |f|
+        if stack = f.stack_used
+          total_stack += stack
+          puts "  #{f.inspect}: #{stack.humanize_bytes}"
+        else
+          puts "  #{f.inspect}: running"
+        end
+      end
+      puts "  total stack used (excluding running fibers): #{total_stack.humanize_bytes}"
+      IO::BufferPool.all.each do |pool|
+        stats = pool.stats
+        puts "Buffer pool (#{stats[:buffer_size].humanize_bytes} buffers)"
+        puts "  threads: #{stats[:threads]}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+        puts "  dropped: #{stats[:dropped]}"
+      end
       STDOUT.flush
     end
 

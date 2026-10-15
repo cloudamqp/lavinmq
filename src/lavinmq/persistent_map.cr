@@ -13,10 +13,14 @@ module LavinMQ
   # Each node is a single GC allocation of machine words: a header word (the
   # data bitmap in the low 32 bits, the node bitmap in the high 32), then the
   # key/value pairs, then the child node pointers. Keys and values are stored
-  # as raw references, so both K and V must be reference types. The GC scans
+  # as one machine word each, so K and V must be represented as a single
+  # reference: a class, a union of classes, or a module only classes include.
+  # Structs (e.g. `Bytes`, `Set`, integers) and nilable types aren't
+  # supported; such maps need their values boxed in a class. The GC scans
   # the block conservatively, which keeps the keys, values and children
-  # alive. Keys whose 64-bit hashes are equal end up in a collision node:
-  # header COLLISION, a count, then the pairs.
+  # alive. Keys whose 64-bit hashes are equal share a collision node, created
+  # where their hashes are first found equal: header COLLISION, a count, then
+  # the pairs.
   #
   # Keys are compared with `#hash` and `#==`, like `Hash`. Lookups and
   # iteration allocate nothing.
@@ -30,8 +34,12 @@ module LavinMQ
     @root : Node
 
     protected def initialize(@root : Node, @size : Int32)
-      {% unless K < Reference && V < Reference %}
-        {% raise "PersistentMap needs reference types for keys and values, got #{K} and #{V}" %}
+      {% for t in [K, V] %}
+        {% for u in t.union_types %}
+          {% unless u < Reference || (u.module? && u.includers.all? { |i| i < Reference }) %}
+            {% raise "PersistentMap stores keys and values as single references, so it can't hold #{u} (in #{t})" %}
+          {% end %}
+        {% end %}
       {% end %}
     end
 
@@ -76,15 +84,24 @@ module LavinMQ
       !self[key]?.nil?
     end
 
+    # Returns self when the key already maps to this very value
     def put(key : K, value : V) : PersistentMap(K, V)
       root, added = put(@root, key.hash, key, value, 0)
+      return self if root == @root
       PersistentMap(K, V).new(root, added ? @size + 1 : @size)
     end
 
     # Returns self when the key isn't in the map
     def delete(key : K) : PersistentMap(K, V)
+      delete_with_value(key)[0]
+    end
+
+    # The map without the key, and the value it had (nil, and self, when the
+    # key isn't in the map)
+    def delete_with_value(key : K) : {PersistentMap(K, V), V?}
       root, removed = delete(@root, key.hash, key, 0)
-      removed ? PersistentMap(K, V).new(root, @size - 1) : self
+      return {self, nil} if removed.nil?
+      {PersistentMap(K, V).new(root, @size - 1), removed}
     end
 
     # Depth-first walk with a fixed stack, at most 13 levels plus a collision
@@ -139,23 +156,23 @@ module LavinMQ
     # Pair i of a node lives at words 1 + 2i and 2 + 2i
     @[AlwaysInline]
     private def key_at(n : Node, i) : K
-      Pointer(Void).new(n[1 + 2 * i]).as(K)
+      n[1 + 2 * i].unsafe_as(K)
     end
 
     @[AlwaysInline]
     private def value_at(n : Node, i) : V
-      Pointer(Void).new(n[2 + 2 * i]).as(V)
+      n[2 + 2 * i].unsafe_as(V)
     end
 
     # In a collision node word 1 is the count, so pair i is at 2 + 2i
     @[AlwaysInline]
     private def collision_key(n : Node, i) : K
-      Pointer(Void).new(n[2 + 2 * i]).as(K)
+      n[2 + 2 * i].unsafe_as(K)
     end
 
     @[AlwaysInline]
     private def collision_value(n : Node, i) : V
-      Pointer(Void).new(n[3 + 2 * i]).as(V)
+      n[3 + 2 * i].unsafe_as(V)
     end
 
     @[AlwaysInline]
@@ -170,7 +187,7 @@ module LavinMQ
 
     @[AlwaysInline]
     protected def self.word(ref) : UInt64
-      ref.as(Void*).address
+      ref.unsafe_as(UInt64)
     end
 
     protected def self.alloc(words : Int32) : Node
@@ -185,7 +202,7 @@ module LavinMQ
 
     private def put(n : Node, h : UInt64, key : K, value : V, shift : Int32) : {Node, Bool}
       hdr = n[0]
-      return collision_put(n, key, value) if hdr == COLLISION
+      return collision_put(n, h, key, value, shift) if hdr == COLLISION
       datamap = hdr.to_u32!
       nodemap = (hdr >> 32).to_u32!
       data = datamap.popcount
@@ -196,12 +213,15 @@ module LavinMQ
         i = index(datamap, bit)
         k0 = key_at(n, i)
         if k0 == key
+          return {n, false} if value_at(n, i).same?(value)
           r = self.class.alloc(words)
           r.copy_from(n, words)
           r[2 + 2 * i] = self.class.word(value)
           return {r, false}
         end
-        # Two keys share this fragment: push both down into a new child
+        # Two keys share this fragment: push both down into a new child. Like
+        # CHAMP, nodes don't store hashes, so the existing key is rehashed;
+        # a write-path cost only, lookups never rehash
         sub = merge(k0, value_at(n, i), k0.hash, key, value, h, shift + 5)
         j = index(nodemap, bit)
         r = self.class.new_node(datamap & ~bit, nodemap | bit, data - 1, children + 1)
@@ -215,7 +235,9 @@ module LavinMQ
         {r, true}
       elsif nodemap & bit != 0
         j = index(nodemap, bit)
-        sub, added = put(child_at(n, data, j), h, key, value, shift + 5)
+        child = child_at(n, data, j)
+        sub, added = put(child, h, key, value, shift + 5)
+        return {n, false} if sub == child
         r = self.class.alloc(words)
         r.copy_from(n, words)
         r[1 + 2 * data + j] = sub.address
@@ -232,7 +254,7 @@ module LavinMQ
     end
 
     private def merge(k0 : K, v0 : V, h0 : UInt64, k1 : K, v1 : V, h1 : UInt64, shift : Int32) : Node
-      if shift >= 64
+      if h0 == h1
         r = self.class.alloc(6)
         r[0] = COLLISION
         r[1] = 2u64
@@ -258,11 +280,15 @@ module LavinMQ
       r
     end
 
-    private def collision_put(n : Node, key : K, value : V) : {Node, Bool}
+    private def collision_put(n : Node, h : UInt64, key : K, value : V, shift : Int32) : {Node, Bool}
+      # Rehashed as nodes don't store hashes (write path only, see put)
+      ch = collision_key(n, 0).hash
+      return {split(n, ch, key, value, h, shift), true} if ch != h
       count = n[1].to_i
       words = 2 + 2 * count
       count.times do |i|
         next unless collision_key(n, i) == key
+        return {n, false} if collision_value(n, i).same?(value)
         r = self.class.alloc(words)
         r.copy_from(n, words)
         r[3 + 2 * i] = self.class.word(value)
@@ -276,9 +302,27 @@ module LavinMQ
       {r, true}
     end
 
+    # A key whose hash differs from a collision node's: a node holding the
+    # key and, as a child, the collision node, below single-child nodes for
+    # as long as the two hashes share fragments
+    private def split(c : Node, ch : UInt64, key : K, value : V, h : UInt64, shift : Int32) : Node
+      fc = (ch >> shift) & 31
+      f = (h >> shift) & 31
+      if fc == f
+        r = self.class.new_node(0u32, 1u32 << fc, 0, 1)
+        r[1] = split(c, ch, key, value, h, shift + 5).address
+      else
+        r = self.class.new_node(1u32 << f, 1u32 << fc, 1, 1)
+        r[1] = self.class.word(key)
+        r[2] = self.class.word(value)
+        r[3] = c.address
+      end
+      r
+    end
+
     # A node below the root that is left with a single pair and no children
     # is moved up into its parent, which keeps the trie canonical
-    private def delete(n : Node, h : UInt64, key : K, shift : Int32) : {Node, Bool}
+    private def delete(n : Node, h : UInt64, key : K, shift : Int32) : {Node, V?}
       hdr = n[0]
       return collision_delete(n, h, key, shift) if hdr == COLLISION
       datamap = hdr.to_u32!
@@ -289,15 +333,15 @@ module LavinMQ
       bit = 1u32 << ((h >> shift) & 31)
       if datamap & bit != 0
         i = index(datamap, bit)
-        return {n, false} unless key_at(n, i) == key
+        return {n, nil} unless key_at(n, i) == key
         r = self.class.new_node(datamap & ~bit, nodemap, data - 1, children)
         (r + 1).copy_from(n + 1, 2 * i)
         (r + 1 + 2 * i).copy_from(n + 3 + 2 * i, 2 * (data - 1 - i) + children)
-        {r, true}
+        {r, value_at(n, i)}
       elsif nodemap & bit != 0
         j = index(nodemap, bit)
         sub, removed = delete(child_at(n, data, j), h, key, shift + 5)
-        return {n, false} unless removed
+        return {n, nil} if removed.nil?
         shdr = sub[0]
         if shdr != COLLISION && (shdr >> 32) == 0 && shdr.to_u32!.popcount == 1
           i = index(datamap, bit)
@@ -310,19 +354,19 @@ module LavinMQ
           nc = n + 1 + 2 * data
           rc.copy_from(nc, j)
           (rc + j).copy_from(nc + j + 1, children - j - 1)
-          {r, true}
+          {r, removed}
         else
           r = self.class.alloc(words)
           r.copy_from(n, words)
           r[1 + 2 * data + j] = sub.address
-          {r, true}
+          {r, removed}
         end
       else
-        {n, false}
+        {n, nil}
       end
     end
 
-    private def collision_delete(n : Node, h : UInt64, key : K, shift : Int32) : {Node, Bool}
+    private def collision_delete(n : Node, h : UInt64, key : K, shift : Int32) : {Node, V?}
       count = n[1].to_i
       count.times do |i|
         next unless collision_key(n, i) == key
@@ -332,25 +376,27 @@ module LavinMQ
           r = self.class.new_node(1u32 << ((h >> shift) & 31), 0u32, 1, 0)
           r[1] = n[2 + 2 * other]
           r[2] = n[3 + 2 * other]
-          return {r, true}
+          return {r, collision_value(n, i)}
         end
         r = self.class.alloc(2 * count)
         r[0] = COLLISION
         r[1] = (count - 1).to_u64
         (r + 2).copy_from(n + 2, 2 * i)
         (r + 2 + 2 * i).copy_from(n + 4 + 2 * i, 2 * (count - 1 - i))
-        return {r, true}
+        return {r, collision_value(n, i)}
       end
-      {n, false}
+      {n, nil}
     end
   end
 
   # A map that can be read from any thread without locks. Reads use the
   # current `PersistentMap` version; writes create the next version and
-  # publish it with a single atomic store.
-  #
-  # Writers must be serialized by the caller (e.g. with a mutex).
+  # publish it with a compare-and-set, retrying if another writer published
+  # first, so concurrent writers never lose each other's updates. Every read,
+  # including each `Enumerable` method, uses one version throughout.
   class CowMap(K, V)
+    include Enumerable({K, V})
+
     def initialize(map = PersistentMap(K, V).new)
       @map = Atomic(PersistentMap(K, V)).new(map)
     end
@@ -361,52 +407,27 @@ module LavinMQ
       @map.get(:acquire)
     end
 
-    def []?(key : K) : V?
-      snapshot[key]?
-    end
-
-    def [](key : K) : V
-      snapshot[key]
-    end
-
-    def has_key?(key : K) : Bool
-      snapshot.has_key?(key)
-    end
-
-    def size : Int32
-      snapshot.size
-    end
-
-    def empty? : Bool
-      snapshot.empty?
-    end
+    delegate :[]?, :[], :has_key?, :size, :empty?, :keys, :values, :each_key, :each_value, to: snapshot
 
     def each(& : {K, V} ->) : Nil
       snapshot.each { |kv| yield kv }
     end
 
-    def each_value(& : V ->) : Nil
-      snapshot.each_value { |v| yield v }
-    end
-
-    def values : Array(V)
-      snapshot.values
-    end
-
-    def any?(& : {K, V} -> Bool) : Bool
-      snapshot.any? { |kv| yield kv }
-    end
-
     def []=(key : K, value : V) : V
-      @map.set(snapshot.put(key, value), :release)
-      value
+      loop do
+        old = snapshot
+        map = old.put(key, value)
+        return value if map.same?(old) || @map.compare_and_set(old, map, :release, :acquire)[1]
+      end
     end
 
     def delete(key : K) : V?
-      map = snapshot
-      value = map[key]?
-      @map.set(map.delete(key), :release) unless value.nil?
-      value
+      loop do
+        old = snapshot
+        map, value = old.delete_with_value(key)
+        return if value.nil?
+        return value if @map.compare_and_set(old, map, :release, :acquire)[1]
+      end
     end
 
     def clear : Nil

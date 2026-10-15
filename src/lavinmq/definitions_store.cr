@@ -197,6 +197,10 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          if dst.is_a?(AMQP::MqttTopicExchange)
+            return false if loading
+            raise Error::PreconditionFailed.new("Exchange '#{dst.name}' of type x-mqtt-topic only receives MQTT publishes and cannot be a binding destination")
+          end
           return false unless src.bind(dst, f.routing_key, f.arguments)
           store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
@@ -373,7 +377,7 @@ module LavinMQ
           io.write_bytes f
         end
         @queues.each_value do |q|
-          next unless q.durable?
+          next unless q.durable? && !q.internal?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
@@ -470,6 +474,8 @@ module LavinMQ
         AMQP::FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
         AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-mqtt-topic"
+        AMQP::MqttTopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("unknown exchange type '#{type}'")
       end
     end

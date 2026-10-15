@@ -353,7 +353,7 @@ describe LavinMQ::HTTP::ExchangesController do
           msgs = [] of AMQP::Client::DeliverMessage
           q.subscribe { |msg| msgs << msg }
           wait_for { msgs.size == 1 }
-          msgs.first.not_nil!.body_io.to_s.should eq("test")
+          msgs.first.body_io.to_s.should eq("test")
         end
       end
     end
@@ -378,7 +378,7 @@ describe LavinMQ::HTTP::ExchangesController do
           msgs = [] of AMQP::Client::DeliverMessage
           q.subscribe { |msg| msgs << msg }
           wait_for { msgs.size == 1 }
-          msgs.first.not_nil!.body_io.to_s.should eq("test")
+          msgs.first.body_io.to_s.should eq("test")
         end
       end
     end
