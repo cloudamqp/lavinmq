@@ -130,6 +130,22 @@ module LavinMQ
       true
     end
 
+    # Reads the message at sp, under `lock`, and yields it outside the lock
+    # kept mapped like #shift_with_lease? does. Returns false, without
+    # yielding, if its segment is already deleted.
+    def envelope_with_lease?(lock : Mutex, sp : SegmentPosition, redelivered = false, & : Envelope -> _) : Bool
+      env = lock.synchronize do
+        return false unless @segments.has_key?(sp.segment)
+        envelope(sp, redelivered).lease
+      end
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
     # The envelope points into the segment, so it's only valid while the lock
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity

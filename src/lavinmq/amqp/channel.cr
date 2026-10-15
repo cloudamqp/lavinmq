@@ -626,11 +626,14 @@ module LavinMQ
           end
           redeliver.each do |consumer, unack|
             next if consumer.closed?
-            env = unack.queue.read(unack.sp)
             # The channel can be closed (consumer timeout, management API) while
-            # read waits for the queue's store lock, and close has requeued the message
-            return unless @running
-            consumer.redeliver(env.message, unack.tag)
+            # waiting for the queue's store lock or a socket write, and close
+            # has requeued the message, which can then be acked elsewhere and
+            # its segment deleted, so read it leased
+            unack.queue.read_with_lease?(unack.sp) do |env|
+              return unless @running
+              consumer.redeliver(env.message, unack.tag)
+            end
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
