@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
 - Publishing now resumes after a disk alarm only once free disk space is `3 * segment_size` above the alarm threshold, avoiding SIGBUS crashes from the burst of writes right after recovery [#2457](https://github.com/cloudamqp/lavinmq/pull/2457)
 - A broker that fails to start because another broker serves its control socket now stops with an error message instead of an unhandled exception, and no longer deletes the other broker's control socket. Closing the HTTP server only deletes the control socket if it bound it [#2423](https://github.com/cloudamqp/lavinmq/pull/2423)
 - With `tls_ktls` enabled, idle AMQP connections were closed at half the heartbeat interval instead of being sent a heartbeat, as a kTLS read timeout surfaced as end of file, making clients reconnect over and over. Idle MQTT connections were logged as unexpectedly closed instead of as keepalive timeouts [#2432](https://github.com/cloudamqp/lavinmq/pull/2432)
