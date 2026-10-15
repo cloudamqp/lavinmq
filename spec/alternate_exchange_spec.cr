@@ -55,7 +55,7 @@ describe "Alternate Exchange" do
         ch.exchange_bind("e1", "y", "")
         ch.exchange_bind("e2", "y", "")
         x.publish("m1", "rk")
-        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+        q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m1"
         ae_q.get(no_ack: true).should be_nil
 
         # Cycle: c1 <-> c2, both with an AE, c1 -> q
@@ -65,7 +65,7 @@ describe "Alternate Exchange" do
         ch.exchange_bind("c2", "c1", "")
         q.bind("c1", "")
         c1.publish("m2", "rk")
-        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m2"
+        q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m2"
         ae_q.get(no_ack: true).should be_nil
       end
     end
@@ -87,7 +87,7 @@ describe "Alternate Exchange" do
         ae_q.get(no_ack: true).should be_nil
         # A routing key without a matching binding still uses the AE
         x.publish("m2", "other")
-        ae_q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m2"
+        ae_q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m2"
       end
     end
   end
@@ -106,18 +106,18 @@ describe "Alternate Exchange" do
 
         # The routing key matches, a CC key doesn't
         x.publish("m1", "rk", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["none"]})))
-        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+        q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m1"
         ae_q.get(no_ack: true).should be_nil
 
         # Only a CC key matches
         x.publish("m2", "none", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["rk"]})))
-        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m2"
+        q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m2"
         ae_q.get(no_ack: true).should be_nil
 
         # Nothing matches
         x.publish("m3", "none", props: AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"CC" => ["none2"]})))
         q.get(no_ack: true).should be_nil
-        ae_q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m3"
+        ae_q.get(no_ack: true).should_not(be_nil).body_io.to_s.should eq "m3"
         ae_q.get(no_ack: true).should be_nil
       end
     end

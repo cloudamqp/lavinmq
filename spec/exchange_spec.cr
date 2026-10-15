@@ -329,8 +329,8 @@ describe LavinMQ::AMQP::BindingSet do
       b = vhost.queue("bs-b")
       key = LavinMQ::AMQP::BindingKey.new("rk")
       empty = LavinMQ::AMQP::BindingSet.empty
-      one = empty.add(a, key).not_nil!
-      two = one.add(b, key).not_nil!
+      one = empty.add(a, key).should_not(be_nil)
+      two = one.add(b, key).should_not(be_nil)
       one.add(a, key).should be_nil # already bound
       two.delete(a, LavinMQ::AMQP::BindingKey.new("other")).should be(two)
       after = two.delete(a, key)
@@ -351,7 +351,7 @@ describe LavinMQ::AMQP::BindingSet do
       end
       key = LavinMQ::AMQP::BindingKey.new("")
       set = LavinMQ::AMQP::BindingSet.empty
-      queues.each { |q| set = set.add(q, key).not_nil! }
+      queues.each { |q| set = set.add(q, key).should_not(be_nil) }
       set.should be_a LavinMQ::AMQP::MapBindingSet
       set.size.should eq max + 1
       set.add(queues.first, key).should be_nil
