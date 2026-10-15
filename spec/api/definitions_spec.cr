@@ -976,8 +976,7 @@ describe LavinMQ::HTTP::Server do
         body = http.get("/api/definitions").body
         parsed = JSON.parse(body)
         exported = parsed["exchanges"].as_a.find { |e| e["name"] == "xmqtt" }
-        exported.should_not be_nil
-        exported.not_nil!["type"].should eq "x-mqtt-topic"
+        exported.try(&.["type"]).should eq "x-mqtt-topic"
         parsed["bindings"].as_a.any? { |b| b["source"] == "xmqtt" }.should be_true
         # reserved-prefix internals stay out of the export
         parsed["exchanges"].as_a.none? { |e| e["name"] == "mqtt.default" }.should be_true
