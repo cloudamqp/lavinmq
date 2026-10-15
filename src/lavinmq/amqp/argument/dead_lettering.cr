@@ -79,7 +79,7 @@ module LavinMQ::AMQP
           xdeaths.each do |field|
             next unless xdeath = field.as?(AMQ::Protocol::Table)
             return false if xdeath["reason"]? == "rejected"
-            return true if xdeath["queue"]? == qname && xdeath["reason"] == reason.to_s
+            return true if xdeath["queue"]? == qname && xdeath["reason"]? == reason.to_s
           end
           false
         end
