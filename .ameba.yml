@@ -8,23 +8,6 @@
 Naming/BlockParameterName:
   Enabled: false
 
-# Problems found: 27
-# Run `ameba --only Lint/NotNil` for details
-Lint/NotNil:
-  Description: Identifies usage of `not_nil!` calls
-  Excluded:
-  - spec/**/*.cr
-  - src/lavinmq/federation/link.cr
-  - src/lavinmq/http/controller/exchanges.cr
-  - src/lavinmq/http/controller/main.cr
-  - src/lavinmq/shovel/shovel.cr
-  - src/lavinmq/amqp/client.cr
-  - src/lavinmq/amqp/channel.cr
-  - src/lavinmq/vhost.cr
-  - src/lavinmqperf.cr
-  Enabled: true
-  Severity: Warning
-
 # Problems found: 10
 # Run `ameba --only Documentation/DocumentationAdmonition` for details
 Documentation/DocumentationAdmonition:

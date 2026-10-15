@@ -1,5 +1,4 @@
 require "./version"
-require "../stdlib/slice"
 require "json"
 require "amq-protocol"
 require "./mqtt/permission_group"

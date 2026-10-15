@@ -74,7 +74,7 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
-              vhost.declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
+              vhost.declare_exchange(name, type, durable, auto_delete, internal, tbl)
               context.response.status_code = 201
             end
           rescue ex : Error::ExchangeTypeError

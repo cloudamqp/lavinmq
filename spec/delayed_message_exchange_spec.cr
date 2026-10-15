@@ -38,9 +38,8 @@ describe "Delayed Message Exchange" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.exchange(x_name, "topic", args: x_args)
-          q = s.vhosts["/"].queue?(delay_q_name)
-          q.should_not be_nil
-          dlx_exchange = q.not_nil!.arguments["x-dead-letter-exchange"]?.try &.as?(String)
+          q = s.vhosts["/"].queue?(delay_q_name).should_not be_nil
+          dlx_exchange = q.arguments["x-dead-letter-exchange"]?.try &.as?(String)
           dlx_exchange.should eq x_name
         end
       end
