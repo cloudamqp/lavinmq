@@ -121,6 +121,8 @@ const REF_TONES = {
   alarm: () => prefersDark() ? 'rgba(255,120,120,0.85)' : 'rgba(200,40,40,0.7)'
 }
 
+const LABEL_ROOM = 16
+
 function drawRefLines (u, handle) {
   const lines = handle.refLines
   if (!lines || !lines.length) return
@@ -141,9 +143,9 @@ function drawRefLines (u, handle) {
     ctx.fillStyle = color
     ctx.font = `${10 * dpr}px sans-serif`
     ctx.textAlign = alignLeft ? 'left' : 'right'
+    ctx.textBaseline = 'bottom'
     if (offTop) {
-      ctx.textBaseline = 'top'
-      ctx.fillText(`↑ ${text}`, labelX, top + 2 * dpr)
+      ctx.fillText(`↑ ${text}`, labelX, top - 2 * dpr)
       ctx.restore()
       continue
     }
@@ -156,11 +158,7 @@ function drawRefLines (u, handle) {
     ctx.lineTo(right, y)
     ctx.stroke()
     ctx.setLineDash([])
-    if (line.label) {
-      const above = y - 12 * dpr > top
-      ctx.textBaseline = above ? 'bottom' : 'top'
-      ctx.fillText(text, labelX, above ? y - 2 * dpr : y + 2 * dpr)
-    }
+    if (line.label) ctx.fillText(text, labelX, y - 2 * dpr)
     ctx.restore()
   }
 }
@@ -220,7 +218,7 @@ function initChart (handle) {
   const opts = {
     width,
     height,
-    padding: [null, 0, null, 0],
+    padding: [LABEL_ROOM, 0, null, 0],
     cursor: {
       show: true,
       drag: { x: false, y: false },
