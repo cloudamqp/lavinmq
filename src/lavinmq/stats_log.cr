@@ -1,3 +1,5 @@
+require "json"
+
 module LavinMQ
   # Per tick history of every stats series (per queue, channel, connection
   # etc), stored column-wise in memory mapped outside the GC heap.
@@ -124,12 +126,44 @@ module LavinMQ
       end
     end
 
+    # The rates per second of the sum of *series* for each of the last
+    # *count* ticks, oldest first, read when iterated or serialized
+    def rates(count : Int32, *series : Series, interval : Float64, digits : Int32) : View(T, Float64)
+      View(T, Float64).new(self, count.clamp(0, @size), @tick, series, interval, digits)
+    end
+
     # The sum of *series* for each of the last *count* ticks, oldest first,
-    # as converted by the block
-    def read(count : Int32, *series : Series, & : Int64 -> U) : Array(U) forall U
-      log = Array(U).new(count.clamp(0, @size), U.zero)
-      merge_into(log, count, *series) { |_, sum| yield sum }
-      log
+    # read when iterated or serialized
+    def values(count : Int32, *series : Series) : View(T, Int64)
+      View(T, Int64).new(self, count.clamp(0, @size), @tick, series)
+    end
+
+    # Whether any of *series* has a slot, else all its values are zero
+    protected def any_live?(series : StaticArray(Series, 4), series_count : Int32) : Bool
+      @lock.synchronize do
+        series_count.times do |j|
+          return true if chunk_for(series[j])
+        end
+        false
+      end
+    end
+
+    # Writes the sums of *series* for *n* ticks from *first_tick* to *buf*
+    protected def sum_rows(series : StaticArray(Series, 4), series_count : Int32,
+                           first_tick : Int64, n : Int32, buf : Pointer(Int64)) : Nil
+      @lock.synchronize do
+        chunks = StaticArray(Chunk(T)?, 4).new { |j| j < series_count ? chunk_for(series[j]) : nil }
+        n.times do |i|
+          row = ((first_tick + i) % rows).to_i32
+          sum = 0i64
+          series_count.times do |j|
+            if chunk = chunks[j]
+              sum += chunk.read(row, series[j].slot % @chunk_slots)
+            end
+          end
+          buf[i] = sum
+        end
+      end
     end
 
     # Replaces each value in *sums* with the block's result for it and the sum
@@ -152,6 +186,90 @@ module LavinMQ
             end
           end
           sums[offset + i] = yield sums[offset + i], sum
+        end
+      end
+    end
+
+    # A log of up to 4 series (for derived rates) as of the tick it was
+    # taken at. It doesn't copy the values, so serializing a log to JSON
+    # allocates nothing, and logs of series without slots, which are all
+    # zeros, are serialized from a cached string.
+    struct View(V, U)
+      include Enumerable(U)
+
+      # Values summed under the lock at a time, so it's never held while yielding
+      BATCH = 64
+
+      @series = StaticArray(Series, 4).new(Series.new)
+      @series_count : Int32
+
+      def initialize(@log : StatsLog(V), @size : Int32, @tick : Int64, series : Tuple,
+                     @interval : Float64 = 1.0, @digits : Int32 = 0)
+        raise ArgumentError.new("at most 4 series") if series.size > 4
+        @series_count = series.size
+        series.each_with_index { |s, i| @series[i] = s }
+      end
+
+      getter size : Int32
+
+      def each(& : U ->) : Nil
+        buf = uninitialized StaticArray(Int64, BATCH)
+        first_tick = @tick - @size + 1
+        done = 0
+        while done < @size
+          n = Math.min(@size - done, BATCH)
+          @log.sum_rows(@series, @series_count, first_tick + done, n, buf.to_unsafe)
+          n.times { |i| yield convert(buf[i]) }
+          done += n
+        end
+      end
+
+      def to_json(json : JSON::Builder) : Nil
+        if @log.any_live?(@series, @series_count)
+          json.array { each { |v| json.number v } }
+        else
+          json.raw ZeroJson.for(U, @size)
+        end
+      end
+
+      private def convert(sum : Int64) : U
+        {% if U == Float64 %}
+          (sum / @interval).round(@digits)
+        {% else %}
+          sum
+        {% end %}
+      end
+    end
+
+    # JSON of a log of only zeros. Logs of idle series are mostly of the same
+    # size, so the last one built of each kind is cached.
+    private class ZeroJson
+      @@floats : ZeroJson? = nil
+      @@ints : ZeroJson? = nil
+
+      def self.for(type : Float64.class, size : Int32) : String
+        last = @@floats
+        return last.json if last && last.size == size
+        (@@floats = new("0.0", size)).json
+      end
+
+      def self.for(type : Int64.class, size : Int32) : String
+        last = @@ints
+        return last.json if last && last.size == size
+        (@@ints = new("0", size)).json
+      end
+
+      getter size : Int32
+      getter json : String
+
+      def initialize(zero : String, @size : Int32)
+        @json = String.build do |io|
+          io << '['
+          @size.times do |i|
+            io << ',' unless i.zero?
+            io << zero
+          end
+          io << ']'
         end
       end
     end

@@ -287,13 +287,11 @@ module LavinMQ
 
       # Rate per second at each tick, oldest first: CPU seconds for the
       # times, blocks for the IO
-      def {{ m.id }}_log : Array(Float64)
+      def {{ m.id }}_log
         stats_log = Stats.counter_log
         interval = Config.instance.stats_interval / 1000.0
         {% if m.id.ends_with? "_time" %} interval *= 1000 {% end %}
-        stats_log.read(stats_log.ticks_since(@stats_log_start), @{{ m.id }}_log) do |increase|
-          (increase / interval).round(2)
-        end
+        stats_log.rates(stats_log.ticks_since(@stats_log_start), @{{ m.id }}_log, interval: interval, digits: 2)
       end
     {% end %}
     gauge_stats({"rss", "disk_total", "disk_free"})

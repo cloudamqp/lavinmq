@@ -116,9 +116,9 @@ module LavinMQ
             p.stats_details[:x_details][:log].should be_empty
             p.bump(5u64)
             log.advance { p.update_rates }
-            p.stats_details[:x_details][:log].should eq [1.0]
+            p.stats_details[:x_details][:log].to_a.should eq [1.0]
             4.times { log.advance { p.update_rates } }
-            p.stats_details[:x_details][:log].should eq [0.0, 0.0, 0.0]
+            p.stats_details[:x_details][:log].to_a.should eq [0.0, 0.0, 0.0]
           end
         end
       end
@@ -132,8 +132,8 @@ module LavinMQ
             p.deliver_get_count.should eq 15
             details = p.stats_details
             details[:deliver_get_details][:rate].should eq 3.0
-            details[:deliver_get_details][:log].should eq [3.0]
-            details[:deliver_details][:log].should eq [2.0]
+            details[:deliver_get_details][:log].to_a.should eq [3.0]
+            details[:deliver_details][:log].to_a.should eq [2.0]
             p.current_stats_details[:deliver_get_details][:rate].should eq 3.0
           end
         end
@@ -166,7 +166,7 @@ module LavinMQ
             p.bump(5_000_000_000u64)
             log.advance { p.update_rates }
             p.x_rate.should eq 1_000_000_000.0
-            p.x_log.should eq [(UInt32::MAX / 5).round(1)]
+            p.x_log.to_a.should eq [(UInt32::MAX / 5).round(1)]
           end
         end
       end
@@ -177,7 +177,7 @@ module LavinMQ
             p = ByteProbe.new
             p.bump(50_000_000_000u64)
             Stats.tick(3, 5000) { p.update_rates }
-            p.recv_oct_log.should eq [10_000_000_000.0]
+            p.recv_oct_log.to_a.should eq [10_000_000_000.0]
             Stats.byte_log.series_count.should eq 1
             Stats.counter_log.series_count.should eq 0
             rates = [1.0]
@@ -199,7 +199,7 @@ module LavinMQ
                 g.g = i
               end
             end
-            p.x_log.should eq [1.0, 1.0]
+            p.x_log.to_a.should eq [1.0, 1.0]
           end
           with_stats_interval(1000) do
             p.bump(5u64)
@@ -207,8 +207,8 @@ module LavinMQ
               p.update_rates
               g.g = 3
             end
-            p.x_log.should eq [5.0]
-            g.g_log.should eq [1, 2, 3]
+            p.x_log.to_a.should eq [5.0]
+            g.g_log.to_a.should eq [1, 2, 3]
           end
         end
       end
@@ -234,7 +234,7 @@ module LavinMQ
           {7, 0, 9, 4}.each do |v|
             Stats.tick(3, Config.instance.stats_interval) { p.g = v }
           end
-          p.g_log.should eq [0, 9, 4]
+          p.g_log.to_a.should eq [0, 9, 4]
           values = [1i64, 1i64, 1i64, 1i64]
           p.add_g_log(values)
           values.should eq [1, 1, 10, 5]
@@ -249,10 +249,10 @@ module LavinMQ
       s = StatsLog::Series.new
       log.advance { s = log.write(s, 1u32) }
       log.advance { s = log.write(s, 2u32) }
-      log.read(2, s, &.itself).should eq [1, 2]
+      log.values(2, s).to_a.should eq [1, 2]
       log.advance { }
       log.advance { s = log.write(s, 4u32) }
-      log.read(3, s, &.itself).should eq [2, 0, 4]
+      log.values(3, s).to_a.should eq [2, 0, 4]
     end
 
     it "shows a tick only once it has been written" do
@@ -262,10 +262,10 @@ module LavinMQ
       log.advance do
         s = log.write(s, 2u32)
         log.tick.should eq 1
-        log.read(2, s, &.itself).should eq [0, 1]
+        log.values(2, s).to_a.should eq [0, 1]
       end
       log.tick.should eq 2
-      log.read(2, s, &.itself).should eq [1, 2]
+      log.values(2, s).to_a.should eq [1, 2]
     end
 
     it "sums series" do
@@ -275,8 +275,8 @@ module LavinMQ
         a = log.write(a, UInt32::MAX)
         b = log.write(b, 3u32)
       end
-      log.read(1, a, b, &.itself).should eq [UInt32::MAX.to_i64 + 3]
-      log.read(1, a, b) { |v| v / 2 }.should eq [(UInt32::MAX.to_i64 + 3) / 2]
+      log.values(1, a, b).to_a.should eq [UInt32::MAX.to_i64 + 3]
+      log.rates(1, a, b, interval: 2.0, digits: 1).to_a.should eq [(UInt32::MAX.to_i64 + 3) / 2]
     end
 
     it "merges series into existing values, padding them at the front" do
@@ -300,7 +300,7 @@ module LavinMQ
         s = log.write(s, 5i64)
         s = log.write(s, 0i64)
       end
-      log.read(1, s, &.itself).should eq [0]
+      log.values(1, s).to_a.should eq [0]
       log.series_count.should eq 1
       3.times { log.advance { } }
       log.series_count.should eq 0
@@ -313,7 +313,7 @@ module LavinMQ
       log.series_count.should eq 1
       3.times { log.advance { } }
       log.series_count.should eq 1
-      log.read(3, s, &.itself).should eq [0, 0, 0]
+      log.values(3, s).to_a.should eq [0, 0, 0]
       log.advance { }
       log.series_count.should eq 0
       log.chunk_count.should eq 0
@@ -327,11 +327,11 @@ module LavinMQ
       other = StatsLog::Series.new
       log.advance { other = log.write(other, 7u32) }
       other.slot.should eq stale.slot
-      log.read(1, stale, &.itself).should eq [0]
+      log.values(1, stale).to_a.should eq [0]
       renewed = log.write(stale, 3u32)
       renewed.should_not eq stale
-      log.read(1, renewed, &.itself).should eq [3]
-      log.read(1, other, &.itself).should eq [7]
+      log.values(1, renewed).to_a.should eq [3]
+      log.values(1, other).to_a.should eq [7]
     end
 
     it "restarts the logs at the latest tick when cleared" do
@@ -342,10 +342,10 @@ module LavinMQ
       log.clear
       log.chunk_count.should eq 0
       log.ticks_since(0).should eq 0
-      log.read(3, s, &.itself).should eq [0, 0, 0]
+      log.values(3, s).to_a.should eq [0, 0, 0]
       log.advance { s = log.write(s, 2u32) }
       log.ticks_since(0).should eq 1
-      log.read(1, s, &.itself).should eq [2]
+      log.values(1, s).to_a.should eq [2]
     end
 
     it "keeps the latest values when resized" do
@@ -354,15 +354,15 @@ module LavinMQ
       1u32.upto(4u32) do |i|
         log.advance { s = log.write(s, i) }
       end
-      log.read(3, s, &.itself).should eq [2, 3, 4]
+      log.values(3, s).to_a.should eq [2, 3, 4]
       log.resize(5)
-      log.read(5, s, &.itself).should eq [0, 1, 2, 3, 4]
+      log.values(5, s).to_a.should eq [0, 1, 2, 3, 4]
       log.advance { s = log.write(s, 5u32) }
-      log.read(5, s, &.itself).should eq [1, 2, 3, 4, 5]
+      log.values(5, s).to_a.should eq [1, 2, 3, 4, 5]
       log.resize(2)
-      log.read(2, s, &.itself).should eq [4, 5]
+      log.values(2, s).to_a.should eq [4, 5]
       log.advance { }
-      log.read(2, s, &.itself).should eq [5, 0]
+      log.values(2, s).to_a.should eq [5, 0]
       log.advance { }
       log.series_count.should eq 1
       log.advance { }
@@ -384,6 +384,55 @@ module LavinMQ
       end
       log.chunk_count.should eq 1
       log.series_count.should eq 4
+    end
+
+    describe StatsLog::View do
+      it "serializes like an Array of its values" do
+        log = StatsLog(UInt32).new(4)
+        a = b = StatsLog::Series.new
+        log.advance { a = log.write(a, 5u32) }
+        log.advance { b = log.write(b, 10u32) }
+        log.advance { }
+        rates = log.rates(3, a, b, interval: 2.0, digits: 1)
+        rates.to_json.should eq [2.5, 5.0, 0.0].to_json
+        log.values(3, a, b).to_json.should eq [5, 10, 0].to_json
+      end
+
+      it "serializes the log of series without slots as zeros of its size" do
+        log = StatsLog(UInt32).new(3)
+        s = StatsLog::Series.new
+        log.rates(0, s, interval: 1.0, digits: 1).to_json.should eq "[]"
+        log.advance { }
+        log.rates(1, s, interval: 1.0, digits: 1).to_json.should eq "[0.0]"
+        log.values(1, s).to_json.should eq "[0]"
+        log.advance { }
+        log.rates(2, s, interval: 1.0, digits: 1).to_json.should eq "[0.0,0.0]"
+        log.values(2, s).to_json.should eq "[0,0]"
+        # a reclaimed series reads as zeros too
+        log.advance { s = log.write(s, 1u32) }
+        4.times { log.advance { } }
+        log.series_count.should eq 0
+        log.values(3, s).to_json.should eq "[0,0,0]"
+      end
+
+      it "serializes a log longer than one batch" do
+        size = StatsLog::View::BATCH * 2 + 3
+        log = StatsLog(UInt32).new(size)
+        s = StatsLog::Series.new
+        1.upto(size) { |i| log.advance { s = log.write(s, i.to_u32) } }
+        log.values(size, s).to_a.should eq (1i64..size.to_i64).to_a
+        JSON.parse(log.values(size, s).to_json).as_a.map(&.as_i64).should eq (1i64..size.to_i64).to_a
+      end
+
+      it "reads at the tick it was taken at" do
+        log = StatsLog(UInt32).new(3)
+        s = StatsLog::Series.new
+        log.advance { s = log.write(s, 1u32) }
+        view = log.values(1, s)
+        log.advance { s = log.write(s, 2u32) }
+        view.to_a.should eq [1]
+        log.values(2, s).to_a.should eq [1, 2]
+      end
     end
   end
 end

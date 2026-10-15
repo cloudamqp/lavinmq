@@ -73,13 +73,11 @@ module LavinMQ
         {% stats_log = name.ends_with?("_oct") ? "Stats.byte_log".id : "Stats.counter_log".id %}
 
         # Rate per second at each tick, oldest first
-        def {{ name.id }}_log : Array(Float64)
+        def {{ name.id }}_log
           stats_log = {{ stats_log }}
-          interval = Config.instance.stats_interval / 1000.0
-          stats_log.read(stats_log.ticks_since(@stats_log_start),
-            {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }}) do |increase|
-            (increase / interval).round(1)
-          end
+          stats_log.rates(stats_log.ticks_since(@stats_log_start),
+            {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }},
+            interval: Config.instance.stats_interval / 1000.0, digits: 1)
         end
 
         # Adds the rate per second at each tick to *rates*, aligned at the latest tick
@@ -120,9 +118,12 @@ module LavinMQ
         {% for name in tracked %}
           {{ name.id }}_count = @{{ name.id }}_count.get(:relaxed)
           {{ name.id }}_increase = {{ name.id }}_count - @{{ name.id }}_count_prev
-          @{{ name.id }}_count_prev = {{ name.id }}_count
-          @{{ name.id }}_rate = ({{ name.id }}_increase / interval).round(1)
-          unless {{ name.id }}_increase.zero? # rows start at zero, so idle counters cost nothing
+          if {{ name.id }}_increase.zero?
+            # rows start at zero, and idle objects must not dirty their cache lines
+            @{{ name.id }}_rate = 0_f64 unless @{{ name.id }}_rate.zero?
+          else
+            @{{ name.id }}_count_prev = {{ name.id }}_count
+            @{{ name.id }}_rate = ({{ name.id }}_increase / interval).round(1)
             {% if name.ends_with?("_oct") %}
               @{{ name.id }}_log = Stats.byte_log.write(@{{ name.id }}_log, {{ name.id }}_increase)
             {% else %}
@@ -132,7 +133,12 @@ module LavinMQ
         {% end %}
         {% for name in stats_keys %}
           {% if parts = derived[name] %}
-            @{{ name.id }}_rate = (({{ parts.map { |p| "#{p.id}_increase".id }.join(" + ").id }}) / interval).round(1)
+            {{ name.id }}_increase = {{ parts.map { |p| "#{p.id}_increase".id }.join(" + ").id }}
+            if {{ name.id }}_increase.zero?
+              @{{ name.id }}_rate = 0_f64 unless @{{ name.id }}_rate.zero?
+            else
+              @{{ name.id }}_rate = ({{ name.id }}_increase / interval).round(1)
+            end
           {% end %}
         {% end %}
       end
@@ -145,9 +151,9 @@ module LavinMQ
         @{{ name.id }}_log = StatsLog::Series.new
 
         # Value at each tick, oldest first
-        def {{ name.id }}_log : Array(Int64)
+        def {{ name.id }}_log
           stats_log = Stats.gauge_log
-          stats_log.read(stats_log.ticks_since(@stats_log_start), @{{ name.id }}_log, &.itself)
+          stats_log.values(stats_log.ticks_since(@stats_log_start), @{{ name.id }}_log)
         end
 
         # Adds the value at each tick to *values*, aligned at the latest tick
