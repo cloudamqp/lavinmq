@@ -230,6 +230,7 @@ module LavinMQ::Clustering::Raft
       end
       socket.sync = true
       socket.read_timeout = @connect_timeout
+      socket.write_timeout = @write_timeout
       id, address = authenticate_server(socket)
       begin
         # No read timeout: peers that aren't leader send each other nothing

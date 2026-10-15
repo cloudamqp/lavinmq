@@ -895,6 +895,48 @@ describe Raft::Core, "membership" do
     core.take_outbox.map(&.[0]).to_set.should eq Set{2, 3}
   end
 
+  it "keeps connecting to its seeds while moved or trusting moved voters, they may have moved too" do
+    now = Time.instant
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    moved = Raft::Core.new(1, "n1b", ["n1b", "n2b", "n3b"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1))
+    moved.moved_from.should eq "n1"
+    moved.connect_to.should eq Set{"n2", "n3", "n2b", "n3b"}
+
+    stayed = Raft::Core.new(1, "n1", ["n1", "n2b", "n3b"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1))
+    stayed.connect_to.should eq Set{"n2", "n3"}
+    stayed.tick(now + SimCluster::ELECTION * (Raft::Core::MOVED_TRUST_AFTER + 1))
+    stayed.trusting_moved?.should be_true
+    stayed.connect_to.should eq Set{"n2", "n3", "n2b", "n3b"}
+  end
+
+  it "ignores a CatchUp from a node that isn't a voter" do
+    now = Time.instant
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1))
+    longer = [Raft::Entry.new(1, Set{1, 2, 3})]
+    core.step(Raft::CatchUp.new(9, 1, 1, 1, nil, longer, three_voters), now)
+    core.last_index.should eq 1
+    core.step(Raft::CatchUp.new(2, 1, 1, 1, nil, longer, three_voters), now)
+    core.last_index.should eq 2
+  end
+
+  it "steps down as a candidate when it catches up on a voter's log" do
+    now = Time.instant
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1))
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 2, true, pre_vote: true), now)
+    core.role.candidate?.should be_true
+    core.step(Raft::CatchUp.new(2, 2, 1, 1, nil, [Raft::Entry.new(1, Set{1, 2, 3})], three_voters), now)
+    core.last_index.should eq 2
+    core.role.follower?.should be_true
+  end
+
   it "never elects two leaders while joining nodes list more peers than the members" do
     sim = SimCluster.new(3)
     leader = sim.elect(Set{1, 2, 3})

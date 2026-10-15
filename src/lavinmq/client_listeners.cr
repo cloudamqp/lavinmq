@@ -23,9 +23,10 @@ module LavinMQ
       HTTP
     end
 
-    # *target_port* is where it's forwarded to on the leader
+    # *target_port* is where it's forwarded to on the leader, nil when there
+    # is no such port (a unix socket without the plain TCP port)
     private record Listener, kind : Kind, server : Socket::Server,
-      tls : OpenSSL::SSL::Context::Server?, target_port : Int32
+      tls : OpenSSL::SSL::Context::Server?, target_port : Int32?
 
     # Where connections go while this node serves
     record Brokers, amqp : AMQP::Server, mqtt : MQTT::Server, http : HTTP::Server
@@ -64,7 +65,7 @@ module LavinMQ
         server = UNIXServer.new(unix_path)
         File.chmod(unix_path, 0o666)
         # To the leader's plain TCP port, unix sockets are local only
-        add kind, server, nil, port
+        add kind, server, nil, port > 0 ? port : nil
       end
     end
 
@@ -137,8 +138,12 @@ module LavinMQ
     end
 
     private def forward(l : Listener, client : Socket, host : String) : Nil
+      unless port = leader_port(l)
+        Log.debug { "Closing a #{l.kind} connection to #{l.server.local_address}, no port to forward it to" }
+        return client.close
+      end
       return client.close unless track(client)
-      target = TCPSocket.new(host, leader_port(l), connect_timeout: CONNECT_TIMEOUT)
+      target = TCPSocket.new(host, port, connect_timeout: CONNECT_TIMEOUT)
       set_socket_options(target)
       if client.is_a?(TCPSocket)
         set_socket_options(client)
@@ -167,7 +172,7 @@ module LavinMQ
 
     # The leader's port of the same kind and TLS as *l*, it uses the same
     # ports as this node
-    private def leader_port(l : Listener) : Int32
+    private def leader_port(l : Listener) : Int32?
       l.target_port
     end
 

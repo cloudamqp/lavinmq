@@ -80,10 +80,16 @@ module LavinMQ
         @checksums.restore
       end
 
-      # The leader's host while following it, client connections are
-      # forwarded there, see ClientListeners
-      getter host : String?
+      @host : String?
       @port : Int32?
+
+      # The leader's host while connected to it, client connections are
+      # forwarded there with a PROXY header the leader only accepts from the
+      # followers it has registered, see ClientListeners. So nil until it
+      # has registered this one, and while reconnecting.
+      def host : String?
+        @host if @connected
+      end
 
       # Tells whether this node is part of the cluster, to explain why the
       # leader keeps refusing the connection. Set by controllers that have
@@ -179,7 +185,6 @@ module LavinMQ
         Log.info { "Connected" }
         authenticate(socket)
         Log.info { "Authenticated" }
-        @connected = true
         set_socket_opts(socket)
         full_sync(socket, lz4)
       end
@@ -253,6 +258,7 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
+        @connected = true # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)

@@ -8,8 +8,8 @@ private class SpecListeners < LavinMQ::ClientListeners
     super(config, leader_host)
   end
 
-  private def leader_port(l) : Int32
-    @leader_ports[l.target_port]
+  private def leader_port(l) : Int32?
+    l.target_port.try { |port| @leader_ports[port] }
   end
 end
 

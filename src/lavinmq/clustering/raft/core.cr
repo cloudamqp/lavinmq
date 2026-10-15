@@ -362,13 +362,17 @@ module LavinMQ::Clustering::Raft
     # The addresses to keep connections to: every member, the nodes being told
     # they were removed, the leader even if we don't know yet that it's a
     # member (a node joining with an empty log can only answer the leader that
-    # way), and the configured seeds until there's a membership.
+    # way), and the configured seeds until there's a membership. Also the
+    # seeds while this node has moved or counts moved voters: the others may
+    # have moved too, and the membership only has their old addresses.
     def connect_to : Set(String)
       addrs = Set(String).new
       @peers.each { |p| address_of(p).try { |a| addrs << a } }
       @departing.each_value { |d| addrs << d.address }
       @leader.try { |l| address_of(l).try { |a| addrs << a } }
-      @seed_addresses.each { |a| addrs << a } unless latest_membership
+      if latest_membership.nil? || moved_from || @trust_moved
+        @seed_addresses.each { |a| addrs << a }
+      end
       addrs.delete(@address)
       addrs
     end
@@ -683,14 +687,18 @@ module LavinMQ::Clustering::Raft
     # Adopts a voter's log when it's more up to date than ours. That never
     # drops a committed entry: a log with a later last term holds every entry
     # committed before that term, one with the same last term extends ours.
+    # A candidate that was behind gives up its election: the votes it asked
+    # for were refused for that, it campaigns again with the log it has now.
     private def handle_catch_up(msg : CatchUp, now : Time::Instant) : Nil
       become_follower(msg.term, nil) if msg.term > @term
+      return unless @voters.includes?(msg.from)
       return if leader_recent?(now)
       last = msg.snapshot_index + msg.entries.size
       last_term = msg.entries.last?.try(&.term) || msg.snapshot_term
       return unless last_term > self.last_term || (last_term == self.last_term && last > last_index)
       install_snapshot(msg.snapshot_index, msg.snapshot_term, msg.snapshot_isr, msg.snapshot_membership)
       merge_entries(msg.snapshot_index, msg.entries)
+      become_follower(@term, nil) if @role.candidate?
     end
 
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil

@@ -283,6 +283,22 @@ describe LavinMQ::Clustering::Client, tags: "slow" do
     end
   end
 
+  it "names the leader's host, for forwarding clients, only while connected to it" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.instance.dup.tap &.data_dir = data_dir
+      repli = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      spawn(name: "follow unreachable spec") { repli.follow("localhost", free_port) }
+      sleep 100.milliseconds # retrying the refused connection
+      repli.host.should be_nil
+      repli.close
+    end
+    with_clustering do |cluster|
+      wait_for { cluster.repli.host == "localhost" }
+      cluster.replicator.close
+      wait_for { cluster.repli.host.nil? }
+    end
+  end
+
   it "won't deadlock under high load when a follower disconnects [#926]" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)

@@ -52,6 +52,17 @@ private class TCPRaftCluster
     new_addr
   end
 
+  # Restarts every node at once on new ports, with their data dirs and
+  # seeds listing the new addresses. Returns the new addresses.
+  def move_all : Array(String)
+    @addrs.each { |a| stop(a) }
+    servers = @addrs.map { TCPServer.new("127.0.0.1", 0) }
+    @addrs = servers.map { |s| "127.0.0.1:#{s.local_address.port}" }
+    @addrs.each_with_index { |a, i| @servers[a] = servers[i] }
+    @addrs.each_with_index { |a, i| start(a, i) }
+    @addrs
+  end
+
   # Starts a node with a new data dir that isn't part of the cluster.
   def start_extra(id : Int32, peers : Array(String), dir = new_dir) : Tuple(String, Raft::Node)
     server = TCPServer.new("127.0.0.1", 0)
@@ -429,6 +440,20 @@ describe Raft::Node do
       end
       wait_for { c.nodes[new_addr].membership.try(&.addresses[id]?) == new_addr }
       c.nodes[new_addr].leader_uri.should eq leader.leader_uri
+    end
+  end
+
+  it "elects a leader after every node moved at once, through the seeds" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
+      new_addrs = c.move_all
+      leader = c.wait_for_leader
+      wait_for(5.seconds) do
+        m = leader.membership
+        !m.nil? && m.voters.size == 3 && (1..3).all? { |id| m.addresses[id]? == new_addrs[id - 1] }
+      end
     end
   end
 
