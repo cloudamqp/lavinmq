@@ -176,8 +176,10 @@ describe OpenSSL::SSL::Socket do
 
       # Control records (alerts, handshake messages) bypass Socket#write and go
       # through KTLS.send_ctrl_message, which returns an Errno to OpenSSL
-      # instead of raising. close sends a close_notify alert that way.
-      it "raises IO::TimeoutError when a control record times out" do
+      # instead of raising. close sends a close_notify alert that way, and
+      # OpenSSL retried it forever when it timed out. close rescues IO::Error,
+      # so a timeout lets it return instead.
+      it "closes when sending close_notify times out" do
         pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
 
         ktls_stalled_peer_handshake(ktls_server_context) do |ssl, tcp|
@@ -203,7 +205,9 @@ describe OpenSSL::SSL::Socket do
 
           select
           when ex = result.receive
-            ex.should be_a(IO::TimeoutError)
+            # The peer never sends close_notify, so returning at all means
+            # the write timed out: a completed write would wait to read it
+            ex.should be_nil
           when timeout(5.seconds)
             fail "close never returned"
           end
