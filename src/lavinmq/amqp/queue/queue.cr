@@ -346,16 +346,6 @@ module LavinMQ::AMQP
       end
     end
 
-    def restart! : Bool
-      return false unless @closed
-      reset_queue_state
-      @msg_store = init_msg_store(@data_dir)
-      @empty = @msg_store.empty
-      start.tap do |started|
-        reapply_policy if started
-      end
-    end
-
     private def start_message_expire_loop
       return if @message_expire_fiber_active.swap(true)
       @log.debug { "Starting message expire loop" }
@@ -430,22 +420,6 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
       end
-    end
-
-    private def reset_queue_state
-      @closed = false
-      @consumers_closed = false
-      @state = QueueState::Running
-      @message_expire_fiber_active.set(false, :release)
-
-      # Recreate channels that were closed
-      @queue_expiration_ttl_change = ::Channel(Nil).new
-      @message_ttl_change = ::Channel(Nil).new
-      @paused = BoolChannel.new(false)
-      @consumers_empty = BoolChannel.new(true)
-      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
-      @deliver_loop_wg = WaitGroup.new
-      reset_queue_stats
     end
 
     # own method so that it can be overriden in other queue implementations
