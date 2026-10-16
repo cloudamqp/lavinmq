@@ -84,6 +84,11 @@ module LavinMQ::AMQP
 
       def initialize(@consumer_timeout = nil)
       end
+
+      # Deliveries are counted for x-delivery-limit and x-delayed-retry-min
+      def counts_deliveries? : Bool
+        !!(@delivery_limit || @delayed_retry_min)
+      end
     end
 
     # Published with release and read with acquire ordering, so that a reader
@@ -1144,6 +1149,7 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
+      settings = self.settings
       loop do # retry if msg expired or deliver limit hit
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
@@ -1152,8 +1158,8 @@ module LavinMQ::AMQP
             expire_msg(env, :expired)
             next
           end
-          if (settings.delivery_limit || settings.delayed_retry_min) && !no_ack
-            env = with_delivery_count_header(env) || next
+          if settings.counts_deliveries? && !no_ack
+            env = with_delivery_count_header(env, settings)
           end
           sp = env.segment_position
           if no_ack
@@ -1194,24 +1200,22 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
-    private def with_delivery_count_header(env) : Envelope?
-      if settings.delivery_limit || settings.delayed_retry_min
-        sp = env.segment_position
-        headers = env.message.properties.headers || AMQP::Table.new
-        # Acks and rejects on other threads update @deliveries too
-        delivery_count = @msg_store_lock.synchronize do
-          count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
-          @deliveries[sp] = count + 1
-          count
-        end
-        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        env.message.properties.headers = headers
+    private def with_delivery_count_header(env, settings : Settings) : Envelope
+      sp = env.segment_position
+      headers = env.message.properties.headers || AMQP::Table.new
+      # Acks and rejects on other threads update @deliveries too
+      delivery_count = @msg_store_lock.synchronize do
+        count = @deliveries[sp]? || delivery_count_from_header(headers, settings) || 0
+        @deliveries[sp] = count + 1
+        count
       end
+      headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+      env.message.properties.headers = headers
       env
     end
 
     # See #strip_delivery_count for why the header can be trusted here
-    private def delivery_count_from_header(headers) : Int32?
+    private def delivery_count_from_header(headers, settings : Settings) : Int32?
       return unless settings.delayed_retry_min
       headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
@@ -1235,7 +1239,7 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
-        @deliveries.delete(sp) if settings.delivery_limit || settings.delayed_retry_min
+        @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)
       end
     end
