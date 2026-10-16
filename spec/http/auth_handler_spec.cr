@@ -3,7 +3,7 @@ require "../spec_helper"
 private def with_auth_handler(& : LavinMQ::HTTP::AuthHandler, LavinMQ::Auth::UserStore ->)
   users = LavinMQ::Auth::UserStore.new(LavinMQ::Config.instance.data_dir, nil)
   handler = LavinMQ::HTTP::AuthHandler.new(
-    LavinMQ::Auth::LocalAuthenticator.new(users), users.direct_user,
+    LavinMQ::Auth::LocalAuthenticator.new(users), users.internal_user,
     LavinMQ::Config.instance.control_unix_path)
   yield handler, users
 end
@@ -24,7 +24,7 @@ describe LavinMQ::HTTP::AuthHandler do
     it "authenticates as the user named by valid explicit credentials" do
       with_auth_handler do |handler, users|
         context = request_context(basic_auth_headers("guest:guest"))
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
         context.user.try(&.name).should eq "guest"
       end
@@ -33,7 +33,7 @@ describe LavinMQ::HTTP::AuthHandler do
     it "is rejected when explicit credentials are invalid" do
       with_auth_handler do |handler, users|
         context = request_context(basic_auth_headers("guest:wrong"))
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
         context.user.should be_nil
       end
@@ -42,9 +42,9 @@ describe LavinMQ::HTTP::AuthHandler do
     it "stays authenticated when no credentials are sent" do
       with_auth_handler do |handler, users|
         context = request_context
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
-        context.user.should eq users.direct_user
+        context.user.should eq users.internal_user
       end
     end
 
@@ -54,7 +54,7 @@ describe LavinMQ::HTTP::AuthHandler do
         headers = basic_auth_headers("guest:guest")
         headers["Cookie"] = "m=|oauth:#{value}"
         context = request_context(headers)
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
         context.user.try(&.name).should eq "guest"
       end
@@ -64,9 +64,9 @@ describe LavinMQ::HTTP::AuthHandler do
       with_auth_handler do |handler, users|
         value = URI.encode_path_segment(Base64.strict_encode("sso-user:"))
         context = request_context(::HTTP::Headers{"Cookie" => "m=|oauth:#{value}"})
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
-        context.user.should eq users.direct_user
+        context.user.should eq users.internal_user
       end
     end
 
@@ -74,9 +74,9 @@ describe LavinMQ::HTTP::AuthHandler do
       with_auth_handler do |handler, users|
         value = URI.encode_path_segment(Base64.strict_encode("f:realm:alice:"))
         context = request_context(::HTTP::Headers{"Cookie" => "m=|oauth:#{value}"})
-        context.user = users.direct_user
+        context.user = users.internal_user
         handler.call(context)
-        context.user.should eq users.direct_user
+        context.user.should eq users.internal_user
       end
     end
   end

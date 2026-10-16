@@ -15,14 +15,13 @@ module LavinMQ
       property uri, prefetch, reconnect_delay, ack_mode, exchange,
         max_hops, expires, msg_ttl, queue
 
-      def initialize(@vhost : VHost, @name : String, raw_uri : String,
+      def initialize(@vhost : VHost, @name : String, @uri : URI,
                      @exchange = nil, @queue = nil,
                      @ack_mode = DEFAULT_ACK_MODE, @expires = DEFAULT_EXPIRES,
                      @max_hops = DEFAULT_MAX_HOPS, @msg_ttl = DEFAULT_MSG_TTL,
                      @prefetch = DEFAULT_PREFETCH, @reconnect_delay = DEFAULT_RECONNECT_DELAY,
                      consumer_tag = nil)
-        @consumer_tag = "federation-link-#{@name}"
-        @uri = URI.parse(raw_uri)
+        @consumer_tag = consumer_tag || "federation-link-#{@name}"
       end
 
       # Copy the upstream's configuration but give the copy its own, empty link
