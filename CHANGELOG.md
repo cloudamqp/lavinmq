@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A queue closed, deleted or paused from several threads at once could run its teardown twice, end up paused or closed after being deleted, or accept a consumer after it was closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
+- A queue or stream closed by a read error on a consumer's delivery never finished closing, so its message store was never closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
+
+### Removed
+
+- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. A queue closed by an error stays closed until the broker is restarted [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
 
 ## [2.11.0-rc.1] - 2026-10-16
 

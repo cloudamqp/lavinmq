@@ -92,10 +92,10 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
+| `closed` | Queue is closed due to an error. It stays closed until the broker is restarted, or until it's deleted. |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`).
 
 The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
 

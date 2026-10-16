@@ -12,24 +12,6 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
-# A queue whose teardown takes a while, to restart it while it's torn down
-class SlowTearDownQueue < LavinMQ::AMQP::DurableQueue
-  private def tear_down(msg_store, deliver_loop_wg) : Bool
-    sleep 200.milliseconds
-    super
-  end
-end
-
-# A queue that can be closed right as restart! starts it again
-class CloseOnStartQueue < LavinMQ::AMQP::DurableQueue
-  property? close_on_start = false
-
-  private def start : Bool
-    close if close_on_start?
-    super
-  end
-end
-
 # Adds a consumer when the queue's TTL fires, just before expire_queue checks
 # for consumers, like a consume racing the expiry on another thread
 class ConsumerAtExpiryQueue < LavinMQ::AMQP::Queue
@@ -504,204 +486,29 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  describe "Restarting queues" do
-    q_name = "restart"
-    it "should restart a closed queue" do
+  describe "Corrupt data" do
+    it "closes the queue and finishes the teardown when a consumer reads it" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Publish a message
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.message_count.should eq 1
-          msg = q.get(no_ack: true).should_not be_nil
-          msg.body_io.to_s.should eq "test message"
-        end
-      end
-    end
-
-    it "should restart after corrupt data closes the queue" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q = ch.queue("corrupt", durable: true)
+          queue = s.vhosts["/"].queue("corrupt").as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "test message"
           queue.message_count.should eq 1
 
           # Write corrupt data to the segment file
           mfile = queue.@msg_store.@segments.first_value
           File.open(mfile.path, "w+") do |f|
-            f.seek(mfile.size - mfile.size + 4)
+            f.seek(4)
             f.write(("x"*10).to_slice)
           end
 
-          # Try to consume, which will trigger the close due to corrupt data
+          # Consuming triggers the close due to corrupt data
           q.subscribe(tag: "tag", no_ack: false, &.ack)
           should_eventually(be_true) { queue.state.closed? }
 
           # The close isn't left waiting for the deliver loop that ran into
-          # the error, which is the loop it waits for
-          should_eventually(be_true) { queue.@torn_down.value }
-
-          # Delete corrupted segment file
-          File.delete(mfile.path)
-
-          # Restart the queue & verify that it is running
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.state.running?.should be_true
-          queue.message_count.should eq 0
-        end
-      end
-    end
-
-    it "should expire msgs after restarting a queue" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
-            {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
-          ))
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Publish a message
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.message_count.should eq 1
-          should_eventually(be_true) { queue.message_count == 0 }
-        end
-      end
-    end
-
-    it "should expire queue after restarting a queue" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          should_eventually(be_true) { queue.closed? }
-        end
-      end
-    end
-
-    it "should reapply policies after restart" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Apply a max-length policy
-          definition = {"max-length" => JSON::Any.new(2i64)}
-          policy = LavinMQ::Policy.new("test", "/", /.*/, LavinMQ::Policy::Target::Queues, definition, 0i8)
-          queue.apply_policy(policy, nil)
-
-          # Close and restart the queue
-          queue.close
-          queue.closed?.should be_true
-          queue.restart!.should be_true
-
-          # Publish 4 messages, only 2 should be kept
-          4.times { |i| q.publish_confirm "msg #{i}" }
-          queue.message_count.should eq 2
-        end
-      end
-    end
-
-    it "should not restart if queue is still running" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Try to restart without closing
-          queue.restart!.should be_false
-        end
-      end
-    end
-
-    it "should wait for a teardown in progress before restarting" do
-      with_amqp_server do |s|
-        queue = SlowTearDownQueue.create(s.vhosts["/"], "slow-teardown")
-        spawn { queue.close }
-        wait_for { queue.state.closed? }
-        queue.restart!.should be_true
-        sleep 300.milliseconds # a teardown still running would be done by now
-        queue.state.running?.should be_true
-        queue.@message_ttl_change.closed?.should be_false
-        queue.@msg_store.closed.should be_false
-        queue.publish(LavinMQ::Message.new("", "slow-teardown", "m")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
-      ensure
-        queue.try &.delete
-      end
-    end
-
-    it "should not report a restart that a concurrent close undid" do
-      with_amqp_server do |s|
-        queue = CloseOnStartQueue.create(s.vhosts["/"], "close-on-start")
-        queue.pause!
-        queue.close
-        queue.close_on_start = true
-        queue.restart!.should be_false
-        queue.state.closed?.should be_true
-      ensure
-        queue.try &.delete
-      end
-    end
-
-    it "should not restart a deleted queue" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-          queue.delete
-          queue.restart!.should be_false
-          queue.state.deleted?.should be_true
-        end
-      end
-    end
-
-    it "should clear exclusive consumer flag after restart" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          q.subscribe(no_ack: true, exclusive: true) { }
-          should_eventually(be_true) { queue.has_exclusive_consumer? }
-
-          queue.close
-          queue.restart!.should be_true
-
-          queue.has_exclusive_consumer?.should be_false
-        end
-
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          q.subscribe(no_ack: true) { }
+          # the error, which is the loop it waits for, so the store is closed
+          should_eventually(be_true) { queue.@msg_store.closed }
         end
       end
     end
