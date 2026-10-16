@@ -12,7 +12,8 @@ module LavinMQ
         # Replaced, never mutated (see `with`)
         getter destinations : BindingSet
         @match_any : Bool
-        @args_empty : Bool
+        # Only a binding without arguments matches a message without headers
+        getter? args_empty : Bool
         @pairs : Array(Pair)
 
         def initialize(args : AMQP::Table, default_match_any : Bool)
@@ -51,15 +52,28 @@ module LavinMQ
         end
       end
 
+      # The bindings as a flat array, which publishes scan as every binding
+      # has to be matched: an array scans much faster than the trie. Built
+      # from the version of @bindings it is tagged with.
+      private class Routes
+        getter version : UInt64
+        getter entries : Array(Binding)
+
+        def initialize(@version, @entries)
+        end
+      end
+
       # Arguments => match spec and bindings. Replaced, never mutated, so
       # publishers on other threads route without locks.
       @bindings = CowMap(AMQP::Table, Binding).new
-      # The same bindings as an array in insertion order, which publishes scan
-      # as every binding has to be matched: an array scans much faster than
-      # the trie. Replaced, never mutated, under @routes_lock, which also
-      # serializes the binds and unbinds that update both.
-      @routes = Atomic(Array({AMQP::Table, Binding})).new(Array({AMQP::Table, Binding}).new)
-      @routes_lock = Mutex.new
+      # Bumped after every change to @bindings
+      @bindings_version = Atomic(UInt64).new(0u64)
+      # Rebuilt by the first publish after a change, so that a bind costs
+      # O(1) array work and loading n bindings stays O(n), not O(n²)
+      @routes = Atomic(Routes).new(Routes.new(0u64, Array(Binding).new))
+      # Serializes binds and unbinds, which read, change and replace the
+      # bindings of an arguments table
+      @bindings_lock = Mutex.new
       @default_match_any : Bool
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -95,12 +109,11 @@ module LavinMQ
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        @routes_lock.synchronize do
+        @bindings_lock.synchronize do
           binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
           destinations = binding.destinations.add(destination, binding_key) || return false
-          binding = binding.with(destinations)
-          @bindings[arguments] = binding
-          update_routes(arguments, binding)
+          @bindings[arguments] = binding.with(destinations)
+          @bindings_version.add(1u64, :release)
         end
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
@@ -110,18 +123,16 @@ module LavinMQ
       def unbind(destination : Destination, routing_key, arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        @routes_lock.synchronize do
+        @bindings_lock.synchronize do
           binding = @bindings[arguments]? || return false
           destinations = binding.destinations.delete(destination, binding_key)
           return false if destinations.same?(binding.destinations)
           if destinations.empty?
             @bindings.delete(arguments)
-            update_routes(arguments, nil)
           else
-            binding = binding.with(destinations)
-            @bindings[arguments] = binding
-            update_routes(arguments, binding)
+            @bindings[arguments] = binding.with(destinations)
           end
+          @bindings_version.add(1u64, :release)
         end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -141,28 +152,42 @@ module LavinMQ
         end
       end
 
-      # Replaces the binding for *arguments* in the routes, or removes it when
-      # nil, keeping the insertion order. Called with @routes_lock held.
-      private def update_routes(arguments : AMQP::Table, binding : Binding?) : Nil
-        old = @routes.get(:acquire)
-        routes = Array({AMQP::Table, Binding}).new(old.size + 1)
-        found = false
-        old.each do |(args, b)|
-          if args == arguments
-            found = true
-            routes << {args, binding} if binding
-          else
-            routes << {args, b}
-          end
-        end
-        routes << {arguments, binding} if binding && !found
+      # The routes for the current bindings, see TopicExchange#current_routes
+      private def current_routes : Routes
+        version = @bindings_version.get(:acquire)
+        routes = @routes.get(:acquire)
+        return routes if routes.version == version
+        snapshot = @bindings.snapshot
+        entries = Array(Binding).new(snapshot.size)
+        snapshot.each_value { |binding| entries << binding }
+        # In memory order, see TopicExchange#current_routes
+        entries.sort_by!(&.object_id)
+        routes = Routes.new(version, entries)
         @routes.set(routes, :release)
+        routes
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        @routes.get(:acquire).each do |(_, binding)|
-          next unless binding.matches?(headers)
-          binding.destinations.each_destination { |d| yield d }
+        routes = current_routes.entries
+        # Index and bounds in locals: measured faster than Array#each in these
+        # loops, which are inlined into a large method
+        ptr = routes.to_unsafe
+        size = routes.size
+        i = 0
+        if headers.nil? || headers.empty?
+          while i < size
+            binding = ptr[i]
+            i += 1
+            next unless binding.args_empty?
+            binding.destinations.each_destination { |d| yield d }
+          end
+        else
+          while i < size
+            binding = ptr[i]
+            i += 1
+            next unless binding.matches?(headers)
+            binding.destinations.each_destination { |d| yield d }
+          end
         end
       end
     end
