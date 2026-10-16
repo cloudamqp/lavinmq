@@ -424,7 +424,11 @@ describe LavinMQ::AMQP::Queue do
               if j == 0
                 q.close
               else
-                q.add_consumer(consumers[j - 1])
+                begin
+                  q.add_consumer(consumers[j - 1])
+                rescue LavinMQ::AMQP::Queue::ClosedError
+                  # the close won the race
+                end
               end
               nil
             end)
