@@ -8,9 +8,7 @@ require "../auth/base_user"
 
 module LavinMQ
   module Shovel
-    class Error < Exception; end
-
-    class ConfigError < Error; end
+    alias ConfigError = Endpoint::ConfigError
 
     class Store
       def initialize(@vhost : VHost)
@@ -47,8 +45,8 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)
-        dest_uris = parse_uris(config["dest-uri"]?)
-        src_uris = parse_uris(config["src-uri"]?)
+        dest_uris = Endpoint.parse_uris(config["dest-uri"]?)
+        src_uris = Endpoint.parse_uris(config["src-uri"]?)
 
         src_q = config["src-queue"]?.try(&.as_s)
         src_x = config["src-exchange"]?.try(&.as_s)
@@ -113,14 +111,6 @@ module LavinMQ
         raise ConfigError.new("dest-timeout must be a positive number of seconds")
       end
 
-      def self.parse_uris(src_uri : JSON::Any?) : Array(URI)
-        return Array(URI).new if src_uri.nil?
-        uris = src_uri.as_s? ? [src_uri.as_s] : src_uri.as_a.map(&.as_s)
-        uris.map do |uri|
-          URI.parse(uri)
-        end
-      end
-
       def create(name, config)
         @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
@@ -128,7 +118,7 @@ module LavinMQ
         ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || Shovel::DEFAULT_ACK_MODE
         reconnect_delay = config["reconnect-delay"]?.try &.as_i.seconds || Shovel::DEFAULT_RECONNECT_DELAY
         prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
-        sessions = self.class.parse_uris(config["src-uri"]).map do |uri|
+        sessions = Endpoint.parse_uris(config["src-uri"]).map do |uri|
           Endpoint.session(uri, @vhost, "Shovel #{name} source")
         end
         src = Shovel::AMQPSource.new(name, sessions,
@@ -173,7 +163,7 @@ module LavinMQ
       end
 
       private def destination(name, config, ack_mode)
-        uris = self.class.parse_uris(config["dest-uri"])
+        uris = Endpoint.parse_uris(config["dest-uri"])
         destinations = uris.map do |uri|
           case uri.scheme
           when "http", "https"

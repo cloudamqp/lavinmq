@@ -242,7 +242,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true, @vhosts : VHostStore? = nil)
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @vhosts : VHostStore, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -630,7 +630,7 @@ module LavinMQ
     # federation links (see Endpoint::LocalSession)
     def sibling(name : String) : VHost?
       return self if name == @name
-      @vhosts.try &.[name]?
+      @vhosts[name]?
     end
 
     def upstreams

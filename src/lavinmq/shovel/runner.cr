@@ -226,7 +226,7 @@ module LavinMQ
       # The shoveled queue (or the destination exchange) was deleted: there's
       # nothing to reconnect to.
       private def source_gone?(ex) : Bool
-        ex.is_a?(Endpoint::NotFound) || ex.message.to_s.starts_with?("404")
+        ex.is_a?(Endpoint::NotFound)
       end
 
       private def terminate_if_needed(run_generation)

@@ -226,19 +226,15 @@ module LavinMQ
       # prefetch. In-process there's nothing to save, so every ack is sent
       # right away and the queue's unacked count stays accurate.
       private def ack_batch_size
-        return 1 if @session.is_a?(Endpoint::LocalSession)
+        session = @session
+        return 1 if session.nil? || !session.batch_acks?
         (@prefetch / 2).ceil.to_i
       end
 
       private def open_queue(session)
         q_name = @queue || ""
-        q = begin
-          session.declare_queue(q_name, passive: true)
-        rescue Endpoint::NotFound
-          # A server named queue for an exchange source is transient
-          session.declare_queue(q_name, passive: false, durable: !q_name.empty?,
-            auto_delete: q_name.empty?)
-        end
+        # A server named queue for an exchange source is transient
+        q = session.ensure_queue(q_name, durable: !q_name.empty?, auto_delete: q_name.empty?)
         # A new session numbers its deliveries from 1 again, and a queue-length
         # run counts against the snapshot just taken, not the previous one's.
         @settle.synchronize do

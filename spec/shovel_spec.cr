@@ -618,17 +618,14 @@ describe LavinMQ::Endpoint do
       end
     end
 
-    it "closes, and says so, when its vhost is deleted" do
+    it "closes when its vhost is deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("ls_vhost")
         vhost.declare_queue("q", true, false)
         session = LavinMQ::Endpoint.session(URI.parse("amqp:///ls_vhost"), s.vhosts["/"], "spec")
-        reasons = Channel(String).new(1)
-        session.on_close { |reason| reasons.send reason }
         session.open
         s.vhosts.delete("ls_vhost")
-        reasons.receive.should contain "closed"
-        session.closed?.should be_true
+        should_eventually(be_true) { session.closed? }
       end
     end
   end

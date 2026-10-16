@@ -151,12 +151,6 @@ module LavinMQ
           end
         end
 
-        private def declare_queue(session, name, args = AMQ::Protocol::Table.new)
-          session.declare_queue(name, passive: true)
-        rescue Endpoint::NotFound
-          session.declare_queue(name, passive: false, args: args)
-        end
-
         # Publishes an upstream delivery downstream, adding where it came from
         # to its x-received-from header, and settles it upstream according to
         # the ack mode. Returns false if it was published `immediate` and no
@@ -175,27 +169,18 @@ module LavinMQ
           upstream = @upstream_session
           generation = upstream.generation
           tag = msg.tag
-          case @upstream.ack_mode
-          in AckMode::NoAck
-            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate, nil)
-            if immediate && !result.routed?
-              @log.warn { "No downstream consumer ready, message lost (ack-mode no-ack)" }
-              return false
+          ack_mode = @upstream.ack_mode
+          on_confirm = ->(confirmed : Bool) { settle(upstream, generation, tag, confirmed) } if ack_mode.on_confirm?
+          result = @downstream.publish(exchange, routing_key, props, msg.body, immediate, on_confirm)
+          if immediate && !result.routed?
+            case ack_mode
+            in .no_ack?     then @log.warn { "No downstream consumer ready, message lost (ack-mode no-ack)" }
+            in .on_publish? then upstream.reject(tag, requeue: true)
+            in .on_confirm? then nil # the nack returned it upstream
             end
-          in AckMode::OnPublish
-            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate, nil)
-            if immediate && !result.routed?
-              upstream.reject(tag, requeue: true)
-              return false
-            end
-            upstream.ack(tag)
-          in AckMode::OnConfirm
-            # A nack (no consumer ready, reject-publish overflow, or the
-            # downstream closing) returns the message upstream.
-            result = @downstream.publish(exchange, routing_key, props, msg.body, immediate,
-              ->(confirmed : Bool) { settle(upstream, generation, tag, confirmed) })
-            return false if immediate && !result.routed?
+            return false
           end
+          upstream.ack(tag) if ack_mode.on_publish?
           true
         end
 
@@ -265,7 +250,7 @@ module LavinMQ
           @upstream_session.open
           # Stopped while connecting, when there was no session to close
           return @upstream_session.close if stopping?
-          declare_queue(@upstream_session, @upstream_q)
+          @upstream_session.ensure_queue(@upstream_q)
           @upstream_session.prefetch = @upstream.prefetch
         end
 
@@ -308,7 +293,7 @@ module LavinMQ
             @upstream_session.consume(@upstream_q, @upstream.consumer_tag, no_ack, false,
               AMQ::Protocol::Table.new) do |msg|
               received_from["redelivered"] = msg.redelivered
-              unless federate(msg, "", @federated_q.name, received_from.clone, immediate: true)
+              unless federate(msg, "", @federated_q.name, received_from, immediate: true)
                 # No consumer here was ready, so the message went back
                 # upstream. Take no more until one has room; if they're all
                 # gone instead, the consumer watcher ends the round.
@@ -450,7 +435,7 @@ module LavinMQ
           session.consume(@upstream_q, @upstream.consumer_tag, no_ack, false, AMQ::Protocol::Table.new) do |msg|
             if should_forward?(msg.properties.headers)
               received_from["redelivered"] = msg.redelivered
-              federate(msg, @federated_ex.name, msg.routing_key, received_from.clone, immediate: false)
+              federate(msg, @federated_ex.name, msg.routing_key, received_from, immediate: false)
             else
               @log.debug { "Skipping message, max hops reached" }
               session.ack(msg.tag) unless no_ack
@@ -459,26 +444,17 @@ module LavinMQ
         end
 
         private def setup(session)
-          begin
-            session.declare_exchange(@upstream_exchange, @federated_ex.type, passive: true)
-          rescue Endpoint::NotFound
-            session.declare_exchange(@upstream_exchange, @federated_ex.type, passive: false,
-              args: @federated_ex.arguments)
-          end
+          session.ensure_exchange(@upstream_exchange, @federated_ex.type, @federated_ex.arguments)
           q_args = AMQ::Protocol::Table.new({"x-internal-purpose" => "federation"})
           @upstream.expires.try { |v| q_args["x-expires"] = v }
           @upstream.msg_ttl.try { |v| q_args["x-message-ttl"] = v }
-          declare_queue(session, @upstream_q, q_args)
+          session.ensure_queue(@upstream_q, args: q_args)
           ex_args = AMQ::Protocol::Table.new({
             "x-downstream-name"  => System.hostname,
             "x-internal-purpose" => "federation",
             "x-max-hops"         => @upstream.max_hops,
           })
-          begin
-            session.declare_exchange(@upstream_q, "x-federation-upstream", passive: true)
-          rescue Endpoint::NotFound
-            session.declare_exchange(@upstream_q, "x-federation-upstream", passive: false, args: ex_args)
-          end
+          session.ensure_exchange(@upstream_q, "x-federation-upstream", ex_args)
           session.bind_queue(@upstream_q, @upstream_q, "")
           # The session is open, so #bound mirrors new bindings from here on.
           # Exchanges store a binding before calling #bound, so one made

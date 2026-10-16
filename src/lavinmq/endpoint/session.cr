@@ -1,4 +1,5 @@
 require "uri"
+require "json"
 require "amq-protocol"
 
 module LavinMQ
@@ -28,6 +29,9 @@ module LavinMQ
     # in exclusive use, conflicting arguments)
     class Refused < Error; end
 
+    # A shovel or federation upstream parameter that can't be used
+    class ConfigError < Error; end
+
     # A message delivered to a consumer.
     #
     # `properties` and `body` are borrowed: for a local session they point
@@ -52,6 +56,20 @@ module LavinMQ
       path.empty? ? "/" : path
     end
 
+    # The `uri` field of a shovel or federation upstream parameter: a URI or,
+    # as RabbitMQ accepts, a list of them
+    def self.parse_uris(value : JSON::Any?) : Array(URI)
+      return Array(URI).new if value.nil?
+      strings = if uri = value.as_s?
+                  [uri]
+                elsif list = value.as_a?
+                  list.map { |v| v.as_s? || raise ConfigError.new("Field 'uri' must be a string or a list of strings") }
+                else
+                  raise ConfigError.new("Field 'uri' must be a string or a list of strings")
+                end
+      strings.map { |str| URI.parse(str) }
+    end
+
     # The URI for logs, status and x-received-from headers, without credentials
     def self.display_uri(uri : URI) : String
       return uri.to_s if uri.userinfo.nil?
@@ -67,7 +85,6 @@ module LavinMQ
       # Bumped by every #open. Delivery tags are only meaningful within one
       # generation: a reopened session numbers its deliveries from 1 again.
       getter generation = 0_u32
-      @on_close : Proc(String, Nil)?
 
       def initialize(@name : String)
       end
@@ -80,11 +97,9 @@ module LavinMQ
 
       abstract def closed? : Bool
 
-      # Called once with a reason when the session closes for any other
-      # reason than #close: the peer closed it, or the network failed.
-      def on_close(&blk : String -> Nil) : Nil
-        @on_close = blk
-      end
+      # Whether acks are worth batching: true when each is a round trip to
+      # the broker
+      abstract def batch_acks? : Bool
 
       # Declares a queue, or with `passive` checks that it exists (raising
       # `NotFound` if it doesn't). Returns its name, which the server generates
@@ -96,6 +111,21 @@ module LavinMQ
       # Declares a durable exchange, or with `passive` checks that it exists
       abstract def declare_exchange(name : String, type : String, passive : Bool,
                                     args = AMQ::Protocol::Table.new) : Nil
+
+      # Declares the queue unless it exists, keeping an existing one as it is
+      def ensure_queue(name : String, durable = true, auto_delete = false,
+                       args = AMQ::Protocol::Table.new) : Tuple(String, UInt32)
+        declare_queue(name, passive: true)
+      rescue NotFound
+        declare_queue(name, passive: false, durable: durable, auto_delete: auto_delete, args: args)
+      end
+
+      # Declares the exchange unless it exists, keeping an existing one as it is
+      def ensure_exchange(name : String, type : String, args = AMQ::Protocol::Table.new) : Nil
+        declare_exchange(name, type, passive: true)
+      rescue NotFound
+        declare_exchange(name, type, passive: false, args: args)
+      end
 
       abstract def delete_queue(name : String) : Nil
       abstract def delete_exchange(name : String) : Nil
@@ -137,13 +167,6 @@ module LavinMQ
 
       protected def next_generation : Nil
         @generation &+= 1
-      end
-
-      protected def notify_closed(reason : String) : Nil
-        if cb = @on_close
-          @on_close = nil
-          cb.call(reason)
-        end
       end
     end
   end

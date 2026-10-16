@@ -6,8 +6,6 @@ module LavinMQ
     # Publishes to an exchange, or a queue through the default exchange, on an
     # Endpoint: this broker in-process or another broker over AMQP.
     class AMQPDestination < Destination
-      @started = false
-
       def initialize(@name : String, @session : Endpoint::Session, @queue : String?,
                      @exchange : String? = nil, @exchange_key : String? = nil,
                      @ack_mode = DEFAULT_ACK_MODE)
@@ -24,26 +22,18 @@ module LavinMQ
         return if started?
         @session.close
         @session.open
-        if q = @queue
-          begin
-            @session.declare_queue(q, passive: true)
-          rescue Endpoint::NotFound
-            @session.declare_queue(q, passive: false)
-          end
-        end
-        @started = true
+        @queue.try { |q| @session.ensure_queue(q) }
       rescue ex
         @session.close
         raise ex
       end
 
       def stop
-        @started = false
         @session.close
       end
 
       def started? : Bool
-        @started && !@session.closed?
+        !@session.closed?
       end
 
       def push(msg) : Nil

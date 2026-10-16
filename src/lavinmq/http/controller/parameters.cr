@@ -89,7 +89,7 @@ module LavinMQ
               when "federation-upstream", "federation-upstream-set"
                 Federation::UpstreamStore.validate_config!(component, value, context.user)
               end
-            rescue ex : Shovel::ConfigError | Federation::ConfigError
+            rescue ex : Endpoint::ConfigError
               bad_request(context, ex.message)
             end
             p = Parameter.new(component, name, value)

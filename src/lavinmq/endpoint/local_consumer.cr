@@ -31,7 +31,6 @@ module LavinMQ
       # closed or deleted
       def run(&blk : Delivery -> Nil) : Nil
         @handler = blk
-        @deliver_loop_running.set(true, :release)
         deliver_loop
       rescue ex : HandlerError
         raise ex.error
@@ -119,25 +118,14 @@ module LavinMQ
         Fiber.yield
       end
 
-      def details_tuple
+      private def channel_details
         {
-          queue: {
-            name:  @queue.name,
-            vhost: @queue.vhost.name,
-          },
-          consumer_tag:    @tag,
-          exclusive:       @exclusive,
-          ack_required:    !@no_ack,
-          prefetch_count:  @prefetch_count,
-          priority:        @priority,
-          channel_details: {
-            peer_host:       nil,
-            peer_port:       nil,
-            connection_name: @session.name,
-            user:            nil,
-            number:          0,
-            name:            @session.name,
-          },
+          peer_host:       nil,
+          peer_port:       nil,
+          connection_name: @session.name,
+          user:            nil,
+          number:          0,
+          name:            @session.name,
         }
       end
     end

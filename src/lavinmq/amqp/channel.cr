@@ -162,11 +162,9 @@ module LavinMQ
       # Closes the channel the way a refused publish does
       private def send_publish_refusal(frame, refusal : PublishRules::Refusal) : Nil
         case refusal.code
-        in .not_found?      then @client.send_not_found(frame, refusal.text)
-        in .access_refused? then @client.send_access_refused(frame, refusal.text)
-        in .content_too_large?, .no_consumers?, .resource_locked?, .precondition_failed?,
-           .not_implemented?, .unexpected_frame?, .resource_error?
-          @client.send_precondition_failed(frame, refusal.text)
+        when .not_found?      then @client.send_not_found(frame, refusal.text)
+        when .access_refused? then @client.send_access_refused(frame, refusal.text)
+        else                       @client.send_precondition_failed(frame, refusal.text)
         end
       end
 
@@ -331,14 +329,9 @@ module LavinMQ
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
       def enqueue_confirm_ack(msgid : UInt64) : Nil
         mailbox = @confirm_ack_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        post_confirm_ack(mailbox, msgid)
       end
 
       private def confirm_writer(mailbox : ::Channel(UInt64))
@@ -413,7 +406,7 @@ module LavinMQ
           return
         end
         if frame.consumer_tag.empty?
-          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+          frame.consumer_tag = QueueConsumer.generate_tag
         end
         if direct_reply_to?(frame.queue)
           unless frame.no_ack

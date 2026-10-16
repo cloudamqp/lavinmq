@@ -23,6 +23,16 @@ module LavinMQ
     # Receives publish confirms once the confirmed data is durable
     module ConfirmTarget
       abstract def enqueue_confirm_ack(msgid : UInt64) : Nil
+
+      # Posts the msgid to a 1-slot mailbox without blocking: if it's full
+      # the stale msgid is dropped, as confirms are cumulative
+      private def post_confirm_ack(mailbox : ::Channel(UInt64), msgid : UInt64) : Nil
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
     end
 
     private class Batch

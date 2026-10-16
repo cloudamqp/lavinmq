@@ -10,7 +10,9 @@ require "../config"
 require "../name_validator"
 
 module LavinMQ
-  class VHost; end # vhost.cr requires this file
+  # Declared ahead so this file compiles on its own: vhost.cr requires it,
+  # through the shovel and federation stores
+  class VHost; end
 
   module Endpoint
     # A session with a vhost of this broker, run in-process, see `Session`.
@@ -68,18 +70,19 @@ module LavinMQ
         spawn(watch_vhost(vhost, signal), name: "#{@name} vhost watcher")
       end
 
-      def close : Nil
-        do_close
-      end
-
       def closed? : Bool
         @closed
       end
 
-      private def do_close : Bool
+      # Acks are direct calls, nothing to batch
+      def batch_acks? : Bool
+        false
+      end
+
+      def close : Nil
         # A snapshot: consuming fibers remove their own consumer as they end
         consumers = @state_lock.synchronize do
-          return false if @closed
+          return if @closed
           @closed = true
           list = @consumers.values
           @consumers.clear
@@ -106,13 +109,12 @@ module LavinMQ
           list
         end
         unconfirmed.each { |(_, cb)| cb.call(false) }
-        true
       end
 
       private def watch_vhost(vhost, signal)
         select
         when vhost.closed.when_true.receive?
-          notify_closed("vhost '#{vhost.name}' closed") if do_close
+          close
         when signal.receive?
         end
       end
@@ -144,9 +146,7 @@ module LavinMQ
       def declare_exchange(name : String, type : String, passive : Bool,
                            args = AMQ::Protocol::Table.new) : Nil
         v = vhost
-        if v.exchange?(name)
-          return
-        end
+        return if v.exchange?(name)
         raise NotFound.new("404 - no exchange '#{name}' in vhost '#{v.name}'") if passive
         validate_new_name!(name, "exchange")
         raise Refused.new("403 - can't declare the default exchange") if name.empty?
@@ -204,11 +204,14 @@ module LavinMQ
         q = v.queue?(queue) || raise NotFound.new("404 - no queue '#{queue}' in vhost '#{v.name}'")
         raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' is internal") if q.internal?
         raise Refused.new("405 - queue '#{queue}' in vhost '#{v.name}' is exclusive") if q.exclusive?
-        tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}" if tag.empty?
+        tag = AMQP::QueueConsumer.generate_tag if tag.empty?
         consumer =
           begin
             if q.is_a?(AMQP::Stream)
-              LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
+              # A shovel consumes a stream without `x-stream-offset` exclusively,
+              # like a queue. A stream consumer can't be exclusive, so it gets a
+              # non-exclusive one, like the AMQP source of a remote shovel.
+              LocalStreamConsumer.new(self, q, tag, no_ack, false, @prefetch, args)
             else
               LocalConsumer.new(self, q, tag, no_ack, exclusive, @prefetch)
             end
@@ -327,7 +330,7 @@ module LavinMQ
         seq = @confirm_lock.synchronize do
           s = @confirm_seq += 1
           @unconfirmed.push({s, on_confirm})
-          @all_confirmed.set(false)
+          @all_confirmed.set(false) if @unconfirmed.size == 1
           s
         end
         result = begin
@@ -378,12 +381,7 @@ module LavinMQ
 
       # Called from the persister once the publishes up to `msgid` are durable
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @confirm_mailbox
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        post_confirm_ack(@confirm_mailbox, msgid)
       end
 
       private def confirm_loop(mailbox)

@@ -62,26 +62,15 @@ module LavinMQ
         @channel.unacked
       end
 
-      def details_tuple
-        channel_details = @channel.details_tuple
+      private def channel_details
+        details = @channel.details_tuple
         {
-          queue: {
-            name:  @queue.name,
-            vhost: @queue.vhost.name,
-          },
-          consumer_tag:    @tag,
-          exclusive:       @exclusive,
-          ack_required:    !@no_ack,
-          prefetch_count:  @prefetch_count,
-          priority:        @priority,
-          channel_details: {
-            peer_host:       channel_details[:connection_details][:peer_host],
-            peer_port:       channel_details[:connection_details][:peer_port],
-            connection_name: channel_details[:connection_details][:name],
-            user:            channel_details[:user],
-            number:          channel_details[:number],
-            name:            channel_details[:name],
-          },
+          peer_host:       details[:connection_details][:peer_host],
+          peer_port:       details[:connection_details][:peer_port],
+          connection_name: details[:connection_details][:name],
+          user:            details[:user],
+          number:          details[:number],
+          name:            details[:name],
         }
       end
 

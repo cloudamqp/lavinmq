@@ -18,12 +18,6 @@ module LavinMQ
     module StreamConsumption
       include StreamCursor
 
-      property offset : Int64 = 0_i64
-      property segment : UInt32 = 0_u32
-      property pos : UInt32 = 0_u32
-      property? segment_acquired = false
-      property segment_since = RoughTime.instant # when it moved into its segment
-      getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true
       @match_unfiltered = false

@@ -82,6 +82,29 @@ module LavinMQ
         @unacked.get(:relaxed)
       end
 
+      # A server generated consumer tag
+      def self.generate_tag : String
+        "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+      end
+
+      # The channel (or session) the consumer belongs to, for #details_tuple
+      private abstract def channel_details
+
+      def details_tuple
+        {
+          queue: {
+            name:  @queue.name,
+            vhost: @queue.vhost.name,
+          },
+          consumer_tag:    @tag,
+          exclusive:       @exclusive,
+          ack_required:    !@no_ack,
+          prefetch_count:  @prefetch_count,
+          priority:        @priority,
+          channel_details: channel_details,
+        }
+      end
+
       # A deliver loop that has nothing to deliver exits after
       # deliver_loop_idle_timeout, and is restarted by #ensure_deliver_loop
       # when the queue gets messages. One that runs on its caller's fiber

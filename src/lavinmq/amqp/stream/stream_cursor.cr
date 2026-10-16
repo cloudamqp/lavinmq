@@ -1,18 +1,26 @@
+require "../../segment_position"
+require "../../rough_time"
+
 module LavinMQ
   module AMQP
-    # A consumer's read position in a Stream. Included by every kind of stream
-    # consumer, AMQP::StreamConsumer for AMQP clients and
-    # Endpoint::LocalStreamConsumer for in-process shovels and federation
-    # links, so the Stream and its store can serve both. An includer provides:
+    # A consumer's read position in a Stream, owned and moved by the
+    # StreamMessageStore. Included by every kind of stream consumer, through
+    # StreamConsumption, so the Stream and its store can serve both AMQP
+    # clients and in-process shovels and federation links. An includer also
+    # provides:
     #
     # - `tag : String`
-    # - `offset`, `segment`, `pos`, `segment_since` and `segment_acquired?`,
-    #   with setters: the read position, owned by StreamMessageStore
-    # - `requeued : Deque(SegmentPosition)`: rejected messages to redeliver
     # - `filter_match?(headers) : Bool`
     # - `waiting_for_messages? : Bool` and `notify_new_message`: woken by the
     #   stream on publish
     module StreamCursor
+      property offset : Int64 = 0_i64
+      property segment : UInt32 = 0_u32
+      property pos : UInt32 = 0_u32
+      property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
+      # Rejected messages to redeliver
+      getter requeued = Deque(SegmentPosition).new
     end
   end
 end

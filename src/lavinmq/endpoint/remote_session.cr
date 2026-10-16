@@ -9,7 +9,6 @@ module LavinMQ
       @conn : ::AMQP::Client::Connection?
       @ch : ::AMQP::Client::Channel?
       @prefetch = 0_u16
-      @closing = false
 
       def initialize(@uri : URI, name : String)
         super(name)
@@ -22,18 +21,13 @@ module LavinMQ
         params["product"] = "LavinMQ"
         params["product_version"] = LavinMQ::VERSION.to_s
         uri.query = params.to_s
-        @closing = false
         conn = ::AMQP::Client.new(uri).connect
-        conn.on_close do |code, reason|
-          notify_closed("#{code} - #{reason}") unless @closing
-        end
         @conn = conn
         @ch = conn.channel
         next_generation
       end
 
       def close : Nil
-        @closing = true
         @conn.try &.close(no_wait: false)
       rescue ::AMQP::Client::Error | IO::Error
       ensure
@@ -41,7 +35,12 @@ module LavinMQ
       end
 
       def closed? : Bool
-        @conn.nil? || @conn.try(&.closed?) || false
+        conn = @conn
+        conn.nil? || conn.closed?
+      end
+
+      def batch_acks? : Bool
+        true
       end
 
       def declare_queue(name : String, passive : Bool, durable = true, auto_delete = false,
@@ -81,7 +80,7 @@ module LavinMQ
 
       def prefetch=(count : UInt16)
         @prefetch = count
-        channel.prefetch(count)
+        with_channel(&.prefetch(count))
       end
 
       def consume(queue : String, tag : String, no_ack : Bool, exclusive : Bool,
@@ -116,15 +115,13 @@ module LavinMQ
 
       def publish(exchange : String, routing_key : String,
                   properties : AMQ::Protocol::Properties, body : Bytes) : Nil
-        channel.basic_publish(body, exchange, routing_key, props: properties)
+        with_channel(&.basic_publish(body, exchange, routing_key, props: properties))
       end
 
       def publish(exchange : String, routing_key : String,
                   properties : AMQ::Protocol::Properties, body : Bytes,
                   &on_confirm : Bool -> Nil) : Nil
-        channel.basic_publish(body, exchange, routing_key, props: properties) do |ok|
-          on_confirm.call(ok)
-        end
+        with_channel(&.basic_publish(body, exchange, routing_key, props: properties, &on_confirm))
       end
 
       private def channel : ::AMQP::Client::Channel
@@ -133,7 +130,8 @@ module LavinMQ
 
       # A failed operation closes an AMQP channel. Reopen it so the session
       # stays usable (a passive declare is how existence is checked), and
-      # translate the error.
+      # translate the error: every operation goes through here, so a caller
+      # only ever sees Endpoint errors.
       private def with_channel(&)
         ch = channel
         begin
