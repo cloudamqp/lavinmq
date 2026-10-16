@@ -92,13 +92,22 @@ jobs:
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev etcd-server
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y liblz4-dev etcd-server postgresql
+
+      - name: Start PostgreSQL with logical replication
+        run: |
+          ver=$(ls /usr/lib/postgresql | sort -n | tail -1)
+          echo "wal_level = logical" > /etc/postgresql/$ver/main/conf.d/logical.conf
+          pg_ctlcluster $ver main start
+          su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres'\""
 
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Spec
         run: make test
+        env:
+          LAVINMQ_SPEC_PG_URI: postgres://postgres:postgres@127.0.0.1/postgres
 
   spec_osx:
     name: Spec macOS

@@ -769,6 +769,8 @@ class LavinMQCtl
   @[Opt("--src-exchange=EXCHANGE", "Source exchange name", args: "src-exchange")]
   @[Opt("--dest-exchange=EXCHANGE", "Destination exchange name", args: "dest-exchange")]
   @[Opt("--src-exchange-key=KEY", "Source routing key", args: "src-exchange-key")]
+  @[Opt("--src-publication=PUBLICATION", "Source PostgreSQL publication", args: "src-publication")]
+  @[Opt("--src-slot=SLOT", "Source PostgreSQL replication slot", args: "src-slot")]
   @[Opt("--dest-exchange-key=KEY", "Destination routing key", args: "dest-exchange-key")]
   @[Opt("--src-prefetch-count=COUNT", "Source prefetch count", args: "src-prefetch-count", value: v.to_i64)]
   @[Opt("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)", args: "src-delete-after")]
