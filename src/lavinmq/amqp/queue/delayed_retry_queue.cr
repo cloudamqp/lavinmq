@@ -33,8 +33,7 @@ module LavinMQ::AMQP
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
-      @log.error(ex) { "Queue closed due to error, message requeued instantly" }
-      close
+      @log.error(ex) { "Could not delay message, requeued instantly" }
       false
     end
 

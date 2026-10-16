@@ -296,6 +296,44 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "skips the rest of a segment with a message that can't be read" do
+    with_amqp_server do |s|
+      q_name = "stream-corrupt"
+      StreamSpecHelpers.publish(s, q_name, 2)
+      stream = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::Stream)
+      # Corrupt the second message only
+      mfile = stream.@msg_store.@segments.first_value
+      msg_size = (mfile.size - 4) // 2
+      File.open(mfile.path, "r+") do |f|
+        f.seek(4 + msg_size)
+        f.write(Bytes.new(msg_size, 0xff_u8))
+      end
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue(q_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+        offsets = Channel(Int64).new(3)
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+          offsets.send StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+          msg.ack
+        end
+        receive = -> do
+          select
+          when offset = offsets.receive
+            offset
+          when timeout 5.seconds
+            fail "no message delivered"
+          end
+        end
+        receive.call.should eq 1
+        # Continues with what's written after the corrupt message
+        StreamSpecHelpers.publish(s, q_name, 1)
+        receive.call.should eq 3
+        stream.closed?.should be_false
+        File.exists?("#{mfile.path}.corrupt").should be_true
+      end
+    end
+  end
+
   describe "deliver loop scheduling" do
     it "yields to other fibers after yield_each_delivered_bytes during a replay" do
       config = LavinMQ::Config.instance

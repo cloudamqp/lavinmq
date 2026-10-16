@@ -18,6 +18,7 @@ module LavinMQ::AMQP
     # Simplified expire loop: no consumers and no per-message TTL to consider,
     # only the delays ordered by the delayed store.
     private def message_expire_loop
+      failed = false
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -39,13 +40,14 @@ module LavinMQ::AMQP
         end
       end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+      # Not restarted here, where it would run into the error again, but by
+      # the next delayed message
+      failed = true
+      @log.error(ex) { "Message expire loop stopped due to error" }
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
-      ensure_expire_fiber # restart if a message arrived during teardown
+      ensure_expire_fiber unless failed # restart if a message arrived during teardown
       @log.debug { "message_expire_loop stopped" }
     end
 
