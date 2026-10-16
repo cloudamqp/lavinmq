@@ -80,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sorting boolean columns through the HTTP API returned an error, including sorting the connections list by TLS in the management UI [#2248](https://github.com/cloudamqp/lavinmq/pull/2248)
 - Management UI tooltips were clipped or misplaced near viewport edges and inside scrollable containers [#2235](https://github.com/cloudamqp/lavinmq/pull/2235)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+- Messages published to a delayed exchange whose internal delayed queue was closed (e.g. after a store error) were silently dropped but confirmed. The publish is now nacked, like a publish to a closed queue, and a mandatory publish is returned with `312 NO_ROUTE` [#2046](https://github.com/cloudamqp/lavinmq/pull/2046)
+- Delayed exchanges counted each delayed message twice in `publish_out`: when it was delayed and again when it was routed after the delay [#2046](https://github.com/cloudamqp/lavinmq/pull/2046)
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
