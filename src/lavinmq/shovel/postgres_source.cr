@@ -2,6 +2,7 @@ require "./source"
 require "../endpoint/session"
 require "./postgres/connection"
 require "./postgres/pgoutput"
+require "digest/sha1"
 
 module LavinMQ
   module Shovel
@@ -45,8 +46,13 @@ module LavinMQ
                      @ack_mode = DEFAULT_ACK_MODE)
       end
 
-      def self.default_slot_name(shovel_name : String) : String
-        "lavinmq_#{shovel_name.downcase.gsub(/[^a-z0-9_]/, '_')}"[0, 63]
+      # Shovel names are only unique within a vhost, and slot names are
+      # sanitized and capped at 63 characters, so the readable prefix is
+      # followed by a hash of the vhost and the exact name.
+      def self.default_slot_name(vhost : String, shovel_name : String) : String
+        prefix = shovel_name.downcase.gsub(/[^a-z0-9_]/, '_')[0, 46]
+        hash = Digest::SHA1.hexdigest("#{vhost}/#{shovel_name}")[0, 8]
+        "lavinmq_#{prefix}_#{hash}"
       end
 
       # Setting up can block for long: CREATE_REPLICATION_SLOT waits for every

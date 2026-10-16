@@ -91,7 +91,7 @@
           </label>
           <label class="pg-src-field hide">
             <span>Replication slot</span>
-            <input type="text" name="src-slot" placeholder="lavinmq_&lt;shovel name&gt;" pattern="[a-z0-9_]{1,63}" disabled>
+            <input type="text" name="src-slot" placeholder="lavinmq_&lt;shovel name&gt;_&lt;hash&gt;" pattern="[a-z0-9_]{1,63}" disabled>
           </label>
           <label>
             <span>Prefetch</span>

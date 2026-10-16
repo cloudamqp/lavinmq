@@ -472,9 +472,15 @@ describe "PostgreSQL shovel" do
     end
   end
 
-  it "derives a valid default slot name from the shovel name" do
-    LavinMQ::Shovel::PostgresSource.default_slot_name("My Shovel-1").should eq "lavinmq_my_shovel_1"
-    LavinMQ::Shovel::PostgresSource.default_slot_name("x" * 100).size.should eq 63
+  it "derives a distinct, valid default slot name per vhost and shovel" do
+    slot = ->(vhost : String, name : String) { LavinMQ::Shovel::PostgresSource.default_slot_name(vhost, name) }
+    slot.call("/", "My Shovel-1").should match /\Alavinmq_my_shovel_1_[0-9a-f]{8}\z/
+    names = [slot.call("/", "orders"), slot.call("other", "orders"), slot.call("/", "Orders"),
+             slot.call("/", "orders-1"), slot.call("/", "orders_1"),
+             slot.call("/", "x" * 100), slot.call("/", "x" * 101)]
+    names.uniq.size.should eq names.size
+    names.each { |n| n.should match LavinMQ::Shovel::Store::SLOT_NAME }
+    slot.call("/", "orders").should eq slot.call("/", "orders")
   end
 
   describe "PostgresSource" do
