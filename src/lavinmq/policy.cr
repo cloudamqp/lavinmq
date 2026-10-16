@@ -21,11 +21,21 @@ module LavinMQ
       apply_policy(@policy, @operator_policy)
     end
 
+    # The generation of the newest VHost#apply_policies run applied here
+    @applied_policy_generation : UInt64 = 0_u64
+
     # Policy arguments are staged by clear_policy_arguments and
     # apply_policy_argument, and only take effect in commit_policy_arguments,
     # so a re-apply never exposes the resource without its policy.
-    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+    #
+    # A *generation* older than the newest one applied means a later
+    # apply_policies run, with newer policies, got here first: skip it.
+    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?, generation : UInt64? = nil)
       @policy_lock.synchronize do
+        if generation
+          return if generation < @applied_policy_generation
+          @applied_policy_generation = generation
+        end
         clear_policy_arguments
         effective_policy_args = Array(String).new
         Policy.merge_definitions(policy, operator_policy).each do |key, value|
