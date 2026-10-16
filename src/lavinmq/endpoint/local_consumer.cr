@@ -33,6 +33,20 @@ module LavinMQ
         @handler = blk
         @deliver_loop_running.set(true, :release)
         deliver_loop
+      rescue ex : HandlerError
+        raise ex.error
+      end
+
+      # What the consume block raised, wrapped to pass the deliver loop's
+      # rescue: it treats a closed channel or an IO error as its own
+      # shutdown, which the block's (a shovel's remote destination losing
+      # its connection) is not
+      private class HandlerError < Exception
+        getter error : Exception
+
+        def initialize(@error)
+          super(@error.message)
+        end
       end
 
       # The deliver loop is #run's, on the consuming fiber, and it wakes on
@@ -62,8 +76,12 @@ module LavinMQ
           raise ClosedError.new
         end
         track_unacked unless @no_ack
-        handler.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
-          msg.properties, msg.body, redelivered)
+        begin
+          handler.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
+            msg.properties, msg.body, redelivered)
+        rescue ex
+          raise HandlerError.new(ex)
+        end
       end
 
       # A delivery of this consumer was acked or rejected, in the order an

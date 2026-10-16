@@ -255,6 +255,25 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "raises what the consume block raises, even an error the deliver loop handles itself" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_raise", true, false)
+        ShovelSpecHelpers.publish(vhost, "ls_raise", "m")
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10
+        # Like a remote destination whose connection dropped
+        expect_raises(IO::Error, "connection lost") do
+          session.consume("ls_raise", "T", false, false, AMQ::Protocol::Table.new) do
+            raise IO::Error.new("connection lost")
+          end
+        end
+        session.close
+        should_eventually(eq 1) { vhost.queue("ls_raise").message_count }
+      end
+    end
+
     it "leaves messages to higher priority consumers while they have capacity" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
