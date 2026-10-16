@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage virtual hosts</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-vhost-dialog">+ Add virtual host</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -34,14 +37,21 @@
           </table>
         </div>
       </section>
-      <form method="put" id="createVhost" class="form card">
-        <h3>Add virtual host</h3>
+      <dialog id="add-vhost-dialog" class="dialog" closedby="any">
+        <div class="dialog-header">
+          <h3>Add virtual host</h3>
+          <button type="button" class="dialog-close" command="close" commandfor="add-vhost-dialog" aria-label="Close">&#x2715;</button>
+        </div>
+        <form method="put" id="createVhost" class="form">
         <label>
           <span>Name</span>
           <input type="text" name="name" required>
         </label>
-        <button type="submit" class="btn btn-green">Add virtual host</button>
-      </form>
+        <div class="dialog-footer">
+          <button type="submit" class="btn btn-green btn-inline">Add virtual host</button>
+        </div>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>

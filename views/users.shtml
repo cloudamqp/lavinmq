@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage users</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-user-dialog">+ Add user</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -33,8 +36,12 @@
           </table>
         </div>
       </section>
-      <form method="put" id="createUser" class="form card">
-        <h3>Add user</h3>
+      <dialog id="add-user-dialog" class="dialog" closedby="any">
+        <div class="dialog-header">
+          <h3>Add user</h3>
+          <button type="button" class="dialog-close" command="close" commandfor="add-user-dialog" aria-label="Close">&#x2715;</button>
+        </div>
+        <form method="put" id="createUser" class="form">
         <label>
           <span>Username</span>
           <input type="text" name="username" required>
@@ -61,8 +68,11 @@
           <a data-tag="impersonator">Impersonator</a>
           <a data-tag="">None</a>
         </div>
-        <button type="submit" class="btn btn-green">Add user</button>
-      </form>
+        <div class="dialog-footer">
+          <button type="submit" class="btn btn-green btn-inline">Add user</button>
+        </div>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>
