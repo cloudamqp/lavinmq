@@ -1,12 +1,12 @@
 require "./spec_helper"
 
-# Stub IdP serving OIDC discovery and a JWKS with one RSA key, recording the
-# request paths it receives. `healthy: false` makes every response a 500.
-private def with_stub_idp_server(healthy = true, & : Socket::IPAddress, Array(String) ->)
-  paths = [] of String
+# Stub IdP serving OIDC discovery and a JWKS with one RSA key, counting the
+# requests it receives. `healthy: false` makes every response a 500.
+private def with_stub_idp_server(healthy = true, & : Socket::IPAddress, Proc(Int32) ->)
+  requests = Atomic(Int32).new(0)
   bound = [] of Socket::IPAddress
   server = ::HTTP::Server.new do |ctx|
-    paths << ctx.request.path
+    requests.add(1)
     base = "http://#{bound.first}"
     if !healthy
       ctx.response.status_code = 500
@@ -24,7 +24,8 @@ private def with_stub_idp_server(healthy = true, & : Socket::IPAddress, Array(St
   bound << server.bind_tcp("127.0.0.1", 0)
   spawn { server.listen }
   Fiber.yield
-  yield bound.first, paths
+  # Atomic is a struct, so yield a reader rather than a copy of it
+  yield bound.first, -> { requests.get }
 ensure
   server.try &.close
 end
@@ -68,7 +69,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
   describe "on-demand JWKS fetch" do
     it "fetches keys on first authentication when the refresh loop hasn't populated them" do
-      with_stub_idp_server do |addr, _paths|
+      with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
         ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
         authenticator.authenticate(ctx)
@@ -77,11 +78,26 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "rate-limits fetch attempts when the provider is unreachable" do
-      with_stub_idp_server(healthy: false) do |addr, paths|
+      with_stub_idp_server(healthy: false) do |addr, request_count|
         authenticator, _ = authenticator_for_idp(addr)
         ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
         2.times { authenticator.authenticate(ctx) }
-        paths.size.should eq 1
+        request_count.call.should eq 1
+      end
+    end
+  end
+
+  describe "JWKS refresh loop" do
+    it "stops on cleanup while it is retrying an unreachable provider" do
+      with_stub_idp_server(healthy: false) do |addr, request_count|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        fetcher.start_refresh_loop(retry_delay: 10.milliseconds)
+        wait_for { request_count.call >= 2 }
+        authenticator.cleanup
+        sleep 50.milliseconds
+        count = request_count.call
+        sleep 100.milliseconds
+        request_count.call.should eq count
       end
     end
   end

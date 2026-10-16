@@ -34,6 +34,23 @@ function nFormatter (num) {
   return formatNumber(num) + suffix
 }
 
+const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+
+function byteUnitIndex (v) {
+  let val = Math.abs(v)
+  let i = 0
+  while (val >= 1024 && i < BYTE_UNITS.length - 1) {
+    val /= 1024
+    i++
+  }
+  return i
+}
+
+function scaleBytes (v, unitIdx) {
+  const i = unitIdx != null ? unitIdx : byteUnitIndex(v)
+  return { value: v / 1024 ** i, prefix: BYTE_UNITS[i] }
+}
+
 function duration (seconds) {
   let res = ''
   const days = Math.floor(seconds / (24 * 3600))
@@ -68,26 +85,43 @@ function argumentHelper (formID, name, e) {
 }
 
 function argumentHelperJSON (formID, name, e) {
+  const form = document.getElementById(formID)
   const key = e.target.dataset.tag
+  const formElement = form.elements[name]
   let value
   try {
     value = JSON.parse(e.target.dataset.value || '""')
   } catch (ex) {
     value = e.target.dataset.value
   }
-  const form = document.getElementById(formID)
   try {
-    let currentValue = form.elements[name].value.trim()
+    let currentValue = formElement.value.trim()
     if (currentValue.length === 0) {
       currentValue = '{}'
     }
     currentValue = JSON.parse(currentValue)
     if (currentValue[key] || !key) { return }
     currentValue[key] = value
-    form.elements[name].value = formatJSONargument(currentValue)
+    formElement.value = formatJSONargument(currentValue)
+    selectJsonValue(formElement, key, JSON.stringify(value))
   } catch {
-    form.elements[name].value += `\n"${key}": ${value}`
+    formElement.value += `\n"${key}": ${value}`
   }
+}
+
+function selectJsonValue (element, key, value) {
+  const prefix = `"${key}": `
+  const keyIdx = element.value.indexOf(prefix)
+  if (keyIdx === -1) { return }
+  let start = keyIdx + prefix.length
+  let end = start + value.length
+  // Leave string quotes unselected so typing over the value keeps the JSON valid
+  if (value.startsWith('"')) {
+    start++
+    end--
+  }
+  element.focus()
+  element.setSelectionRange(start, end)
 }
 
 function formatJSONargument (obj) {
@@ -198,6 +232,15 @@ const stateClasses = new class {
     }
   }
 
+  sync (pattern) {
+    const value = window.localStorage.getItem('lmq.stateclasses') || ''
+    const stored = new Set(value.split(' ').filter(k => pattern.test(k)))
+    const stale = this.#values.values().filter(k => pattern.test(k) && !stored.has(k)).toArray()
+    this.#values.remove(...stale)
+    stored.forEach(k => this.#state_classes.add(k))
+    this.#values.add(...stored)
+  }
+
   #persist (track = null) {
     if (track) {
       this.#state_classes.add(track)
@@ -243,6 +286,8 @@ export {
   addVhostOptions,
   formatNumber,
   nFormatter,
+  byteUnitIndex,
+  scaleBytes,
   duration,
   argumentHelper,
   argumentHelperJSON,

@@ -312,7 +312,3 @@ resumeQueueForm.addEventListener('submit', function (evt) {
 })
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})

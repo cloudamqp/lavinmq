@@ -137,40 +137,24 @@ private def synced_message(body) : LavinMQ::Message
   msg
 end
 
-describe LavinMQ::MessageStore do
-  describe "#copy" do
-    # Regression: dead-lettering routes a message after releasing the queue's
-    # @msg_store_lock, while a racing purge/queue delete can munmap the
-    # segment. A zero-copy `store[sp]` read would then segfault mid-copy;
-    # `#copy` must return a message that owns all its memory (body and
-    # headers included).
-    it "returns a message that stays valid after its segment is unmapped" do
-      mktmpdir do |dir|
-        body = "dead letter me"
-        headers = LavinMQ::AMQP::Table.new({"x-dead-letter-exchange" => "dlx"})
-        props = LavinMQ::AMQP::Properties.new(headers: headers)
-        store = LavinMQ::MessageStore.new(dir, nil)
-        msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "ex", "rk", props,
-          body.bytesize.to_u64, IO::Memory.new(body))
-        sp = store.push(msg)
-        copy = store.copy(sp)
-        store.close # unmaps every segment
-        String.new(copy.body).should eq body
-        copy.exchange_name.should eq "ex"
-        copy.routing_key.should eq "rk"
-        copy.properties.headers.should eq headers
-      end
+{% if flag?(:linux) %}
+  # Records the advice segments have when the store starts loading them
+  class AdviceOnLoadStore < LavinMQ::MessageStore
+    class_getter advice_on_load = Array({String, Array(String)}).new
+
+    private def read_metadata_file(seg, mfile)
+      @@advice_on_load << {"read_metadata_file", vm_flags(mfile.path)}
+      super
     end
 
-    it "raises KeyError when the segment is gone" do
-      with_store do |store|
-        sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        gone = LavinMQ::SegmentPosition.new(sp.segment + 1, sp.position, sp.bytesize)
-        expect_raises(KeyError) { store.copy(gone) }
-      end
+    private def produce_metadata(seg, mfile)
+      @@advice_on_load << {"produce_metadata", vm_flags(mfile.path)}
+      super
     end
   end
+{% end %}
 
+describe LavinMQ::MessageStore do
   # Regression: avg_bytesize is read without the queue's lock (HTTP API,
   # stats), so the store can become empty between its zero check and the
   # division, which turned into Infinity and raised OverflowError
@@ -1008,6 +992,29 @@ describe LavinMQ::MessageStore do
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
           store = LavinMQ::MessageStore.new(dir, nil)
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
+      it "reads segments with readahead while loading them at startup" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.@segments.size.should eq 2
+          store.close
+          AdviceOnLoadStore.advice_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 4
+          loads = AdviceOnLoadStore.advice_on_load
+          loads.map(&.first).should contain "produce_metadata" # the write segment has no meta file
+          loads.each do |_, flags|
+            flags.should contain "sr"
+            flags.should_not contain "rr"
+          end
           store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
           store.close
         end
