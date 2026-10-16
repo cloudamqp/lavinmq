@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Races between adding, removing and listing a queue's consumers: two exclusive consumers could both be accepted, and a consumer could be added to a queue that was being auto-deleted [#2404](https://github.com/cloudamqp/lavinmq/pull/2404)
 - Re-applying a policy briefly removed it from queues and exchanges: publishes could get past a policy's `max-length` with `overflow=reject-publish`, and messages to an exchange whose alternate exchange came from a policy could be dropped as unroutable [#2397](https://github.com/cloudamqp/lavinmq/pull/2397)
 - The JWKS refresh loop kept retrying an unreachable OAuth provider after it was stopped, e.g. at shutdown [#2450](https://github.com/cloudamqp/lavinmq/pull/2450)
 - The list of unacknowledged `basic.get` messages could be corrupted, or crash the broker, when accessed from several threads at once [#2402](https://github.com/cloudamqp/lavinmq/pull/2402)
