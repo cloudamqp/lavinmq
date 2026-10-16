@@ -175,7 +175,6 @@ module MqttSpecs
         # First, publish a retained message
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          # Use a larger payload to increase chances of triggering copy_file_range
           subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
@@ -202,7 +201,6 @@ module MqttSpecs
         # First, publish a retained message
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          # Use a larger payload to increase chances of triggering copy_file_range
           subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)

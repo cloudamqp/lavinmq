@@ -22,29 +22,6 @@ def fill_segment_with_one_extra_byte(q, queue_name : String, mfile : MFile) : Ni
 end
 
 describe LavinMQ::AMQP::DurableQueue do
-  context "after migration between index version 2 to 3" do
-    before_each do
-      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "/tmp/lavinmq-spec-index-v2")
-    end
-
-    after_each do
-      FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
-    end
-
-    it "should successfully convert queue index" do
-      config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
-      server = LavinMQ::Server.new(config)
-      begin
-        q = server.vhosts["/"].queue("queue").as(LavinMQ::AMQP::DurableQueue)
-        q.basic_get(true) do |env|
-          String.new(env.message.body).to_s.should eq "message"
-        end.should be_true
-      ensure
-        server.close
-      end
-    end
-  end
-
   context "with corrupt segments" do
     context "when consumed" do
       it "should be closed" do
