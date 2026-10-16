@@ -1,5 +1,3 @@
-require "../stdlib/copy_file_range"
-
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
