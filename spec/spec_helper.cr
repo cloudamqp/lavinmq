@@ -254,6 +254,7 @@ end
 
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     ktls = false,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
                      extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
@@ -266,6 +267,9 @@ def with_amqp_server(tls = false, replicator = nil,
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
+      {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+        ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS) if ktls
+      {% end %}
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
