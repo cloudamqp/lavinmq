@@ -557,6 +557,31 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "should untrack basic_get messages on reject but not on consumer acks" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        3.times { q.publish_confirm "a" }
+        sq = s.vhosts["/"].queue(q.name)
+
+        get1 = q.get(no_ack: false).should_not be_nil
+        get2 = q.get(no_ack: false).should_not be_nil
+        sq.basic_get_unacked_size.should eq 2
+
+        consumed = ::Channel(AMQP::Client::DeliverMessage).new(3)
+        q.subscribe(no_ack: false) { |m| consumed.send m }
+        consumed.receive.ack
+        wait_for { sq.unacked_count == 2 }
+        sq.basic_get_unacked_size.should eq 2
+
+        get1.reject
+        wait_for { sq.basic_get_unacked_size == 1 }
+        get2.nack(requeue: true)
+        wait_for { sq.basic_get_unacked_size == 0 }
+      end
+    end
+  end
+
   # Regression: the basic.get unacked list was pushed to by one client's
   # basic.get, filtered by another channel's ack/close and read by stats and
   # the HTTP API without any lock, so concurrent access corrupted the Deque
