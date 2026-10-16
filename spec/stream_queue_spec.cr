@@ -331,6 +331,14 @@ describe LavinMQ::AMQP::Stream do
         stream.closed?.should be_false
         File.exists?("#{mfile.path}.corrupt").should be_true
       end
+      # What's written after the corrupt message is kept, with its offset
+      restart_server(s)
+      StreamSpecHelpers.publish(s, q_name, 1)
+      msg = StreamSpecHelpers.consume_one(s, q_name, "after-restart", AMQP::Client::Arguments.new({"x-stream-offset": 3}))
+      StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+      msg.body_io.to_s.should eq "m0"
+      msg = StreamSpecHelpers.consume_one(s, q_name, "after-restart-2", AMQP::Client::Arguments.new({"x-stream-offset": 4}))
+      StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 4
     end
   end
 

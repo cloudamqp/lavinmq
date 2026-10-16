@@ -274,12 +274,16 @@ module LavinMQ::AMQP
     private def skip_corrupt_segment(consumer, rfile : MFile, ex : Exception) : Nil
       @log.error(exception: ex) { "Message at segment #{consumer.segment} pos #{consumer.pos} can't be read, skipping the rest of the segment for consumer #{consumer.tag}" }
       keep_corrupt_copy(rfile)
+      if rfile == @wfile
+        # So that what's written next isn't after the corrupt data, where it
+        # couldn't be read, nor counted when the segment is loaded again
+        open_new_segment
+        # Not from a push, so @last_offset isn't the next message's offset yet
+        @segment_first_offset[@segments.last_key] = @last_offset + 1
+      end
       if next_seg = next_segment_offset(consumer.segment)
         next_segment(consumer)
         consumer.offset = next_seg[1]
-      else # The segment being written to, continue with what's written next
-        consumer.pos = rfile.size.to_u32
-        consumer.offset = @last_offset + 1
       end
     end
 
