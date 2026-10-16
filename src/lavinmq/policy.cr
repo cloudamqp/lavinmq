@@ -5,7 +5,13 @@ module LavinMQ
   module PolicyTarget
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter effective_policy_args = Array(String).new
+    # Replaced, never mutated, and published with release ordering
+    @effective_policy_args = Atomic(Array(String)).new(Array(String).new)
+
+    def effective_policy_args : Array(String)
+      @effective_policy_args.get(:acquire)
+    end
+
     # apply_policies is spawned per policy/parameter add & delete, so concurrent
     # applies can hit the same resource; serialize them to protect the shared
     # @effective_args / store state.
@@ -15,9 +21,12 @@ module LavinMQ
       apply_policy(@policy, @operator_policy)
     end
 
+    # Policy arguments are staged by clear_policy_arguments and
+    # apply_policy_argument, and only take effect in commit_policy_arguments,
+    # so a re-apply never exposes the resource without its policy.
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       @policy_lock.synchronize do
-        clear_policy
+        clear_policy_arguments
         effective_policy_args = Array(String).new
         Policy.merge_definitions(policy, operator_policy).each do |key, value|
           if apply_policy_argument(key, value)
@@ -27,18 +36,27 @@ module LavinMQ
           # Skip an invalid policy argument and carry on with the rest.
           Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
         end
-        @effective_policy_args = effective_policy_args
+        @effective_policy_args.set(effective_policy_args, :release)
         @policy = policy
         @operator_policy = operator_policy
+        commit_policy_arguments
         after_policy_applied
       end
     end
 
     def clear_policy
-      clear_policy_arguments
-      @effective_policy_args.clear
-      @policy = nil
-      @operator_policy = nil
+      @policy_lock.synchronize do
+        clear_policy_arguments
+        @effective_policy_args.set(Array(String).new, :release)
+        @policy = nil
+        @operator_policy = nil
+        commit_policy_arguments
+      end
+    end
+
+    # Publish what clear_policy_arguments and apply_policy_argument staged.
+    # Override if the target stages its policy arguments.
+    private def commit_policy_arguments
     end
 
     # This can be overriden if the child class needs to do something after
