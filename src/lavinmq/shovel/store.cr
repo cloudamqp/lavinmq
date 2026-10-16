@@ -1,5 +1,6 @@
 require "./runner"
 require "./amqp_source"
+require "./postgres_source"
 require "./http_destination"
 require "./amqp_destination"
 require "./multi_destination"
@@ -60,7 +61,11 @@ module LavinMQ
         # HTTP(S) destinations POST to a URL and have no queue/exchange.
         http_dest = !dest_uris.empty? && dest_uris.all?(&.scheme.in?("http", "https"))
 
-        raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
+        if postgres_source?(src_uris)
+          validate_postgres_source!(config, src_uris)
+        elsif src_q.nil? && src_x.nil?
+          raise ConfigError.new("Shovel source requires a queue or an exchange")
+        end
         raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
         validate_dest_timeout!(config["dest-timeout"]?)
 
@@ -111,6 +116,36 @@ module LavinMQ
         raise ConfigError.new("dest-timeout must be a positive number of seconds")
       end
 
+      def self.postgres_source?(src_uris : Array(URI)) : Bool
+        src_uris.any?(&.scheme.in?("postgres", "postgresql"))
+      end
+
+      SLOT_NAME = /\A[a-z0-9_]{1,63}\z/
+
+      private def self.validate_postgres_source!(config : JSON::Any, src_uris : Array(URI))
+        raise ConfigError.new("A PostgreSQL shovel takes exactly one src-uri") unless src_uris.size == 1
+        begin
+          Postgres::Connection.sslmode(src_uris.first)
+        rescue ex : Postgres::Error
+          raise ConfigError.new(ex.message)
+        end
+        unless config["src-publication"]?.try(&.as_s?).presence
+          raise ConfigError.new("A PostgreSQL shovel source requires src-publication")
+        end
+        if slot = config["src-slot"]?
+          unless slot.as_s?.try &.matches?(SLOT_NAME)
+            raise ConfigError.new("src-slot may only contain lower case letters, numbers and underscores (max 63)")
+          end
+        end
+        delete_after = config["src-delete-after"]?.try(&.as_s?).to_s.delete("-")
+        if DeleteAfter.parse?(delete_after).try &.queue_length?
+          raise ConfigError.new("src-delete-after: queue-length is not supported for a PostgreSQL source")
+        end
+        if src_uris.first.user.to_s.empty?
+          raise ConfigError.new("The PostgreSQL src-uri requires a user")
+        end
+      end
+
       def create(name, config)
         @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
@@ -118,17 +153,7 @@ module LavinMQ
         ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || Shovel::DEFAULT_ACK_MODE
         reconnect_delay = config["reconnect-delay"]?.try &.as_i.seconds || Shovel::DEFAULT_RECONNECT_DELAY
         prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
-        sessions = Endpoint.parse_uris(config["src-uri"]).map do |uri|
-          Endpoint.session(uri, @vhost, "Shovel #{name} source")
-        end
-        src = Shovel::AMQPSource.new(name, sessions,
-          config["src-queue"]?.try &.as_s?,
-          config["src-exchange"]?.try &.as_s?,
-          config["src-exchange-key"]?.try &.as_s?,
-          delete_after,
-          prefetch,
-          ack_mode,
-          self.class.consumer_args(config["src-consumer-args"]?))
+        src = source(name, config, delete_after, prefetch, ack_mode)
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
         @shovels[name] = shovel
@@ -159,6 +184,29 @@ module LavinMQ
         if shovel = @shovels.delete name
           shovel.delete
           shovel
+        end
+      end
+
+      private def source(name, config, delete_after, prefetch, ack_mode) : Source
+        uris = Endpoint.parse_uris(config["src-uri"])
+        if self.class.postgres_source?(uris)
+          Shovel::PostgresSource.new(name, uris.first,
+            config["src-publication"].as_s,
+            config["src-slot"]?.try(&.as_s?) || Shovel::PostgresSource.default_slot_name(name),
+            prefetch,
+            ack_mode)
+        else
+          sessions = uris.map do |uri|
+            Endpoint.session(uri, @vhost, "Shovel #{name} source")
+          end
+          Shovel::AMQPSource.new(name, sessions,
+            config["src-queue"]?.try &.as_s?,
+            config["src-exchange"]?.try &.as_s?,
+            config["src-exchange-key"]?.try &.as_s?,
+            delete_after,
+            prefetch,
+            ack_mode,
+            self.class.consumer_args(config["src-consumer-args"]?))
         end
       end
 

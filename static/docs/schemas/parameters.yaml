@@ -55,7 +55,7 @@ shovel-value:
   properties:
     src-uri:
       type: string
-      description: Source AMQP URI (where messages are consumed from). A URI without host (`amqp:///vhost`) is this broker, in-process; a URI with a host is reached over AMQP with its credentials.
+      description: Source AMQP URI (where messages are consumed from), or a postgres:// URI to stream changes from a PostgreSQL publication. A URI without host (`amqp:///vhost`) is this broker, in-process; a URI with a host is reached over AMQP with its credentials.
       example: amqp://guest:guest@localhost:5672/%2f
     dest-uri:
       type: string
@@ -73,6 +73,15 @@ shovel-value:
       type: string
       description: Routing key for source exchange binding (only used with src-exchange).
       example: "routing.key"
+    src-publication:
+      type: string
+      description: PostgreSQL publication to stream row changes from, one message per committed transaction. Required when src-uri is a postgres:// URI.
+      example: lavinmq_pub
+    src-slot:
+      type: string
+      description: PostgreSQL logical replication slot, created if missing (only used with a postgres:// src-uri). Lower case letters, digits and underscores.
+      default: lavinmq_<shovel name>
+      example: lavinmq_orders
     dest-queue:
       type: string
       description: Name of destination queue to publish to. Either dest-queue or dest-exchange must be specified.
