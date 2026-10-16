@@ -144,12 +144,12 @@ module LavinMQ
 
       def start_publish(frame)
         # Low disk space is refused before a publish out of order is
-        unless @client.vhost.flow?
-          send_publish_refusal(frame, PublishRules.check_target(@client.vhost, frame.exchange))
+        if refusal = PublishRules.check_flow(@client.vhost)
+          send_publish_refusal(frame, refusal)
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if refusal = PublishRules.check_target(@client.vhost, frame.exchange)
+        if refusal = PublishRules.check_exchange(@client.vhost, frame.exchange)
           send_publish_refusal(frame, refusal)
           return
         end
@@ -160,8 +160,7 @@ module LavinMQ
       end
 
       # Closes the channel the way a refused publish does
-      private def send_publish_refusal(frame, refusal : PublishRules::Refusal?) : Nil
-        refusal || return
+      private def send_publish_refusal(frame, refusal : PublishRules::Refusal) : Nil
         case refusal.code
         in .not_found?      then @client.send_not_found(frame, refusal.text)
         in .access_refused? then @client.send_access_refused(frame, refusal.text)

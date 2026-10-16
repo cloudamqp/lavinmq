@@ -14,9 +14,17 @@ module LavinMQ
 
       # Checks a publish before its properties and body are known
       def self.check_target(vhost, exchange_name : String) : Refusal?
+        check_flow(vhost) || check_exchange(vhost, exchange_name)
+      end
+
+      # Publishes are refused while the server is low on disk space
+      def self.check_flow(vhost) : Refusal?
         unless vhost.flow?
-          return Refusal.new(ChannelReplyCode::PRECONDITION_FAILED, "Server low on disk space")
+          Refusal.new(ChannelReplyCode::PRECONDITION_FAILED, "Server low on disk space")
         end
+      end
+
+      def self.check_exchange(vhost, exchange_name : String) : Refusal?
         ex = vhost.exchange?(exchange_name)
         unless ex
           return Refusal.new(ChannelReplyCode::NOT_FOUND, "No exchange '#{exchange_name}' in vhost '#{vhost.name}'")
