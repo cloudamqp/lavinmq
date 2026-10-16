@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `CRYSTAL_WORKERS` or `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
+### Changed
+
+- Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
+
 ## [2.11.0-rc.1] - 2026-10-16
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker.
