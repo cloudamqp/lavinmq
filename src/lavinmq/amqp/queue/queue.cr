@@ -1,5 +1,6 @@
 require "../../filesystem"
 require "digest/sha1"
+require "sync/exclusive"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
@@ -75,7 +76,10 @@ module LavinMQ::AMQP
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
 
-    @basic_get_unacked = Deque(UnackedMessage).new
+    # Leaf lock: basic.get, acks/closes of any channel and stats all touch
+    # the list, and Channel#close holds its @unack_lock meanwhile. The Deque
+    # is only reachable through the lock.
+    @basic_get_unacked = Sync::Exclusive(Deque(UnackedMessage)).new(Deque(UnackedMessage).new, :unchecked)
 
     # Consumer accessors
 
@@ -94,15 +98,15 @@ module LavinMQ::AMQP
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil
-      @basic_get_unacked << msg
+      @basic_get_unacked.lock(&.push(msg))
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
-      @basic_get_unacked.reject! { |u| yield u }
+      @basic_get_unacked.lock(&.reject! { |u| yield u })
     end
 
     def basic_get_unacked_size : Int32
-      @basic_get_unacked.size
+      @basic_get_unacked.lock(&.size)
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -735,7 +739,7 @@ module LavinMQ::AMQP
         @msg_store.close
         @deliveries.clear
       end
-      @basic_get_unacked.clear
+      @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -1141,7 +1145,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      result.concat(@basic_get_unacked.to_a)
+      @basic_get_unacked.lock { |unacked| result.concat(unacked) }
     end
 
     private def with_delivery_count_header(env) : Envelope?
