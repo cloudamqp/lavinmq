@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 
 ## [2.10.0] - 2026-09-25
 
