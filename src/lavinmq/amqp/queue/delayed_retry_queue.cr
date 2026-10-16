@@ -41,25 +41,34 @@ module LavinMQ::AMQP
     # Publishes an expired message back to the primary queue. The message kept
     # its original timestamp while delayed, so x-message-ttl keeps applying to
     # the message's total age
-    private def expire_msg(env : Envelope, reason : Symbol)
-      sp = env.segment_position
-      msg = env.message
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      if headers = msg.properties.headers
-        headers.delete("x-delay")
-        msg.properties.headers = headers
+      # Published without @msg_store_lock held, while a purge or delete can
+      # unmap the segment, so it's leased meanwhile. publish_internal and delay
+      # write the message to a store before returning, see Queue#expire_msg.
+      env = begin
+        @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
+      rescue KeyError | MessageStore::ClosedError
+        return
       end
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
-      return redelay(env) unless result.ok?
-      delete_message sp
+      begin
+        msg = env.message
+        if headers = msg.properties.headers
+          headers.delete("x-delay")
+          msg.properties.headers = headers
+        end
+        result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+          msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+        return redelay(sp, msg) unless result.ok?
+        delete_message sp
+      ensure
+        env.release
+      end
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
     # the message again for one more backoff period instead of losing it
-    private def redelay(env : Envelope) : Nil
-      sp = env.segment_position
-      msg = env.message
+    private def redelay(sp : SegmentPosition, msg : BytesMessage) : Nil
       h = msg.properties.headers || AMQP::Table.new
       delivery_count = h["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 1
       backoff = @primary_queue.retry_delay_for(delivery_count)

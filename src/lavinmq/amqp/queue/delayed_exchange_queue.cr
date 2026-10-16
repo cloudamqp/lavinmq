@@ -54,17 +54,28 @@ module LavinMQ::AMQP
     end
 
     # Overload to not ruin DLX header
-    private def expire_msg(env : Envelope, reason : Symbol)
-      sp = env.segment_position
-      msg = env.message
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      if headers = msg.properties.headers
-        headers.delete("x-delay")
-        msg.properties.headers = headers
+      # Routed without @msg_store_lock held, while a purge or delete can unmap
+      # the segment, so it's leased meanwhile. route_msg writes the message to
+      # the destinations' stores before returning, see Queue#expire_msg.
+      env = begin
+        @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
+      rescue KeyError | MessageStore::ClosedError
+        return
       end
-      @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      delete_message sp
+      begin
+        msg = env.message
+        if headers = msg.properties.headers
+          headers.delete("x-delay")
+          msg.properties.headers = headers
+        end
+        @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+          msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+        delete_message sp
+      ensure
+        env.release
+      end
     end
   end
 
