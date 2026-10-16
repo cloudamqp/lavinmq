@@ -29,20 +29,20 @@ module LavinMQ
         "x-consistent-hash"
       end
 
-      def handle_arguments
+      private def stage_arguments
         super
         if v = @arguments["x-algorithm"]?
           if hasher = v.as?(String)
             if algo = ConsistentHashAlgorithm.parse?(hasher)
               use_algorithm(algo)
-              @effective_args << "x-algorithm"
+              @staged_effective_args << "x-algorithm"
             end
           end
         end
-        @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+        @staged_effective_args << "x-hash-on" if @arguments["x-hash-on"]?
       end
 
-      # handle_arguments also runs on every policy (re)apply. It only swaps
+      # stage_arguments also runs on every policy (re)apply. It only swaps
       # the hasher when the algorithm actually changes (in practice only
       # while the exchange is being declared), and rebuilds it from the
       # current bindings so that none are dropped from routing.
@@ -130,7 +130,7 @@ module LavinMQ
 
       # Publishes the state the block builds from the current one, retrying
       # if another writer published in between. bind and unbind are already
-      # serialized by the definitions lock, but handle_arguments (run on
+      # serialized by the definitions lock, but stage_arguments (run on
       # policy applies) isn't. Returns nil, without publishing, if the block
       # returns nil.
       private def update_state(& : State -> State?) : State?
