@@ -13,9 +13,12 @@ module LavinMQ
     class MqttTopicExchange < Exchange
       include MQTT::Subscriber
 
-      @bindings = Hash(String, Set({AMQP::Destination, BindingKey})).new do |h, k|
-        h[k] = Set({AMQP::Destination, BindingKey}).new
-      end
+      # Topic filter => bindings. Both levels are replaced, never mutated, so
+      # MQTT publishes on other threads deliver without locks.
+      @bindings = CowMap(String, BindingSet).new
+      # Serializes bind, unbind and delete, so that the exchange's entry in
+      # the subscription tree follows the first and last binding of a filter
+      @bindings_lock = Mutex.new
 
       def type : String
         "x-mqtt-topic"
@@ -36,15 +39,19 @@ module LavinMQ
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.flat_map do |_filter, destinations|
-          destinations.map do |destination, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, destination)
+        details = Array(BindingDetails).new
+        @bindings.each do |(_, bindings)|
+          bindings.each do |e|
+            details << BindingDetails.new(name, vhost.name, e.binding_key, e.destination)
           end
         end
+        details
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.size)
+        count = 0
+        @bindings.each_value { |bindings| count += bindings.size }
+        count
       end
 
       def bind(destination : AMQP::Destination, routing_key, arguments = nil) : Bool
@@ -52,22 +59,29 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("'#{routing_key}' is not a valid MQTT topic filter")
         end
         binding_key = BindingKey.new(routing_key, arguments)
-        destinations = @bindings[routing_key]
-        first_for_filter = destinations.empty?
-        return false unless destinations.add?({destination, binding_key})
-        @vhost.mqtt_subscription_tree.subscribe(routing_key, self, 1u8) if first_for_filter
+        @bindings_lock.synchronize do
+          current = @bindings[routing_key]?
+          bindings = (current || BindingSet.empty).add(destination, binding_key) || return false
+          @bindings[routing_key] = bindings
+          @vhost.mqtt_subscription_tree.subscribe(routing_key, self, 1u8) unless current
+        end
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
       end
 
       def unbind(destination : AMQP::Destination, routing_key, arguments = nil) : Bool
-        destinations = @bindings[routing_key]? || return false
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless destinations.delete({destination, binding_key})
-        if destinations.empty?
-          @bindings.delete(routing_key)
-          @vhost.mqtt_subscription_tree.unsubscribe(routing_key, self)
+        @bindings_lock.synchronize do
+          current = @bindings[routing_key]? || return false
+          bindings = current.delete(destination, binding_key)
+          return false if bindings.same?(current)
+          if bindings.empty?
+            @bindings.delete(routing_key)
+            @vhost.mqtt_subscription_tree.unsubscribe(routing_key, self)
+          else
+            @bindings[routing_key] = bindings
+          end
         end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -88,7 +102,7 @@ module LavinMQ
       # publish parked in a queue's store lock is not disturbed by another
       # client's publish into this exchange.
       def deliver(msg : Message, filter : String, ctx : MQTT::PublishContext) : Bool
-        destinations = @bindings[filter]? || return false
+        bindings = @bindings[filter]? || return false
         outcome = ctx.outcomes[self]?
         @publish_in_count.add(1, :relaxed) unless outcome
         outcome ||= MQTT::PublishContext::Outcome.new(handled: false, counted_unroutable: false)
@@ -98,7 +112,7 @@ module LavinMQ
         message.needs_sync = msg.needs_sync?
         count = 0u32
         rejected = false
-        destinations.each do |destination, _binding_key|
+        bindings.each_destination do |destination|
           case destination
           in AMQP::Queue
             case destination.publish(message)
@@ -138,8 +152,10 @@ module LavinMQ
 
       protected def delete
         return if @deleted
-        @bindings.each_key do |filter|
-          @vhost.mqtt_subscription_tree.unsubscribe(filter, self)
+        @bindings_lock.synchronize do
+          @bindings.each_key do |filter|
+            @vhost.mqtt_subscription_tree.unsubscribe(filter, self)
+          end
         end
         super
       end
