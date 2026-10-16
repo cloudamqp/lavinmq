@@ -3,6 +3,7 @@ require "./local_consumer"
 require "./local_stream_consumer"
 require "../persister"
 require "../message"
+require "../amqp/publish_rules"
 require "../event_type"
 require "../rough_time"
 require "../config"
@@ -314,15 +315,10 @@ module LavinMQ
                   properties : AMQ::Protocol::Properties, body : Bytes,
                   immediate : Bool, on_confirm : Proc(Bool, Nil)?) : AMQP::Exchange::PublishResult
         v = vhost
-        raise Refused.new("406 - Server low on disk space") unless v.flow?
-        ex = v.exchange?(exchange) || raise NotFound.new("404 - no exchange '#{exchange}' in vhost '#{v.name}'")
-        raise Refused.new("403 - exchange '#{exchange}' in vhost '#{v.name}' is internal") if ex.internal?
-        if body.bytesize > Config.instance.max_message_size
-          raise Refused.new("406 - message size #{body.bytesize} larger than max size #{Config.instance.max_message_size}")
-        end
-        if properties.timestamp_raw.nil? && Config.instance.set_timestamp?
-          properties.timestamp = RoughTime.utc
-        end
+        # The same checks as a publish on an AMQP channel
+        refuse_publish(AMQP::PublishRules.check_target(v, exchange))
+        refuse_publish(AMQP::PublishRules.check_message(properties, body.bytesize.to_u64))
+        properties = AMQP::PublishRules.prepare(properties)
         msg = Message.new(RoughTime.unix_ms, exchange, routing_key, properties,
           body.bytesize.to_u64, IO::Memory.new(body, writable: false))
         v.event_tick(EventType::ClientPublish)
@@ -349,6 +345,14 @@ module LavinMQ
           v.enqueue_ack(self, seq)
         end
         result
+      end
+
+      # Raises the error a refused publish closes an AMQP channel with
+      private def refuse_publish(refusal : AMQP::PublishRules::Refusal?) : Nil
+        refusal || return
+        text = "#{refusal.code.value} - #{refusal.text}"
+        raise NotFound.new(text) if refusal.code.not_found?
+        raise Refused.new(text)
       end
 
       # Waits until every publish so far is confirmed (or nacked), at most

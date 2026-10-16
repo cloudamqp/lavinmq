@@ -381,6 +381,27 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "refuses a publish an AMQP channel refuses: an invalid expiration or too large a body" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_queue("ls_refuse", true, false)
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        {"-1", "soon"}.each do |expiration|
+          props = AMQ::Protocol::Properties.new(expiration: expiration)
+          expect_raises(LavinMQ::Endpoint::Refused, /406/) do
+            session.publish("", "ls_refuse", props, "m".to_slice)
+          end
+        end
+        LavinMQ::Config.instance.max_message_size = 1024
+        big = Bytes.new(1025)
+        expect_raises(LavinMQ::Endpoint::Refused, /message size/) do
+          session.publish("", "ls_refuse", AMQ::Protocol::Properties.new, big)
+        end
+        s.vhosts["/"].queue("ls_refuse").message_count.should eq 0
+        session.close
+      end
+    end
+
     it "registers its consumer on the queue and requeues unacked deliveries on close" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

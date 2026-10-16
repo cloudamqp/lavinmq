@@ -10,6 +10,7 @@ require "../exchange"
 require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
+require "./publish_rules"
 require "../bool_channel"
 require "../persister"
 
@@ -142,22 +143,31 @@ module LavinMQ
       end
 
       def start_publish(frame)
-        unless server_flow?
-          @client.send_precondition_failed(frame, "Server low on disk space")
+        # Low disk space is refused before a publish out of order is
+        unless @client.vhost.flow?
+          send_publish_refusal(frame, PublishRules.check_target(@client.vhost, frame.exchange))
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if ex = @client.vhost.exchange?(frame.exchange)
-          if !ex.internal?
-            @next_publish_exchange_name = frame.exchange
-            @next_publish_routing_key = frame.routing_key
-            @next_publish_mandatory = frame.mandatory
-            @next_publish_immediate = frame.immediate
-          else
-            @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is internal")
-          end
-        else
-          @client.send_not_found(frame, "No exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}'")
+        if refusal = PublishRules.check_target(@client.vhost, frame.exchange)
+          send_publish_refusal(frame, refusal)
+          return
+        end
+        @next_publish_exchange_name = frame.exchange
+        @next_publish_routing_key = frame.routing_key
+        @next_publish_mandatory = frame.mandatory
+        @next_publish_immediate = frame.immediate
+      end
+
+      # Closes the channel the way a refused publish does
+      private def send_publish_refusal(frame, refusal : PublishRules::Refusal?) : Nil
+        refusal || return
+        case refusal.code
+        in .not_found?      then @client.send_not_found(frame, refusal.text)
+        in .access_refused? then @client.send_access_refused(frame, refusal.text)
+        in .content_too_large?, .no_consumers?, .resource_locked?, .precondition_failed?,
+           .not_implemented?, .unexpected_frame?, .resource_error?
+          @client.send_precondition_failed(frame, refusal.text)
         end
       end
 
@@ -169,7 +179,13 @@ module LavinMQ
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_msg_props
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if frame.class_id != 60
-        valid_expiration?(frame) || return
+        if refusal = PublishRules.check_message(frame.properties, frame.body_size)
+          if frame.body_size > Config.instance.max_message_size
+            @log.warn { "Message size exceeded, #{frame.body_size}/#{Config.instance.max_message_size}" }
+          end
+          send_publish_refusal(frame, refusal)
+          return
+        end
         if direct_reply_to?(frame.properties.reply_to)
           if drc = @direct_reply_consumer
             frame.properties.reply_to = "amq.direct.reply-to.#{drc}"
@@ -177,12 +193,6 @@ module LavinMQ
             @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
             return
           end
-        end
-        if frame.body_size > Config.instance.max_message_size
-          error = "message size #{frame.body_size} larger than max size #{Config.instance.max_message_size}"
-          @client.send_precondition_failed(frame, error)
-          @log.warn { "Message size exceeded, #{frame.body_size}/#{Config.instance.max_message_size}" }
-          return
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
@@ -234,30 +244,10 @@ module LavinMQ
         end
       end
 
-      private def valid_expiration?(frame) : Bool
-        if exp = frame.properties.expiration
-          if i = exp.to_i?
-            if i < 0
-              @client.send_precondition_failed(frame, "Negative expiration not allowed")
-              return false
-            end
-          else
-            @client.send_precondition_failed(frame, "Expiration not a number")
-            return false
-          end
-        end
-        true
-      end
-
-      private def server_flow?
-        @client.vhost.flow?
-      end
-
       private def finish_publish(body_io)
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
-        props = @next_msg_props.not_nil!("No message headers received")
-        props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
+        props = PublishRules.prepare(@next_msg_props.not_nil!("No message headers received"))
         msg = Message.new(RoughTime.unix_ms,
           @next_publish_exchange_name.not_nil!("No publish started"),
           @next_publish_routing_key.not_nil!("No publish started"),
