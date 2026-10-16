@@ -25,6 +25,21 @@ module LavinMQ
     # up to N, and `enqueue_ack` keeps the highest id queued in a batch.
     module ConfirmTarget
       abstract def enqueue_confirm_ack(msgid : UInt64) : Nil
+
+      # Non-blocking for an `enqueue_confirm_ack` that hands ids to a writer
+      # fiber: when the 1-slot mailbox is full the lower id is dropped, as
+      # confirms are cumulative. Ids can arrive out of order: a fiber can park
+      # between taking its id and enqueueing it, while a later one is drained.
+      def self.offer(mailbox : ::Channel(UInt64)?, msgid : UInt64) : Nil
+        mailbox = mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          if queued = mailbox.try_receive?
+            msgid = Math.max(msgid, queued)
+          end
+        end
+      rescue ::Channel::ClosedError
+      end
     end
 
     private class Batch

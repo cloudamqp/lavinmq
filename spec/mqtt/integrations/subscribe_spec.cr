@@ -174,22 +174,30 @@ module MqttSpecs
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
         with_client_io(server) do |io|
-          connect(io)
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
-          exchange.bindings_details.first.binding_key.qos.should eq 1u8
+          connect(io, client_id: "sub")
+          session = server.vhosts["/"].session("mqtt.sub")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}, {"c/#", 1}))
+          session.subscriptions.should eq({"a/b" => 1u8, "c/#" => 1u8})
+          exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 1u8
 
           # The unbind-and-rebind path. Unreachable for 1 -> 2 until QoS 2
           # stopped collapsing onto QOS1_ARGUMENTS, which made the arguments
           # compare equal and take the early return instead.
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
-          exchange.bindings_details.size.should eq 1
-          exchange.bindings_details.first.binding_key.qos.should eq 2u8
+          exchange.bindings_details.size.should eq 2
+          exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 2u8
+          session.subscriptions.should eq({"a/b" => 2u8, "c/#" => 1u8})
+          session.bindings.compact_map(&.as?(LavinMQ::MQTT::SubscriptionDetails)).map { |b| {b.routing_key, LavinMQ::MQTT.qos(b.arguments)} }
+            .sort!.should eq [{"a/b", 2u8}, {"c/#", 1u8}]
+          exchange.binding_count.should eq 2
 
           # And back down again.
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
-          exchange.bindings_details.size.should eq 1
-          exchange.bindings_details.first.binding_key.qos.should eq 1u8
+          exchange.bindings_details.size.should eq 2
+          exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 1u8
 
+          unsubscribe(io, topics: ["c/#"])
+          session.subscriptions.should eq({"a/b" => 1u8})
           disconnect(io)
         end
       end
@@ -214,6 +222,21 @@ module MqttSpecs
           exchange.bindings_details.size.should eq 1
           exchange.binding_count.should eq 1
 
+          disconnect(io)
+        end
+      end
+    end
+
+    it "grants Failure and keeps the connection when the session store cannot be created" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        # A file where the session's directory goes makes creating it fail
+        File.write(File.join(vhost.data_dir, Digest::SHA1.hexdigest("mqtt.sub")), "")
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8})).as(MQTT::Protocol::SubAck)
+          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          pingpong(io).should be_a(MQTT::Protocol::PingResp)
           disconnect(io)
         end
       end
@@ -270,25 +293,6 @@ module MqttSpecs
   end
 
   describe "a session's subscriptions" do
-    it "follow SUBSCRIBE, a QoS change and UNSUBSCRIBE" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "sub")
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}, {"c/#", 1u8}))
-          session = server.vhosts["/"].session("mqtt.sub")
-          session.subscriptions.should eq({"a/b" => 0u8, "c/#" => 1u8})
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
-          session.subscriptions.should eq({"a/b" => 2u8, "c/#" => 1u8})
-          session.bindings.compact_map(&.as?(LavinMQ::MQTT::SubscriptionDetails)).map { |b| {b.routing_key, LavinMQ::MQTT.qos(b.arguments)} }
-            .sort!.should eq [{"a/b", 2u8}, {"c/#", 1u8}]
-          server.vhosts["/"].mqtt_exchange.binding_count.should eq 2
-          unsubscribe(io, topics: ["c/#"])
-          session.subscriptions.should eq({"a/b" => 2u8})
-          disconnect(io)
-        end
-      end
-    end
-
     it "follow an unbind that didn't come from the client" do
       with_server do |server|
         with_client_io(server) do |io|

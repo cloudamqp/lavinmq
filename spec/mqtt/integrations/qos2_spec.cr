@@ -20,29 +20,6 @@ module MqttSpecs
   end
 
   describe "qos2 as receiver" do
-    it "completes the QoS 2 handshake for an inbound publish [MQTT-4.3.3-2]" do
-      with_server do |server|
-        with_client_io(server) do |sub_io|
-          connect(sub_io, client_id: "subscriber")
-          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
-
-          with_client_io(server) do |io|
-            connect(io, client_id: "publisher")
-            publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
-            pubrel(io, 7u16)
-            read_packet(io).should be_a(MQTT::Protocol::PubComp)
-            disconnect(io)
-          end
-
-          pub = read_publish(sub_io)
-          String.new(pub.payload).should eq "1"
-          sub_io.should be_silent
-
-          disconnect(sub_io)
-        end
-      end
-    end
-
     it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-2]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
@@ -217,29 +194,16 @@ module MqttSpecs
       end
     end
 
-    it "closes a publisher holding more than max_awaiting_pubrel packet ids" do
-      LavinMQ::Config.instance.max_awaiting_pubrel = 2u16
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "publisher")
-          2.times { |i| publish(io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16) }
-          publish(io, topic: "a/b", qos: 2u8, packet_id: 3u16, expect_response: false)
-          io.should be_closed
-        end
-      end
-    ensure
-      LavinMQ::Config.instance.max_awaiting_pubrel = UInt16::MAX
-    end
-
-    it "accepts a re-send of a held packet id at the cap" do
+    it "accepts a re-send at max_awaiting_pubrel but closes on a new packet id" do
       LavinMQ::Config.instance.max_awaiting_pubrel = 1u16
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
           publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16)
+          # A held id is not a new one, so its re-send is answered with PUBREC
           publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16, dup: true)
-          pubrel(io, 1u16)
-          read_packet(io).should be_a(MQTT::Protocol::PubComp)
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 2u16, expect_response: false)
+          io.should be_closed
         end
       end
     ensure
@@ -248,53 +212,6 @@ module MqttSpecs
   end
 
   describe "qos2 as sender" do
-    it "completes the QoS 2 handshake for an outbound publish" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
-          pub = deliver_qos2(server, io)
-          pub.qos.should eq 2u8
-          id = pub.packet_id.should_not be_nil
-
-          pubrec(io, id)
-          rel = read_packet(io).should be_a(MQTT::Protocol::PubRel)
-          rel.packet_id.should eq id
-
-          pubcomp(io, id)
-          io.should be_drained
-
-          session = server.vhosts["/"].session("mqtt.subscriber")
-          wait_for { session.@inflight.empty? }
-
-          disconnect(io)
-        end
-      end
-    end
-
-    it "deletes the message at PUBREC, not at PUBCOMP" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
-          pub = deliver_qos2(server, io)
-          id = pub.packet_id.should_not be_nil
-          session = server.vhosts["/"].session("mqtt.subscriber")
-
-          pubrec(io, id)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
-
-          # The message is gone and counted as acknowledged, but the id is still
-          # booked - that is the whole of the second phase.
-          wait_for { session.ack_count == 1 }
-          session.message_count.should eq 0
-          session.unacked_count.should eq 0
-          session.@inflight.size.should eq 1
-
-          pubcomp(io, id)
-          disconnect(io)
-        end
-      end
-    end
-
     it "holds the packet id against the inflight limit until PUBCOMP" do
       LavinMQ::Config.instance.max_inflight_messages = 1u16
       with_server do |server|
@@ -334,6 +251,8 @@ module MqttSpecs
     end
 
     it "hands out the last packet id when it is the only one free" do
+      # 65534 ids are held, so the window must be larger than that
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
@@ -352,6 +271,36 @@ module MqttSpecs
           end
 
           read_publish(io).packet_id.should eq free
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
+
+    it "parks delivery when every packet id is owed to a requeued message" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          store = session.@msg_store.should_not be_nil
+          # Owed to messages that are not in the store, so none of them is sent
+          (1u16..UInt16::MAX).each do |id|
+            store.remember_original_packet_id(LavinMQ::SegmentPosition.new(99u32, id.to_u32, 1u32), id)
+          end
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+            disconnect(pub_io)
+          end
+
+          # The window has room but no id is free: nothing is sent, and the
+          # broker still answers
+          wait_for { !session.@has_capacity.value }
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
           disconnect(io)
         end
       end
@@ -383,8 +332,10 @@ module MqttSpecs
           pub = deliver_qos2(server, io)
           id = pub.packet_id.should_not be_nil
 
+          pub.qos.should eq 2u8
+
           pubrec(io, id)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
 
           # Hand-built, not via `pubcomp`: this must assert on the bytes a real
           # client sends, not on whatever the shard encodes.
@@ -399,24 +350,10 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK [MQTT-4.8.0-1]" do
-      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for one
-      # is a protocol violation, and a violation must close the connection.
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
-          pub = deliver_qos2(server, io)
-
-          puback(io, pub.packet_id.should_not be_nil)
-          io.should be_closed
-        end
-      end
-    end
-
-    it "publishes the will when it closes on a mismatched acknowledgement [MQTT-3.1.2-8]" do
-      # 3.1.2.5 lists "the Server closes the Network Connection because of a
-      # protocol error" among the situations in which the Will is published, so
-      # closing here is not a reason to withhold it.
+    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK, publishing its will [MQTT-4.8.0-1] [MQTT-3.1.2-8]" do
+      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK is a
+      # protocol violation. 3.1.2.5 lists a close on a protocol error among the
+      # situations in which the Will is published.
       with_server do |server|
         with_client_io(server) do |watcher|
           connect(watcher, client_id: "will-watcher")
@@ -523,6 +460,31 @@ module MqttSpecs
         end
       end
     end
+
+    it "does not count an unknown PUBREC's id against max_inflight_messages" do
+      # A client that never answers our PUBREL must not stall its deliveries.
+      LavinMQ::Config.instance.max_inflight_messages = 1u16
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          pubrec(io, 1u16)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq 1u16
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 1u16)
+            disconnect(pub_io)
+          end
+          pub = read_publish(io)
+          pub.packet_id.should_not eq 1u16
+          puback(io, pub.packet_id)
+          pubcomp(io, 1u16)
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
   end
 
   describe "qos2 across a reconnect" do
@@ -609,63 +571,12 @@ module MqttSpecs
         wait_for { session.client.nil? }
 
         # Still booked against the window, but holding no message: the message
-        # was deleted at PUBREC and only the id is owed.
+        # was deleted and acknowledged at PUBREC and only the id is owed.
+        session.ack_count.should eq 1
         session.@inflight.size.should eq 1
         session.@inflight.values.first.sp.should be_nil
         session.unacked_count.should eq 0
         session.message_count.should eq 0
-      end
-    end
-
-    it "owes no PUBREL to a clean session [MQTT-3.1.2-6]" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "cleaner", clean_session: true)
-          pub = deliver_qos2(server, io)
-          pubrec(io, pub.packet_id.should_not be_nil)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
-          disconnect(io)
-        end
-
-        wait_for { !server.vhosts["/"].session_exists?("mqtt.cleaner") }
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "cleaner", clean_session: true)
-          io.should be_drained
-          disconnect(io)
-        end
-      end
-    end
-
-    # [MQTT-4.4.0-1] and 4.6 order packets within each kind only, so the two
-    # may arrive in either order.
-    it "re-sends both the PUBREL and the replayed publish on reconnect" do
-      with_server do |server|
-        owed = 0u16
-        with_client_io(server) do |io|
-          connect(io, client_id: "resumer", clean_session: false)
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
-          publish_two_qos2(server, "a/b")
-
-          first = read_publish(io)
-          owed = first.packet_id.should_not be_nil
-          read_publish(io) # the second, left unacknowledged entirely
-          pubrec(io, owed)
-          read_packet(io).should be_a(MQTT::Protocol::PubRel)
-          disconnect(io)
-        end
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "resumer", clean_session: false)
-          packets = {read_packet(io), read_packet(io)}
-          rel = packets.find(&.is_a?(MQTT::Protocol::PubRel)).as(MQTT::Protocol::PubRel)
-          rel.packet_id.should eq owed
-          resent = packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
-          String.new(resent.payload).should eq "1"
-          resent.dup?.should be_true
-
-          disconnect(io)
-        end
       end
     end
 
@@ -697,10 +608,15 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
-          packets = {read_packet(io), read_packet(io)} # either order
+          # [MQTT-4.4.0-1] and 4.6 order packets within each kind only, so the
+          # PUBREL and the replayed publish may arrive in either order.
+          packets = {read_packet(io), read_packet(io)}
           packets.count(&.is_a?(MQTT::Protocol::PubRel)).should eq 1
+          rel = packets.find(&.is_a?(MQTT::Protocol::PubRel)).as(MQTT::Protocol::PubRel)
+          rel.packet_id.should eq owed
           resent = packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
           String.new(resent.payload).should eq "1"
+          resent.dup?.should be_true
           resent.packet_id.should_not eq owed
 
           disconnect(io)

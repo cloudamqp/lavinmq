@@ -111,8 +111,6 @@ module LavinMQ
       # which makes a takeover's `close` wait for this fiber to finish.
       def run : Nil
         @started = true
-        @session.client = self
-        @log.info { "Connection established for user=#{@user.name}" }
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
@@ -121,6 +119,15 @@ module LavinMQ
         end
         read_loop
       ensure
+        # Here rather than in `read_loop`: attaching can raise before it starts,
+        # after queueing PUBRELs that started the ack writer
+        case user = @user
+        when Auth::OAuthUser
+          user.cleanup
+        end
+        stop_ack_writer
+        close_socket
+        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
         @waitgroup.done
       end
 
@@ -129,6 +136,10 @@ module LavinMQ
       end
 
       private def read_loop
+        # Inside the rescues below, so an attach that fails on a disk error
+        # still logs and publishes the Will [MQTT-3.1.2-8]
+        @session.client = self
+        @log.info { "Connection established for user=#{@user.name}" }
         received_bytes = 0_u32
         socket = @io.io
         if socket.responds_to?(:"read_timeout=")
@@ -167,14 +178,6 @@ module LavinMQ
       rescue ex
         @log.error(exception: ex) { "Read Loop error" }
         publish_will
-      ensure
-        case user = @user
-        when Auth::OAuthUser
-          user.cleanup
-        end
-        stop_ack_writer
-        close_socket
-        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
       end
 
       # A deleted session closes only the socket, not the client, and logs why.
@@ -248,7 +251,7 @@ module LavinMQ
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
           # Queued like the others, so acknowledgements leave in publish order
           if packet.qos > 0 && packet_id
-            queue_ack(packet.qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck, packet_id)
+            queue_ack(ack_type(packet.qos), packet_id)
           end
           return
         end
@@ -260,8 +263,12 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
-          queue_ack(packet.qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck, packet_id)
+          queue_ack(ack_type(packet.qos), packet_id)
         end
+      end
+
+      private def ack_type(qos : UInt8) : PendingAck::PacketType
+        qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck
       end
 
       # Id 0 is illegal [MQTT-2.3.1-1]; held as a QoS 2 id it would also
@@ -274,25 +281,27 @@ module LavinMQ
 
       # The packet is sent by the ack writer, so neither the read loop nor the
       # session's fibers wait for the disk.
+      #
+      # Dropped once the read loop is done: nothing would stop a writer started
+      # now, and a session's PUBREL stays booked for the next attach.
       def queue_ack(type : PendingAck::PacketType, packet_id : UInt16, generation : UInt32? = nil) : Nil
+        return if @read_loop_done
         unless @ack_mailbox
           mailbox = @ack_mailbox = ::Channel(UInt64).new(1)
           spawn ack_writer(mailbox), name: "MQTT client #{@client_id} ack writer"
         end
         seq = @ack_seq &+= 1
         @pending_acks.lock &.push(PendingAck.new(seq, type, packet_id, generation))
-        vhost.enqueue_ack(self, seq)
+        enqueue_ack(seq)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
-      # (confirms are cumulative).
+      # A stopped persister never confirms, so the writer would wait forever
+      private def enqueue_ack(seq : UInt64) : Nil
+        @ack_mailbox.try &.close unless vhost.enqueue_ack(self, seq)
+      end
+
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @ack_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        Persister::ConfirmTarget.offer(@ack_mailbox, msgid)
       end
 
       private def ack_writer(mailbox : ::Channel(UInt64))
@@ -309,6 +318,10 @@ module LavinMQ
       rescue ex : PacketIdLog::Error
         @log.error(exception: ex) { "Failed to record a QoS 2 packet id" }
         close("packet id log write failed")
+      rescue ex
+        # Without a writer every later ack would wait forever
+        @log.error(exception: ex) { "Ack writer failed" }
+        close("ack writer failed")
       end
 
       # A dead socket only drops the packet: a barrier behind it still has a
@@ -338,28 +351,42 @@ module LavinMQ
       # Two drains before a QoS 2 PUBREC: the routing, then the id record, so
       # power loss cannot keep an id without its message. Every entry the
       # confirm covers goes back under one new seq, so a burst costs two drains.
+      # The other order is the accepted trade-off: a process crash between the
+      # drains keeps the message without its id, and a re-send is routed again.
+      # Rewritten in place at the head of the queue, so nothing is allocated
+      # and everything behind them waits too. The seq is taken after the
+      # records: a write can yield, and a later seq confirmed by a drain that
+      # began before a record was marked dirty would release its PUBREC.
       private def fire_barriers(first : PendingAck, seq : UInt64) : Nil
-        covered = [first]
-        while pending = next_ack(seq)
-          covered << pending
+        record_publish_received(first)
+        covered = 0
+        while pending = covered_ack(covered, seq)
+          record_publish_received(pending)
+          covered += 1
         end
-        # A closed session skips the record and the PUBREC still goes out:
-        # harmless, the client stops re-sending and its PUBREL gets PUBCOMP.
-        covered.each do |p|
-          if generation = p.generation
-            @session.record_publish_received(p.packet_id, generation)
-          end
+        new_seq = @ack_seq &+= 1
+        @pending_acks.lock do |queue|
+          covered.times { |i| queue[i] = queue[i].copy_with(seq: new_seq, generation: nil) }
+          queue.unshift(first.copy_with(seq: new_seq, generation: nil))
         end
-        requeue_acks(covered)
+        enqueue_ack(new_seq)
       end
 
-      # Back at the head, in order, so everything behind them waits too
-      private def requeue_acks(covered : Array(PendingAck)) : Nil
-        seq = @ack_seq &+= 1
+      # The entry at `i` if the confirm for `seq` covers it. Only this fiber
+      # shifts the queue and `queue_ack` pushes at the tail, so `i` is stable.
+      private def covered_ack(i : Int32, seq : UInt64) : PendingAck?
         @pending_acks.lock do |queue|
-          covered.reverse_each { |p| queue.unshift(p.copy_with(seq: seq, generation: nil)) }
+          pending = queue[i]?
+          pending if pending && pending.seq <= seq
         end
-        vhost.enqueue_ack(self, seq)
+      end
+
+      # A closed session skips the record and the PUBREC still goes out:
+      # harmless, the client stops re-sending and its PUBREL gets PUBCOMP.
+      private def record_publish_received(pending : PendingAck) : Nil
+        if generation = pending.generation
+          @session.record_publish_received(pending.packet_id, generation)
+        end
       end
 
       private def ack_packet(pending : PendingAck) : Protocol::Packet
@@ -388,7 +415,7 @@ module LavinMQ
           rescue ex
             # An id left behind by a routing failure would dedupe away the
             # client's re-send, turning a duplicate into silent loss.
-            @session.pubrel_received(packet_id)
+            @session.forget_publish_received(packet_id)
             raise ex
           end
           vhost.event_tick(EventType::ClientPublish)
@@ -507,11 +534,15 @@ module LavinMQ
       #
       # A client that never started has no read fiber to wait for:
       # `Broker#run_client` sees `closed?` and does not start it.
+      #
+      # Waits also when already closing: a takeover must not attach while the
+      # old read fiber can still route and record a packet id.
       def close(reason = "")
-        return if @closed
-        @log.info { "Closing connection: #{reason}" }
-        @closed = true
-        close_socket
+        unless @closed
+          @log.info { "Closing connection: #{reason}" }
+          @closed = true
+          close_socket
+        end
         @waitgroup.wait if @started
       end
 

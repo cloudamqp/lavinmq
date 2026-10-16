@@ -268,9 +268,9 @@ module MqttSpecs
         session = server.vhosts["/"].session("mqtt.resumer")
         wait_for { session.client.nil? }
 
-        # `next_packet_id` hands out 0 once the sequence wraps, so a real session can put
-        # one in here. Reissued from memory, the client rejects the illegal id and
-        # gets it again on every reconnect.
+        # Guards the check for 0 in `packet_id_for`: nothing hands out 0 any
+        # more, so it is planted. Reissued, the client would reject the illegal
+        # id and get it again on every reconnect.
         store = session.@msg_store.should_not be_nil
         sp = store.@original_packet_ids.keys.first
         store.@original_packet_ids[sp] = 0u16

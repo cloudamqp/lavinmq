@@ -242,13 +242,14 @@ module MqttSpecs
         session.pubrel_received(7u16).should be_true
         session.publish_received(7u16).should be_true
         current = session.publish_routed(7u16).should_not be_nil
-        size = log_size(log) # the PUBREL_RECEIVED record
+        # Never recorded, so its release writes nothing either
+        log_size(log).should eq 0
         session.record_publish_received(7u16, stale)
-        log_size(log).should eq size # its routing may not be durable yet
+        log_size(log).should eq 0 # its routing may not be durable yet
         session.record_publish_received(7u16, current)
-        log_size(log).should eq size + 3
+        log_size(log).should eq 4 + 3
         session.record_publish_received(7u16, current)
-        log_size(log).should eq size + 3
+        log_size(log).should eq 4 + 3
       end
     end
 
@@ -346,6 +347,84 @@ module MqttSpecs
       end
     end
 
+    it "closes a session whose packet id log cannot be loaded, and loads the rest" do
+      path = ""
+      with_server(clean_dir: false) do |server|
+        offline_subscriber(server)
+        with_client_io(server) do |io|
+          connect(io, client_id: "pub", clean_session: false)
+          publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
+          disconnect(io)
+        end
+        path = server.vhosts["/"].session("mqtt.pub").@packet_id_log.should_not(be_nil).@path
+      end
+      # Unreadable as a log
+      File.delete(path)
+      Dir.mkdir(path)
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.session("mqtt.pub").closed?.should be_true
+        vhost.session("mqtt.sub").closed?.should be_false
+        with_client_io(server) do |io|
+          connack = connect(io, client_id: "pub", clean_session: false).as(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+        end
+        # A clean CONNECT replaces it
+        with_client_io(server) do |io|
+          connack = connect(io, client_id: "pub", clean_session: true).as(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          disconnect(io)
+        end
+      end
+    end
+
+    it "closes a session whose message store closes while loading" do
+      dir = ""
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+          end
+          # Sent and recorded, never PUBREC'd
+          read_publish(io)
+          disconnect(io)
+        end
+        dir = server.vhosts["/"].session("mqtt.sub").@data_dir
+      end
+      # An unknown schema version makes the store close itself
+      File.open(File.join(dir, "msgs.0000000001"), "r+") { |f| f.write_bytes(UInt32::MAX) }
+      with_server do |server|
+        server.vhosts["/"].session("mqtt.sub").closed?.should be_true
+        with_client_io(server) do |io|
+          # Not attached, so no PUBREL for a message the store never loaded
+          connack = connect(io, client_id: "sub", clean_session: false).as(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+        end
+      end
+    end
+
+    it "keeps a packet id held when its PUBREL cannot be recorded" do
+      with_server do |server|
+        offline_subscriber(server)
+        with_client_io(server) do |io|
+          connect(io, client_id: "pub", clean_session: false)
+          publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
+          session = server.vhosts["/"].session("mqtt.pub")
+          log = session.@packet_id_log.should_not be_nil
+          # Makes the next append raise, as a disk error would
+          pointerof(log.@closed).value = true
+          pubrel(io, 7u16)
+          io.should be_closed
+          # Memory still agrees with the log, which holds the id
+          log.awaiting_pubrel.should contain 7u16
+          session.@awaiting_pubrel.should contain 7u16
+        end
+      end
+    end
+
     it "closes the connection when the packet id log cannot be written" do
       with_server do |server|
         offline_subscriber(server)
@@ -380,22 +459,6 @@ module MqttSpecs
           publish(io, topic: "a/b", qos: 2u8, packet_id: 7u16)
           server.vhosts["/"].session("mqtt.pub").@packet_id_log.should be_nil
         end
-      end
-    end
-
-    it "deletes the log with the session" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io, client_id: "pub", clean_session: false)
-          publish(io, topic: "a/b", qos: 2u8, packet_id: 7u16)
-          disconnect(io)
-        end
-        session = server.vhosts["/"].session("mqtt.pub")
-        log = session.@packet_id_log.should_not be_nil
-        path = log.@path
-        File.exists?(path).should be_true
-        server.vhosts["/"].delete_queue("mqtt.pub")
-        File.exists?(path).should be_false
       end
     end
   end
@@ -503,6 +566,36 @@ module MqttSpecs
       end
     end
 
+    it "re-sends under the recorded packet id when the send fails" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          client = server.vhosts["/"].session("mqtt.sub").client.should_not be_nil
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            with_drain_held do |gate|
+              publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+              ping(sub_io)
+              read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
+              # The PUBLISH_SENT record is written and waiting, so the send
+              # fails after the client may already hold the id
+              pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
+              release_drain(gate)
+            end
+          end
+          sub_io.should be_closed
+        end
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          resent = read_publish(sub_io)
+          resent.packet_id.should eq 1u16
+          resent.dup?.should be_true
+          disconnect(sub_io)
+        end
+      end
+    end
+
     it "syncs the ack file of the PUBREC'd message before the PUBREL" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -541,11 +634,10 @@ module MqttSpecs
       LavinMQ::Config.instance.segment_size = segment_size.should_not be_nil
     end
 
-    # Invariant guard: unchanged code writes no record for the `wait_for`.
-    # Without the wait the PUBLISH goes to the old connection and its requeue
-    # gives the same result. Protects the requeue `client=` does while the
-    # deliver_loop waits.
-    it "sends the PUBLISH once when the subscriber reconnects while it waits to be durable" do
+    it "waits for the packet id record again when re-sending after a takeover" do
+      # The first record may not be durable, so the re-send must not skip it.
+      # Also guards the requeue `client=` does while the deliver_loop waits:
+      # the PUBLISH must go out once, on the new connection.
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)
@@ -559,6 +651,9 @@ module MqttSpecs
             wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
             with_client_io(server) do |io2|
               connect(io2, client_id: "sub", clean_session: false) # takeover
+              step_drain(gate)
+              wait_for { log_size(log) == 4 + 2 * 11 } # recorded again
+              io2.should be_silent
               release_drain(gate)
               resent = read_publish(io2)
               {resent.packet_id, resent.dup?}.should eq({1u16, true})
@@ -572,17 +667,21 @@ module MqttSpecs
     # Invariant guard: passes on the unfixed code, protects the delete of a
     # session whose deliver_loop waits for its packet id to be durable
     it "deletes a session whose PUBLISH waits to be durable" do
+      # By identity, not by count: other specs' loops may die meanwhile
       deliver_loops = -> do
-        count = 0
-        Fiber.each { |f| count += 1 if f.name == "Session#deliver_loop" && !f.dead? }
-        count
+        loops = Set(Fiber).new
+        Fiber.each { |f| loops << f if f.name == "Session#deliver_loop" && !f.dead? }
+        loops
       end
-      loops = 0
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)
           subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
-          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.should_not be_nil
+          session = server.vhosts["/"].session("mqtt.sub")
+          log = session.@packet_id_log.should_not be_nil
+          session.@deliver_loop_started.should be_false
+          before = deliver_loops.call
+          loop_fiber = nil
           with_drain_held do |gate|
             with_client_io(server) do |pub_io|
               connect(pub_io, client_id: "pub")
@@ -590,11 +689,14 @@ module MqttSpecs
               disconnect(pub_io)
             end
             wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
-            loops = deliver_loops.call
+            started = deliver_loops.call - before
+            started.size.should eq 1
+            loop_fiber = started.first
             server.vhosts["/"].delete_queue("mqtt.sub")
             release_drain(gate)
           end
-          wait_for { deliver_loops.call == loops - 1 }
+          fiber = loop_fiber.should_not be_nil
+          wait_for { fiber.dead? }
         end
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)

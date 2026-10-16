@@ -192,7 +192,7 @@ module MqttSpecs
           end
         end
 
-        it "keeps a reconnect to a session closed by a store error, until the session is deleted" do
+        it "refuses a reconnect to a session closed by a store error, until the session is deleted" do
           with_server do |server|
             vhost = server.vhosts["/"]
             with_client_io(server) do |io|
@@ -200,16 +200,23 @@ module MqttSpecs
               # Stands in for `get_packet` closing the session on a
               # MessageStore::Error while this client is attached.
               vhost.session("mqtt.a").close
-              disconnect(io)
+              # Its QoS 2 ids are no longer recorded
+              io.should be_closed
             end
             wait_for { vhost.@connections.@connections.empty? }
 
+            # A closed session has no state to resume, and attaching to it
+            # would get no deliveries
             with_client_io(server) do |io|
-              connack = connect(io, client_id: "a", clean_session: false)
-              connack.should be_a(MQTT::Protocol::Connack)
-              pingpong(io).should be_a(MQTT::Protocol::PingResp)
-              vhost.delete_queue("mqtt.a")
-              io.should be_closed
+              connack = connect(io, client_id: "a", clean_session: false).as(MQTT::Protocol::Connack)
+              connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+            end
+            vhost.delete_queue("mqtt.a")
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "a", clean_session: false).as(MQTT::Protocol::Connack)
+              connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+              connack.session_present?.should be_false
+              disconnect(io)
             end
           end
         end
@@ -463,27 +470,21 @@ module MqttSpecs
     deliver_loop_started = ->(server : LavinMQ::Server, client_id : String) do
       server.vhosts["/"].session("mqtt.#{client_id}").@deliver_loop_started
     end
-    live_deliver_loops = -> do
-      count = 0
-      Fiber.each { |f| count += 1 if f.name == "Session#deliver_loop" && !f.dead? }
-      count
-    end
 
     {false, true}.each do |clean_session|
       it "has no segment or deliver loop for a publish-only client (clean_session=#{clean_session})" do
         with_server do |server|
-          loops = live_deliver_loops.call
-          mmaps = MFile.mmap_count
           with_client_io(server) do |io|
             connect(io, client_id: "pub", clean_session: clean_session)
             publish(io, topic: "a/b", qos: 1u8, packet_id: 1u16)
             publish(io, topic: "a/b", qos: 0u8)
             pingpong(io)
             Dir.exists?(session_dir.call(server, "pub")).should be_false
-            server.vhosts["/"].session("mqtt.pub").@msg_store.should be_nil
+            session = server.vhosts["/"].session("mqtt.pub")
+            session.@msg_store.should be_nil
+            # QoS 0 and 1 write no packet id record, so nothing is mapped
+            session.@packet_id_log.try(&.@mfile).should be_nil
             deliver_loop_started.call(server, "pub").should be_false
-            live_deliver_loops.call.should eq loops
-            MFile.mmap_count.should eq mmaps
             disconnect(io)
           end
         end
@@ -512,33 +513,20 @@ module MqttSpecs
       end
     end
 
-    it "starts no deliver loop for a QoS 0 message dropped while offline" do
-      with_server do |server|
-        with_client_io(server) do |sub|
-          connect(sub, client_id: "sub")
-          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 0u8}))
-          disconnect(sub)
-        end
-        with_client_io(server) do |pub|
-          connect(pub, client_id: "pub")
-          publish(pub, topic: "a/b", qos: 0u8)
-          pingpong(pub)
-          disconnect(pub)
-        end
-        server.vhosts["/"].session("mqtt.sub").message_count.should eq 0
-        deliver_loop_started.call(server, "sub").should be_false
-      end
-    end
-
     it "delivers what an offline session got before its first connection back" do
       with_server do |server|
         with_client_io(server) do |sub|
           connect(sub, client_id: "sub")
-          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}, {"q0", 0u8}))
           disconnect(sub)
         end
         with_client_io(server) do |pub|
           connect(pub, client_id: "pub")
+          # Dropped while offline, so it must not start the deliver loop
+          publish(pub, topic: "q0", qos: 0u8)
+          pingpong(pub)
+          server.vhosts["/"].session("mqtt.sub").message_count.should eq 0
+          deliver_loop_started.call(server, "sub").should be_false
           publish(pub, topic: "a/b", payload: "offline".to_slice, qos: 1u8, packet_id: 4u16)
           disconnect(pub)
         end
@@ -546,6 +534,7 @@ module MqttSpecs
         with_client_io(server) do |sub|
           connect(sub, client_id: "sub")
           String.new(read_publish(sub).payload).should eq "offline"
+          sub.should be_silent
           disconnect(sub)
         end
       end
@@ -589,9 +578,8 @@ module MqttSpecs
         with_server do |server|
           dir = session_dir.call(server, "pub")
           Dir.children(dir).should eq ["packet_ids.log"]
-          session = server.vhosts["/"].session("mqtt.pub")
-          session.@msg_store.should be_nil
-          session.delete
+          server.vhosts["/"].session("mqtt.pub").@msg_store.should be_nil
+          server.vhosts["/"].delete_queue("mqtt.pub")
           Dir.exists?(dir).should be_false
         end
       end

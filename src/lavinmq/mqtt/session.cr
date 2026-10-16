@@ -90,8 +90,13 @@ module LavinMQ
       @has_capacity = BoolChannel.new(true)
       # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
-      # one is answered again and not routed twice [MQTT-4.3.3-2].
+      # one is answered again and not routed twice [MQTT-4.3.3-2]. Not derived
+      # from the log's set: a clean session has no log.
       @awaiting_pubrel = Set(UInt16).new
+      # Ids PUBREL'd for an unknown PUBREC, held until PUBCOMP so they are not
+      # reused. Outside `@inflight`: they are not our deliveries, and a client
+      # that never answers must not take up the window.
+      @unknown_pubrecs = Set(UInt16).new
       # Durable sessions only: a clean session's state ends with its
       # connection [MQTT-3.1.2-6].
       @packet_id_log : PacketIdLog?
@@ -108,6 +113,7 @@ module LavinMQ
       # Set once a wait fails while open: only a shutdown stops the persister
       @persister_stopped = false
       @deliver_loop_started = false
+      @packet_ids_exhausted = false
       # The username in the .metadata file, see #persist_username
       @metadata_username : String? = nil
       # This session's topic filters and their QoS, kept by the MQTT exchange
@@ -131,8 +137,6 @@ module LavinMQ
           Digest::SHA1.hexdigest(@name)
         )
         @replicator = durable? ? @vhost.@replicator : nil
-        @packet_id_log = durable? ? PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister) : nil
-        @packet_id_log.try { |log| @awaiting_pubrel.concat(log.awaiting_pubrel) }
         @durable_mailbox = durable? ? ::Channel(UInt64).new(1) : nil
         @metadata_file = File.join(@data_dir, ".metadata")
         username = nil
@@ -141,9 +145,44 @@ module LavinMQ
           username = @metadata_username = read_metadata_file
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
-        @msg_store = open_msg_store if segments_on_disk?
+        load_state
+      end
+
+      # Like a queue whose store fails to load, the session is closed rather
+      # than raising, so the rest of the vhost still loads. A persistent
+      # CONNECT to it is refused, see `Broker#add_client_locked`.
+      private def load_state : Nil
+        # The store first, as it registers its files with the replicator
+        if segments_on_disk?
+          store = @msg_store = open_msg_store
+          # A bad segment closes the store rather than raising. Its messages
+          # are not loaded, so restoring would owe PUBRELs for them.
+          if store.closed
+            @log.error { "Message store closed while loading, closing session" }
+            return close_unloaded
+          end
+        end
+        if durable?
+          log = @packet_id_log = PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister)
+          @awaiting_pubrel.concat(log.awaiting_pubrel)
+        end
         restore_publish_sent
         ensure_deliver_loop unless message_count.zero?
+      rescue ex
+        @log.error(exception: ex) { "Failed to load session, closing it" }
+        close_unloaded
+      end
+
+      # Files it could not load are registered by path, or a follower's full
+      # sync would delete them
+      private def close_unloaded : Nil
+        if (replicator = @replicator) && Dir.exists?(@data_dir)
+          Dir.each_child(@data_dir) do |name|
+            path = File.join(@data_dir, name)
+            replicator.register_file(path) if File.file?(path)
+          end
+        end
+        close
       end
 
       # Created by the first subscription, see #subscription_bound, as only a
@@ -166,6 +205,9 @@ module LavinMQ
       # The store's first segment is created with it, so a session that ever
       # had a store has one
       private def segments_on_disk? : Bool
+        # Checked first: a new session has no directory, and raising for it
+        # would cost every CONNECT an exception
+        return false unless Dir.exists?(@data_dir)
         Dir.children(@data_dir).any?(&.starts_with?("msgs."))
       rescue File::NotFoundError
         false
@@ -229,6 +271,9 @@ module LavinMQ
 
       def close : Bool
         return false if @closed.swap(true)
+        # Its QoS 2 ids are no longer recorded, so an attached client would get
+        # PUBRECs that do not survive a restart. A reconnect is refused.
+        @client.try &.force_close
         @has_capacity.close
         @has_client.close
         @msg_store_lock.synchronize do
@@ -242,7 +287,8 @@ module LavinMQ
 
       # At shutdown the persister closes before the sessions, so the drain
       # these wait for may never come. Write order is enough for a restart
-      # and a failover; only power loss can still drop one.
+      # and a failover; only power loss can still drop one. Connections close
+      # before sessions, so no PUBREL is handled while these are written.
       private def record_publish_received_on_close : Nil
         log = @packet_id_log || return
         @unrecorded_publish_received.each_key { |id| log.publish_received(id) }
@@ -305,6 +351,9 @@ module LavinMQ
           # reattached. Close the connection it was written to, not whichever
           # happens to be current.
           client.try &.close("Server force closed client")
+          # Needed although `remove_client` also detaches: until it runs, this
+          # loop would spin on the dead client. It can still race an attach
+          # parked on the store lock; see the attach/detach follow-up in #2236.
           self.client = nil if @client == client
         end
       end
@@ -312,8 +361,9 @@ module LavinMQ
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@inflight` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-1]. Both fall back to a fresh id. The flag tells whether
-      # the id is the original one.
+      # [MQTT-2.3.1-1]. Both fall back to a fresh id. Neither happens today:
+      # `free_packet_id` never hands out an id owed to a requeued message, and
+      # never 0. The flag tells whether the id is the original one.
       private def packet_id_for(sp : SegmentPosition) : {UInt16, Bool}?
         if id = msg_store.original_packet_id?(sp)
           return {id, true} unless id.zero? || @inflight.has_key?(id)
@@ -341,9 +391,9 @@ module LavinMQ
         @client
       end
 
-      # A takeover's `Client#close` usually joins the old read fiber before the
-      # new `Client#run` reaches this, so a `puback`/`pubrec` is rarely in flight
-      # while `@inflight` is walked - but a second `close` returns without waiting, so it can be.
+      # A takeover's `Client#close` joins the old read fiber before the new
+      # `Client#run` reaches this, so no `puback`/`pubrec` of the old client is
+      # in flight while `@inflight` is walked.
       def client=(client : MQTT::Client?)
         # A closed store can't be touched, but `delete` still has to know which
         # connection to close.
@@ -388,6 +438,7 @@ module LavinMQ
           @log.info { "resending #{awaiting_pubcomp.size} PUBREL" }
           awaiting_pubcomp.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) }
         end
+        @unknown_pubrecs.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) } if client
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
@@ -403,7 +454,8 @@ module LavinMQ
 
       # The .metadata file holds the last attached username, so a restored
       # session keeps its member rules. It only exists for a durable session a
-      # client has attached to; nothing else has a username to restore. Anything that is not a JSON object with a string username is treated
+      # client has attached to; nothing else has a username to restore.
+      # Anything that is not a JSON object with a string username is treated
       # as an unknown user; a bad file must never stop the session from loading.
       private def read_metadata_file : String?
         JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
@@ -457,15 +509,24 @@ module LavinMQ
 
       # Called for every binding, whether from a SUBSCRIBE, the HTTP API, a
       # definitions import or a restore at startup
-      protected def subscription_bound(filter : String, qos : UInt8) : Nil
+      #
+      # False if the store cannot be created, e.g. at `vm.max_map_count`, so the
+      # bind fails: a SUBSCRIBE gets Failure and a restore skips the binding.
+      protected def subscription_bound(filter : String, qos : UInt8) : Bool
         unless closed?
-          # Creating the store here keeps it out of the publish that first
-          # routes to it, which a fanout to many new subscribers would pay for
-          # each of them. First, so a failure leaves the subscription unrecorded.
-          @msg_store_lock.synchronize { @msg_store ||= open_msg_store }
-          persist_username
+          begin
+            # Creating the store here keeps it out of the publish that first
+            # routes to it, which a fanout to many new subscribers would pay for
+            # each of them. First, so a failure leaves the subscription unrecorded.
+            @msg_store_lock.synchronize { @msg_store ||= open_msg_store }
+            persist_username
+          rescue ex
+            @log.error(exception: ex) { "Could not bind '#{filter}'" }
+            return false
+          end
         end
         @subscriptions[filter] = qos
+        true
       end
 
       protected def subscription_unbound(filter : String) : Nil
@@ -544,12 +605,7 @@ module LavinMQ
       # requeued for the next attempt.
       private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Bool
         id, original = packet_id_for(sp) || begin
-          @msg_store_lock.synchronize { msg_store.requeue(sp) }
-          # Without this the deliver_loop spins: the store is non-empty and
-          # capacity still reads true. Recomputed rather than closed
-          # outright, since an ack can free a slot while the requeue above
-          # waits on a contended @msg_store_lock.
-          refresh_capacity
+          requeue_without_packet_id(sp)
           return false
         end
         # Raises before anything is booked, which the rescue below would not
@@ -567,7 +623,9 @@ module LavinMQ
           @inflight[id] = Inflight.new(packet.qos == 1u8 ? Inflight::Awaiting::PubAck : Inflight::Awaiting::PubRec, sp)
           @unacked_count.add(1, :relaxed)
           @unacked_bytesize.add(sp.bytesize, :relaxed)
-          if packet.qos == 2u8 && !original && @packet_id_log
+          # A re-send too: its id was remembered, but its record may have
+          # failed or not be durable yet
+          if packet.qos == 2u8 && @packet_id_log
             return true unless publish_sent_durable?(id, sp)
           end
           yield packet, sp.bytesize
@@ -584,19 +642,29 @@ module LavinMQ
         rescue ex # requeue failed delivery
           # Roll back only what is still ours: requeueing an entry `client=`
           # already requeued hands the message out twice.
-          if booked?(id, sp)
-            @inflight.delete(id)
-            # Before the lock, which can park: `client=` zeroes both counters,
-            # and a `sub` after that wraps an unsigned atomic.
-            @unacked_count.sub(1, :relaxed)
-            @unacked_bytesize.sub(sp.bytesize, :relaxed)
-            @msg_store_lock.synchronize { msg_store.requeue(sp) }
-          end
+          unsend(id, sp) if booked?(id, sp)
           raise ex
         end
         true
       end
 
+      private def requeue_without_packet_id(sp : SegmentPosition) : Nil
+        @msg_store_lock.synchronize { msg_store.requeue(sp) }
+        # Without this the deliver_loop spins: the store is non-empty and
+        # capacity still reads true. Recomputed after the lock, which can
+        # park while an ack frees a slot or an id; no yield from here on.
+        refresh_capacity
+        return if free_packet_id
+        # The window has room, but ids owed to requeued messages hold the
+        # rest. Parked until an acknowledgement frees one.
+        # Logged once per pause: every ack reopens the gate for another try
+        @log.warn { "No free packet id, delivery paused" } unless @packet_ids_exhausted
+        @packet_ids_exhausted = true
+        @has_capacity.swap(false)
+      end
+
+      # One drain per delivery, so a durable session's QoS 2 rate is bounded by
+      # persister latency; recording a batch of ids per drain would lift that.
       # Records `id` as sent and waits for it to be durable. False when the
       # session closed meanwhile, `client=` requeued `sp` (the new connection
       # then sends it under this id), or the persister stopped.
@@ -620,15 +688,9 @@ module LavinMQ
         false
       end
 
-      # Called from the persister's thread. Non-blocking; a full mailbox drops
-      # the stale id (confirms are cumulative).
+      # Called from the persister's thread
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @durable_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        Persister::ConfirmTarget.offer(@durable_mailbox, msgid)
       end
 
       # Back in the store under `id`, which the log already holds, so a
@@ -636,14 +698,22 @@ module LavinMQ
       private def unsend_on_stopped_persister(id : UInt16, sp : SegmentPosition) : Nil
         @persister_stopped = true
         return unless booked?(id, sp)
+        unsend(id, sp)
+        refresh_capacity
+      end
+
+      # Back in the store under `id`, as `client=` does: the client may hold the
+      # id, and a QoS 2 one is in the packet id log [MQTT-4.4.0-1].
+      private def unsend(id : UInt16, sp : SegmentPosition) : Nil
         @inflight.delete(id)
+        # Before the lock, which can park: `client=` zeroes both counters,
+        # and a `sub` after that wraps an unsigned atomic.
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         @msg_store_lock.synchronize do
           msg_store.remember_original_packet_id(sp, id)
           msg_store.requeue(sp)
         end
-        refresh_capacity
       end
 
       # A message loaded from disk is not `redelivered`, so a re-send under the
@@ -690,7 +760,16 @@ module LavinMQ
       def puback(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
         inflight = @inflight[id]?
-        raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
+        if inflight.nil?
+          # Owed to a requeued message: a client acking a message it got on its
+          # previous connection. It is re-sent and acked again, as for `pubrec`.
+          if @msg_store.try(&.original_packet_id_in_use?(id))
+            @log.debug { "PUBACK for packet id '#{id}', which is not in flight" }
+            return
+          end
+          # Nothing re-sends a PUBACK, so an unknown one is a protocol error
+          raise ProtocolViolation.new("PUBACK for unknown packet id '#{id}'")
+        end
         sp = inflight.sp
         # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for
         # one is a protocol violation. Checked before the delete, so it cannot
@@ -729,10 +808,9 @@ module LavinMQ
             @log.debug { "PUBREC for packet id '#{id}', which is not in flight" }
           else
             @log.debug { "PUBREC for unknown packet id '#{id}', answering PUBREL" }
-            # Booked until PUBCOMP: the PUBREL waits for a drain, and a new
+            # Held until PUBCOMP: the PUBREL waits for a drain, and a new
             # PUBLISH under this id before it would be released in its place.
-            @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
-            refresh_capacity
+            @unknown_pubrecs << id
             send_pubrel(id)
           end
           return false
@@ -754,7 +832,7 @@ module LavinMQ
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         delete_message(sp)
-        @msg_store_lock.synchronize { msg_store.mark_delete_dirty(sp) } if durable?
+        @msg_store_lock.synchronize { msg_store.mark_delete_dirty(sp) }
         send_pubrel(id)
         # No `refresh_capacity`: the id is still booked, so the window is
         # unchanged.
@@ -764,15 +842,22 @@ module LavinMQ
       def pubcomp(packet : Protocol::PubComp) : Bool
         id = packet.packet_id
         unless inflight = @inflight[id]?
-          @log.warn { "PUBCOMP for unknown packet id '#{id}'" }
+          if @unknown_pubrecs.delete(id)
+            # Can reopen a delivery paused for lack of a free id
+            refresh_capacity
+          else
+            @log.warn { "PUBCOMP for unknown packet id '#{id}'" }
+          end
           return false
         end
         unless inflight.awaiting.pub_comp?
           raise ProtocolViolation.new("PUBCOMP for packet id '#{id}' that has not been PUBRECed")
         end
-        @inflight.delete(id)
-        # No wait: a lost record costs one spare PUBREL, answered with PUBCOMP
+        # No wait: a lost record costs one spare PUBREL, answered with PUBCOMP.
+        # Before the id is freed: the write can yield, and a reuse recorded
+        # first would be deleted by this record on restart.
         log_packet_id &.pubcomp_received(id)
+        @inflight.delete(id)
         # Load-bearing: for a window full of ids awaiting PUBCOMP, this is the
         # only event that can reopen the capacity gate.
         refresh_capacity
@@ -810,12 +895,21 @@ module LavinMQ
         log_packet_id &.publish_received(packet_id)
       end
 
+      # Undoes `publish_received` when routing failed. Memory only: nothing was
+      # recorded for the id yet.
+      def forget_publish_received(packet_id : UInt16) : Nil
+        @awaiting_pubrel.delete(packet_id)
+      end
+
       # Releases `packet_id` on PUBREL. False if we were not holding it.
+      # The log is written before the id is released, so a failed write
+      # leaves it held in both. An unrecorded id is not in the log; it is
+      # dropped first, so a barrier cannot record it while the write yields.
       def pubrel_received(packet_id : UInt16) : Bool
-        @unrecorded_publish_received.delete(packet_id)
-        held = @awaiting_pubrel.delete(packet_id)
-        log_packet_id &.pubrel_received(packet_id) if held
-        held
+        unrecorded = @unrecorded_publish_received.delete(packet_id)
+        held = @awaiting_pubrel.includes?(packet_id)
+        log_packet_id &.pubrel_received(packet_id) if held && !unrecorded
+        @awaiting_pubrel.delete(packet_id)
       end
 
       # The log raises once closed, and a client's ack writer or read fiber can
@@ -835,7 +929,11 @@ module LavinMQ
       # as awaiting PUBCOMP before deleting), which is not a drop.
       private def original_packet_id_dropped(sp : SegmentPosition, id : UInt16) : Bool
         return false if @inflight.has_key?(id)
-        return false unless msg_store[sp].properties.delivery_mode == 2u8
+        unless msg_store[sp].properties.delivery_mode == 2u8
+          # The id is free, which can reopen a delivery paused for lack of one
+          refresh_capacity
+          return false
+        end
         @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
         refresh_capacity
         true
@@ -857,6 +955,12 @@ module LavinMQ
         # `>=` not `==`: the limit is mutable at runtime, so the window can
         # already be over it.
         return if @inflight.size >= Config.instance.max_inflight_messages
+        id = free_packet_id || return
+        @packet_ids_exhausted = false
+        @last_packet_id = id
+      end
+
+      private def free_packet_id : UInt16?
         next_id = @last_packet_id
         # Tries each of 1..65535 once, `@last_packet_id` itself last, as it can
         # be the only id left. Packet id 0 is illegal [MQTT-2.3.1-1].
@@ -865,8 +969,8 @@ module LavinMQ
           # Skips ids owed to requeued messages too: taking one makes its
           # message fall back to a fresh id, while the client still holds the
           # old one [MQTT-4.4.0-1].
-          next if @inflight.has_key?(next_id) || @msg_store.try(&.original_packet_id_in_use?(next_id))
-          @last_packet_id = next_id
+          next if @inflight.has_key?(next_id) || @unknown_pubrecs.includes?(next_id)
+          next if @msg_store.try(&.original_packet_id_in_use?(next_id))
           return next_id
         end
       end

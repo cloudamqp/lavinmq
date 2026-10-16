@@ -28,11 +28,6 @@ describe LavinMQ::MQTT do
       LavinMQ::MQTT.qos(LavinMQ::MQTT.qos_arguments(2u8)).should eq 2u8
     end
 
-    it "grants QoS 2 as QoS 2" do
-      arguments = LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 2u8})
-      LavinMQ::MQTT.qos(arguments).should eq 2u8
-    end
-
     it "caps a value above 2 at QoS 2" do
       arguments = LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 3})
       LavinMQ::MQTT.qos(arguments).should eq 2u8
