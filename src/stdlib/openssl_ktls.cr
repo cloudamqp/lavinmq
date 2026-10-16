@@ -41,26 +41,24 @@ end
 {% end %}
 
 {% if OpenSSL.has_constant?(:KTLS) %}
-  # The stdlib BIO passes an Errno to OpenSSL as a 0 byte read or write, so a
-  # read timeout surfaced as EOF, and a control record (e.g. the close_notify
-  # alert) that timed out was retried forever. Remove once fixed in Crystal.
+  # The stdlib BIO passes an Errno to OpenSSL as a successful 0 byte read or
+  # write, so a failed read surfaced as EOF and a failed control record (e.g.
+  # the close_notify alert) as sent. Raise like the non-kTLS path does.
+  # Remove once fixed in Crystal.
   module OpenSSL::KTLS
     def self.read_record(socket : Socket, data : UInt8*, length : Int32) : Int32 | Errno
-      ret = previous_def
-      # ETIMEDOUT from the polling event loop, ECANCELED from io_uring
-      if ret.in?(Errno::ETIMEDOUT, Errno::ECANCELED)
-        raise IO::TimeoutError.new("Read timed out")
-      end
-      ret
+      raise_on_errno(previous_def, "recvmsg", "Read timed out")
     end
 
     def self.send_ctrl_message(socket : Socket, record_type : UInt8, data : UInt8*, length : Int32) : Int32 | Errno
-      ret = previous_def
+      raise_on_errno(previous_def, "sendmsg", "Write timed out")
+    end
+
+    private def self.raise_on_errno(ret : Int32 | Errno, syscall : String, timeout_message : String) : Int32
+      return ret if ret.is_a?(Int32)
       # ETIMEDOUT from the polling event loop, ECANCELED from io_uring
-      if ret.in?(Errno::ETIMEDOUT, Errno::ECANCELED)
-        raise IO::TimeoutError.new("Write timed out")
-      end
-      ret
+      raise IO::TimeoutError.new(timeout_message) if ret.in?(Errno::ETIMEDOUT, Errno::ECANCELED)
+      raise IO::Error.from_os_error(syscall, ret)
     end
   end
 {% end %}
