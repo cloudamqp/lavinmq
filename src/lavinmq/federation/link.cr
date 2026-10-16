@@ -252,8 +252,10 @@ module LavinMQ
             unless has_consumers?
               @upstream_session.close
               return unless wait_for_consumers
-              open_upstream
             end
+            # The consumer watch closed the session to end the last round,
+            # even if a consumer came back before the check above
+            open_upstream if @upstream_session.closed?
             consume_round
           end
         end

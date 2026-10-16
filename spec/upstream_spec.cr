@@ -266,6 +266,37 @@ describe LavinMQ::Federation do
         end
       end
 
+      it "keeps federating when a consumer comes back while the round ends" do
+        with_amqp_server do |s|
+          up, down = FederationSpecHelpers.setup(s, kind)
+          up.declare_queue("fq", true, false)
+          down.declare_queue("fq", true, false)
+          FederationSpecHelpers.federate(down, "^fq$", "queues")
+          link = FederationSpecHelpers.running_link(down)
+          received = Channel(String).new(10)
+          with_channel(s, vhost: "downstream") do |ch|
+            ch.queue("fq", passive: true).subscribe { |msg| received.send msg.body_io.to_s }
+            should_eventually(eq 1) { up.queue("fq").consumer_count }
+            # The queue loses its last consumer and gets one back before the
+            # link's consumer watch runs: the watch still ends the round
+            q = down.queue("fq").as(LavinMQ::AMQP::Queue)
+            consumer = q.consumers.first.as(LavinMQ::AMQP::Consumer)
+            q.rm_consumer(consumer)
+            q.add_consumer(consumer).should be_true
+            should_eventually(eq 1) { up.queue("fq").consumer_count }
+            FederationSpecHelpers.publish(up, "", "fq", "m")
+            select
+            when body = received.receive
+              body.should eq "m"
+            when timeout(500.milliseconds) # less than the reconnect delay
+              fail "The link didn't federate the message"
+            end
+            link.state.running?.should be_true
+            link.error.should be_nil
+          end
+        end
+      end
+
       it "uses the configured upstream queue name" do
         with_amqp_server do |s|
           up, down = FederationSpecHelpers.setup(s, kind, queue: "other")
