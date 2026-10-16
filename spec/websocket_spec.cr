@@ -13,7 +13,62 @@ private def connect_amqp(websocket : HTTP::WebSocket)
     AMQP::Client::ConnectionInformation.new  )
 end
 
+private def connect_mqtt(http, &)
+  ws = HTTP::WebSocket.new(http.addr.address, path: "/mqtt", port: http.addr.port)
+  connect = MQTT::Protocol::Connect.new(client_id: "ws-close", clean_session: true, keepalive: 30u16,
+    username: "guest", password: "guest".to_slice, will: nil)
+  connack = Channel(Nil).new(1)
+  closed = Channel(HTTP::WebSocket::CloseCode).new(1)
+  ws.on_binary { |_| connack.send nil unless connack.closed? }
+  ws.on_close { |code, _| closed.send code }
+  spawn { ws.run }
+  ws.stream { |io| connect.to_io(MQTT::Protocol::IO.new(io)) }
+  connack.receive
+  connack.close
+  yield ws
+  select
+  when code = closed.receive then code
+  when timeout(3.seconds) then fail "WebSocket not closed"
+  end
+end
+
 describe "Websocket support" do
+  describe "sends a close frame" do
+    it "when an MQTT client disconnects" do
+      with_http_server do |http, _|
+        code = connect_mqtt(http) do |ws|
+          ws.stream { |io| MQTT::Protocol::Disconnect.new.to_io(MQTT::Protocol::IO.new(io)) }
+        end
+        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+      end
+    end
+
+    it "when an MQTT client closes the WebSocket" do
+      with_http_server do |http, _|
+        code = connect_mqtt(http) do |ws|
+          # HTTP::WebSocket#close would close the client's socket before the reply arrives
+          ws.@ws.send(Bytes[0x03, 0xe8], HTTP::WebSocket::Protocol::Opcode::CLOSE)
+        end
+        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+      end
+    end
+
+    it "when the server closes an AMQP connection" do
+      with_http_server do |http, s|
+        ws = HTTP::WebSocket.new(http.addr.address, path: "/", port: http.addr.port)
+        connect_amqp(ws)
+        closed = Channel(HTTP::WebSocket::CloseCode).new(1)
+        ws.on_close { |code, _| closed.send code }
+        wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+        s.vhosts["/"].connections.first.force_close
+        select
+        when code = closed.receive then code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+        when timeout(3.seconds) then fail "WebSocket not closed"
+        end
+      end
+    end
+  end
+
   it "should connect over websocket" do
     with_http_server do |http, _|
       c = AMQP::Client.new("ws://#{http.addr}")

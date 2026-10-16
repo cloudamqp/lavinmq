@@ -121,6 +121,14 @@ module LavinMQ
   class WebSocketIO < IO
     include IO::Buffered
 
+    private enum SendState
+      Idle
+      Sending
+      Closed
+    end
+
+    @send_state = Atomic(SendState).new(SendState::Idle)
+
     # *socket* is the connection the WebSocket runs over
     def initialize(@ws : ::HTTP::WebSocket, @socket : IO)
       @r, @w = IO.pipe
@@ -140,7 +148,13 @@ module LavinMQ
     end
 
     def unbuffered_write(slice : Bytes) : Nil
-      @ws.send(slice)
+      _, ok = @send_state.compare_and_set(SendState::Idle, SendState::Sending)
+      raise IO::Error.new("Closed stream") unless ok
+      begin
+        @ws.send(slice)
+      ensure
+        @send_state.compare_and_set(SendState::Sending, SendState::Idle)
+      end
     end
 
     def unbuffered_flush
@@ -152,14 +166,9 @@ module LavinMQ
     def unbuffered_close
       return if @closed
       @closed = true
+      send_close_frame
       @r.close
       @w.close
-      begin
-        @ws.close
-      rescue IO::Error | OpenSSL::SSL::Error
-        # The connection is already gone (e.g. a failed read closes the IO),
-        # so the close frame can't be sent
-      end
     end
 
     def read_timeout=(timeout : Time::Span?)
@@ -168,8 +177,21 @@ module LavinMQ
 
     # Shuts down the underlying connection, see `Socket#shutdown_read_write`
     def shutdown_read_write : Nil
+      send_close_frame
       socket = @socket
       socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
+    end
+
+    # Skipped while a frame is being sent, a close frame would corrupt it
+    private def send_close_frame : Nil
+      _, ok = @send_state.compare_and_set(SendState::Idle, SendState::Closed)
+      @send_state.set(SendState::Closed)
+      return unless ok
+      begin
+        @ws.close
+      rescue IO::Error | OpenSSL::SSL::Error
+        # The connection is already gone, so the close frame can't be sent
+      end
     end
   end
 end
