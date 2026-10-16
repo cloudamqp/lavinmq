@@ -409,7 +409,8 @@ module LavinMQ
     # written to or read, which with many queues adds up to gigabytes. It also
     # keeps the page cache in page sized folios, so an msync only writes the
     # pages that changed. Writing faults once per page with or without
-    # readahead. Fast readers get readahead back, see #read_fast?.
+    # readahead. Fast readers get readahead back, see #read_fast?, and so
+    # does loading at startup, see #load_stats_from_segments.
     private def open_segment(path : String, capacity : Int? = nil) : MFile
       mfile = MFile.new(path, capacity)
       mfile.advise(MFile::Advice::Random)
@@ -604,6 +605,10 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
+        # Counting a segment's messages reads it through, as does skipping
+        # its acked messages, in order. Without readahead (see #open_segment)
+        # that would fault it in a page at a time.
+        mfile.advise(MFile::Advice::Sequential)
         begin
           read_metadata_file(seg, mfile)
         rescue File::NotFoundError | MetadataError
@@ -611,6 +616,7 @@ module LavinMQ
           break if @closed
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
+        mfile.advise(MFile::Advice::Random)
 
         counter &+= 1
         if is_long_queue
