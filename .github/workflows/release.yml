@@ -43,6 +43,7 @@ jobs:
         with:
           file: packaging/static-build/Dockerfile
           platforms: linux/amd64,linux/arm64
+          pull: true
           outputs: type=local,dest=builds
 
       - name: Smoke test
