@@ -34,6 +34,11 @@ document.addEventListener('DOMContentLoaded', function () {
         form.classList.remove('edit-mode')
         form.querySelector('[data-primary-key]').disabled = false
       }
+      // A reset <button> inside a <form> only runs its native reset behavior —
+      // commandfor is never invoked for submit/reset buttons, so Cancel (type=reset)
+      // can't close its dialog declaratively. Do it here instead.
+      const dialog = form.closest('dialog')
+      if (dialog?.open) dialog.close()
     })
   })
 })

@@ -48,7 +48,7 @@
           <input type="text" name="name" required>
         </label>
         <div class="dialog-footer">
-          <button type="submit" class="btn btn-green">Add virtual host</button>
+          <button type="submit" class="btn btn-green btn-inline">Add virtual host</button>
         </div>
         </form>
       </dialog>

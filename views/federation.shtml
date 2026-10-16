@@ -135,10 +135,10 @@
           </label>
         </fieldset>
         <div class="dialog-footer">
-          <button type="submit" class="btn btn-green when-create">Add upstream</button>
+          <button type="submit" class="btn btn-green btn-inline when-create">Add upstream</button>
           <div class="when-edit flex gap-2">
-            <button type="submit" class="btn btn-green">Update</button>
-            <button type="reset" class="btn btn-outlined cancel" command="close" commandfor="add-upstream-dialog">Cancel</button>
+            <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+            <button type="submit" class="btn btn-green btn-inline">Update</button>
           </div>
         </div>
         </form>

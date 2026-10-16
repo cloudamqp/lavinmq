@@ -168,7 +168,7 @@
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
           <div class="dialog-footer">
-            <button type="submit" class="btn btn-outlined">Bind</button>
+            <button type="submit" class="btn btn-outlined btn-inline">Bind</button>
           </div>
           </form>
         </dialog>

@@ -118,7 +118,7 @@
           </div>
         </label>
         <div class="dialog-footer">
-          <button type="submit" class="btn btn-green">Add exchange</button>
+          <button type="submit" class="btn btn-green btn-inline">Add exchange</button>
         </div>
         </form>
       </dialog>

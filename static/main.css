@@ -1376,6 +1376,7 @@ footer .logo {
   border: 1px solid var(--color-border-separator);
   border-top-left-radius: 0.75rem;
   border-top-right-radius: 0.75rem;
+  min-height: 76px;
 
   h2 {
     order: -1;
