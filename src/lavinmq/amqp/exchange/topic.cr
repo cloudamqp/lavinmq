@@ -108,6 +108,12 @@ module LavinMQ
       # Binding key => bindings. Both levels are replaced, never mutated, so
       # publishers on other threads route without locks.
       @bindings = CowMap(TopicBindingKey, BindingSet).new
+      # The same bindings as an array in insertion order, which publishes scan
+      # as every binding key has to be matched: an array scans much faster
+      # than the trie. Replaced, never mutated, under @routes_lock, which also
+      # serializes the binds and unbinds that update both.
+      @routes = Atomic(Array({TopicBindingKey, BindingSet})).new(Array({TopicBindingKey, BindingSet}).new)
+      @routes_lock = Mutex.new
 
       def type : String
         "topic"
@@ -133,8 +139,12 @@ module LavinMQ
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
         rk = TopicBindingKey.new(routing_key.split("."))
-        current = @bindings[rk]? || BindingSet.empty
-        @bindings[rk] = current.add(destination, binding_key) || return false
+        @routes_lock.synchronize do
+          current = @bindings[rk]? || BindingSet.empty
+          bindings = current.add(destination, binding_key) || return false
+          @bindings[rk] = bindings
+          update_routes(rk, bindings)
+        end
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -142,14 +152,18 @@ module LavinMQ
 
       def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rk = TopicBindingKey.new(routing_key.split("."))
-        current = @bindings[rk]? || return false
         binding_key = BindingKey.new(routing_key, arguments)
-        bindings = current.delete(destination, binding_key)
-        return false if bindings.same?(current)
-        if bindings.empty?
-          @bindings.delete(rk)
-        else
-          @bindings[rk] = bindings
+        @routes_lock.synchronize do
+          current = @bindings[rk]? || return false
+          bindings = current.delete(destination, binding_key)
+          return false if bindings.same?(current)
+          if bindings.empty?
+            @bindings.delete(rk)
+            update_routes(rk, nil)
+          else
+            @bindings[rk] = bindings
+            update_routes(rk, bindings)
+          end
         end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -159,22 +173,39 @@ module LavinMQ
         true
       end
 
+      # Replaces the bindings of *rk* in the routes, or removes them when nil,
+      # keeping the insertion order. Called with @routes_lock held.
+      private def update_routes(rk : TopicBindingKey, bindings : BindingSet?) : Nil
+        old = @routes.get(:acquire)
+        routes = Array({TopicBindingKey, BindingSet}).new(old.size + 1)
+        found = false
+        old.each do |(key, value)|
+          if key == rk
+            found = true
+            routes << {key, bindings} if bindings
+          else
+            routes << {key, value}
+          end
+        end
+        routes << {rk, bindings} if bindings && !found
+        @routes.set(routes, :release)
+      end
+
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        bindings = @bindings.snapshot
-        return if bindings.empty?
+        routes = @routes.get(:acquire)
+        return if routes.empty?
 
         # optimize the case where the only binding key is '#'
-        if bindings.size == 1
-          bindings.each do |(bk, destinations)|
-            if bk.acts_as_fanout?
-              destinations.each_destination { |d| yield d }
-              return
-            end
+        if routes.size == 1
+          bk, destinations = routes.first
+          if bk.acts_as_fanout?
+            destinations.each_destination { |d| yield d }
+            return
           end
         end
 
         rk = RkIterator.new(routing_key.to_slice)
-        bindings.each do |(bks, destinations)|
+        routes.each do |(bks, destinations)|
           if bks.matches? rk
             destinations.each_destination { |d| yield d }
           end
