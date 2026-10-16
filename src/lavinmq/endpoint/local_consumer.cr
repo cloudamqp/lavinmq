@@ -1,74 +1,79 @@
-require "../client/channel/consumer"
-require "../amqp/queue"
-require "../bool_channel"
-require "../config"
+require "../amqp/queue_consumer"
+require "../logger"
 require "./session"
 
 module LavinMQ
   module Endpoint
-    # A consumer of a LocalSession, registered on the queue like an AMQP
-    # consumer so consumer counts, exclusivity, single active consumer,
-    # auto-delete and "has consumers" checks all see it.
+    # A consumer of a LocalSession: an AMQP::QueueConsumer, so it waits for
+    # the same things as an AMQP consumer before taking a message (prefetch,
+    # single active consumer, priority consumers, a paused queue), and is
+    # counted like one for consumer counts, exclusivity and auto-delete.
     #
-    # It has no fiber of its own: LocalSession#consume runs #run on the calling
-    # fiber. Deliveries are read with Queue#consume_get, whose segment lease
-    # keeps the message mapped while the block handles it, so the session can
-    # hand out borrowed bodies without copying. Because of the lease the loop
-    # doesn't need to be part of the queue's deliver_loop_wg: a destination
-    # that is slow to accept a message doesn't hold up Queue#close.
-    class LocalConsumer < Client::Channel::Consumer
-      include SortableJSON
+    # It delivers to a block instead of a channel, on the fiber of
+    # LocalSession#consume: the deliver loop runs there (see #run) rather
+    # than on a fiber of its own. Deliveries are read with Queue#consume_get,
+    # whose segment lease keeps the message mapped while the block handles
+    # it, so the session hands out borrowed bodies without copying. Because
+    # of the lease the loop doesn't need to be part of the queue's
+    # deliver_loop_wg: a destination that is slow to accept a message
+    # doesn't hold up Queue#close.
+    class LocalConsumer < AMQP::QueueConsumer
+      Log = LavinMQ::Log.for "endpoint.consumer"
+      @handler : Proc(Delivery, Nil)?
 
-      getter tag : String
-      getter queue : AMQP::Queue
-      getter priority = 0
-      getter? exclusive : Bool
-      getter? no_ack : Bool
-      getter prefetch_count : UInt16
-      getter has_capacity = BoolChannel.new(true)
-      getter? closed = false
-      @unacked = Atomic(UInt32).new(0_u32)
-      # Closed when the consumer is cancelled; wakes #run
-      @cancelled = ::Channel(Nil).new
-      # Set when the queue may have something for us; wakes #run
-      @wakeup = ::Channel(Nil).new(1)
-
-      def initialize(@session : LocalSession, @queue : AMQP::Queue, @tag : String,
-                     @no_ack : Bool, @exclusive : Bool, @prefetch_count : UInt16)
+      def initialize(@session : LocalSession, queue : AMQP::Queue, tag : String,
+                     no_ack : Bool, exclusive : Bool, prefetch_count : UInt16)
+        metadata = ::Log::Metadata.new(nil, {vhost: queue.vhost.name, queue: queue.name, consumer: tag})
+        super(queue, tag, no_ack, exclusive, 0, prefetch_count, true, Logger.new(Log, metadata))
       end
 
-      def unacked : UInt32
-        @unacked.get(:relaxed)
+      # Delivers messages to the block until cancelled, or the queue is
+      # closed or deleted
+      def run(&blk : Delivery -> Nil) : Nil
+        @handler = blk
+        @deliver_loop_running.set(true, :release)
+        deliver_loop
       end
 
-      def accepts? : Bool
-        return false if @closed
-        @no_ack || @prefetch_count.zero? || unacked < @prefetch_count
-      end
-
-      def accepts_signal : ::Channel(Nil)?
-        @has_capacity.when_true unless @closed
-      end
-
-      # Called by the queue when messages become available
+      # The deliver loop is #run's, on the consuming fiber, and it wakes on
+      # the queue's signals by itself: there's never one to spawn
       def ensure_deliver_loop
-        @wakeup.try_send?(nil) unless @closed
       end
 
       # Called by the queue when it's closed or deleted, and by the session
       def cancel
-        return if @closed
-        @closed = true
-        @cancelled.close
-        @has_capacity.close
+        close
       end
 
-      # A delivery of this consumer was acked or rejected
+      # A loop on the consuming fiber can't exit while idle, it must keep
+      # waiting until cancelled
+      private def exit_when_idle? : Bool
+        false
+      end
+
+      # The tag is registered atomically with the session's close: nil once
+      # the session (or this consumer) is closed, and the message is then
+      # returned to the queue, not delivered
+      def deliver(msg, sp, redelivered = false, recover = false)
+        handler = @handler || raise ClosedError.new
+        tag = @session.next_delivery_tag(self, sp) unless @closed
+        unless tag
+          @queue.requeue(sp) unless @no_ack # a no-ack get requeues it itself
+          raise ClosedError.new
+        end
+        track_unacked unless @no_ack
+        handler.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
+          msg.properties, msg.body, redelivered)
+      end
+
+      # A delivery of this consumer was acked or rejected, in the order an
+      # AMQP channel settles them
       def settled(sp : SegmentPosition, ack : Bool, requeue : Bool) : Nil
-        decrement_unacked
         if ack
+          ack(sp)
           @queue.ack(sp)
         else
+          reject(sp, requeue)
           @queue.reject(sp, requeue)
         end
       end
@@ -77,97 +82,23 @@ module LavinMQ
       # closes. Like an AMQP channel's close, a broker requeue: right away,
       # never through the queue's delayed retry, and not counted as a reject.
       def returned(sp : SegmentPosition) : Nil
-        decrement_unacked
+        reject(sp, requeue: true)
         @queue.requeue(sp)
       end
 
-      protected def decrement_unacked : Nil
-        unacked = @unacked.sub(1, :relaxed)
-        @has_capacity.set(true) if unacked == @prefetch_count
-      rescue ::Channel::ClosedError
+      # No channel-wide prefetch, flow or stats: the session has none
+      private def global_capacity_signal : ::Channel(Nil)?
       end
 
-      protected def increment_unacked : Nil
-        return if @no_ack
-        unacked = @unacked.add(1, :relaxed) + 1
-        @has_capacity.set(false) if unacked == @prefetch_count
-      rescue ::Channel::ClosedError
+      private def global_prefetch_full? : Bool
+        false
       end
 
-      # Delivers messages to the block until cancelled
-      def run(&blk : Delivery -> Nil) : Nil
-        delivered_bytes = 0
-        yield_each = Config.instance.yield_each_delivered_bytes
-        loop do
-          break unless wait_until_ready
-          get do |env|
-            sp = env.segment_position
-            # Registered atomically with the session's close; nil when the
-            # session (or this consumer) closed while the message was fetched
-            tag = @session.next_delivery_tag(self, sp) unless @closed
-            unless tag
-              raise Cancelled.new if @no_ack # the queue requeues it
-              @queue.requeue(sp)
-              raise Cancelled.new
-            end
-            increment_unacked
-            delivered_bytes &+= sp.bytesize
-            msg = env.message
-            blk.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
-              msg.properties, msg.body, env.redelivered)
-          end
-          if delivered_bytes > yield_each
-            delivered_bytes = 0
-            Fiber.yield
-          end
-        end
-      rescue Cancelled | AMQP::Queue::ClosedError | MessageStore::ClosedError
-        # Cancelled, or the queue was closed or deleted while we read from it
+      private def count_delivery(redelivered : Bool) : Nil
       end
 
-      private class Cancelled < Exception; end
-
-      protected def get(& : Envelope -> Nil) : Bool
-        @queue.consume_get(@no_ack) { |env| yield env }
-      end
-
-      protected def queue_ready? : Bool
-        !@queue.empty?
-      end
-
-      # Waits for capacity, our turn as single active consumer, a ready queue
-      # that isn't paused. Returns false once cancelled.
-      private def wait_until_ready : Bool
-        loop do
-          return false if @closed
-          if at_capacity?
-            wait(@has_capacity.when_true)
-          elsif (sac = @queue.single_active_consumer) && sac != self
-            wait(@queue.single_active_consumer_change)
-          elsif @queue.state.paused?
-            wait(@queue.paused.when_false)
-          elsif !queue_ready?
-            select
-            when @wakeup.receive?
-            when @queue.empty.when_false.receive?
-            when @cancelled.receive?
-            end
-          else
-            return true
-          end
-        end
-      end
-
-      private def at_capacity? : Bool
-        !@no_ack && @prefetch_count > 0 && unacked >= @prefetch_count
-      end
-
-      # Waits for `ch`, or until cancelled
-      private def wait(ch) : Nil
-        select
-        when ch.receive?
-        when @cancelled.receive?
-        end
+      def flush
+        Fiber.yield
       end
 
       def details_tuple

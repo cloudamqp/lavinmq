@@ -205,10 +205,14 @@ module LavinMQ
         raise Refused.new("405 - queue '#{queue}' in vhost '#{v.name}' is exclusive") if q.exclusive?
         tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}" if tag.empty?
         consumer =
-          if q.is_a?(AMQP::Stream)
-            LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
-          else
-            LocalConsumer.new(self, q, tag, no_ack, exclusive, @prefetch)
+          begin
+            if q.is_a?(AMQP::Stream)
+              LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
+            else
+              LocalConsumer.new(self, q, tag, no_ack, exclusive, @prefetch)
+            end
+          rescue ex : LavinMQ::Error::PreconditionFailed
+            raise Refused.new("406 - #{ex.message}")
           end
         generation = register(tag, consumer)
         begin

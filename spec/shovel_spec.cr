@@ -255,6 +255,36 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "leaves messages to higher priority consumers while they have capacity" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_prio", true, false)
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10
+        local = Channel(Nil).new(10)
+        spawn do
+          session.consume("ls_prio", "T", false, false, AMQ::Protocol::Table.new) { local.send nil }
+        rescue
+        end
+        with_channel(s) do |ch|
+          ch.prefetch(100)
+          remote = Channel(Nil).new(10)
+          q = ch.queue("ls_prio")
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-priority" => 10})) { remote.send nil }
+          wait_for { vhost.queue("ls_prio").consumers_size == 2 }
+          5.times { |i| ShovelSpecHelpers.publish(vhost, "ls_prio", "m#{i}") }
+          5.times { remote.receive }
+          select
+          when local.receive
+            fail "the local consumer got a message a higher priority consumer had room for"
+          when timeout(100.milliseconds)
+          end
+        end
+        session.close
+      end
+    end
+
     it "doesn't start a consumer when the session closes while the consume sets up" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
