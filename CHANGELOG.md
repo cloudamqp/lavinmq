@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A queue or stream with a message that can't be read, for example after disk errors, is no longer closed. The rest of that segment is skipped and a copy of it is kept as `msgs.{segment_id}.corrupt`, see [Storage](docs/storage.md#corrupt-data). At startup a corrupt segment is kept up to its last readable message, or moved aside, instead of leaving its queue closed [#PR](https://github.com/cloudamqp/lavinmq/pull/PR)
+- A queue or stream with a message that can't be read, for example after disk errors, is no longer closed. The rest of that segment is skipped and a copy of it is kept as `msgs.{segment_id}.corrupt`, see [Storage](docs/storage.md#corrupt-data). At startup a corrupt segment is kept up to its last readable message, or moved aside, instead of leaving its queue closed [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
 
 ### Removed
 
-- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. Queues are no longer closed by errors reading their messages [#PR](https://github.com/cloudamqp/lavinmq/pull/PR)
+- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. Queues are no longer closed by errors reading their messages [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
