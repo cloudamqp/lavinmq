@@ -750,6 +750,62 @@ describe LavinMQ::Config do
       end
     end
 
+    it "resets settings removed from the config file to their defaults" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_interval = 1000\n[oauth]\naudience = other-api\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.stats_interval.should eq 1000
+        config.oauth_audience.should eq "other-api"
+
+        File.write(config_file.path, "[main]\n")
+        config.reload
+        defaults = LavinMQ::Config.new
+        config.stats_interval.should eq defaults.stats_interval
+        config.oauth_audience.should be_nil
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps command line values over the config file" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.2\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path, "--amqp-bind=127.0.0.3"])
+        config.amqp_bind.should eq "127.0.0.3"
+
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.4\n")
+        config.reload
+        config.amqp_bind.should eq "127.0.0.3"
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps environment values over the config file" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        ENV["LAVINMQ_AMQP_BIND"] = "127.0.0.3"
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.2\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.amqp_bind.should eq "127.0.0.3"
+
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.4\n")
+        config.reload
+        config.amqp_bind.should eq "127.0.0.3"
+      ensure
+        ENV.delete("LAVINMQ_AMQP_BIND")
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
     it "applies SNI changes on a successful reload" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
@@ -944,12 +1000,14 @@ private def with_launcher(ini : String, &)
   config_file = File.tempfile("lavinmq", ".ini")
   begin
     File.write(config_file.path, ini)
+    # Passed like a real deployment would, not set in code, as #reload
+    # rebuilds the config from the file, environment and arguments
+    ENV["LAVINMQ_DATADIR"] = data_dir
     config = LavinMQ::Config.new
-    config.parse(["-c", config_file.path])
-    config.data_dir = data_dir
-    config.data_dir_lock = false
+    config.parse(["-c", config_file.path, "--no-data-dir-lock"])
     yield LavinMQ::Launcher.new(config), config, config_file
   ensure
+    ENV.delete("LAVINMQ_DATADIR")
     config_file.delete
     FileUtils.rm_rf data_dir
   end

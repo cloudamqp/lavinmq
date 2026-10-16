@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `SIGHUP` config reload resets a setting removed from the config file to its default, instead of keeping its previous value. Command line arguments and environment variables also keep taking precedence over the config file after a reload, as they do at startup [#2458](https://github.com/cloudamqp/lavinmq/pull/2458)
 - The JWKS refresh loop kept retrying an unreachable OAuth provider after it was stopped, e.g. at shutdown [#2450](https://github.com/cloudamqp/lavinmq/pull/2450)
 - The list of unacknowledged `basic.get` messages could be corrupted, or crash the broker, when accessed from several threads at once [#2402](https://github.com/cloudamqp/lavinmq/pull/2402)
 - A message's segment could be read after a concurrent purge or delete unmapped it, and a purge racing a publish could miscount the purged messages [#2405](https://github.com/cloudamqp/lavinmq/pull/2405)
