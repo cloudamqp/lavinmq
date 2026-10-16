@@ -366,9 +366,37 @@ describe LavinMQ::AMQP::BindingSet do
 end
 
 # Topic and headers exchanges route through an array of their bindings,
-# kept next to the map of them; binds and unbinds of different bindings on
-# several threads must leave both the same
+# rebuilt from the map of them by the first publish after a change; binds and
+# unbinds of different bindings on several threads must leave both the same
 {"topic", "headers"}.each do |type|
+  it "routes by the bindings as they are right after each #{type} bind and unbind" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("step-#{type}", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "step-#{type}" }
+      vhost.declare_queue("step-#{type}", false, false)
+      queue = vhost.queue("step-#{type}")
+      key = ->(i : Int32) { type == "topic" ? "k#{i}.*" : "" }
+      args = ->(i : Int32) { type == "topic" ? nil : LavinMQ::AMQP::Table.new({"k" => i.to_i64}) }
+      routes = ->(i : Int32) do
+        queues = Set(LavinMQ::AMQP::Queue).new
+        exchanges = Set(LavinMQ::AMQP::Exchange).new
+        exchange.find_queues("k#{i}.x", LavinMQ::AMQP::Table.new({"k" => i.to_i64}), queues, exchanges)
+        queues.includes?(queue)
+      end
+      20.times do |i|
+        routes.call(i).should be_false
+        exchange.bind(queue, key.call(i), args.call(i)).should be_true
+        routes.call(i).should be_true
+        if i > 0
+          exchange.unbind(queue, key.call(i - 1), args.call(i - 1)).should be_true
+          routes.call(i - 1).should be_false
+        end
+      end
+      exchange.binding_count.should eq 1
+    end
+  end
+
   it "keeps #{type} routes in step with concurrent binds and unbinds", tags: "slow" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
