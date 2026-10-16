@@ -27,6 +27,10 @@ module LavinMQ
       @prefetch = 0_u16
       @next_tag = 0_u64
       @consumers = Hash(String, LocalConsumer).new
+      # Guards @closed and @consumers: the session is closed from other fibers
+      # (a vhost watcher, a federation link's consumer watcher), maybe on
+      # other threads, while a consume registers its consumer
+      @state_lock = Mutex.new
       # Deliveries not yet acked or rejected, in tag order
       @unacked = Deque(Unack).new
       @unacked_lock = Mutex.new
@@ -52,11 +56,11 @@ module LavinMQ
         raise Error.new("vhost '#{@vhost_name}' not found") if vhost.nil? || vhost.closed?
         @vhost = vhost
         next_generation
-        @closed = false
         # Like a new AMQP channel, a reopened session tags deliveries from 1
         @next_tag = 0_u64
         @closed_signal = ::Channel(Nil).new
         @confirm_mailbox = ::Channel(UInt64).new(1)
+        @state_lock.synchronize { @closed = false }
         mailbox = @confirm_mailbox
         signal = @closed_signal
         spawn(confirm_loop(mailbox), name: "#{@name} confirms")
@@ -72,13 +76,16 @@ module LavinMQ
       end
 
       private def do_close : Bool
-        return false if @closed
-        @closed = true
+        # A snapshot: consuming fibers remove their own consumer as they end
+        consumers = @state_lock.synchronize do
+          return false if @closed
+          @closed = true
+          list = @consumers.values
+          @consumers.clear
+          list
+        end
         @closed_signal.close
         @confirm_mailbox.close
-        # A snapshot: consuming fibers remove their own consumer as they end
-        consumers = @consumers.values
-        @consumers.clear
         consumers.each do |c|
           c.cancel
           c.queue.rm_consumer(c)
@@ -197,45 +204,52 @@ module LavinMQ
         raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' is internal") if q.internal?
         raise Refused.new("405 - queue '#{queue}' in vhost '#{v.name}' is exclusive") if q.exclusive?
         tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}" if tag.empty?
-        raise Refused.new("530 - consumer tag '#{tag}' in use") if @consumers.has_key?(tag)
         consumer =
           if q.is_a?(AMQP::Stream)
             LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
           else
             LocalConsumer.new(self, q, tag, no_ack, exclusive, @prefetch)
           end
-        @consumers[tag] = consumer
-        # The queue checks exclusive use atomically with the add
-        added = begin
-          q.add_consumer(consumer)
-        rescue AMQP::Queue::ClosedError
-          @consumers.delete(tag)
-          raise NotFound.new("404 - no queue '#{queue}' in vhost '#{v.name}'")
-        end
-        unless added
-          @consumers.delete(tag)
-          raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' in exclusive use")
-        end
-        generation = self.generation
+        generation = register(tag, consumer)
         begin
+          add_to_queue(q, consumer, v)
           consumer.run(&blk)
         ensure
-          # Once the session is closed (and maybe reopened, with a consumer
-          # under the same tag) this one is no longer in @consumers: #close
-          # cancelled and removed it already
-          if @consumers[tag]?.same?(consumer)
-            @consumers.delete(tag)
-            consumer.cancel
-            q.rm_consumer(consumer)
-          end
+          # A close (and maybe a reopen, with a consumer under the same tag)
+          # removes this one from @consumers. Either way the queue must not
+          # keep it: a close may have run before it was added there.
+          @state_lock.synchronize { @consumers.delete(tag) if @consumers[tag]?.same?(consumer) }
+          consumer.cancel
+          q.rm_consumer(consumer)
         end
         if @closed || generation != self.generation
           raise ClosedError.new("Session #{@name} closed")
         end
       end
 
+      # Adds the consumer to the session, unless the session is closed by now.
+      # Returns the session's generation it belongs to.
+      private def register(tag, consumer) : UInt32
+        @state_lock.synchronize do
+          raise ClosedError.new("Session #{@name} is closed") if @closed
+          raise Refused.new("530 - consumer tag '#{tag}' in use") if @consumers.has_key?(tag)
+          @consumers[tag] = consumer
+          generation
+        end
+      end
+
+      # The queue checks exclusive use atomically with the add
+      private def add_to_queue(q, consumer, v) : Nil
+        added = begin
+          q.add_consumer(consumer)
+        rescue AMQP::Queue::ClosedError
+          raise NotFound.new("404 - no queue '#{q.name}' in vhost '#{v.name}'")
+        end
+        raise Refused.new("403 - queue '#{q.name}' in vhost '#{v.name}' in exclusive use") unless added
+      end
+
       def cancel(tag : String) : Nil
-        @consumers[tag]?.try &.cancel
+        @state_lock.synchronize { @consumers[tag]? }.try &.cancel
       end
 
       # Called by a consumer for each delivery: assigns its delivery tag and,

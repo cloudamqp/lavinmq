@@ -255,6 +255,36 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "doesn't start a consumer when the session closes while the consume sets up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_setup", true, false, AMQ::Protocol::Table.new({"x-queue-type" => "stream"}))
+        q = vhost.queue("ls_setup")
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10
+        done = Channel(Exception?).new(1)
+        args = AMQ::Protocol::Table.new({"x-stream-offset" => "first"})
+        q.@msg_store_lock.synchronize do
+          spawn do
+            session.consume("ls_setup", "T", false, false, args) { }
+            done.send nil
+          rescue ex
+            done.send ex
+          end
+          sleep 10.milliseconds # the consume is parked looking up its offset
+          session.close
+        end
+        select
+        when ex = done.receive
+          ex.should be_a(LavinMQ::Endpoint::ClosedError)
+        when timeout(5.seconds)
+          fail "the consume kept running on a closed session"
+        end
+        q.consumers_size.should eq 0
+      end
+    end
+
     it "keeps the consumer of a reopened session when an earlier consume ends late" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
