@@ -192,7 +192,7 @@ module LavinMQ
         if self.class.postgres_source?(uris)
           Shovel::PostgresSource.new(name, uris.first,
             config["src-publication"].as_s,
-            config["src-slot"]?.try(&.as_s?) || Shovel::PostgresSource.default_slot_name(name),
+            config["src-slot"]?.try(&.as_s?) || Shovel::PostgresSource.default_slot_name(@vhost.name, name),
             prefetch,
             ack_mode)
         else

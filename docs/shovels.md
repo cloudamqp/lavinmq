@@ -48,7 +48,7 @@ A shovel with a `postgres://` or `postgresql://` `src-uri` streams row changes f
 |-----------|---------|-------------|
 | `src-uri` | (required) | `postgres://user:password@host:5432/database`. The query parameter `sslmode` is `disable`, `prefer` (default), `require`, `verify-ca` or `verify-full`, any other value is rejected; `sslrootcert` points to a CA file that the verifying modes trust instead of the system CAs. `verify-ca` doesn't check the host name, so it requires `sslrootcert`. |
 | `src-publication` | (required) | The publication whose tables are streamed |
-| `src-slot` | `lavinmq_<shovel name>` | The replication slot to stream from: lower case letters, digits and `_`, at most 63 characters. Created if it does not exist. |
+| `src-slot` | `lavinmq_<shovel name>_<hash>` | The replication slot to stream from: lower case letters, digits and `_`, at most 63 characters. Created if it does not exist. The default is the shovel name, lower cased and sanitized, followed by a hash of the vhost and the shovel name, so shovels never share a slot by accident. |
 | `src-prefetch-count` | `1000` | Transactions in flight, not yet confirmed by the destination. `0` is unlimited. |
 
 `src-queue`, `src-exchange` and `src-delete-after: queue-length` do not apply. Authentication is SCRAM-SHA-256, MD5 or password.
@@ -102,7 +102,7 @@ The slot's position (`confirmed_flush_lsn`) only moves past a transaction once t
 The slot retains WAL on the database server for as long as it exists. Deleting the shovel does not drop it, so changes made while a shovel is deleted and recreated are not lost. Drop a slot that is no longer used, or the database server will keep WAL forever:
 
 ```sql
-SELECT pg_drop_replication_slot('lavinmq_orders');
+SELECT pg_drop_replication_slot('lavinmq_orders_1a2b3c4d');
 ```
 
 ## AMQP Destination

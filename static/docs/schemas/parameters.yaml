@@ -80,7 +80,7 @@ shovel-value:
     src-slot:
       type: string
       description: PostgreSQL logical replication slot, created if missing (only used with a postgres:// src-uri). Lower case letters, digits and underscores.
-      default: lavinmq_<shovel name>
+      default: lavinmq_<shovel name>_<hash of vhost and shovel name>
       example: lavinmq_orders
     dest-queue:
       type: string
