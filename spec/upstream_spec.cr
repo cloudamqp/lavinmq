@@ -268,7 +268,9 @@ describe LavinMQ::Federation do
 
       it "keeps federating when a consumer comes back while the round ends" do
         with_amqp_server do |s|
-          up, down = FederationSpecHelpers.setup(s, kind)
+          # Longer than should_eventually waits: a link that errors and waits
+          # to reconnect must not pass by reconnecting
+          up, down = FederationSpecHelpers.setup(s, kind, "reconnect-delay": 30)
           up.declare_queue("fq", true, false)
           down.declare_queue("fq", true, false)
           FederationSpecHelpers.federate(down, "^fq$", "queues")
@@ -288,7 +290,7 @@ describe LavinMQ::Federation do
             select
             when body = received.receive
               body.should eq "m"
-            when timeout(500.milliseconds) # less than the reconnect delay
+            when timeout(500.milliseconds)
               fail "The link didn't federate the message"
             end
             link.state.running?.should be_true

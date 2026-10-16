@@ -296,7 +296,8 @@ module LavinMQ
         private def consume_round
           @round_ended = false
           done = ::Channel(Nil).new
-          spawn(watch_consumers(done), name: "Federation link #{@upstream.vhost.name}/#{name} consumer watch")
+          watch_done = ::Channel(Nil).new
+          spawn(watch_consumers(done, watch_done), name: "Federation link #{@upstream.vhost.name}/#{name} consumer watch")
           no_ack = @upstream.ack_mode.no_ack?
           received_from = AMQ::Protocol::Table.new({
             "uri"         => @display_uri,
@@ -319,12 +320,17 @@ module LavinMQ
             raise ex unless @round_ended
           ensure
             done.close
+            # The watch may still be waiting for confirms before it closes the
+            # session. The round isn't over until it has: reopened before,
+            # the session it then closes would be the next round's.
+            watch_done.receive?
           end
         end
 
         # Ends the consume round when the downstream queue has no consumers
-        # left, or when the round ends by itself
-        private def watch_consumers(done)
+        # left, or when the round ends by itself. Closes `watch_done` once it
+        # is done with the session.
+        private def watch_consumers(done, watch_done)
           select
           when @federated_q.consumers_empty.when_true.receive?
             @log.info { "Lost downstream consumers, closing upstream" }
@@ -335,6 +341,8 @@ module LavinMQ
             @upstream_session.close
           when done.receive?
           end
+        ensure
+          watch_done.close
         end
 
         # Waits until a downstream consumer can take a message. Returns false if
