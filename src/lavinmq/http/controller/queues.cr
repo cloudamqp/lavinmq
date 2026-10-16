@@ -182,10 +182,10 @@ module LavinMQ
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
-            get_count = body["count"]?.try(&.as_i) || 1
+            get_count = int32_field?(context, body, "count") || 1
             ack_mode = (body["ack_mode"]? || body["ackmode"]?).try(&.as_s) || "get"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
+            truncate = int32_field?(context, body, "truncate")
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
@@ -253,16 +253,14 @@ module LavinMQ
               forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)
-            count = body["count"]?.try(&.as_i) || 1
+            count = int32_field?(context, body, "count") || 1
             count = 0 if count < 0
-            offset = body["offset"]?.try(&.as_s) || "first"
-            offset = offset.to_i64 if /^\d+$/.match(offset)
+            offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
-            reader = q.reader(offset)
+            truncate = int32_field(context, body, "truncate")
             JSON.build(context.response) do |j|
               j.array do
-                reader.each do |env|
+                q.each_from(offset) do |env|
                   break if count.zero?
                   payload_encoding = "string"
                   j.object do
@@ -283,10 +281,25 @@ module LavinMQ
                 end
               end
             end
-          rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
+          rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
+          rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError
+            # Once flushed the response can't become an error, so let the
+            # connection drop with the JSON array unterminated
+            raise e if context.response.wrote_headers?
+            # Discard the buffered partial array but keep the default headers
+            headers = context.response.headers.dup
+            context.response.reset
+            context.response.headers.merge!(headers)
+            forbidden(context, "Stream closed during read")
           end
         end
+      end
+
+      private def int32_field(context, body, key) : Int32?
+        body[key]?.try(&.as_i)
+      rescue OverflowError
+        bad_request(context, "#{key} is too large")
       end
 
       private def encode_body(message, truncate, encoding, io) : String
