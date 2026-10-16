@@ -202,13 +202,20 @@ module LavinMQ
           if q.is_a?(AMQP::Stream)
             LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
           else
-            if q.in_exclusive_use?(exclusive)
-              raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' in exclusive use")
-            end
             LocalConsumer.new(self, q, tag, no_ack, exclusive, @prefetch)
           end
         @consumers[tag] = consumer
-        q.add_consumer(consumer)
+        # The queue checks exclusive use atomically with the add
+        added = begin
+          q.add_consumer(consumer)
+        rescue AMQP::Queue::ClosedError
+          @consumers.delete(tag)
+          raise NotFound.new("404 - no queue '#{queue}' in vhost '#{v.name}'")
+        end
+        unless added
+          @consumers.delete(tag)
+          raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' in exclusive use")
+        end
         generation = self.generation
         begin
           consumer.run(&blk)

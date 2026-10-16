@@ -63,8 +63,11 @@ module LavinMQ
           rescue MessageStore::ClosedError
           end
         elsif requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          # Under the stream's msg store lock, which the deliver path shifts
+          # @requeued under; set after the push, so a wait that found
+          # @requeued empty is woken by the notification instead
+          was_empty = @stream.push_requeued(self, sp)
+          @new_message_available.set(true) if was_empty
         end
       end
 

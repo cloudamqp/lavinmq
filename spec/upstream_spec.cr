@@ -89,7 +89,7 @@ module FederationSpecHelpers
   # in the accept loop would share its variables, which the next accept?
   # overwrites, with nil once the proxy closes.
   private def self.forward(client : TCPSocket, target : URI)
-    server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
+    server = TCPSocket.new(target.hostname.should_not(be_nil), target.port.should_not(be_nil))
     spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
     spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
   rescue IO::Error
@@ -115,7 +115,7 @@ describe LavinMQ::Federation do
           down.queue("fq").basic_get(true) do |env|
             String.new(env.message.body).should eq "match"
             env.message.routing_key.should eq "a.b"
-            hops = env.message.properties.headers.not_nil!["x-received-from"].as(Array)
+            hops = env.message.properties.headers.should_not(be_nil)["x-received-from"].as(Array)
             hop = hops.first.as(AMQ::Protocol::Table)
             hop["uri"].should eq FederationSpecHelpers.uri(s, kind, "upstream")
             hop["exchange"].should eq "fx"
@@ -132,7 +132,7 @@ describe LavinMQ::Federation do
           down.bind_queue("fq", "fx", "early")
           FederationSpecHelpers.federate(down, "^fx$", "exchanges")
           FederationSpecHelpers.running_link(down)
-          link_ex = FederationSpecHelpers.upstream_link_exchange(up).not_nil!
+          link_ex = FederationSpecHelpers.upstream_link_exchange(up).should_not(be_nil)
           should_eventually(eq ["early"]) do
             up.exchange("fx").bindings_details.select(&.destination.==(link_ex)).map(&.binding_key.routing_key)
           end
@@ -248,7 +248,7 @@ describe LavinMQ::Federation do
           with_channel(s, vhost: "downstream") do |ch|
             ch.prefetch(10)
             ch.queue("fq", passive: true).subscribe(no_ack: false) do |msg|
-              hop = msg.properties.headers.not_nil!["x-received-from"].as(Array).first.as(AMQ::Protocol::Table)
+              hop = msg.properties.headers.should_not(be_nil)["x-received-from"].as(Array).first.as(AMQ::Protocol::Table)
               hop["queue"].should eq "fq"
               msg.ack
               received.send msg.body_io.to_s
@@ -503,7 +503,7 @@ describe LavinMQ::Federation do
         up.each_connection &.close("spec")
         should_eventually(be_true) { !link.state.running? }
         link = FederationSpecHelpers.running_link(down)
-        link_ex = FederationSpecHelpers.upstream_link_exchange(up).not_nil!
+        link_ex = FederationSpecHelpers.upstream_link_exchange(up).should_not(be_nil)
         down.bind_queue("fq", "fx", "after.reconnect")
         should_eventually(be_true) do
           up.exchange("fx").bindings_details.any? { |b| b.destination == link_ex && b.binding_key.routing_key == "after.reconnect" }
@@ -613,7 +613,7 @@ describe LavinMQ::Federation do
         sleep 100.milliseconds
         vhosts[3].queue("q").message_count.should eq 0 # three hops away
         vhosts[2].queue("q").basic_get(true) do |env|
-          env.message.properties.headers.not_nil!["x-received-from"].as(Array).size.should eq 2
+          env.message.properties.headers.should_not(be_nil)["x-received-from"].as(Array).size.should eq 2
         end
       end
     end
@@ -638,7 +638,7 @@ describe LavinMQ::Federation do
           vhosts[1].exchange("fe").bindings_details.any? { |b| b.binding_key.routing_key == "key" }
         end
         bound_from = vhosts[1].exchange("fe").bindings_details.find! { |b| b.binding_key.routing_key == "key" }
-          .binding_key.arguments.not_nil!["x-bound-from"].as(Array)
+          .binding_key.arguments.should_not(be_nil)["x-bound-from"].as(Array)
         bound_from.first.as(AMQ::Protocol::Table)["vhost"].should eq "b3"
         sleep 100.milliseconds
         vhosts[0].exchange("fe").bindings_details.none? { |b| b.binding_key.routing_key == "key" }.should be_true

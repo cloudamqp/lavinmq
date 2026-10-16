@@ -583,7 +583,7 @@ describe LavinMQ::Shovel do
           vhost.queue("prop_q2").basic_get(true) do |env|
             env.message.properties.content_type.should eq "text/plain"
             env.message.properties.message_id.should eq "id-1"
-            env.message.properties.headers.not_nil!["h"].should eq "v"
+            (env.message.properties.headers.should_not be_nil)["h"].should eq "v"
           end.should be_true
           shovel.terminate
         end
