@@ -54,6 +54,12 @@ module LavinMQ
       # Arguments => match spec and bindings. Replaced, never mutated, so
       # publishers on other threads route without locks.
       @bindings = CowMap(AMQP::Table, Binding).new
+      # The same bindings as an array in insertion order, which publishes scan
+      # as every binding has to be matched: an array scans much faster than
+      # the trie. Replaced, never mutated, under @routes_lock, which also
+      # serializes the binds and unbinds that update both.
+      @routes = Atomic(Array({AMQP::Table, Binding})).new(Array({AMQP::Table, Binding}).new)
+      @routes_lock = Mutex.new
       @default_match_any : Bool
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -89,9 +95,13 @@ module LavinMQ
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
-        destinations = binding.destinations.add(destination, binding_key) || return false
-        @bindings[arguments] = binding.with(destinations)
+        @routes_lock.synchronize do
+          binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
+          destinations = binding.destinations.add(destination, binding_key) || return false
+          binding = binding.with(destinations)
+          @bindings[arguments] = binding
+          update_routes(arguments, binding)
+        end
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -100,13 +110,18 @@ module LavinMQ
       def unbind(destination : Destination, routing_key, arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments]? || return false
-        destinations = binding.destinations.delete(destination, binding_key)
-        return false if destinations.same?(binding.destinations)
-        if destinations.empty?
-          @bindings.delete(arguments)
-        else
-          @bindings[arguments] = binding.with(destinations)
+        @routes_lock.synchronize do
+          binding = @bindings[arguments]? || return false
+          destinations = binding.destinations.delete(destination, binding_key)
+          return false if destinations.same?(binding.destinations)
+          if destinations.empty?
+            @bindings.delete(arguments)
+            update_routes(arguments, nil)
+          else
+            binding = binding.with(destinations)
+            @bindings[arguments] = binding
+            update_routes(arguments, binding)
+          end
         end
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -126,8 +141,26 @@ module LavinMQ
         end
       end
 
+      # Replaces the binding for *arguments* in the routes, or removes it when
+      # nil, keeping the insertion order. Called with @routes_lock held.
+      private def update_routes(arguments : AMQP::Table, binding : Binding?) : Nil
+        old = @routes.get(:acquire)
+        routes = Array({AMQP::Table, Binding}).new(old.size + 1)
+        found = false
+        old.each do |(args, b)|
+          if args == arguments
+            found = true
+            routes << {args, binding} if binding
+          else
+            routes << {args, b}
+          end
+        end
+        routes << {arguments, binding} if binding && !found
+        @routes.set(routes, :release)
+      end
+
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        @bindings.each_value do |binding|
+        @routes.get(:acquire).each do |(_, binding)|
           next unless binding.matches?(headers)
           binding.destinations.each_destination { |d| yield d }
         end

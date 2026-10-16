@@ -365,6 +365,48 @@ describe LavinMQ::AMQP::BindingSet do
   end
 end
 
+# Topic and headers exchanges route through an array of their bindings,
+# kept next to the map of them; binds and unbinds of different bindings on
+# several threads must leave both the same
+{"topic", "headers"}.each do |type|
+  it "keeps #{type} routes in step with concurrent binds and unbinds", tags: "slow" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("concurrent-#{type}-keys", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "concurrent-#{type}-keys" }
+      vhost.declare_queue("#{type}-keys", false, false)
+      queue = vhost.queue("#{type}-keys")
+      key = ->(t : Int32, i : Int32) { type == "topic" ? "t#{t}.k#{i}.*" : "" }
+      args = ->(t : Int32, i : Int32) do
+        type == "topic" ? nil : LavinMQ::AMQP::Table.new({"x-match" => "all", "t" => t.to_i64, "k" => i.to_i64})
+      end
+      ctx = Fiber::ExecutionContext::Parallel.new("#{type}-keys", 4)
+      wg = WaitGroup.new(8)
+      8.times do |t|
+        ctx.spawn do
+          50.times do |i|
+            exchange.bind(queue, key.call(t, i), args.call(t, i))
+            exchange.unbind(queue, key.call(t, i), args.call(t, i)) if i.odd?
+          end
+        ensure
+          wg.done
+        end
+      end
+      wg.wait
+      exchange.binding_count.should eq 8 * 25
+      8.times do |t|
+        50.times do |i|
+          queues = Set(LavinMQ::AMQP::Queue).new
+          exchanges = Set(LavinMQ::AMQP::Exchange).new
+          headers = LavinMQ::AMQP::Table.new({"t" => t.to_i64, "k" => i.to_i64})
+          exchange.find_queues("t#{t}.k#{i}.x", headers, queues, exchanges)
+          queues.includes?(queue).should eq i.even?
+        end
+      end
+    end
+  end
+end
+
 describe "Exchange bindings under concurrency" do
   # Publishers route on several threads while binds and unbinds replace the
   # binding sets; the routing reads must never see a half-changed set
