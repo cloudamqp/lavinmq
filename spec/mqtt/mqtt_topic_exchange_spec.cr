@@ -548,5 +548,88 @@ module MqttSpecs
         end.should be_true
       end
     end
+
+    # Binds and unbinds run under the vhost's definitions lock in the server,
+    # but the exchange must not depend on that to keep its bindings and its
+    # entries in the subscription tree in step
+    it "keeps bindings and tree entries in step with concurrent binds and unbinds", tags: "slow" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
+        vhost.declare_queue("q1", true, false)
+        queue = vhost.queue("q1").as(LavinMQ::AMQP::Queue)
+        ctx = Fiber::ExecutionContext::Parallel.new("mqtt-binds", 4)
+        wg = WaitGroup.new(8)
+        8.times do |t|
+          ctx.spawn do
+            50.times do |i|
+              exchange.bind(queue, "t#{t}/k#{i}/+", nil)
+              exchange.unbind(queue, "t#{t}/k#{i}/+", nil) if i.odd?
+            end
+          ensure
+            wg.done
+          end
+        end
+        wg.wait
+        exchange.binding_count.should eq 8 * 25
+        8.times do |t|
+          50.times do |i|
+            subscribed = false
+            vhost.mqtt_subscription_tree.each_entry("t#{t}/k#{i}/x") do |subscriber, _, _|
+              subscribed = true if subscriber.same?(exchange)
+            end
+            subscribed.should eq i.even?
+          end
+        end
+      end
+    end
+
+    # MQTT publishes deliver on several threads while binds and unbinds
+    # replace the filter's binding set
+    it "delivers while the bindings of a filter change", tags: "slow" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        exchange = vhost.exchange("xmqtt").as(LavinMQ::AMQP::MqttTopicExchange)
+        vhost.declare_queue("stable", false, false)
+        stable = vhost.queue("stable").as(LavinMQ::AMQP::Queue)
+        exchange.bind(stable, "a/#", nil)
+        # Exchanges without bindings, so churn costs no message writes.
+        # Enough to cross BindingSet::ARRAY_MAX back and forth.
+        sinks = Array(LavinMQ::AMQP::Exchange).new(100) do |i|
+          vhost.declare_exchange("sink-#{i}", "fanout", false, false)
+          vhost.exchange("sink-#{i}").as(LavinMQ::AMQP::Exchange)
+        end
+        stop = Atomic(Bool).new(false)
+        misses = Atomic(Int32).new(0)
+        ctx = Fiber::ExecutionContext::Parallel.new("mqtt-deliver", 4)
+        wg = WaitGroup.new(4)
+        4.times do
+          ctx.spawn do
+            publish_ctx = LavinMQ::MQTT::PublishContext.new
+            500.times do |i|
+              msg = LavinMQ::Message.new(LavinMQ::MQTT::EXCHANGE, "a/b", "payload")
+              misses.add(1) unless exchange.deliver(msg, "a/#", publish_ctx.reset)
+              Fiber.yield if i % 16 == 0
+            end
+          ensure
+            wg.done
+          end
+        end
+        churner = ctx.spawn do
+          until stop.get(:relaxed)
+            sinks.each { |x| exchange.bind(x, "a/#", nil) }
+            sinks.each { |x| exchange.unbind(x, "a/#", nil) }
+          end
+        end
+        wg.wait
+        stop.set(true)
+        wait_for { churner.dead? }
+        misses.get.should eq 0
+        exchange.binding_count.should eq 1
+        stable.message_count.should eq 4 * 500
+      end
+    end
   end
 end
