@@ -486,34 +486,6 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  describe "Corrupt data" do
-    it "closes the queue and finishes the teardown when a consumer reads it" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue("corrupt", durable: true)
-          queue = s.vhosts["/"].queue("corrupt").as(LavinMQ::AMQP::DurableQueue)
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
-
-          # Write corrupt data to the segment file
-          mfile = queue.@msg_store.@segments.first_value
-          File.open(mfile.path, "w+") do |f|
-            f.seek(4)
-            f.write(("x"*10).to_slice)
-          end
-
-          # Consuming triggers the close due to corrupt data
-          q.subscribe(tag: "tag", no_ack: false, &.ack)
-          should_eventually(be_true) { queue.state.closed? }
-
-          # The close isn't left waiting for the deliver loop that ran into
-          # the error, which is the loop it waits for, so the store is closed
-          should_eventually(be_true) { queue.@msg_store.closed }
-        end
-      end
-    end
-  end
-
   describe "Purge" do
     x_name = "purge"
     q_name = "purge"

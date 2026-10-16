@@ -65,30 +65,28 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
+      # Messages that can't be read are dropped, see #drop_requeued
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
-        sp = @requeued.first? || return
-        seg = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          Envelope.new(sp, msg, redelivered: true, segment: seg)
-        rescue ex
-          raise MessageStore::Error.new(seg, cause: ex)
+        while sp = @requeued.first?
+          if env = requeued_envelope?(sp)
+            return env
+          end
+          @requeued.shift?
+          drop_requeued(sp)
         end
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
-        sp = @requeued.shift? || return
-        segment = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          Envelope.new(sp, msg, redelivered: true, segment: segment)
-        rescue ex
-          raise MessageStore::Error.new(segment, cause: ex)
+        while sp = @requeued.shift?
+          if env = requeued_envelope?(sp)
+            @bytesize -= sp.bytesize
+            @size -= 1
+            @empty.set true if @size.zero?
+            return env
+          end
+          drop_requeued(sp)
         end
       end
 

@@ -47,7 +47,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
   context "with corrupt segments" do
     context "when consumed" do
-      it "should be closed" do
+      it "skips the corrupt data and stays open" do
         with_amqp_server do |s|
           vhost = s.vhosts.create("corrupt_vhost")
           with_channel(s, vhost: vhost.name) do |ch|
@@ -57,6 +57,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
             sleep 10.milliseconds
             bytes = "111111111aaaaauaoeuaoeu".to_slice
+            path = queue.@msg_store.@segments.first_value.path
             queue.@msg_store.@segments.each_value do |mfile|
               File.open(mfile.path, "w+") do |f|
                 f.seek(mfile.size - bytes.size)
@@ -64,12 +65,23 @@ describe LavinMQ::AMQP::DurableQueue do
               end
             end
 
-            q.subscribe(tag: "tag", no_ack: false, &.ack)
+            msgs = Channel(String).new(1)
+            q.subscribe(tag: "tag", no_ack: false) do |msg|
+              msgs.send msg.body_io.to_s
+              msg.ack
+            end
+            should_eventually(eq 0) { queue.message_count }
+            File.exists?("#{path}.corrupt").should be_true
 
-            should_eventually(be_true) { queue.state.closed? }
+            q.publish_confirm "after the corrupt data"
+            select
+            when body = msgs.receive
+              body.should eq "after the corrupt data"
+            when timeout 5.seconds
+              fail "message published after the corrupt data not delivered"
+            end
+            queue.state.running?.should be_true
           end
-
-          vhost.queue?("corrupt_q").try &.delete
         end
       end
     end

@@ -92,7 +92,7 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `closed` | Queue is closed due to an error. It stays closed until the broker is restarted, or until it's deleted. |
+| `closed` | Queue is being shut down, for example when the broker stops |
 | `deleted` | Queue has been deleted |
 
 Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`).

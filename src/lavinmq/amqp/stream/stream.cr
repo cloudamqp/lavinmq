@@ -117,14 +117,8 @@ module LavinMQ::AMQP
       false
     end
 
-    private def start : Bool
-      if @msg_store.closed
-        close # unless a concurrent close/delete already did
-        false
-      else
-        handle_arguments
-        true
-      end
+    private def start : Nil
+      handle_arguments
     end
 
     private def init_msg_store(data_dir)
@@ -155,10 +149,6 @@ module LavinMQ::AMQP
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
       PublishResult::Closed
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     # Streams does not support basic_get, so always returns `false`
@@ -210,7 +200,6 @@ module LavinMQ::AMQP
 
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a
@@ -218,12 +207,6 @@ module LavinMQ::AMQP
       stream_msg_store.shift_with_lease?(@msg_store_lock, consumer) do |env|
         yield env # deliver the message
       end
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      # Not on this fiber: on a consumer's deliver loop, tear_down would wait
-      # for this very loop to exit
-      spawn(name: "Stream#close #{@vhost.name}/#{@name}") { close }
-      raise ClosedError.new(cause: ex)
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -339,10 +322,6 @@ module LavinMQ::AMQP
       delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     def add_consumer(consumer : Client::Channel::Consumer) : Bool

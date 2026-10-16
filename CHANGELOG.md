@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- A queue closed, deleted or paused from several threads at once could run its teardown twice, end up paused or closed after being deleted, or accept a consumer after it was closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
-- A queue or stream closed by a read error on a consumer's delivery never finished closing, so its message store was never closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
+- A queue or stream with a message that can't be read, for example after disk errors, is no longer closed. The rest of that segment is skipped and a copy of it is kept as `msgs.{segment_id}.corrupt`, see [Storage](docs/storage.md#corrupt-data). At startup a corrupt segment is kept up to its last readable message, or moved aside, instead of leaving its queue closed [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
 
 ### Removed
 
-- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. A queue closed by an error stays closed until the broker is restarted [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
+- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. Queues are no longer closed by errors reading their messages [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
+
+### Fixed
+
+- A queue closed, deleted or paused from several threads at once could run its teardown twice, end up paused or closed after being deleted, or accept a consumer after it was closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
