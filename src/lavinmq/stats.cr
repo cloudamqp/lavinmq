@@ -1,15 +1,28 @@
 module LavinMQ
   module Stats
+    # deliver_get is the sum of deliver, deliver_no_ack, get and get_no_ack, so
+    # it has no counter of its own: its count and rate are derived from theirs.
     macro rate_stats(stats_keys, log_keys = %w[])
       {% stats_keys = stats_keys.resolve if stats_keys.is_a?(Path) %}
+      {% derived = {"deliver_get" => %w[deliver deliver_no_ack get get_no_ack]} %}
+      {% tracked = stats_keys.reject { |k| derived[k] } %}
       {% for name in stats_keys %}
-        @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
-        @{{ name.id }}_count_prev = 0_u64
+        {% if parts = derived[name] %}
+          {% for part in parts %}
+            {% raise "rate_stats: #{name.id} requires #{part.id}" unless stats_keys.includes?(part) %}
+          {% end %}
+          def {{ name.id }}_count
+            {{ parts.map { |p| "#{p.id}_count".id }.join(" + ").id }}
+          end
+        {% else %}
+          @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
+          @{{ name.id }}_count_prev = 0_u64
+          def {{ name.id }}_count
+            @{{ name.id }}_count.get(:relaxed)
+          end
+        {% end %}
         @{{ name.id }}_rate = 0_f64
         @{{ name.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
-        def {{ name.id }}_count
-          @{{ name.id }}_count.get(:relaxed)
-        end
       {% end %}
       {% for name in log_keys %}
         @{{ name.id }}_log = Deque(UInt32).new(Config.instance.stats_log_size)
@@ -41,14 +54,20 @@ module LavinMQ
       def update_rates : Nil
         interval = Config.instance.stats_interval / 1000.0
         log_size = Config.instance.stats_log_size
+        {% for name in tracked %}
+          {{ name.id }}_count = @{{ name.id }}_count.get(:relaxed)
+          {{ name.id }}_delta = {{ name.id }}_count - @{{ name.id }}_count_prev
+          @{{ name.id }}_count_prev = {{ name.id }}_count
+        {% end %}
         {% for name in stats_keys %}
+          {% if parts = derived[name] %}
+            {{ name.id }}_delta = {{ parts.map { |p| "#{p.id}_delta".id }.join(" + ").id }}
+          {% end %}
           until @{{ name.id }}_log.size < log_size
             @{{ name.id }}_log.shift
           end
-          {{ name.id }}_count = @{{ name.id }}_count.get(:relaxed)
-          @{{ name.id }}_rate = (({{ name.id }}_count - @{{ name.id }}_count_prev) / interval).round(1)
+          @{{ name.id }}_rate = ({{ name.id }}_delta / interval).round(1)
           @{{ name.id }}_log.push @{{ name.id }}_rate
-          @{{ name.id }}_count_prev = {{ name.id }}_count
         {% end %}
         {% for name in log_keys %}
           until @{{ name.id }}_log.size < log_size

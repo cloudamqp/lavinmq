@@ -25,6 +25,18 @@ module LavinMQ
     end
   end
 
+  private class DeliverGetProbe
+    include Stats
+    rate_stats({"deliver", "deliver_no_ack", "get", "get_no_ack", "deliver_get"})
+
+    def bump(deliver = 0_u64, deliver_no_ack = 0_u64, get = 0_u64, get_no_ack = 0_u64)
+      @deliver_count.add(deliver)
+      @deliver_no_ack_count.add(deliver_no_ack)
+      @get_count.add(get)
+      @get_no_ack_count.add(get_no_ack)
+    end
+  end
+
   describe Server do
     describe "#update_system_metrics" do
       it "yields finite rates with sub-second stats_interval" do
@@ -55,6 +67,29 @@ module LavinMQ
             p.x_rate.finite?.should be_true
             p.x_rate.should be > 0.0
           end
+        end
+      end
+
+      it "derives deliver_get from deliver, deliver_no_ack, get and get_no_ack" do
+        with_stats_interval(5000) do
+          p = DeliverGetProbe.new
+          p.bump(deliver: 10_u64, get_no_ack: 5_u64)
+          p.update_rates
+          p.deliver_get_count.should eq 15
+          details = p.stats_details
+          details[:deliver_get_details][:rate].should eq 3.0
+          details[:deliver_get_details][:log].to_a.should eq [3.0]
+          details[:deliver_details][:log].to_a.should eq [2.0]
+          p.current_stats_details[:deliver_get_details][:rate].should eq 3.0
+
+          p.bump(deliver_no_ack: 1_u64, get: 2_u64)
+          p.update_rates
+          p.deliver_get_count.should eq 18
+          p.stats_details[:deliver_get_details][:log].to_a.should eq [3.0, 0.6]
+
+          p.update_rates
+          p.deliver_get_count.should eq 18
+          p.current_stats_details[:deliver_get_details][:rate].should eq 0.0
         end
       end
 
