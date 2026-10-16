@@ -127,6 +127,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
         'src-offset': (_item) => consumerArgs['x-stream-offset']
       })
+      document.getElementById('add-shovel-dialog').showModal()
     }
   })
 
@@ -225,8 +226,14 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       dataSource.reload()
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
+      document.getElementById('add-shovel-dialog').close()
     })
     .catch(() => {})
+})
+
+document.getElementById('add-shovel-dialog').addEventListener('close', () => {
+  const form = document.getElementById('createShovel')
+  if (form.classList.contains('edit-mode')) form.reset()
 })
 
 // function updateAutocomplete (e, id) {
