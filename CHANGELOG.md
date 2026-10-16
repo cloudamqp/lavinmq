@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The JWKS refresh loop kept retrying an unreachable OAuth provider after it was stopped, e.g. at shutdown [#2450](https://github.com/cloudamqp/lavinmq/pull/2450)
 - The list of unacknowledged `basic.get` messages could be corrupted, or crash the broker, when accessed from several threads at once [#2402](https://github.com/cloudamqp/lavinmq/pull/2402)
 - A message's segment could be read after a concurrent purge or delete unmapped it, and a purge racing a publish could miscount the purged messages [#2405](https://github.com/cloudamqp/lavinmq/pull/2405)
 - Dead-lettering no longer fails for a message whose `x-death` header has an entry without a `reason` for one of the destination queues [#2462](https://github.com/cloudamqp/lavinmq/pull/2462)
