@@ -557,6 +557,61 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "should untrack basic_get messages on reject but not on consumer acks" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        3.times { q.publish_confirm "a" }
+        sq = s.vhosts["/"].queue(q.name)
+
+        get1 = q.get(no_ack: false).should_not be_nil
+        get2 = q.get(no_ack: false).should_not be_nil
+        sq.basic_get_unacked_size.should eq 2
+
+        consumed = ::Channel(AMQP::Client::DeliverMessage).new(3)
+        q.subscribe(no_ack: false) { |m| consumed.send m }
+        consumed.receive.ack
+        wait_for { sq.unacked_count == 2 }
+        sq.basic_get_unacked_size.should eq 2
+
+        get1.reject
+        wait_for { sq.basic_get_unacked_size == 1 }
+        get2.nack(requeue: true)
+        wait_for { sq.basic_get_unacked_size == 0 }
+      end
+    end
+  end
+
+  # Regression: the basic.get unacked list was pushed to by one client's
+  # basic.get, filtered by another channel's ack/close and read by stats and
+  # the HTTP API without any lock, so concurrent access corrupted the Deque
+  it "should keep track of unacked basic_get messages accessed in parallel", tags: "slow" do
+    with_amqp_server do |s|
+      with_channel(s) do |_ch|
+        ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first
+        s.vhosts["/"].declare_queue("bgu", durable: false, auto_delete: false)
+        q = s.vhosts["/"].queue("bgu").as(LavinMQ::AMQP::Queue)
+        ctx = Fiber::ExecutionContext::Parallel.new("basic-get-unacked", 4)
+        per_fiber = 2_000
+        20.times do
+          in_parallel(ctx, 4) do |i|
+            per_fiber.times do |j|
+              q.basic_get_unacked_push(LavinMQ::UnackedMessage.new(ch, (i * per_fiber + j).to_u64, RoughTime.instant))
+              q.basic_get_unacked_size
+            end
+          end
+          q.basic_get_unacked_size.should eq 4 * per_fiber
+          q.unacked_messages.map(&.delivery_tag).sort!.should eq (0_u64...4_u64 * per_fiber).to_a
+          in_parallel(ctx, 4) do |i|
+            q.unacked_messages
+            q.basic_get_unacked_reject! { |u| u.delivery_tag // per_fiber == i }
+          end
+          q.basic_get_unacked_size.should eq 0
+        end
+      end
+    end
+  end
+
   it "should keep track of unacked delivered messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
