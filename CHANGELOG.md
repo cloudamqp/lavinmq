@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
-- A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391)
+- A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391), [#2417](https://github.com/cloudamqp/lavinmq/pull/2417)
 
 ### Changed
 
@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - With kTLS send offload, closing a TLS connection to a client that stopped reading never finished, as the close_notify alert was retried forever instead of failing after `tcp_send_timeout` [#2466](https://github.com/cloudamqp/lavinmq/pull/2466)
+- A message's segment could be read after a concurrent purge or delete unmapped it, and a purge racing a publish could miscount the purged messages [#2405](https://github.com/cloudamqp/lavinmq/pull/2405)
 - Dead-lettering no longer fails for a message whose `x-death` header has an entry without a `reason` for one of the destination queues [#2462](https://github.com/cloudamqp/lavinmq/pull/2462)
 - Dead-lettered messages could be lost, delivered twice, or crash the broker when a queue dead-lettered from several threads at once [#2403](https://github.com/cloudamqp/lavinmq/pull/2403)
 - A stream consumer's requeued messages could be corrupted, or crash the broker, when messages were rejected with requeue while being delivered on another thread [#2406](https://github.com/cloudamqp/lavinmq/pull/2406)
