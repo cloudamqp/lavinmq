@@ -13,11 +13,25 @@ end
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
   client_socket.write header
-  client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-  client_socket.write password.to_slice
-  client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+  if header == LavinMQ::Clustering::StartV2
+    spawn(name: "answer challenge") { answer_challenge(client_socket, password) }
+  else
+    client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    client_socket.write password.to_slice
+    client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+  end
   follower.negotiate!(password)
   client_socket.read_byte.should eq 0u8
+end
+
+private def answer_challenge(client_socket, password, id = 1) : Nil
+  header = Bytes.new(8)
+  client_socket.read_fully(header)
+  header.should eq LavinMQ::Clustering::StartV2
+  challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+  client_socket.read_fully(challenge)
+  client_socket.write LavinMQ::Clustering.challenge_response(password, challenge)
+  client_socket.write_bytes id, IO::ByteFormat::LittleEndian
 end
 
 module FollowerSpec
@@ -804,6 +818,22 @@ module FollowerSpec
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
         negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
         follower.protocol_version.should eq 2
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "rejects a version 2 challenge response made with another password" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        client_socket.write LavinMQ::Clustering::StartV2
+        spawn(name: "answer challenge") { answer_challenge(client_socket, "bar") }
+        expect_raises(LavinMQ::Clustering::AuthenticationError) do
+          follower.negotiate!("foo")
+        end
+        client_socket.read_byte.should eq 1u8
       ensure
         follower_socket.try &.close
         client_socket.try &.close

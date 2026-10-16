@@ -1,7 +1,14 @@
 require "lz4"
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
+
+# A TCP port that was free a moment ago
+def free_port : Int32
+  s = TCPServer.new("127.0.0.1", 0)
+  s.local_address.port
+ensure
+  s.try &.close
+end
 
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper
@@ -88,12 +95,13 @@ module ClusteringSpecHelper
     end
   end
 
-  def make_client(data_dir : String, sync = true) : TestClient
+  def make_client(data_dir : String, sync = true, backend = LavinMQ::ClusteringBackend::Etcd) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync
+    config.clustering_backend = backend
     config.metrics_http_port = -1
-    TestClient.new(config, 1, "password", proxy: false)
+    TestClient.new(config, 1, "password")
   end
 
   # Serve `rounds` passes of the file sync protocol (full_sync runs two).
@@ -144,7 +152,7 @@ class SpecClustering
     tcp_server = TCPServer.new("localhost", 0)
 
     @follower_config = @config.dup.tap &.data_dir = follower_data_dir
-    @repli = LavinMQ::Clustering::Client.new(@follower_config, 1, replicator.password, proxy: false)
+    @repli = LavinMQ::Clustering::Client.new(@follower_config, 1, replicator.password)
 
     spawn(replicator.listen(tcp_server), name: "repli server spec")
     spawn(name: "follow spec") do

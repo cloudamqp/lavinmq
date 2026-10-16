@@ -8,7 +8,7 @@ StartLimitIntervalSec=0
 [Service]
 ExecStart=/usr/bin/lavinmq -c /etc/lavinmq/lavinmq.ini
 ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
+Restart=always
 RestartSec=5
 User=lavinmq
 Group=lavinmq

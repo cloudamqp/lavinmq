@@ -31,6 +31,30 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
 end
 
 describe "LavinMQCtl" do
+  # Over a follower's control socket the answer is its own view, which knows
+  # of the new leader before that serves
+  it "waits for a transfer target that a follower knows of to serve" do
+    gets = Atomic(Int32).new(0)
+    server = HTTP::Server.new do |context|
+      if context.request.method == "POST"
+        context.response.status_code = 202
+        context.response.print %({"target":"t:1"})
+      else
+        serving = gets.add(1) >= 2
+        context.response.content_type = "application/json"
+        context.response.print %({"leader":"t:1","term":2,"local":true,"leader_serving":#{serving}})
+      end
+    end
+    addr = server.bind_tcp("127.0.0.1", 0)
+    spawn server.listen
+    result = run_lavinmqctl(addr.to_s, ["transfer_leadership", "--wait", "--timeout=5"])
+    result[:exit].should eq 0
+    result[:stdout].should contain "t:1 is the leader"
+    gets.get.should eq 3
+  ensure
+    server.try &.close
+  end
+
   describe "with http server" do
     it "should list users" do
       with_http_server do |(http, s)|

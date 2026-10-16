@@ -63,7 +63,11 @@ module LavinMQ
       def negotiate!(password) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
-        authenticate!(password)
+        if @protocol_version < 2
+          authenticate_v1!(password)
+        else
+          authenticate_v2!(password)
+        end
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
@@ -211,10 +215,22 @@ module LavinMQ
         end
       end
 
-      private def authenticate!(password) : Nil
+      private def authenticate_v1!(password) : Nil
         len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         client_password = @socket.read_string(len)
-        if Crypto::Subtle.constant_time_compare(password, client_password)
+        authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
+      end
+
+      private def authenticate_v2!(password) : Nil
+        challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        @socket.write(StartV2 + challenge)
+        response = Bytes.new(32)
+        @socket.read_fully(response)
+        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge)))
+      end
+
+      private def authenticated!(ok : Bool) : Nil
+        if ok
           @socket.write_byte 0u8
         else
           @socket.write_byte 1u8

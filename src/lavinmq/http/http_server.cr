@@ -16,20 +16,19 @@ module LavinMQ
   module HTTP
     Log = LavinMQ::Log.for "http"
 
-    # The control socket can't be bound, so the broker can't start as leader
-    class ControlSocketError < Exception; end
-
-    class ControlSocketInUseError < ControlSocketError; end
-
     class Server
       Log = LavinMQ::Log.for "http.server"
 
-      # Resolved once and reused for this server's lifetime so a later config
-      # reload (SIGHUP) can't make us delete or authenticate against a path
-      # different from the one we actually bound.
-      @internal_unix_socket_path : String = Config.instance.control_unix_path
+      # The whole API, also served over the lavinmqctl socket, see ControlSocket
+      getter handler : ::HTTP::Handler
 
-      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+      # Requests over *control_path*, the lavinmqctl socket, are authenticated
+      # as the direct user. *metrics* writes the runner's own metrics, see
+      # Runner#write_metrics.
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
+                     cluster : Clustering::RaftController? = nil,
+                     control_path = Config.instance.control_unix_path,
+                     metrics : Proc(PrometheusWriter, Nil)? = nil)
         oauth_authenticator =
           case auth = @server.authenticator
           when Auth::Chain
@@ -44,10 +43,10 @@ module LavinMQ
           ViewsController.new,
           StaticController.new,
           oauth_authenticator && OAuthController.new(oauth_authenticator),
-          AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
+          AuthHandler.new(@server.authenticator, @server.users.direct_user, control_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
-          PrometheusController.new(@server, require_authentication: true),
+          PrometheusController.new(@server, require_authentication: true, metrics: metrics),
           ApiDefaultsHandler.new,
           MainController.new(@server, @amqp_server, @mqtt_server),
           DefinitionsController.new(@server),
@@ -65,9 +64,36 @@ module LavinMQ
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
+          ClusterController.new(@server, cluster),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
-        @http = ::HTTP::Server.new(handlers)
+        @handler = ::HTTP::Server.build_middleware(handlers)
+        @http = ::HTTP::Server.new(@handler)
+        @processor = ::HTTP::Server::RequestProcessor.new(@handler)
+      end
+
+      @closed = false
+
+      # A connection accepted on a listener ClientListeners owns, over TLS
+      # with *tls*
+      def accept(client : Socket, tls : OpenSSL::SSL::Context::Server?) : Nil
+        return client.close if @closed
+        spawn(name: "HTTP client") do
+          client.sync = false
+          io = tls ? OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true) : client
+          # process(io, io) wraps the IO from Crystal 1.22, losing the remote
+          # address, e.g. for the loopback-only default user
+          {% if compare_versions(Crystal::VERSION, "1.22.0") >= 0 %}
+            @processor.process(io)
+          {% else %}
+            @processor.process(io, io)
+          {% end %}
+        rescue ex : IO::Error | OpenSSL::SSL::Error
+          Log.debug { "HTTP connection error: #{ex.message}" }
+        ensure
+          io.try &.close rescue nil
+          client.close rescue nil
+        end
       end
 
       def bind_tcp(address, port)
@@ -90,78 +116,15 @@ module LavinMQ
         addr
       end
 
-      def bind_internal_unix
-        Server.prepare_control_socket(@internal_unix_socket_path)
-        addr = @http.bind_unix(@internal_unix_socket_path)
-        File.chmod(@internal_unix_socket_path, 0o660)
-        Log.info { "Bound to #{addr}" }
-        addr
-      end
-
       def listen
         @http.listen
       end
 
       def close
+        @closed = true
+        # Ends keep-alive connections after their current request
+        @processor.close
         @http.try &.close
-      end
-
-      # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
-      # The server returns 503 to signal that the node is a follower and can not handle the request.
-      # If another node on the same machine already serves the socket the server is
-      # skipped and nil is returned, it's only a convenience for lavinmqctl users.
-      def self.follower_internal_socket_http_server : ::HTTP::Server?
-        path = Config.instance.control_unix_path
-        http_server = ::HTTP::Server.new do |context|
-          context.response.status_code = 503
-          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
-                                 "Please connect to the leader node by using the --host option."
-        end
-
-        begin
-          prepare_control_socket(path)
-          addr = http_server.bind_unix(path)
-        rescue ex : Socket::BindError
-          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-          http_server.close
-          return
-        rescue ex
-          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-          http_server.close
-          return
-        end
-
-        File.chmod(path, 0o660)
-        Log.info { "Bound to #{addr}" }
-
-        spawn(name: "HTTP listener") do
-          http_server.listen
-        rescue ex
-          raise ex unless http_server.closed? # closed before listen started
-        end
-        http_server
-      end
-
-      # Verifies that the control socket path is safe to bind to.
-      # Deletes the file if it's a socket no one is listening on,
-      # raises if it's in use, not a socket, or can't be verified.
-      def self.prepare_control_socket(path)
-        return unless info = File.info?(path, follow_symlinks: false)
-
-        unless info.type.socket?
-          raise ControlSocketError.new("Control socket #{path} exists and is not a socket")
-        end
-
-        begin
-          UNIXSocket.open(path) { }
-          raise ControlSocketInUseError.new("Control socket #{path} is already in use")
-        rescue Socket::ConnectError
-          # ECONNREFUSED: socket inode exists, but nobody is listening.
-          File.delete(path)
-        rescue ex : Socket::Error
-          # EACCES or anything ambiguous: fail closed, don't delete.
-          raise ControlSocketError.new("Cannot verify stale control socket #{path}: #{ex.message}")
-        end
       end
     end
   end

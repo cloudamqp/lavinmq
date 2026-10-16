@@ -4,6 +4,7 @@ require "./mfile"
 require "./filesystem"
 require "./clustering/replicator"
 require "./clustering/follower"
+require "./clustering/coordinator"
 require "sync/exclusive"
 require "../stdlib/isolated_wait_for"
 
@@ -35,7 +36,7 @@ module LavinMQ
       getter files = Array(MFile).new
       getter paths = Set(String).new
       # Callers of #sync, released by the drain that synced for them
-      getter waiters = Array(::Channel(Nil)).new
+      getter waiters = Array(::Channel(Bool)).new
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty?
@@ -92,18 +93,30 @@ module LavinMQ
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
+    # Raises Clustering::Coordinator::StaleLeadership if it can't be made
+    # durable on the followers, see Clustering::Replicator#fenced?
     def sync : Nil
-      waiter = ::Channel(Nil).new
+      # Gets true once synced, or is closed when it wasn't
+      waiter = ::Channel(Bool).new(1)
       @pending.lock &.waiters.push(waiter)
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
+        raise_if_fenced
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive?
+      waiter.receive? || raise stale_leadership
+    end
+
+    private def raise_if_fenced : Nil
+      raise stale_leadership if @replicator.try &.fenced?
+    end
+
+    private def stale_leadership : Clustering::Coordinator::StaleLeadership
+      Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
     end
 
     def close : Nil
@@ -136,6 +149,12 @@ module LavinMQ
         end
       end
       return unless batch
+      replicator = @replicator
+      if replicator.try &.fenced?
+        # Never confirmed, the waiters raise
+        batch.waiters.each &.close
+        return
+      end
 
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
@@ -145,7 +164,6 @@ module LavinMQ
       syncfs = !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
-      replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
         # while it runs. Buffered for each follower's flush fiber to write:
@@ -178,12 +196,21 @@ module LavinMQ
       # the coordinator is unreachable confirms stall (publishers time out,
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
-      replicator.try &.wait_for_followers
+      begin
+        replicator.try &.wait_for_followers
+      rescue Clustering::Coordinator::StaleLeadership
+        # A new leader decides what's in sync now, so nothing waiting here
+        # can be confirmed. Clients see their connections closed when this
+        # node steps down, and resend what wasn't confirmed.
+        Log.warn { "Not the leader anymore, not confirming pending publishes" }
+        batch.waiters.each &.close
+        return
+      end
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)
       end
-      batch.waiters.each &.close
+      batch.waiters.each &.send(true)
     end
 
     private def fsync_paths(files, paths, dirs) : Nil
