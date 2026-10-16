@@ -19,6 +19,8 @@ require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 require "./mqtt/broker"
+require "./mqtt/subscription_tree"
+require "./mqtt/subscriber"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -36,8 +38,23 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
+    DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
+                        "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
+                        "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
+                        "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
+    {% for key in DEAD_LETTER_KEYS %}
+      @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
+
+      def {{ key.id }}_count : UInt64
+        @{{ key.id }}_count.get(:relaxed)
+      end
+    {% end %}
+
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
+    # Routing index for MQTT publishes. Owned by the vhost so that it exists
+    # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
+    getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -597,15 +614,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
     end
 
     def mqtt_broker : MQTT::Broker
-      @mqtt_broker.not_nil!
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -639,6 +656,19 @@ module LavinMQ
       end
     end
 
+    def count_dead_lettered(reason : Symbol, *, dlx : Bool) : Nil
+      case reason
+      when :delivery_limit
+        dlx ? @dead_lettered_delivery_limit_at_most_once_count.add(1, :relaxed) : @dead_lettered_delivery_limit_disabled_count.add(1, :relaxed)
+      when :expired
+        dlx ? @dead_lettered_expired_at_most_once_count.add(1, :relaxed) : @dead_lettered_expired_disabled_count.add(1, :relaxed)
+      when :maxlen, :maxlenbytes
+        dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
+      when :rejected
+        dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
     def add_recv_bytes(bytes : UInt64) : Nil
       @recv_oct_count.add(bytes, :relaxed)
     end
@@ -652,7 +682,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end

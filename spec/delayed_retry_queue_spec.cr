@@ -11,9 +11,8 @@ describe "Retry Queue" do
             "x-delayed-retry-min" => 1000,
           })
           ch.queue("retry-test", args: args)
-          retry_q = s.vhosts["/"].queue?("amq.retry-retry-test")
-          retry_q.should_not be_nil
-          retry_q.not_nil!.internal?.should be_true
+          retry_q = s.vhosts["/"].queue?("amq.retry-retry-test").should_not be_nil
+          retry_q.internal?.should be_true
         end
       end
     end
@@ -682,6 +681,28 @@ describe "Retry Queue" do
           q.delete
           s.vhosts["/"].queue?("amq.retry-retry-delete-pending").should be_nil
           s.vhosts["/"].queue?("retry-delete-pending").should be_nil
+        end
+      end
+    end
+
+    it "should release the primary queue's segment after routing a message to the retry queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("retry-lease", args: args)
+          q.publish_confirm "delayed"
+          vhost = s.vhosts["/"]
+          segment = vhost.queue(q.name).@msg_store.@segments.first_value
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { vhost.queue("amq.retry-retry-lease").message_count == 1 }
+
+          vhost.delete_queue(q.name)
+          segment.closed?.should be_true
         end
       end
     end
