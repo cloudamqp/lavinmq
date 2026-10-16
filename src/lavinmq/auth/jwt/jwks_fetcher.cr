@@ -89,13 +89,13 @@ module LavinMQ
           end
         end
 
-        def start_refresh_loop
-          retry_delay = 5.seconds
+        def start_refresh_loop(retry_delay initial_retry_delay = 5.seconds)
+          retry_delay = initial_retry_delay
           max_retry_delay = 5.minutes
           spawn do
             loop do
               @fetch_lock.synchronize { update_keys }
-              retry_delay = 5.seconds
+              retry_delay = initial_retry_delay
               wait_time = calculate_wait_time
               select
               when @stopped.when_true.receive
@@ -104,7 +104,13 @@ module LavinMQ
               end
             rescue ex
               Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
-              sleep retry_delay
+              # Wait on @stopped so cleanup also stops a fetcher that is
+              # retrying an unreachable provider
+              select
+              when @stopped.when_true.receive
+                break
+              when timeout(retry_delay)
+              end
               retry_delay = {retry_delay * 2, max_retry_delay}.min
             end
           end
