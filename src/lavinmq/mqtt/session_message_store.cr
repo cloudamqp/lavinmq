@@ -6,11 +6,44 @@ module LavinMQ
     # the session owes a resuming client. The ids live here so that a message
     # leaving the store takes its id with it, whichever path removed it.
     class SessionMessageStore < LavinMQ::MessageStore
+      # Packet ids by message, with a count per id so that `next_packet_id`,
+      # which tests every candidate, does not scan them all. One id can belong
+      # to two messages only through a bug, but the count keeps it in use until
+      # both are gone.
+      class OriginalPacketIds
+        @ids = Hash(SegmentPosition, UInt16).new
+        @counts = Hash(UInt16, UInt32).new
+
+        def []=(sp : SegmentPosition, id : UInt16) : UInt16
+          delete(sp)
+          @ids[sp] = id
+          @counts[id] = (@counts[id]? || 0u32) + 1
+          id
+        end
+
+        def []?(sp : SegmentPosition) : UInt16?
+          @ids[sp]?
+        end
+
+        def delete(sp : SegmentPosition) : UInt16?
+          id = @ids.delete(sp) || return
+          count = @counts[id] - 1
+          count.zero? ? @counts.delete(id) : (@counts[id] = count)
+          id
+        end
+
+        def in_use?(id : UInt16) : Bool
+          @counts.has_key?(id)
+        end
+
+        delegate empty?, size, keys, key_for, to: @ids
+      end
+
       # Not guarded by the session's `@msg_store_lock`, unlike the rest of this
-      # object: every access is a single `Hash` operation, which cannot yield.
+      # object: every access is a few `Hash` operations, which cannot yield.
       # Same shape as `Session#@inflight`, and the same caveat under
       # multi-threading, tracked in #2067.
-      @original_packet_ids = Hash(SegmentPosition, UInt16).new
+      @original_packet_ids = OriginalPacketIds.new
 
       def remember_original_packet_id(sp : SegmentPosition, packet_id : UInt16) : Nil
         @original_packet_ids[sp] = packet_id
@@ -24,9 +57,8 @@ module LavinMQ
         @original_packet_ids.delete(sp) unless @original_packet_ids.empty?
       end
 
-      # Linear, but bounded by the in-flight window that produced the ids.
       def original_packet_id_in_use?(id : UInt16) : Bool
-        !@original_packet_ids.empty? && @original_packet_ids.has_value?(id)
+        @original_packet_ids.in_use?(id)
       end
 
       # Called before the delete, while the message is still readable, for a

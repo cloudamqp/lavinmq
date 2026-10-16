@@ -25,6 +25,8 @@ module LavinMQ
           return session
         end
         raise LimitReached.new if @vhost.queue_limit_reached?
+        # A new durable session fsyncs the definitions file. Only its first
+        # CONNECT pays: a reconnect returns the existing one above.
         name = "#{SESSION_PREFIX}#{client_id}"
         @vhost.declare_queue(name, !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
         self[client_id]? || raise NameTaken.new(name)

@@ -10,39 +10,23 @@ module MqttSpecs
         vhost = server.vhosts["/"]
         vhost.max_queues = 1
 
+        # Offline and without subscriptions, it still counts against the limit
         with_client_io(server) do |io|
-          connack = connect(io, client_id: "a").should be_a(MQTT::Protocol::Connack)
+          connack = connect(io, client_id: "a", clean_session: false).should be_a(MQTT::Protocol::Connack)
           connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          disconnect(io)
+        end
+        vhost.session?("mqtt.a").should_not be_nil
 
-          with_client_io(server) do |io2|
-            connack = connect(io2, client_id: "b").should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
-            io2.should be_closed
-          end
+        with_client_io(server) do |io|
+          connack = connect(io, client_id: "b").should be_a(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          io.should be_closed
         end
 
         vhost.session?("mqtt.b").should be_nil
         # A refused CONNECT must not leave its client lock behind.
         server.mqtt_server.broker("/").@client_locks.should be_empty
-      end
-    end
-
-    it "counts a session without subscriptions" do
-      with_server do |server|
-        vhost = server.vhosts["/"]
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "a", clean_session: false)
-          disconnect(io)
-        end
-
-        vhost.session?("mqtt.a").should_not be_nil
-        vhost.max_queues = 1
-
-        with_client_io(server) do |io|
-          connack = connect(io, client_id: "b").should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
-        end
       end
     end
 

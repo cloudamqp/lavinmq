@@ -105,7 +105,7 @@ module MqttSpecs
       end
     end
 
-    it "sends the whole payload when the session is closed during the send" do
+    it "stops the send before unmapping its payload when the session is closed during it" do
       with_server do |server|
         # Larger than the socket buffers, so the send blocks mid-payload
         payload = Bytes.new(32 * 1024 * 1024) { |i| (i % 251).to_u8 }
@@ -124,10 +124,10 @@ module MqttSpecs
           segment = store.@segments.last_value
           # Shifted, and the send is blocked as the subscriber doesn't read
           wait_for { session.message_count.zero? }
+          # Closing the session closes its client, which must end the send
+          # before the segment it reads from is unmapped
           session.close
-          segment.closed?.should be_false
-          packet = read_packet(sub).as(MQTT::Protocol::Publish)
-          packet.payload.should eq payload
+          sub.should be_closed
           wait_for { segment.closed? }
         end
       end

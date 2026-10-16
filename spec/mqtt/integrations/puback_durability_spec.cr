@@ -43,32 +43,6 @@ module MqttSpecs
       end
     end
 
-    it "sends PUBACKs in publish order, also for publishes denied by topic permissions" do
-      with_server do |server|
-        server.users.create("alice", "alice")
-        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        group = LavinMQ::MQTT::PermissionGroup.new(
-          "allowed", "/", ["alice"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("allowed--", "allowed/#", read: true, write: true)]
-        )
-        server.vhosts["/"].mqtt_permission_service.delete("default")
-        server.vhosts["/"].mqtt_permission_service.put(group)
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "alice", username: "alice", password: "alice".to_slice)
-          with_drain_held do |gate|
-            publish(io, topic: "allowed/a", payload: "a".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
-            publish(io, topic: "denied/b", payload: "b".to_slice, qos: 1u8, packet_id: 2u16, expect_response: false)
-            publish(io, topic: "allowed/c", payload: "c".to_slice, qos: 1u8, packet_id: 3u16, expect_response: false)
-            pingpong(io)
-            release_drain(gate)
-            packet_ids = Array.new(3) { read_packet(io).as(MQTT::Protocol::PubAck).packet_id }
-            packet_ids.should eq [1u16, 2u16, 3u16]
-          end
-        end
-      end
-    end
-
     it "closes the socket when an acknowledgement cannot be written" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -227,17 +201,18 @@ module MqttSpecs
             publish(io, topic: "allowed/a", payload: "a".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
             publish(io, topic: "allowed/b", payload: "b".to_slice, qos: 2u8, packet_id: 2u16, expect_response: false)
             publish(io, topic: "denied/c", payload: "c".to_slice, qos: 2u8, packet_id: 3u16, expect_response: false)
-            publish(io, topic: "allowed/d", payload: "d".to_slice, qos: 1u8, packet_id: 4u16, expect_response: false)
+            publish(io, topic: "denied/d", payload: "d".to_slice, qos: 1u8, packet_id: 4u16, expect_response: false)
+            publish(io, topic: "allowed/e", payload: "e".to_slice, qos: 1u8, packet_id: 5u16, expect_response: false)
             pingpong(io)
             release_drain(gate)
-            acks = Array.new(4) do
+            acks = Array.new(5) do
               case packet = read_packet(io)
               when MQTT::Protocol::PubAck then {:puback, packet.packet_id}
               when MQTT::Protocol::PubRec then {:pubrec, packet.packet_id}
               else                             fail "unexpected #{packet.inspect}"
               end
             end
-            acks.should eq [{:puback, 1u16}, {:pubrec, 2u16}, {:pubrec, 3u16}, {:puback, 4u16}]
+            acks.should eq [{:puback, 1u16}, {:pubrec, 2u16}, {:pubrec, 3u16}, {:puback, 4u16}, {:puback, 5u16}]
           end
         end
       end

@@ -33,8 +33,10 @@ module LavinMQ
       # 1. Registering, taking over and removing a client, and creating or
       #    deleting its session for it, happen under its client_id's lock.
       # 2. A registered client always reaches `run_client`'s `ensure`.
-      # 3. `Client#close` waits for the read fiber only once `Client#run` began.
+      # 3. `Client#close` waits for the read fiber once `Client#run` began, also
+      #    when the client is already closing.
       # 4. A client lock is never taken while holding the definitions lock.
+      # 5. Only the registered client detaches its session.
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
@@ -62,8 +64,8 @@ module LavinMQ
         begin
           yield session_present
           # No yield between this check and `Client#run` setting `@started`.
-          if client.closed? || client.session.deleted?
-            client.log.info { "Taken over or session deleted before attaching, closing" }
+          if client.closed? || client.session.closed?
+            client.log.info { "Taken over or session closed before attaching, closing" }
             client.force_close
             return client
           end
@@ -96,6 +98,11 @@ module LavinMQ
         if existing && (packet.clean_session? || existing.clean_session?)
           existing.delete
           existing = nil
+        end
+        # A session that failed to load, or closed on a store error, has no
+        # state to resume. A clean CONNECT replaces it above.
+        if existing && existing.closed?
+          raise Protocol::Error::ServerUnavailable.new("session \"#{existing.name}\" in vhost \"#{@vhost.name}\" is closed")
         end
         session = begin
           sessions.declare(client_id, packet.clean_session?)
@@ -148,14 +155,21 @@ module LavinMQ
         with_client_lock(client.client_id) { remove_client_locked(client) }
       end
 
+      # Only the registered client detaches the session. A taken-over one was
+      # removed by the takeover, and removing it again could detach its
+      # successor: `Session#client=` can park before it assigns.
       private def remove_client_locked(client) : Nil
-        session = client.session
-        if session.client.nil? || (session.client == client)
-          session.client = nil
-          session.delete if session.clean_session?
-        end
         client_id = client.client_id
-        @clients.delete(client_id) if @clients[client_id]? == client
+        if @clients[client_id]? == client
+          @clients.delete(client_id)
+          session = client.session
+          if session.client.nil? || (session.client == client)
+            session.client = nil
+            session.delete if session.clean_session?
+          end
+        end
+      ensure
+        # Also when detaching raises, e.g. on a store closed meanwhile
         @vhost.rm_connection(client)
       end
 
@@ -182,6 +196,9 @@ module LavinMQ
         return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
         ts = RoughTime.unix_ms
         @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+          # At the subscription's QoS, not capped like `Exchange#publish`
+          # [MQTT-3.8.4-6]: the retain store keeps no publish QoS, and adding
+          # it changes its file format. Listed in docs/mqtt.md Limitations.
           props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
           msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
           session.publish(msg)

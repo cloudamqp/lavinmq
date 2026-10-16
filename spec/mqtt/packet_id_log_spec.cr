@@ -55,17 +55,22 @@ describe LavinMQ::MQTT::PacketIdLog do
     end
   end
 
-  it "loads up to a torn tail and truncates it" do
-    with_log_path do |path|
-      log = PacketIdLog.new(path, nil, nil)
-      log.publish_received(1u16)
-      log.close
-      size = File.size(path)
-      File.open(path, "a") { |f| f.write Bytes[PacketIdLog::State::PublishSent.value, 2u8] }
-      log = PacketIdLog.new(path, nil, nil)
-      log.awaiting_pubrel.should eq Set{1u16}
-      log.close # an open log's file is capacity-sized
-      File.size(path).should eq size
+  # Torn inside the packet id, and inside a PublishSent's segment position
+  {Bytes[PacketIdLog::State::PublishSent.value, 2u8],
+   Bytes[PacketIdLog::State::PublishSent.value, 2u8, 0u8, 3u8, 0u8]}.each do |tail|
+    it "loads up to a torn tail of #{tail.size} bytes and truncates it" do
+      with_log_path do |path|
+        log = PacketIdLog.new(path, nil, nil)
+        log.publish_received(1u16)
+        log.close
+        size = File.size(path)
+        File.open(path, "a", &.write(tail))
+        log = PacketIdLog.new(path, nil, nil)
+        log.awaiting_pubrel.should eq Set{1u16}
+        log.publish_sent.should be_empty
+        log.close # an open log's file is capacity-sized
+        File.size(path).should eq size
+      end
     end
   end
 
@@ -97,25 +102,11 @@ describe LavinMQ::MQTT::PacketIdLog do
   it "writes the documented little-endian layout" do
     with_log_path do |path|
       log = PacketIdLog.new(path, nil, nil)
+      File.exists?(path).should be_false # created by the first record
       log.publish_received(9u16)
       log.publish_sent(5u16, LavinMQ::SegmentPosition.new(3u32, 40u32, 0u32))
       log.close
       File.read(path).to_slice.should eq Bytes[1, 0, 0, 0, 1, 9, 0, 3, 5, 0, 3, 0, 0, 0, 40, 0, 0, 0]
-    end
-  end
-
-  it "loads up to a torn tail inside a PublishSent payload and truncates it" do
-    with_log_path do |path|
-      log = PacketIdLog.new(path, nil, nil)
-      log.publish_received(1u16)
-      log.close
-      size = File.size(path)
-      File.open(path, "a") { |f| f.write Bytes[PacketIdLog::State::PublishSent.value, 2u8, 0u8, 3u8, 0u8] }
-      log = PacketIdLog.new(path, nil, nil)
-      log.awaiting_pubrel.should eq Set{1u16}
-      log.publish_sent.should be_empty
-      log.close
-      File.size(path).should eq size
     end
   end
 
@@ -141,8 +132,8 @@ describe LavinMQ::MQTT::PacketIdLog do
     end
   end
 
-  # Invariant guard: the old file is full, so the next append compacts again.
-  # A compaction trigger that leaves room in it would append to the unlinked file.
+  # Invariant guard: the renamed file replaces the full old one even though the
+  # directory fsync failed, so appends never go to the unlinked file.
   it "appends to the file at its path after a compaction fails past the rename" do
     with_log_path do |path|
       log = PacketIdLog.new(path, nil, nil)
@@ -180,30 +171,11 @@ describe LavinMQ::MQTT::PacketIdLog do
     end
   end
 
-  it "creates its file only with the first record" do
-    with_log_path do |path|
-      log = PacketIdLog.new(path, nil, nil)
-      File.exists?(path).should be_false
-      log.publish_received(1u16)
-      log.close
-      File.read(path).to_slice.should eq Bytes[1, 0, 0, 0, 1, 1, 0]
-    end
-  end
-
   it "does not create its file once closed" do
     with_log_path do |path|
       log = PacketIdLog.new(path, nil, nil)
       log.close
       expect_raises(PacketIdLog::Error) { log.publish_received(1u16) }
-      File.exists?(path).should be_false
-    end
-  end
-
-  it "deletes its file" do
-    with_log_path do |path|
-      log = PacketIdLog.new(path, nil, nil)
-      log.publish_received(1u16)
-      log.delete
       File.exists?(path).should be_false
     end
   end

@@ -3,7 +3,8 @@ require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers
-  GENERATOR = (0u16..).each
+  # From 1: a QoS 1 or 2 PUBLISH with id 0 is a protocol violation [MQTT-2.3.1-1]
+  GENERATOR = (1u16..).each
 
   # Durable acks wait for fsyncs, which take hundreds of ms on a loaded disk,
   # so a packet that should come gets long. Proving that nothing comes costs

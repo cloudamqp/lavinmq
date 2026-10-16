@@ -7,13 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MQTT QoS 2 (exactly once) in both directions, persisted and replicated for durable sessions, and the `max_awaiting_pubrel` setting. See `docs/mqtt.md` [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+
 ### Changed
 
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
+- An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, except retained messages [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Every MQTT connection now gets a session at CONNECT, not at its first SUBSCRIBE, so a vhost at its `max-queues` limit refuses the CONNECT instead of the SUBSCRIBE. See `docs/mqtt.md` [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Deleting an MQTT session queue closes its client's connection. A CONNECT is refused with return code 2 when its `mqtt.<client_id>` name belongs to a queue that is not a session, and with return code 3 when its persistent session is closed, for example because its files could not be loaded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Rolling back to an earlier version, or failing over to a node that runs one, disconnects MQTT clients that resume a QoS 2 exchange: earlier versions close the connection on a PUBREL. Upgrade every node in a cluster before clients use QoS 2 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- An MQTT SUBSCRIBE, UNSUBSCRIBE and the deletion of a session, which every clean session's disconnect does, no longer walk every subscription in the vhost, so their cost no longer grows with the number of subscriptions [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- When an MQTT delivery fails after the client has reconnected, the connection the delivery was written to is closed rather than the new one [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- A QoS 1 or QoS 2 MQTT PUBLISH with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and routed [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT subscriber holding every outbound packet ID except the last one handed out no longer hangs the server. That ID was never tried, so delivery retried in a loop that never yielded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
@@ -32,8 +48,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
 - A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391), [#2417](https://github.com/cloudamqp/lavinmq/pull/2417)
 - Statically linked Linux binaries (amd64, arm64) attached to each GitHub release [#2478](https://github.com/cloudamqp/lavinmq/pull/2478)
-- A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391)
-- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. PUBREC is sent once the publish is persisted to disk, in publish order together with QoS 1 PUBACKs. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. For durable sessions the packet IDs held in both directions are persisted and replicated, so an unfinished exchange also resumes after a broker restart or failover. PUBREC, PUBREL, PUBCOMP and outbound QoS 2 PUBLISH wait for the state behind them to be durable. A publisher holding more QoS 2 packet IDs than `max_awaiting_pubrel` is disconnected; the default, 65535, is every packet ID. A PUBREC for an unknown packet ID is answered with PUBREL, as a PUBREL for one is answered with PUBCOMP [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ### Changed
 
@@ -53,11 +67,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - MQTT QoS 1 PUBACKs are sent once the publish is persisted to disk, in publish order. QoS 1 throughput is lower as a result [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - Internal queues (e.g. delayed exchange queues) are protected from AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED`, and they are no longer included in definitions exports. They remain visible and manageable through the HTTP API [#2252](https://github.com/cloudamqp/lavinmq/pull/2252)
 - Heartbeats, deduplication TTLs and other timers using `RoughTime.utc` or `RoughTime.instant` read the clock directly instead of a cache refreshed every 100 ms, improving clock resolution to typically 1–4 ms on Linux and removing the background clock thread. Resolution depends on the platform; message timestamps and message TTL checks still use a clock rounded to 100 ms [#2289](https://github.com/cloudamqp/lavinmq/pull/2289)
-- TLS handshake failures and invalid TLS configuration are logged with an error message instead of a stack trace. A failed TLS configuration reload logs the error and keeps the previous configuration [#1762](https://github.com/cloudamqp/lavinmq/pull/1762)
-- An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, instead of always the subscription's. A QoS 0 publish to a QoS 1 or QoS 2 subscriber is no longer acknowledged and is no longer stored while that session is offline [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- Every MQTT connection now gets a session at CONNECT, not at its first SUBSCRIBE, so a publish-only client also has an `mqtt.<client_id>` queue. A persistent client that reconnects is answered `session_present=1` whether or not it subscribed [MQTT-3.1.2-4], and keeps its inbound QoS 2 state across the reconnect. Sessions still count towards `max-queues`, so a vhost at its limit now refuses a CONNECT that needs a new session with return code 3 (server unavailable) instead of failing its SUBSCRIBE. The session is created without a `permission_check_enabled` check. Deleting a session queue now closes its client's connection. A CONNECT whose `mqtt.<client_id>` name is already taken by a queue that is not a session, which only a definitions import can create, is refused with return code 2 (identifier rejected). A session creates its directory, message segment and `.metadata` file at its first subscription and its delivery fiber at its first message, and keeps no rate stats history until it gets a message, so the session of a client that only publishes at QoS 0 or QoS 1 holds no files, memory mappings or fibers. A durable session that publishes at QoS 2 holds its `packet_ids.log` and that file's mapping [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ### Fixed
 
@@ -107,7 +116,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Federation links of `federation-upstream-set` entries that override upstream settings are now stopped when the policy is removed or the set is updated or deleted; they used to keep running [#2371](https://github.com/cloudamqp/lavinmq/pull/2371)
 - The Prometheus metrics server is bound once for the lifetime of the process and serves follower or leader metrics depending on the node's role, instead of being closed and rebound when a follower is promoted to leader [#2387](https://github.com/cloudamqp/lavinmq/pull/2387)
 - MQTT SUBACK returns Failure (`0x80`) when a subscription could not be established, such as when the session is deleted concurrently [#2380](https://github.com/cloudamqp/lavinmq/pull/2380)
-- An MQTT SUBSCRIBE, UNSUBSCRIBE and the deletion of a session, which every clean session's disconnect does, no longer walk every subscription in the vhost, so their cost no longer grows with the number of subscriptions [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - The queue and stream pages' Consumers table headers show the total consumer count even when only part of the list is loaded, matching the tab badge and Overview [#2355](https://github.com/cloudamqp/lavinmq/pull/2355)
 - MQTT subscriptions to `a/#` now also get messages and the retained message on the parent topic `a`, as the MQTT spec requires [#2377](https://github.com/cloudamqp/lavinmq/pull/2377)
 - MQTT filters that start with `#` or `+` no longer match topics that start with `$`, such as `$SYS/...` [MQTT-4.7.2-1]. To get messages on these topics, subscribe to a filter that starts with the `$` level [#2377](https://github.com/cloudamqp/lavinmq/pull/2377)
@@ -126,11 +134,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
-- An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- When an MQTT delivery fails after the client has reconnected, the connection the delivery was written to is closed rather than the new one [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- A QoS 1 or QoS 2 MQTT PUBLISH with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and routed [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- An MQTT subscriber holding every outbound packet ID except the last one handed out no longer hangs the server. That ID was never tried, so delivery retried in a loop that never yielded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ## [2.11.0-rc.1] - 2026-10-16
 

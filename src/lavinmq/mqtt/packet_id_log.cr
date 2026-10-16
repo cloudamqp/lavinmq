@@ -116,8 +116,9 @@ module LavinMQ
       # Header plus the live set (both directions) into a new file, made
       # durable under a tmp name before it replaces the old one, so a crash
       # leaves one or the other. Also creates the file, and drops whatever a
-      # torn tail left behind. Fsyncs on the scheduler thread, a stall only
-      # QoS 2 pays.
+      # torn tail left behind. Its fsyncs stall the scheduler thread, so every
+      # fiber, once per few thousand records; letting the persister sync it
+      # would need the rename to wait for a confirm.
       private def compact : MFile
         live = HEADER_SIZE + @awaiting_pubrel.size * RECORD_SIZE + @publish_sent.size * PUBLISH_SENT_SIZE
         tmp_path = "#{@path}.tmp"
@@ -129,10 +130,20 @@ module LavinMQ
           write_live(mfile)
           FileSystem.durable_rename(mfile, @path)
         rescue ex
-          mfile.close(truncate_to_size: false)
-          File.delete?(tmp_path)
+          if mfile.path == @path
+            # Only the directory fsync failed: the old file is unlinked, so
+            # appending to it would lose records on restart
+            adopt(mfile)
+          else
+            mfile.close(truncate_to_size: false)
+            File.delete?(tmp_path)
+          end
           raise ex
         end
+        adopt(mfile)
+      end
+
+      private def adopt(mfile : MFile) : MFile
         # Also registers it, and the follower appends after this content
         @replicator.try &.replace_file(mfile)
         # Not truncated: the path is the new file's now

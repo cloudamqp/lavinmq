@@ -310,7 +310,7 @@ module LavinMQ
       property syncfs_threshold : Int32 = 64 # files
 
       @[IniOpt(section: "mqtt")]
-      property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
+      property max_inflight_messages : UInt16 = UInt16::MAX # outstanding mqtt packet ids per session
 
       # QoS 2 packet ids a publisher may hold between PUBLISH and PUBREL. The
       # default is every id, so it never disconnects a compliant client.

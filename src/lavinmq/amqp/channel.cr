@@ -342,14 +342,8 @@ module LavinMQ
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @confirm_ack_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        Persister::ConfirmTarget.offer(@confirm_ack_mailbox, msgid)
       end
 
       private def confirm_writer(mailbox : ::Channel(UInt64))

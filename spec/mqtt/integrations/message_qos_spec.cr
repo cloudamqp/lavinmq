@@ -83,7 +83,7 @@ module MqttSpecs
         with_client_io(server) do |publisher_io|
           connect(publisher_io, client_id: "publisher")
           100.times do
-            # qos doesnt matter here
+            # QoS 1: delivery is at the lower of the publish and subscription QoS
             publish(publisher_io, topic: "a/b", qos: 1u8)
           end
           disconnect(publisher_io)
@@ -237,7 +237,7 @@ module MqttSpecs
             number_of_messages.times do |i|
               data = Bytes.new(sizeof(UInt16))
               IO::ByteFormat::SystemEndian.encode(i, data)
-              # qos doesnt matter here
+              # QoS 1: delivery is at the lower of the publish and subscription QoS
               publish(publisher_io, topic: "a/b", payload: data, qos: 1u8)
             end
             disconnect(publisher_io)

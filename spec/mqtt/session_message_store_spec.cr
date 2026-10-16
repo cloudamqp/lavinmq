@@ -1,5 +1,29 @@
 require "../spec_helper"
 
+describe LavinMQ::MQTT::SessionMessageStore::OriginalPacketIds do
+  it "frees an id once no message holds it" do
+    ids = LavinMQ::MQTT::SessionMessageStore::OriginalPacketIds.new
+    a = LavinMQ::SegmentPosition.new(1u32, 4u32, 10u32)
+    b = LavinMQ::SegmentPosition.new(1u32, 14u32, 10u32)
+    ids[a] = 7u16
+    ids[b] = 7u16
+    ids.delete(a).should eq 7u16
+    ids.in_use?(7u16).should be_true
+    ids.delete(b)
+    ids.in_use?(7u16).should be_false
+  end
+
+  it "frees the old id when a message gets a new one" do
+    ids = LavinMQ::MQTT::SessionMessageStore::OriginalPacketIds.new
+    sp = LavinMQ::SegmentPosition.new(1u32, 4u32, 10u32)
+    ids[sp] = 7u16
+    ids[sp] = 8u16
+    ids.in_use?(7u16).should be_false
+    ids.in_use?(8u16).should be_true
+    ids.size.should eq 1
+  end
+end
+
 describe LavinMQ::MQTT::SessionMessageStore do
   it "releases a dropped packet id only once its delete is written" do
     dir = File.tempname("session_message_store")

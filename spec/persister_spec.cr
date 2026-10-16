@@ -32,6 +32,15 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "keeps the highest id in a full confirm mailbox when a lower id is offered" do
+    # Batches can confirm ids out of order, when one fiber parks between
+    # taking its id and enqueueing it
+    mailbox = Channel(UInt64).new(1)
+    LavinMQ::Persister::ConfirmTarget.offer(mailbox, 11u64)
+    LavinMQ::Persister::ConfirmTarget.offer(mailbox, 10u64)
+    mailbox.receive.should eq 11u64
+  end
+
   it "syncs the segments of confirmed publishes, not of other publishes" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
