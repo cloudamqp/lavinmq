@@ -848,6 +848,45 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should remove bindings removed while the link is disconnected" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.with_gated_proxy(s) do |url, accepted, gate|
+          upstream_vhost = s.vhosts.create("upstream")
+          downstream_vhost = s.vhosts.create("downstream")
+          upstream = LavinMQ::Federation::Upstream.new(downstream_vhost,
+            "ef resync on reconnect", "#{url}/upstream", "upstream_ex",
+            reconnect_delay: 1.millisecond)
+          downstream_vhost.upstreams.add(upstream)
+          with_channel(s, vhost: "downstream") do |downstream_ch|
+            downstream_ch.exchange("downstream_ex", "topic")
+            downstream_q = downstream_ch.queue("downstream_q")
+            downstream_q.bind("downstream_ex", "keep")
+            downstream_q.bind("downstream_ex", "remove")
+
+            UpstreamSpecHelpers.start_link(upstream)
+            accepted.receive
+            gate.send nil # let the first connect through
+            link = wait_for { upstream.links.first?.try { |l| l if l.state.running? } }
+            upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
+            wait_for { upstream_ex.bindings_details.size == 2 }
+
+            upstream_vhost.each_connection do |conn|
+              conn.close if conn.client_name.starts_with?("Federation link")
+            end
+            accepted.receive # the link is parked in its reconnect
+            # (Regression: an unbind while the link is disconnected never
+            # reached the upstream, and the reconnect only added bindings.)
+            downstream_q.unbind("downstream_ex", "remove")
+            downstream_q.bind("downstream_ex", "added")
+            gate.close # let the reconnect through
+
+            wait_for { link.state.running? }
+            upstream_ex.bindings_details.map(&.routing_key).sort!.should eq ["added", "keep"]
+          end
+        end
+      end
+    end
+
     it "stops the link when the federated exchange is deleted" do
       with_amqp_server do |s|
         upstream, _, downstream_vhost =
@@ -912,6 +951,41 @@ describe LavinMQ::Federation::Upstream do
           upstream_ex = wait_for { upstream_vhost.exchange?("upstream_ex") }
           upstream_ex = upstream_ex.as(LavinMQ::AMQP::Exchange)
           wait_for { upstream_ex.bindings_details.size == before + during }
+        end
+      end
+    end
+
+    it "should not recreate bindings removed while link is starting" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, _ =
+          UpstreamSpecHelpers.setup_federation(s, "ef test unbindings during start", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          downstream_q = downstream_ch.queue("downstream_q")
+          # Pre-existing bindings stretch the binding replay the link does
+          # during startup, so that the unbinds below land mid-replay.
+          before = 200
+          before.times { |i| downstream_q.bind("downstream_ex", "before.link.#{i}") }
+
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first? }.as(LavinMQ::Federation::Upstream::ExchangeLink)
+          # The link starts forwarding unbinds to the upstream while it is
+          # still replaying the bindings above to the upstream exchange.
+          wait_for { link.@consumer_ex }
+          # Unbind bindings the replay has not reached yet. (Regression: the
+          # unbind was a no-op upstream because the binding did not exist
+          # there yet, and the replay then recreated it from its stale
+          # snapshot, leaving an upstream binding that no longer exists
+          # downstream.)
+          removed = 10
+          removed.times { |i| downstream_q.unbind("downstream_ex", "before.link.#{before - 1 - i}") }
+
+          # Only check the upstream bindings once the replay is done, the
+          # binding count passes through the expected value while it runs.
+          wait_for { link.state.running? }
+          upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
+          wait_for { upstream_ex.bindings_details.size == before - removed }
+          upstream_ex.bindings_details.map(&.routing_key).should_not contain "before.link.#{before - 1}"
         end
       end
     end
