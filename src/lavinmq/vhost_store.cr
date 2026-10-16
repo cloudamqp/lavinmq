@@ -5,7 +5,7 @@ require "./auth/base_user"
 
 module LavinMQ
   class DeletedVHostStats
-    {% for m in VHost::STATS_KEYS %}
+    {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS %}
       @{{ m.id }} = Atomic(UInt64).new(0_u64)
 
       def {{ m.id }} : UInt64
@@ -14,7 +14,7 @@ module LavinMQ
     {% end %}
 
     def add(vhost : VHost) : Nil
-      {% for m in VHost::STATS_KEYS %}
+      {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS %}
         @{{ m.id }}.add(vhost.{{ m.id }}_count, :relaxed)
       {% end %}
     end

@@ -206,7 +206,7 @@ jobs:
     name: Filters for frontend specs
     runs-on: ubuntu-26.04
     outputs:
-      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' }}
+      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' || steps.changes.outputs.ci == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -218,12 +218,19 @@ jobs:
               - 'views/**'
             js:
               - '**/*.js'
+            ci:
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
 
   spec_frontend:
-    name: Frontend specs
+    name: Frontend specs (${{ matrix.browser }})
     runs-on: ubuntu-26.04
     needs: [compile, path_filter]
     if: ${{ github.ref_name == 'main' || needs.path_filter.outputs.frontend_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
       - name: Install LavinMQ dependencies
         run: |
@@ -247,12 +254,12 @@ jobs:
           node-version: 24
 
       - name: Run frontend tests
-        run: make test-frontend PLAYWRIGHT_INSTALL_FLAGS=--with-deps
+        run: make test-frontend PLAYWRIGHT_INSTALL_FLAGS=--with-deps PLAYWRIGHT_BROWSER=${{ matrix.browser }}
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 10
 

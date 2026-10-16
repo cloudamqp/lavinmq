@@ -53,6 +53,11 @@ function updateExchange (signal) {
         policyLink.textContent = item.policy
         document.getElementById('e-policy').appendChild(policyLink)
       }
+      if (item.type === 'x-mqtt-topic') {
+        document.getElementById('e-policy').textContent = 'Not supported'
+        document.getElementById('e-arguments').textContent = 'Not supported by this exchange type'
+        document.querySelector('#addBinding [name="routing_key"]').placeholder = 'MQTT topic filter, e.g. sensors/+/temp'
+      }
     }
   }).catch(() => {})
 }
@@ -155,10 +160,6 @@ function updateAutocomplete (val) {
 }
 updateAutocomplete('q')
 document.getElementById('dest-type').addEventListener('change', (e) => updateAutocomplete(e.target.value))
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})
 
 // Handle navigation to another exchange via hash change
 window.addEventListener('hashchange', () => {

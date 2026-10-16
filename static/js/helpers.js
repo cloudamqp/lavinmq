@@ -34,6 +34,23 @@ function nFormatter (num) {
   return formatNumber(num) + suffix
 }
 
+const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+
+function byteUnitIndex (v) {
+  let val = Math.abs(v)
+  let i = 0
+  while (val >= 1024 && i < BYTE_UNITS.length - 1) {
+    val /= 1024
+    i++
+  }
+  return i
+}
+
+function scaleBytes (v, unitIdx) {
+  const i = unitIdx != null ? unitIdx : byteUnitIndex(v)
+  return { value: v / 1024 ** i, prefix: BYTE_UNITS[i] }
+}
+
 function duration (seconds) {
   let res = ''
   const days = Math.floor(seconds / (24 * 3600))
@@ -260,6 +277,8 @@ export {
   addVhostOptions,
   formatNumber,
   nFormatter,
+  byteUnitIndex,
+  scaleBytes,
   duration,
   argumentHelper,
   argumentHelperJSON,

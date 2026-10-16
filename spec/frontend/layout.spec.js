@@ -118,6 +118,19 @@ test.describe('version', _ => {
     expect(stored).toBe(shown)
   })
 
+  test('stats interval is read from the LavinMQ-Stats-Interval header', async ({ page }) => {
+    await page.route(/\/api\//, async route => {
+      const response = await route.fetch()
+      const headers = { ...response.headers(), 'lavinmq-stats-interval': '60000' }
+      await route.fulfill({ response, headers })
+    })
+    await page.goto('/')
+    await expect.poll(() =>
+      page.evaluate(url => import(url).then(m => m.statsInterval()), '/js/http.js')
+    ).toBe(60000)
+    await page.unrouteAll({ behavior: 'wait' })
+  })
+
   // The header partial has an inline script that paints the cached version
   // during parsing (before first paint) to avoid flicker. With all API calls
   // aborted, http.js never updates #version, so only the inline paint is seen.
