@@ -414,6 +414,28 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
       end
 
+      # A purge deletes the segment of a shifted message too, so requeueing
+      # it afterwards adds nothing and the store must stay empty
+      it "should be true after requeueing a message whose segment was purged" do
+        segment_size = LavinMQ::Config.instance.segment_size
+        LavinMQ::Config.instance.segment_size = 64 * 1024
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 3u8)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push LavinMQ::Message.new("ex", "rk", body, properties: props) }
+          sps = Array.new(3) { store.shift?.should_not(be_nil).segment_position }
+          store.purge_all
+          store.empty.should be_true
+
+          store.requeue sps.first
+
+          store.size.should eq 0
+          store.empty.should be_true
+        end
+      ensure
+        LavinMQ::Config.instance.segment_size = segment_size if segment_size
+      end
+
       it "should be true after purge_all" do
         with_prio_store(5) do |store|
           3u8.times do |prio|
