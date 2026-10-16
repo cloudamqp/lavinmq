@@ -38,6 +38,18 @@ describe "SQS authentication and authorization" do
     end
   end
 
+  it "accepts a credential without a scope and defaults the region" do
+    with_sqs_server do |sqs, _|
+      url = sqs.create_queue("no-scope")
+      headers = HTTP::Headers{"Content-Type"  => "application/x-amz-json-1.0",
+                              "X-Amz-Target"  => "AmazonSQS.GetQueueAttributes",
+                              "Authorization" => "AWS4-HMAC-SHA256 Credential=guest, SignedHeaders=host, Signature=x"}
+      response = HTTP::Client.post(sqs.base_url, headers: headers, body: {QueueUrl: url, AttributeNames: ["QueueArn"]}.to_json)
+      response.status_code.should eq 200
+      JSON.parse(response.body)["Attributes"]["QueueArn"].as_s.should start_with "arn:aws:sqs:us-east-1:"
+    end
+  end
+
   it "enforces vhost permissions per action" do
     with_sqs_server do |sqs, s|
       s.users.create("reader", "x")

@@ -14,12 +14,15 @@ module LavinMQ
       DEDUP_ID_HEADER       = "x-sqs-deduplication-id"
       TRACE_HEADER          = "x-sqs-trace-header"
       DELAY_HEADER          = "x-delay"
+      MD5_HEADER            = "x-sqs-md5-body"
       CONTENT_TYPE          = "text/plain; charset=utf-8"
 
       def self.build_properties(message_id : String, sent_ms : Int64, sender_id : String,
                                 attrs : Array(MessageAttribute), system_attrs : Array(MessageAttribute),
-                                group_id : String?, dedup_id : String?, delay_ms : Int64) : AMQ::Protocol::Properties
+                                group_id : String?, dedup_id : String?, delay_ms : Int64,
+                                md5_of_body : String? = nil) : AMQ::Protocol::Properties
         headers = AMQ::Protocol::Table.new
+        headers[MD5_HEADER] = md5_of_body if md5_of_body
         headers[SENT_TIMESTAMP_HEADER] = sent_ms
         headers[SENDER_ID_HEADER] = sender_id
         headers[ATTRIBUTES_HEADER] = MessageAttribute.to_table(attrs) unless attrs.empty?
@@ -48,9 +51,10 @@ module LavinMQ
         getter dedup_id : String?
         getter trace_header : String?
         getter attributes : Array(MessageAttribute)
+        getter md5_of_body : String?
 
         def initialize(@message_id, @body, @sent_timestamp, @sender_id, @group_id, @dedup_id,
-                       @trace_header, @attributes)
+                       @trace_header, @attributes, @md5_of_body = nil)
         end
 
         # Copies everything out of the envelope; the message bytes live in the
@@ -72,6 +76,7 @@ module LavinMQ
             headers.try(&.[DEDUP_ID_HEADER]?).as?(String),
             headers.try(&.[TRACE_HEADER]?).as?(String),
             MessageAttribute.from_table(headers.try(&.[ATTRIBUTES_HEADER]?)),
+            headers.try(&.[MD5_HEADER]?).as?(String),
           )
         end
 

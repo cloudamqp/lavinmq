@@ -99,4 +99,28 @@ describe LavinMQ::SQS::Checksums do
   it "returns nil when there are no attributes" do
     LavinMQ::SQS::Checksums.md5_attributes([] of LavinMQ::SQS::MessageAttribute).should be_nil
   end
+
+  it "gives correct results when digest contexts are reused" do
+    attrs = [attr(%({"DataType": "Number", "StringValue": "1493147359900"}), "timestamp")]
+    3.times do
+      LavinMQ::SQS::Checksums.md5_hex("This is a test message").should eq "fafb00f5732ab283681e124bf8747ed1"
+      LavinMQ::SQS::Checksums.md5_attributes(attrs).should eq "235c5c510d26fb653d073faed50ae77c"
+      LavinMQ::SQS::Checksums.md5_hex(Bytes.empty).should eq Digest::MD5.hexdigest("")
+    end
+  end
+
+  it "computes correct checksums from many concurrent fibers" do
+    done = Channel(Bool).new
+    50.times do |i|
+      spawn do
+        ok = 20.times.all? do |j|
+          Fiber.yield
+          body = "fiber #{i} message #{j}"
+          LavinMQ::SQS::Checksums.md5_hex(body) == Digest::MD5.hexdigest(body)
+        end
+        done.send ok
+      end
+    end
+    50.times { done.receive.should be_true }
+  end
 end

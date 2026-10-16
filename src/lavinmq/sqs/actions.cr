@@ -176,10 +176,9 @@ module LavinMQ
         if total > meta.maximum_message_size
           raise BatchRequestTooLong.new("Batch requests cannot be longer than #{meta.maximum_message_size} bytes. You have sent #{total} bytes.")
         end
-        batch(json, entries) do |entry, sub|
-          result = send_one(req, entry, broker, q, meta)
-          write_send_result(sub, result)
-        end
+        batch(json, entries,
+          ->(entry : JSON::Any) { send_one(req, entry, broker, q, meta) },
+          ->(result : Broker::SendResult) { write_send_result(json, result) })
       end
 
       def receive_message(req, json) : Nil
@@ -209,7 +208,7 @@ module LavinMQ
       def delete_message_batch(req, json) : Nil
         broker, _vhost, name = resolve(req, :read)
         q = broker.queue(name)
-        batch(json, batch_entries(req)) do |entry, _sub|
+        batch(json, batch_entries(req)) do |entry|
           handle = entry["ReceiptHandle"]?.try(&.as_s?) || raise MissingParameter.new("The request must contain the parameter ReceiptHandle.")
           broker.delete_message(q, handle)
         end
@@ -225,7 +224,7 @@ module LavinMQ
       def change_message_visibility_batch(req, json) : Nil
         broker, _vhost, name = resolve(req, :read)
         q = broker.queue(name)
-        batch(json, batch_entries(req)) do |entry, _sub|
+        batch(json, batch_entries(req)) do |entry|
           handle = entry["ReceiptHandle"]?.try(&.as_s?) || raise MissingParameter.new("The request must contain the parameter ReceiptHandle.")
           timeout = entry["VisibilityTimeout"]?.try(&.as_i64?) || raise MissingParameter.new("The request must contain the parameter VisibilityTimeout.")
           unless (0..43_200).includes?(timeout)
@@ -381,30 +380,57 @@ module LavinMQ
         entries
       end
 
-      # Runs the block per entry, collecting Successful/Failed as SQS does. The
-      # block writes its extra Successful fields to the builder it is given.
-      private def batch(json : JSON::Builder, entries : Array(JSON::Any), & : JSON::Any, JSON::Builder -> Nil) : Nil
-        successful = Array(String).new
+      # Runs every entry, then writes Successful and Failed as SQS does.
+      # Entries run before anything is written, so a failing entry never
+      # leaves a half-written object in the response; results are kept as
+      # values and written straight to the response builder.
+      private def batch(json : JSON::Builder, entries : Array(JSON::Any),
+                        run : JSON::Any -> T, write : T -> Nil) : Nil forall T
+        successful = Array(Tuple(String, T)).new(entries.size)
         failed = Array(Tuple(String, Error)).new
         entries.each do |entry|
           id = entry["Id"].as_s
           begin
-            out = String.build do |io|
-              JSON.build(io) do |sub|
-                sub.object do
-                  sub.field "Id", id
-                  yield entry, sub
-                end
-              end
-            end
-            successful << out
+            successful << {id, run.call(entry)}
           rescue ex : Error
             failed << {id, ex}
           end
         end
         json.field "Successful" do
-          json.array { successful.each { |s| json.raw s } }
+          json.array do
+            successful.each do |id, result|
+              json.object do
+                json.field "Id", id
+                write.call(result)
+              end
+            end
+          end
         end
+        write_failed(json, failed)
+      end
+
+      # Batch actions whose successful entries carry only their Id
+      private def batch(json : JSON::Builder, entries : Array(JSON::Any), & : JSON::Any -> Nil) : Nil
+        successful = Array(String).new(entries.size)
+        failed = Array(Tuple(String, Error)).new
+        entries.each do |entry|
+          id = entry["Id"].as_s
+          begin
+            yield entry
+            successful << id
+          rescue ex : Error
+            failed << {id, ex}
+          end
+        end
+        json.field "Successful" do
+          json.array do
+            successful.each { |id| json.object { json.field "Id", id } }
+          end
+        end
+        write_failed(json, failed)
+      end
+
+      private def write_failed(json : JSON::Builder, failed : Array(Tuple(String, Error))) : Nil
         json.field "Failed" do
           json.array do
             failed.each do |id, ex|

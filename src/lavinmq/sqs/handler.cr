@@ -6,6 +6,7 @@ require "./request"
 require "./actions"
 require "./queue_url"
 require "./metrics"
+require "./ids"
 require "../auth/user_store"
 require "../auth/context"
 require "../config"
@@ -30,9 +31,9 @@ module LavinMQ
       end
 
       def call(context) : Nil
-        request_id = UUID.random.to_s
+        request_id = Ids.uuid
         context.response.headers["x-amzn-RequestId"] = request_id
-        action = Metrics.action_label(context.request.headers["X-Amz-Target"]?)
+        action = Metrics.action_index(context.request.headers["X-Amz-Target"]?)
         started = Time.instant
         code = Metrics::OK
         begin
@@ -53,7 +54,7 @@ module LavinMQ
           Log.error(exception: ex) { "request_id=#{request_id} action failed" }
           render_error(context, error, request_id)
         ensure
-          Metrics.record_request(action, code, Time.instant - started)
+          Metrics.record_request(action, Metrics.code_index(code), Time.instant - started)
         end
       end
 
@@ -76,7 +77,7 @@ module LavinMQ
         action = target.lchop(TARGET_PREFIX)
         user, region = authenticate(request)
         params = parse_body(request)
-        req = Request.new(action, params, user, base_url(context), QueueUrl.vhost_from_path(request.path), region, request_id)
+        req = Request.new(action, params, user, public_url, scheme(context), host(context), QueueUrl.vhost_from_path(request.path), region, request_id)
         Log.debug { "request_id=#{request_id} user=#{user.name} action=#{action}" }
         body = String.build do |io|
           JSON.build(io) do |json|
@@ -85,7 +86,7 @@ module LavinMQ
         end
         response = context.response
         response.status_code = 200
-        response.content_type = JSON_CONTENT_TYPE
+        response.headers["Content-Type"] = JSON_CONTENT_TYPE
         response.print body
       end
 
@@ -111,16 +112,25 @@ module LavinMQ
       # (`Credential=<id>/<date>/<region>/sqs/aws4_request`) or, for presigned
       # requests, the X-Amz-Credential query parameter.
       private def credential(request) : Tuple(String?, String?)
-        scope = nil
-        if auth = request.headers["Authorization"]?
-          if idx = auth.index("Credential=")
-            scope = auth[idx + 11..].split(',', 2).first
-          end
+        if (auth = request.headers["Authorization"]?) && (idx = auth.index("Credential="))
+          scope_start = idx + 11
+          scope_end = auth.index(',', scope_start) || auth.bytesize
+          scope = auth
+        elsif scope = request.query_params["X-Amz-Credential"]?
+          scope_start = 0
+          scope_end = scope.bytesize
+        else
+          return {nil, nil}
         end
-        scope ||= request.query_params["X-Amz-Credential"]?
-        return {nil, nil} unless scope
-        parts = scope.split('/')
-        {parts[0]?, parts[2]?}
+        # <access key id>/<date>/<region>/sqs/aws4_request
+        key_end = scope.index('/', scope_start)
+        return {scope.byte_slice(scope_start, scope_end - scope_start), nil} if key_end.nil? || key_end > scope_end
+        access_key_id = scope.byte_slice(scope_start, key_end - scope_start)
+        date_end = scope.index('/', key_end + 1)
+        return {access_key_id, nil} if date_end.nil? || date_end > scope_end
+        region_end = scope.index('/', date_end + 1) || scope_end
+        region_end = scope_end if region_end > scope_end
+        {access_key_id, scope.byte_slice(date_end + 1, region_end - date_end - 1)}
       end
 
       private def parse_body(request) : JSON::Any
@@ -140,13 +150,19 @@ module LavinMQ
         parsed
       end
 
-      private def base_url(context) : String
-        public_url = @config.sqs_public_url
-        return public_url.rstrip('/') unless public_url.empty?
-        host = context.request.headers["Host"]? || context.request.local_address.to_s
+      private def public_url : String?
+        url = @config.sqs_public_url
+        url.empty? ? nil : url.rstrip('/')
+      end
+
+      private def host(context) : String
+        context.request.headers["Host"]? || context.request.local_address.to_s
+      end
+
+      private def scheme(context) : String
+        return "http" unless @config.sqss_port > 0
         local_port = context.request.local_address.as?(Socket::IPAddress).try(&.port)
-        scheme = (@config.sqss_port > 0 && local_port == @config.sqss_port) ? "https" : "http"
-        "#{scheme}://#{host}"
+        local_port == @config.sqss_port ? "https" : "http"
       end
 
       private def render_error(context, ex : Error, request_id : String) : Nil

@@ -152,12 +152,35 @@ module LavinMQ
     end
 
     module Checksums
+      # Creating an OpenSSL digest context costs more than hashing a small
+      # message, so contexts are reset and reused. The pool is locked so it
+      # stays safe if SQS requests are ever served from several threads.
+      POOL_LIMIT       = 64
+      TRANSPORT_STRING = Bytes[1_u8]
+      TRANSPORT_BINARY = Bytes[2_u8]
+
+      @@pool = Array(Digest::MD5).new
+      @@pool_lock = Mutex.new
+
+      private def self.with_digest(& : Digest::MD5 -> String) : String
+        digest = @@pool_lock.synchronize { @@pool.pop? } || Digest::MD5.new
+        begin
+          yield digest
+        ensure
+          digest.reset
+          @@pool_lock.synchronize { @@pool << digest if @@pool.size < POOL_LIMIT }
+        end
+      end
+
       def self.md5_hex(bytes : Bytes) : String
-        Digest::MD5.hexdigest(bytes)
+        with_digest do |digest|
+          digest.update(bytes)
+          digest.hexfinal
+        end
       end
 
       def self.md5_hex(string : String) : String
-        Digest::MD5.hexdigest(string)
+        md5_hex(string.to_slice)
       end
 
       # MD5OfMessageAttributes as specified by SQS: attributes sorted by name,
@@ -166,20 +189,21 @@ module LavinMQ
       # all lengths as 4 byte big endian integers.
       def self.md5_attributes(attrs : Array(MessageAttribute)) : String?
         return if attrs.empty?
-        digest = Digest::MD5.new
-        buf = uninitialized UInt8[4]
-        attrs.each do |attr|
-          update_with_length(digest, buf, attr.name.to_slice)
-          update_with_length(digest, buf, attr.data_type.to_slice)
-          if b = attr.binary_value
-            digest.update(Bytes[2_u8])
-            update_with_length(digest, buf, b)
-          else
-            digest.update(Bytes[1_u8])
-            update_with_length(digest, buf, (attr.string_value || "").to_slice)
+        with_digest do |digest|
+          buf = uninitialized UInt8[4]
+          attrs.each do |attr|
+            update_with_length(digest, buf, attr.name.to_slice)
+            update_with_length(digest, buf, attr.data_type.to_slice)
+            if b = attr.binary_value
+              digest.update(TRANSPORT_BINARY)
+              update_with_length(digest, buf, b)
+            else
+              digest.update(TRANSPORT_STRING)
+              update_with_length(digest, buf, (attr.string_value || "").to_slice)
+            end
           end
+          digest.hexfinal
         end
-        digest.hexfinal
       end
 
       private def self.update_with_length(digest, buf, bytes : Bytes) : Nil

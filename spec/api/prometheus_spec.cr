@@ -523,6 +523,15 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
 end
 
 describe "LavinMQ::HTTP::PrometheusController SQS metrics" do
+  it "has a request counter for every SQS error code" do
+    codes = [] of String
+    {% for error in LavinMQ::SQS::Error.all_subclasses %}
+      codes << {{ error }}.new.code
+    {% end %}
+    codes.should_not be_empty
+    codes.each { |code| LavinMQ::SQS::Metrics::CODES.should contain(code) }
+  end
+
   value = ->(metrics : Array(NamedTuple(key: String, attrs: Hash(String, String), value: Float64)), key : String, attrs : Hash(String, String)) do
     metrics.find { |m| m[:key] == key && m[:attrs] == attrs }.try(&.[:value]) || 0.0
   end

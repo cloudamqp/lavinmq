@@ -11,15 +11,24 @@ module LavinMQ
       getter action : String
       getter params : JSON::Any
       getter user : Auth::User
-      # scheme://host[:port] used when minting queue URLs
-      getter base_url : String
+      # Either the configured public URL, or the request scheme and Host
+      # header; queue URLs are only minted by three actions, so the base URL
+      # string is built on demand
+      @public_url : String?
+      @scheme : String
+      @host : String
       # vhost selected by the request path when the action has no QueueUrl
       getter path_vhost : String
       # region from the SigV4 credential scope, echoed back in ARNs
       getter region : String
       getter request_id : String
 
-      def initialize(@action, @params, @user, @base_url, @path_vhost, @region, @request_id)
+      def initialize(@action, @params, @user, @public_url, @scheme, @host, @path_vhost, @region, @request_id)
+      end
+
+      # scheme://host[:port] used when minting queue URLs
+      def base_url : String
+        @public_url || "#{@scheme}://#{@host}"
       end
 
       def has?(key : String) : Bool

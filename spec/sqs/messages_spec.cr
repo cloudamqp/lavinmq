@@ -304,6 +304,8 @@ describe "SQS messages" do
         msgs[0]["MessageId"].as_s.size.should eq 36
         msgs[0]["Attributes"]["SentTimestamp"].as_s.to_i64.should be > 0
         msgs[0]["Attributes"]["SenderId"]?.should be_nil
+        # no stored checksum on an AMQP message, so it is computed on receive
+        msgs[0]["MD5OfBody"].as_s.should eq Digest::MD5.hexdigest("from amqp")
         # the generated id is stable across redeliveries
         sqs.json("ChangeMessageVisibility", {QueueUrl: url, ReceiptHandle: msgs[0]["ReceiptHandle"].as_s, VisibilityTimeout: 0})
         again = receive(sqs, url)
@@ -319,9 +321,23 @@ describe "SQS messages" do
         (amqp_msg.properties.message_id || fail "expected a message_id").size.should eq 36
         headers = amqp_msg.properties.headers || fail "expected headers"
         headers["x-sqs-sender-id"].should eq "guest"
+        headers["x-sqs-md5-body"].should eq Digest::MD5.hexdigest("from sqs")
         headers["x-sqs-attributes"].as(AMQP::Client::Arguments)["k"].as(AMQP::Client::Arguments)["StringValue"].should eq "v"
       end
     end
+  end
+
+  it "generates v4 UUIDs and unique receipt handles" do
+    ids = Array.new(1000) { LavinMQ::SQS::Ids.uuid }
+    ids.uniq.size.should eq 1000
+    ids.each do |id|
+      uuid = UUID.new(id)
+      uuid.version.should eq UUID::Version::V4
+      uuid.variant.should eq UUID::Variant::RFC4122
+    end
+    handles = Array.new(1000) { LavinMQ::SQS::Ids.handle }
+    handles.uniq.size.should eq 1000
+    handles.each(&.should(match(/\A[A-Za-z0-9_-]{43}\z/)))
   end
 
   it "requeues in-flight messages when the server restarts" do

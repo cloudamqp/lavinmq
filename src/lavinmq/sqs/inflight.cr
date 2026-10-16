@@ -1,4 +1,5 @@
 require "random/secure"
+require "./ids"
 require "../min_heap"
 require "../segment_position"
 require "../amqp/queue"
@@ -59,7 +60,7 @@ module LavinMQ
 
       # Registers a message just handed to a client and returns its receipt handle.
       def add(sp : SegmentPosition, message_id : String, visibility_timeout : Time::Span, now_ms : Int64) : Tuple(String, Entry)
-        handle = Random::Secure.urlsafe_base64(32)
+        handle = Ids.handle
         deadline = Time.instant + visibility_timeout
         entry = @lock.synchronize do
           info = @history[sp]?

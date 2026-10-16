@@ -658,12 +658,12 @@ module LavinMQ
         return unless SQS::Metrics.enabled?
         writer.write_header("sqs_requests_total", "counter",
           "SQS API requests by action and result code (OK, or the SQS error code)")
-        SQS::Metrics.requests.each do |key, count|
-          writer.write_value("sqs_requests_total", count, {"action" => key.action, "code" => key.code})
+        SQS::Metrics.each_request do |action, code, count|
+          writer.write_value("sqs_requests_total", count, {"action" => action, "code" => code})
         end
         writer.write_header("sqs_request_duration_seconds_total", "counter",
           "Total time spent serving SQS API requests by action, including long poll waits")
-        SQS::Metrics.durations.each do |action, seconds|
+        SQS::Metrics.each_duration do |action, seconds|
           writer.write_value("sqs_request_duration_seconds_total", seconds, {"action" => action})
         end
         writer.write({name:  "sqs_messages_sent_total",

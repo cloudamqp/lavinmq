@@ -7,6 +7,7 @@ require "./message_attributes"
 require "./message_mapping"
 require "./inflight"
 require "./metrics"
+require "./ids"
 require "../vhost"
 require "../logger"
 
@@ -34,7 +35,7 @@ module LavinMQ
         end
 
         def md5_of_body : String
-          Checksums.md5_hex(@message.body)
+          @message.md5_of_body || Checksums.md5_hex(@message.body)
         end
       end
 
@@ -171,11 +172,12 @@ module LavinMQ
             raise InvalidParameterValue.new("The queue should either have ContentBasedDeduplication enabled or MessageDeduplicationId provided explicitly")
           end
         end
-        message_id = UUID.random.to_s
+        message_id = Ids.uuid
+        md5_of_body = Checksums.md5_hex(body)
         delay = delay_seconds || meta.delay_seconds
         now = RoughTime.unix_ms
         props = MessageMapping.build_properties(message_id, now, sender_id, attrs, system_attrs,
-          group_id, dedup_id, delay.to_i64 * 1000)
+          group_id, dedup_id, delay.to_i64 * 1000, md5_of_body)
         exchange = ""
         if delay > 0
           ensure_delayed_binding(q.name)
@@ -198,7 +200,7 @@ module LavinMQ
           raise OverLimit.new("The queue #{q.name} rejected the message because it is full.")
         end
         add_messages_sent
-        SendResult.new(message_id, Checksums.md5_hex(body),
+        SendResult.new(message_id, md5_of_body,
           Checksums.md5_attributes(attrs), Checksums.md5_attributes(system_attrs))
       end
 

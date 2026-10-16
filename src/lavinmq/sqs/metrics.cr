@@ -19,12 +19,48 @@ module LavinMQ
       }
       UNKNOWN_ACTION = "unknown"
       OK             = "OK"
+      OTHER_CODE     = "other"
 
-      record RequestKey, action : String, code : String
+      # Result codes counted per action: OK, every SQS error code (a spec
+      # checks that each `SQS::Error` is listed) and transport failures
+      CODES = {
+        OK, "ConnectionError",
+        "AccessDeniedException", "BatchEntryIdsNotDistinct", "BatchRequestTooLong",
+        "EmptyBatchRequest", "InternalError", "InvalidAction", "InvalidAddress",
+        "InvalidAttributeName", "InvalidAttributeValue", "InvalidBatchEntryId",
+        "InvalidClientTokenId", "InvalidMessageContents", "InvalidParameterValue",
+        "MissingAuthenticationToken", "MissingParameter", "OverLimit",
+        "PurgeQueueInProgress", "QueueDoesNotExist", "QueueNameExists",
+        "ReceiptHandleIsInvalid", "SerializationException",
+        "TooManyEntriesInBatchRequest", "UnsupportedOperation",
+        OTHER_CODE,
+      }
 
-      @@lock = Mutex.new
-      @@requests = Hash(RequestKey, UInt64).new
-      @@durations = Hash(String, Float64).new
+      ACTION_LABELS = ACTIONS.to_a.push(UNKNOWN_ACTION)
+      # Keyed by the full X-Amz-Target header value so a lookup allocates nothing
+      ACTION_INDEX         = ACTIONS.each_with_index.to_h { |action, i| {"AmazonSQS.#{action}", i} }
+      UNKNOWN_ACTION_INDEX = ACTIONS.size
+      CODE_INDEX           = CODES.each_with_index.to_h { |code, i| {code, i} }
+      OTHER_CODE_INDEX     = CODES.size - 1
+
+      # A heap-allocated counter, so an array of them can be updated in place
+      class Counter
+        @value = Atomic(UInt64).new(0_u64)
+
+        def add(n : UInt64) : Nil
+          @value.add(n, :relaxed)
+        end
+
+        def get : UInt64
+          @value.get(:relaxed)
+        end
+      end
+
+      # One counter per (action, code) pair and one duration counter (in
+      # nanoseconds) per action, allocated once: recording a request is two
+      # lock-free atomic adds.
+      @@requests = Array(Counter).new(ACTION_LABELS.size * CODES.size) { Counter.new }
+      @@durations = Array(Counter).new(ACTION_LABELS.size) { Counter.new }
       @@enabled = Atomic(Bool).new(false)
       @@messages_sent = Atomic(UInt64).new(0_u64)
       @@messages_received = Atomic(UInt64).new(0_u64)
@@ -42,28 +78,37 @@ module LavinMQ
         @@enabled.set(true, :relaxed)
       end
 
-      # Maps an X-Amz-Target header to a bounded action label
-      def self.action_label(target : String?) : String
-        return UNKNOWN_ACTION if target.nil?
-        action = target.lchop("AmazonSQS.")
-        ACTIONS.includes?(action) ? action : UNKNOWN_ACTION
+      # Maps an X-Amz-Target header to a bounded action index
+      def self.action_index(target : String?) : Int32
+        return UNKNOWN_ACTION_INDEX if target.nil?
+        ACTION_INDEX.fetch(target, UNKNOWN_ACTION_INDEX)
       end
 
-      def self.record_request(action : String, code : String, duration : Time::Span) : Nil
-        key = RequestKey.new(action, code)
-        @@lock.synchronize do
-          @@requests[key] = @@requests.fetch(key, 0_u64) &+ 1
-          @@durations[action] = @@durations.fetch(action, 0.0) + duration.total_seconds
+      def self.code_index(code : String) : Int32
+        CODE_INDEX.fetch(code, OTHER_CODE_INDEX)
+      end
+
+      def self.record_request(action : Int32, code : Int32, duration : Time::Span) : Nil
+        @@requests[action * CODES.size + code].add(1_u64)
+        @@durations[action].add(duration.total_nanoseconds.to_u64)
+      end
+
+      # Yields every (action, code) pair that has been counted
+      def self.each_request(& : String, String, UInt64 ->) : Nil
+        ACTION_LABELS.each_with_index do |action, a|
+          CODES.each_with_index do |code, c|
+            count = @@requests[a * CODES.size + c].get
+            yield action, code, count if count > 0
+          end
         end
       end
 
-      # Snapshots, so the exporter writes to the client without holding the lock
-      def self.requests : Array({RequestKey, UInt64})
-        @@lock.synchronize { @@requests.to_a }
-      end
-
-      def self.durations : Array({String, Float64})
-        @@lock.synchronize { @@durations.to_a }
+      # Yields the total seconds spent per action, for actions seen
+      def self.each_duration(& : String, Float64 ->) : Nil
+        ACTION_LABELS.each_with_index do |action, a|
+          nanos = @@durations[a].get
+          yield action, nanos / 1_000_000_000 if nanos > 0
+        end
       end
 
       {% for name in %w[messages_sent messages_received messages_deleted visibility_timeouts] %}

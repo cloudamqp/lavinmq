@@ -20,7 +20,8 @@ module LavinMQ
       end
 
       def self.vhost_from_segment(segment : String) : String
-        decoded = URI.decode(segment)
+        return "/" if segment == DEFAULT_ACCOUNT_ID
+        decoded = segment.includes?('%') ? URI.decode(segment) : segment
         decoded.matches?(ACCOUNT_ID_PATTERN) ? "/" : decoded
       end
 
@@ -30,21 +31,55 @@ module LavinMQ
         "#{base_url}/#{vhost_segment(vhost)}/#{URI.encode_path_segment(queue_name)}"
       end
 
-      # Returns {vhost, queue_name}
+      # Parses scheme://host[:port]/<vhost-segment>/<queue>[/][?query][#fragment]
+      # with index scans and returns {vhost, queue_name}. Every request carries
+      # a queue URL, so building a URI and splitting its path showed up in
+      # profiles. The name is decoded after splitting, so an AMQP queue name
+      # containing an encoded `/` stays one segment.
       def self.parse(url : String) : Tuple(String, String)
-        uri = URI.parse(url)
-        path = uri.path
-        raise InvalidAddress.new("The address #{url} is not valid for this endpoint.") if path.nil? || uri.host.nil?
-        parts = path.split('/', remove_empty: true)
-        raise InvalidAddress.new("The address #{url} is not valid for this endpoint.") unless parts.size == 2
-        {vhost_from_segment(parts[0]), URI.decode(parts[1])}
-      rescue URI::Error
-        raise InvalidAddress.new("The address #{url} is not valid for this endpoint.")
+        path_start, path_end = path_bounds(url)
+        separator = url.index('/', path_start + 1)
+        if separator.nil? || separator >= path_end || separator == path_start + 1 || separator + 1 == path_end
+          raise invalid_address(url)
+        end
+        raise invalid_address(url) if url.index('/', separator + 1).try(&.< path_end)
+        vhost = vhost_from_segment(url.byte_slice(path_start + 1, separator - path_start - 1))
+        name = url.byte_slice(separator + 1, path_end - separator - 1)
+        name = URI.decode(name) if name.includes?('%')
+        {vhost, name}
+      end
+
+      # Byte offsets of the path: from its leading `/` up to (not including)
+      # the query, fragment or a trailing `/`
+      private def self.path_bounds(url : String) : Tuple(Int32, Int32)
+        scheme_end = url.index("://")
+        raise invalid_address(url) if scheme_end.nil? || scheme_end.zero?
+        host_start = scheme_end + 3
+        path_start = url.index('/', host_start)
+        raise invalid_address(url) if path_start.nil? || path_start == host_start
+        path_end = path_end(url, path_start)
+        path_end -= 1 if path_end > path_start + 1 && url.byte_at(path_end - 1) == '/'.ord
+        {path_start, path_end}
+      end
+
+      private def self.path_end(url : String, from : Int32) : Int32
+        i = from
+        while i < url.bytesize
+          byte = url.byte_at(i)
+          return i if byte == '?'.ord || byte == '#'.ord
+          i += 1
+        end
+        url.bytesize
+      end
+
+      private def self.invalid_address(url : String) : InvalidAddress
+        InvalidAddress.new("The address #{url} is not valid for this endpoint.")
       end
 
       # vhost selected by the path of the request itself (the SDK endpoint URL
       # may carry a vhost segment, e.g. http://host:9324/myvhost)
       def self.vhost_from_path(path : String) : String
+        return "/" if path == "/" || path.empty?
         parts = path.split('/', remove_empty: true)
         return "/" if parts.empty?
         vhost_from_segment(parts[0])

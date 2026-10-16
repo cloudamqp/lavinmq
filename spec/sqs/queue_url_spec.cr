@@ -21,6 +21,24 @@ describe LavinMQ::SQS::QueueUrl do
     expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/q") }
     expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("not a url") }
     expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/a/b/c") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http:///000000000000/q") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("://sqs/000000000000/q") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http://sqs//q") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http://sqs/000000000000/") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("http://sqs:9324") }
+    expect_raises(LavinMQ::SQS::InvalidAddress) { LavinMQ::SQS::QueueUrl.parse("") }
+  end
+
+  it "ignores a trailing slash, query string and fragment" do
+    LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/000000000000/q/").should eq({"/", "q"})
+    LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/000000000000/q?x=/y").should eq({"/", "q"})
+    LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/tenant/q#frag").should eq({"tenant", "q"})
+  end
+
+  it "decodes the queue name after splitting, so an encoded slash stays in the name" do
+    LavinMQ::SQS::QueueUrl.parse("http://sqs:9324/000000000000/a%2Fb%20c").should eq({"/", "a/b c"})
+    url = LavinMQ::SQS::QueueUrl.build("http://sqs", "v h", "amqp/queue")
+    LavinMQ::SQS::QueueUrl.parse(url).should eq({"v h", "amqp/queue"})
   end
 
   it "selects the vhost from the request path" do
