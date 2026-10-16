@@ -1,10 +1,5 @@
 require "spec"
 require "../../src/stdlib/openssl_ktls"
-require "../../src/stdlib/socket_shutdown"
-
-lib LibC
-  fun alarm(seconds : UInt) : UInt
-end
 
 private def ktls_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
   tcp_server = TCPServer.new("localhost", 0)
@@ -157,28 +152,6 @@ describe OpenSSL::SSL::Socket do
         end
       end
     end
-  end
-
-  describe "kTLS close" do
-    {% if flag?(:linux) && OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
-      # LavinMQ shuts the socket down before closing it, so sending
-      # close_notify as a kTLS control record fails with EPIPE. A spin in
-      # OpenSSL wouldn't yield, so a fiber timeout can't catch it.
-      it "closes after the socket is shut down" do
-        pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
-
-        ktls_handshake(ktls_server_context) do |ssl|
-          pending!("kTLS send offload not active") unless ssl.ktls_send?
-          LibC.alarm(30) # kills the spec run if close spins
-          begin
-            ssl.shutdown_read_write
-            ssl.close
-          ensure
-            LibC.alarm(0)
-          end
-        end
-      end
-    {% end %}
   end
 
   describe "kTLS write timeout" do

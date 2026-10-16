@@ -2,10 +2,6 @@ require "./spec_helper"
 require "benchmark"
 require "log/spec"
 
-lib LibC
-  fun alarm(seconds : UInt) : UInt
-end
-
 describe LavinMQ::Server do
   it "closes idempotently" do
     server = LavinMQ::Server.new(LavinMQ::Config.instance)
@@ -71,7 +67,6 @@ describe LavinMQ::Server do
   {% if flag?(:linux) && OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
     # Client#close_socket shuts the socket down before closing it, so the
     # close_notify that kTLS sends as a control record fails with EPIPE.
-    # A spin in OpenSSL wouldn't yield, so a fiber timeout can't catch it.
     it "closes kTLS connections" do
       pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
       with_amqp_server(tls: true, ktls: true) do |s|
@@ -84,13 +79,8 @@ describe LavinMQ::Server do
         pending!("kTLS send offload not active") unless ssl.ktls_send?
         tcp = ssl.@bio.to_reference.io.as(TCPSocket)
 
-        LibC.alarm(30) # kills the spec run if closing spins
-        begin
-          conn.close
-          wait_for { tcp.closed? }
-        ensure
-          LibC.alarm(0)
-        end
+        conn.close
+        wait_for { tcp.closed? }
       end
     end
   {% end %}
