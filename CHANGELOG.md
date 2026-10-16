@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Internal queues (e.g. delayed exchange queues) are protected from AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED`, and they are no longer included in definitions exports. They remain visible and manageable through the HTTP API [#2252](https://github.com/cloudamqp/lavinmq/pull/2252)
 - Heartbeats, deduplication TTLs and other timers using `RoughTime.utc` or `RoughTime.instant` read the clock directly instead of a cache refreshed every 100 ms, improving clock resolution to typically 1–4 ms on Linux and removing the background clock thread. Resolution depends on the platform; message timestamps and message TTL checks still use a clock rounded to 100 ms [#2289](https://github.com/cloudamqp/lavinmq/pull/2289)
 - TLS handshake failures and invalid TLS configuration are logged with an error message instead of a stack trace. A failed TLS configuration reload logs the error and keeps the previous configuration [#1762](https://github.com/cloudamqp/lavinmq/pull/1762)
+- Less memory and CPU for stats history: a stat only keeps a history buffer while its value changes within the last `stats_log_size` samples, with 4-byte samples in memory outside the GC heap that is returned to the OS once idle. At 100k idle queues the history no longer takes ~1.4 GB of GC heap, a stats tick takes 8 ms instead of 49 ms, a full GC 8 ms instead of 85 ms, and serializing the stats of 10k queues 50 ms instead of 590 ms (90 ms instead of 910 ms when all are busy). `/api/overview` reads message totals the stats loop records per vhost, 45 ms instead of 167 ms with 100k queues; its message history now keeps the messages of deleted queues and spans the vhost's history like its rate logs [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ### Fixed
 
@@ -86,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
+- Aggregating stats logs for the HTTP API no longer mutates the underlying per-object logs [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ## [2.10.0] - 2026-09-25
 
