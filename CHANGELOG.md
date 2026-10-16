@@ -21,7 +21,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
 - A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391), [#2417](https://github.com/cloudamqp/lavinmq/pull/2417)
-- Statically linked Linux binaries (amd64, arm64) attached to each GitHub release
+- Statically linked Linux binaries (amd64, arm64) attached to each GitHub release [#2478](https://github.com/cloudamqp/lavinmq/pull/2478)
 
 ### Changed
 

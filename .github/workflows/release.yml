@@ -46,7 +46,7 @@ jobs:
           outputs: type=local,dest=builds
 
       - name: Smoke test
-        run: docker run --rm -v "$PWD/builds/linux_amd64:/bin-test:ro" ubuntu:24.04 /bin-test/lavinmq --version
+        run: docker run --rm -v "$PWD/builds/linux_amd64:/usr/local/bin:ro" ubuntu:24.04 /usr/local/bin/lavinmq --version
 
       - name: Package
         run: |
