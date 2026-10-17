@@ -278,6 +278,40 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      describe "#shift_batch_with_lease?" do
+        it "yields up to the buffer's size per lock acquisition, then false" do
+          mktmpdir do |dir|
+            store = LavinMQ::MessageStore.new(dir, nil, durable)
+            lock = Mutex.new
+            5.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "m#{i}")) }
+            buf = Pointer(LavinMQ::Envelope).malloc(3).to_slice(3)
+            batches = [] of Array(String)
+            while store.shift_batch_with_lease?(lock, buf) { |batch| batches << batch.map { |env| String.new(env.message.body) }.to_a }
+            end
+            batches.should eq [["m0", "m1", "m2"], ["m3", "m4"]]
+            store.empty?.should be_true
+            store.close
+          end
+        end
+
+        it "keeps the segments mapped until the block returns" do
+          mktmpdir do |dir|
+            store = LavinMQ::MessageStore.new(dir, nil, durable)
+            lock = Mutex.new
+            2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "m#{i}")) }
+            buf = Pointer(LavinMQ::Envelope).malloc(2).to_slice(2)
+            segment = store.@segments.first_value
+            store.shift_batch_with_lease?(lock, buf) do |batch|
+              batch.each { |env| store.delete(env.segment_position) }
+              store.close
+              segment.closed?.should be_false
+              batch.each { |env| String.new(env.message.body).should start_with "m" }
+            end
+            segment.closed?.should be_true
+          end
+        end
+      end
+
       describe "#shift?" do
         it "should return nil from empty segment" do
           mktmpdir do |dir|

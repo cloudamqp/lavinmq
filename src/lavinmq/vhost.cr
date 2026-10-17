@@ -635,34 +635,34 @@ module LavinMQ
       @shovels.not_nil!("shovels not initialized")
     end
 
-    def event_tick(event_type)
+    def event_tick(event_type, count : Int = 1)
       case event_type
-      in EventType::ChannelClosed          then channel_closed_count_add!
-      in EventType::ChannelCreated         then channel_created_count_add!
-      in EventType::ConnectionClosed       then connection_closed_count_add!
-      in EventType::ConnectionCreated      then connection_created_count_add!
-      in EventType::QueueDeclared          then queue_declared_count_add!
-      in EventType::QueueDeleted           then queue_deleted_count_add!
-      in EventType::ClientAck              then ack_count_add!
-      in EventType::ClientPublish          then publish_count_add!
-      in EventType::ClientPublishConfirm   then confirm_count_add!
-      in EventType::ClientRedeliver        then redeliver_count_add!
-      in EventType::ClientReject           then reject_count_add!
-      in EventType::ConsumerAdded          then consumer_added_count_add!
-      in EventType::ConsumerRemoved        then consumer_removed_count_add!
-      in EventType::ClientReturnUnroutable then return_unroutable_count_add!
+      in EventType::ChannelClosed          then channel_closed_count_add!(count)
+      in EventType::ChannelCreated         then channel_created_count_add!(count)
+      in EventType::ConnectionClosed       then connection_closed_count_add!(count)
+      in EventType::ConnectionCreated      then connection_created_count_add!(count)
+      in EventType::QueueDeclared          then queue_declared_count_add!(count)
+      in EventType::QueueDeleted           then queue_deleted_count_add!(count)
+      in EventType::ClientAck              then ack_count_add!(count)
+      in EventType::ClientPublish          then publish_count_add!(count)
+      in EventType::ClientPublishConfirm   then confirm_count_add!(count)
+      in EventType::ClientRedeliver        then redeliver_count_add!(count)
+      in EventType::ClientReject           then reject_count_add!(count)
+      in EventType::ConsumerAdded          then consumer_added_count_add!(count)
+      in EventType::ConsumerRemoved        then consumer_removed_count_add!(count)
+      in EventType::ClientReturnUnroutable then return_unroutable_count_add!(count)
       in EventType::ClientGet
-        get_count_add!
-        deliver_get_count_add!
+        get_count_add!(count)
+        deliver_get_count_add!(count)
       in EventType::ClientGetNoAck
-        get_no_ack_count_add!
-        deliver_get_count_add!
+        get_no_ack_count_add!(count)
+        deliver_get_count_add!(count)
       in EventType::ClientDeliver
-        deliver_count_add!
-        deliver_get_count_add!
+        deliver_count_add!(count)
+        deliver_get_count_add!(count)
       in EventType::ClientDeliverNoAck
-        deliver_no_ack_count_add!
-        deliver_get_count_add!
+        deliver_no_ack_count_add!(count)
+        deliver_get_count_add!(count)
       end
     end
 
