@@ -104,7 +104,7 @@ module LavinMQ
       def deliver(msg : Message, filter : String, ctx : MQTT::PublishContext) : Bool
         bindings = @bindings[filter]? || return false
         outcome = ctx.outcomes[self]?
-        @publish_in_count.add(1, :relaxed) unless outcome
+        publish_in_count_add! unless outcome
         outcome ||= MQTT::PublishContext::Outcome.new(handled: false, counted_unroutable: false)
         properties = AMQP::Properties.new
         properties.delivery_mode = 2u8
@@ -125,7 +125,7 @@ module LavinMQ
           end
           message.body_io.rewind
         end
-        @publish_out_count.add(count, :relaxed)
+        publish_out_count_add!(count)
         ctx.outcomes[self] = count_unroutable(outcome, handled: count.positive? || rejected)
         count.positive?
       end
@@ -136,10 +136,10 @@ module LavinMQ
       # taken back then.
       private def count_unroutable(outcome : MQTT::PublishContext::Outcome, handled : Bool) : MQTT::PublishContext::Outcome
         if handled
-          @unroutable_count.sub(1, :relaxed) if outcome.counted_unroutable
+          unroutable_count_sub!(1) if outcome.counted_unroutable
           MQTT::PublishContext::Outcome.new(handled: true, counted_unroutable: false)
         elsif !outcome.handled && !outcome.counted_unroutable
-          @unroutable_count.add(1, :relaxed)
+          unroutable_count_add!
           MQTT::PublishContext::Outcome.new(handled: false, counted_unroutable: true)
         else
           outcome

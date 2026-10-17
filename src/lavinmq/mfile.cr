@@ -38,6 +38,9 @@ class MFile < IO
   getter capacity : Int64 = 0i64
   getter path : String
   @buffer : Pointer(UInt8)
+  # Keeps the flags below, written by publishers (needs_msync) and leasing
+  # consumers (leases) outside the store lock, off the line of @pos/@size
+  @pad = StaticArray(UInt8, 64).new(0_u8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
   # Set on the first write after a sync so the Persister registers the file

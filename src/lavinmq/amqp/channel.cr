@@ -258,7 +258,7 @@ module LavinMQ
       end
 
       private def finish_publish(body_io)
-        @publish_count.add(1, :relaxed)
+        publish_count_add!
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!("No message headers received")
         props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
@@ -342,7 +342,7 @@ module LavinMQ
 
       def do_confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count.add(1, :relaxed)
+        confirm_count_atomic_add!
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
@@ -371,7 +371,7 @@ module LavinMQ
 
       private def confirm_nack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count.add(1, :relaxed)
+        confirm_count_atomic_add!
         send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
@@ -395,7 +395,7 @@ module LavinMQ
       end
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
-        @return_unroutable_count.add(1, :relaxed)
+        return_unroutable_count_add!
         @client.vhost.event_tick(EventType::ClientReturnUnroutable)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
@@ -414,18 +414,19 @@ module LavinMQ
       end
 
       def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
+        # From any consumer's deliver loop, so atomic
         if redelivered
-          @redeliver_count.add(1, :relaxed)
+          redeliver_count_atomic_add!
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
           if no_ack
-            @deliver_no_ack_count.add(1, :relaxed)
+            deliver_no_ack_count_atomic_add!
             @client.vhost.event_tick(EventType::ClientDeliverNoAck)
           else
-            @deliver_count.add(1, :relaxed)
+            deliver_count_atomic_add!
             @client.vhost.event_tick(EventType::ClientDeliver)
           end
-          @deliver_get_count.add(1, :relaxed)
+          deliver_get_count_atomic_add!
         end
       end
 
@@ -502,13 +503,13 @@ module LavinMQ
           else
             case frame.no_ack
             when true
-              @get_no_ack_count.add(1, :relaxed)
+              get_no_ack_count_add!
               @client.vhost.event_tick(EventType::ClientGetNoAck)
             when false
-              @get_count.add(1, :relaxed)
+              get_count_add!
               @client.vhost.event_tick(EventType::ClientGet)
             end
-            @deliver_get_count.add(1, :relaxed)
+            deliver_get_count_atomic_add! # also written by the deliver loops
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
@@ -612,7 +613,7 @@ module LavinMQ
           unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         end
         @client.vhost.event_tick(EventType::ClientAck)
-        @ack_count.add(1, :relaxed)
+        ack_count_add!
       end
 
       def basic_reject(frame)
@@ -692,7 +693,7 @@ module LavinMQ
         if unack.consumer.nil? # only basic.get deliveries are in the queue's basic.get unacked list
           unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         end
-        @reject_count.add(1, :relaxed)
+        reject_count_add!
         @client.vhost.event_tick(EventType::ClientReject)
       end
 
@@ -796,8 +797,11 @@ module LavinMQ
           @unack_lock.synchronize do
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
           end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+          basic_get_unacked_count = if consumer
+                                      @basic_get_unacked_count.get(:relaxed)
+                                    else
+                                      @basic_get_unacked_count.add(1u32, :relaxed) + 1
+                                    end
           @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         end
         tag
