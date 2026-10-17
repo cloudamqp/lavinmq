@@ -36,6 +36,18 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 
 PRs are reviewed by AI in CI. To run the same review locally, install [local-review](https://github.com/84codes/local-review) and run `local-review install` in the repo. This adds an optional pre-push hook and a CLI (`local-review`, `local-review 42`).
 
+#### Performance regressions
+
+A performance regression is treated as a breaking change. The `Performance` workflow builds the PR's base and head in release mode on a dedicated Depot runner and runs `extras/perf_compare.sh`, which benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine and fails if a scenario's median throughput drops by more than 5%. Results are in the job summary.
+
+To reproduce locally, build the base into a separate worktree and compare:
+
+1. `git worktree add ../lavinmq-base main && make -C ../lavinmq-base bin/lavinmq bin/lavinmqperf CRYSTAL_FLAGS=--release`
+1. `make bin/lavinmq CRYSTAL_FLAGS=--release`
+1. `PERF=../lavinmq-base/bin/lavinmqperf extras/perf_compare.sh ../lavinmq-base/bin/lavinmq bin/lavinmq`
+
+If a regression is an intentional trade-off, explain it in the PR, add the `perf-regression-accepted` label and re-run the job.
+
 #### Frontend development
 
 Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system:

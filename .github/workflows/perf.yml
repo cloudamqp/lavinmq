@@ -1,0 +1,107 @@
+name: Performance
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - 'src/**'
+      - 'shard.*'
+      - 'extras/perf_compare.sh'
+      - '.github/workflows/perf.yml'
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Ref to compare against
+        default: main
+      rounds:
+        description: Interleaved rounds per scenario
+        default: '5'
+      threshold:
+        description: Regression threshold in percent
+        default: '5'
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  perf:
+    name: Performance regression
+    # Dedicated VM, less noisy than shared GitHub runners
+    runs-on: depot-ubuntu-24.04-8
+    container: 84codes/crystal:latest-ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref }}
+
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev jq curl util-linux
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Checkout base
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git worktree add base "$(git rev-parse "origin/$BASE_SHA" 2>/dev/null || echo "$BASE_SHA")"
+          echo "BASE_COMMIT=$(git -C base rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache base build
+        id: base-cache
+        uses: actions/cache@v5
+        with:
+          path: base/bin
+          key: perf-base-${{ env.BASE_COMMIT }}
+
+      # lavinmqperf is built from base so both brokers are driven by the same client
+      - name: Build base
+        if: steps.base-cache.outputs.cache-hit != 'true'
+        run: make -C base -j bin/lavinmq bin/lavinmqperf DOCS= CRYSTAL_FLAGS=--release
+
+      - name: Build head
+        run: make -j bin/lavinmq DOCS= CRYSTAL_FLAGS=--release
+
+      - name: Compare performance
+        id: compare
+        continue-on-error: true
+        env:
+          PERF: base/bin/lavinmqperf
+          ROUNDS: ${{ inputs.rounds || '5' }}
+          THRESHOLD: ${{ inputs.threshold || '5' }}
+        run: extras/perf_compare.sh base/bin/lavinmq bin/lavinmq
+
+      - name: Write summary
+        if: ${{ !cancelled() }}
+        run: |
+          echo "Base: \`$BASE_COMMIT\`, head: \`$(git rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+          cat tmp/perf/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-results
+          path: tmp/perf/
+
+      # Labels are fetched at runtime so that adding the label and re-running
+      # the job works (a re-run reuses the original event payload).
+      - name: Check result
+        if: steps.compare.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$PR" ] && curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR/labels" |
+              jq -e 'any(.[]; .name == "perf-regression-accepted")' >/dev/null; then
+            echo "::warning::Performance regression accepted with the perf-regression-accepted label"
+            exit 0
+          fi
+          echo "::error::Performance regression detected, see the job summary. If it is intentional, add the perf-regression-accepted label and re-run this job."
+          exit 1
