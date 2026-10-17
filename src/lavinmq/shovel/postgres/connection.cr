@@ -140,12 +140,19 @@ module LavinMQ
           URI.decode(uri.path.lchop('/')).presence || user
         end
 
-        def self.connect(uri : URI, application_name = "lavinmq", replication = true) : self
+        # `timeout` bounds the TCP connect and every read and write until the
+        # session is ready, so a server that accepts the connection but never
+        # answers (TLS, authentication) can't block a start forever. The
+        # replication stream itself has no read timeout: it can be idle.
+        def self.connect(uri : URI, application_name = "lavinmq", replication = true,
+                         timeout : Time::Span = 30.seconds) : self
           sslmode = sslmode(uri)
           # hostname, not host: an IPv6 address without its brackets
           host = uri.hostname.presence || "localhost"
           port = uri.port || 5432
-          tcp = TCPSocket.new(host, port, connect_timeout: 30.seconds)
+          tcp = TCPSocket.new(host, port, connect_timeout: timeout)
+          tcp.read_timeout = timeout
+          tcp.write_timeout = timeout
           tcp.sync = false
           tcp.keepalive = true
           tcp.tcp_nodelay = true
@@ -162,6 +169,8 @@ module LavinMQ
             conn.close
             raise ex
           end
+          tcp.read_timeout = nil
+          tcp.write_timeout = nil
           conn
         rescue ex : Socket::Error | IO::Error | OpenSSL::Error
           raise Error.new("Could not connect to #{host}:#{port}: #{ex.message}")
