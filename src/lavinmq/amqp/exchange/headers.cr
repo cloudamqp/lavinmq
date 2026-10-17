@@ -68,9 +68,11 @@ module LavinMQ
       @bindings = CowMap(AMQP::Table, Binding).new
       # Bumped after every change to @bindings
       @bindings_version = Atomic(UInt64).new(0u64)
-      # Rebuilt by the first publish after a change, so that a bind costs
-      # O(1) array work and loading n bindings stays O(n), not O(n²)
+      # Rebuilt by a fiber after changes, see TopicExchange@routes. Until
+      # it's rebuilt publishes scan @bindings instead.
       @routes = Atomic(Routes).new(Routes.new(0u64, Array(Binding).new))
+      # Set while a rebuild is scheduled, so a burst of changes spawns one
+      @routes_rebuild_scheduled = Atomic(Bool).new(false)
       # Serializes binds and unbinds, which read, change and replace the
       # bindings of an arguments table
       @bindings_lock = Mutex.new
@@ -113,8 +115,9 @@ module LavinMQ
           binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
           destinations = binding.destinations.add(destination, binding_key) || return false
           @bindings[arguments] = binding.with(destinations)
-          @bindings_version.add(1u64, :release)
+          @bindings_version.add(1u64)
         end
+        schedule_routes_rebuild
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -132,8 +135,9 @@ module LavinMQ
           else
             @bindings[arguments] = binding.with(destinations)
           end
-          @bindings_version.add(1u64, :release)
+          @bindings_version.add(1u64)
         end
+        schedule_routes_rebuild
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_unbound(data)
@@ -152,23 +156,40 @@ module LavinMQ
         end
       end
 
-      # The routes for the current bindings, see TopicExchange#current_routes
-      private def current_routes : Routes
-        version = @bindings_version.get(:acquire)
-        routes = @routes.get(:acquire)
-        return routes if routes.version == version
+      private def schedule_routes_rebuild : Nil
+        return if @routes_rebuild_scheduled.swap(true)
+        spawn(name: "headers exchange routes rebuild") { rebuild_routes }
+      end
+
+      # See TopicExchange#rebuild_routes
+      private def rebuild_routes : Nil
+        @routes_rebuild_scheduled.swap(false)
+        version = @bindings_version.get
         snapshot = @bindings.snapshot
         entries = Array(Binding).new(snapshot.size)
         snapshot.each_value { |binding| entries << binding }
-        # In memory order, see TopicExchange#current_routes
+        # In memory order, see TopicExchange#rebuild_routes
         entries.sort_by!(&.object_id)
         routes = Routes.new(version, entries)
-        @routes.set(routes, :release)
-        routes
+        current = @routes.get(:acquire)
+        while current.version < version
+          current, swapped = @routes.compare_and_set(current, routes, :release, :acquire)
+          break if swapped
+        end
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        routes = current_routes.entries
+        # See TopicExchange#each_destination
+        version = @bindings_version.get(:acquire)
+        current = @routes.get(:acquire)
+        if current.version < version
+          @bindings.each_value do |binding|
+            next unless binding.matches?(headers)
+            binding.destinations.each_destination { |d| yield d }
+          end
+          return
+        end
+        routes = current.entries
         # Index and bounds in locals: measured faster than Array#each in these
         # loops, which are inlined into a large method
         ptr = routes.to_unsafe

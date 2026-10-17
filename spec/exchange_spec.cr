@@ -365,10 +365,45 @@ describe LavinMQ::AMQP::BindingSet do
   end
 end
 
-# Topic and headers exchanges route through an array of their bindings,
-# rebuilt from the map of them by the first publish after a change; binds and
-# unbinds of different bindings on several threads must leave both the same
+# Whether the exchange's array of routes is built from its current bindings
+def routes_rebuilt?(exchange) : Bool
+  case exchange
+  when LavinMQ::AMQP::TopicExchange
+    exchange.@routes.get.version == exchange.@bindings_version.get
+  when LavinMQ::AMQP::HeadersExchange
+    exchange.@routes.get.version == exchange.@bindings_version.get
+  else
+    raise "not a topic or headers exchange"
+  end
+end
+
+# Topic and headers exchanges route through an array of their bindings, which
+# a fiber rebuilds from the map of them after changes; until then publishes
+# scan the map. Binds and unbinds of different bindings on several threads
+# must leave both the same.
 {"topic", "headers"}.each do |type|
+  it "rebuilds the #{type} routes after binds, without a publish" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("rebuild-#{type}", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "rebuild-#{type}" }
+      vhost.declare_queue("rebuild-#{type}", false, false)
+      queue = vhost.queue("rebuild-#{type}")
+      100.times do |i|
+        key = type == "topic" ? "k#{i}.*" : ""
+        args = type == "topic" ? nil : LavinMQ::AMQP::Table.new({"k" => i.to_i64})
+        exchange.bind(queue, key, args).should be_true
+      end
+      wait_for { routes_rebuilt?(exchange) }
+      101.times do |i|
+        queues = Set(LavinMQ::AMQP::Queue).new
+        exchanges = Set(LavinMQ::AMQP::Exchange).new
+        exchange.find_queues("k#{i}.x", LavinMQ::AMQP::Table.new({"k" => i.to_i64}), queues, exchanges)
+        queues.includes?(queue).should eq i < 100
+      end
+    end
+  end
+
   it "routes by the bindings as they are right after each #{type} bind and unbind" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
@@ -422,15 +457,21 @@ end
       end
       wg.wait
       exchange.binding_count.should eq 8 * 25
-      8.times do |t|
-        50.times do |i|
-          queues = Set(LavinMQ::AMQP::Queue).new
-          exchanges = Set(LavinMQ::AMQP::Exchange).new
-          headers = LavinMQ::AMQP::Table.new({"t" => t.to_i64, "k" => i.to_i64})
-          exchange.find_queues("t#{t}.k#{i}.x", headers, queues, exchanges)
-          queues.includes?(queue).should eq i.even?
+      check_routes = -> do
+        8.times do |t|
+          50.times do |i|
+            queues = Set(LavinMQ::AMQP::Queue).new
+            exchanges = Set(LavinMQ::AMQP::Exchange).new
+            headers = LavinMQ::AMQP::Table.new({"t" => t.to_i64, "k" => i.to_i64})
+            exchange.find_queues("t#{t}.k#{i}.x", headers, queues, exchanges)
+            queues.includes?(queue).should eq i.even?
+          end
         end
       end
+      check_routes.call
+      # A rebuild racing the last changes must not leave the routes stale
+      wait_for { routes_rebuilt?(exchange) }
+      check_routes.call
     end
   end
 end
