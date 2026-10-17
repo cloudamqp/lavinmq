@@ -76,6 +76,34 @@ module LavinMQ
       end
     end
 
+    # Looks up a key by a different representation of it, e.g. a `Bytes` view
+    # where the keys are objects owning a copy of the bytes, so the lookup
+    # doesn't allocate a key. *hash* must equal `#hash` of the key being
+    # looked for, and the block must return true for that key only.
+    def find_value(hash h : UInt64, & : K -> Bool) : V?
+      n = @root
+      shift = 0
+      loop do
+        hdr = n[0]
+        if hdr == COLLISION
+          n[1].times do |i|
+            return collision_value(n, i) if yield collision_key(n, i)
+          end
+          return
+        end
+        datamap = hdr.to_u32!
+        nodemap = (hdr >> 32).to_u32!
+        bit = 1u32 << ((h >> shift) & 31)
+        if datamap & bit != 0
+          i = index(datamap, bit)
+          return (yield key_at(n, i)) ? value_at(n, i) : nil
+        end
+        return if nodemap & bit == 0
+        n = child_at(n, datamap.popcount, index(nodemap, bit))
+        shift += 5
+      end
+    end
+
     def [](key : K) : V
       self[key]? || raise KeyError.new("Missing key: #{key.inspect}")
     end
