@@ -160,6 +160,9 @@ module LavinMQ
             break
           end
         end
+      rescue ex : Sessions::LimitReached | Sessions::NameTaken | Sessions::NotPermitted
+        @log.warn { "Closing connection, its session cannot become a queue: #{ex.message}" }
+        publish_will
       rescue ex : Session::ProtocolViolation | Session::AwaitingPubrelLimitReached
         # The Will publishes from here as it does on every other close without a
         # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
@@ -409,6 +412,10 @@ module LavinMQ
       # Dedupe is by id alone: a recipient cannot assume a `dup` PUBLISH is one
       # it has seen (3.3.1.1).
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
+        # Its held ids must survive a restart, so a durable session becomes a
+        # queue now. 3.1.1 cannot refuse one PUBLISH, so failing closes the
+        # connection [MQTT-3.3.5-2].
+        @broker.register_session(@session) if @session.durable? && !@session.registered?
         if @session.publish_received(packet_id)
           begin
             @broker.publish(packet, @publish_context)

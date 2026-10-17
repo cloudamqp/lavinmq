@@ -126,10 +126,16 @@ module LavinMQ
       # doesn't walk every subscription in the vhost
       getter subscriptions = Hash(String, UInt8).new
 
+      # Whether the session is a queue: in the definitions, counted towards
+      # max-queues and visible in the API. A connection's session becomes one
+      # only once it needs one, see `Sessions#register`.
+      getter? registered : Bool
+
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
-                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new,
+                               @registered = true)
         @last_packet_id = 0u16
         @client_id = @name.lchop(SESSION_PREFIX)
         @permission_service = @vhost.mqtt_permission_service
@@ -144,12 +150,26 @@ module LavinMQ
         @replicator = durable? ? @vhost.@replicator : nil
         @durable_mailbox = durable? ? ::Channel(UInt64).new(1) : nil
         @metadata_file = File.join(@data_dir, ".metadata")
-        username = nil
+        @permission_context = PermissionService::Context.new(nil, @client_id)
+        if @registered
+          load_from_disk
+        elsif durable?
+          # Held ids are recorded from the first QoS 2 PUBLISH, which first
+          # makes the session a queue
+          @packet_id_log = PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister, read_file: false)
+        end
+      end
+
+      # Only a queue has state on disk. Until a session is one, a directory
+      # under its name can belong to a same-named queue still being deleted,
+      # so `#registered!` loads it, once that delete has finished.
+      private def load_from_disk : Nil
         if File.exists?(@metadata_file)
           @replicator.try &.register_file(@metadata_file)
           username = @metadata_username = read_metadata_file
+          # An attached client's own username takes precedence
+          @permission_context = PermissionService::Context.new(username, @client_id) if @permission_context.username.nil?
         end
-        @permission_context = PermissionService::Context.new(username, @client_id)
         load_state
       end
 
@@ -168,7 +188,7 @@ module LavinMQ
           end
         end
         if durable?
-          log = @packet_id_log = PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister)
+          log = @packet_id_log ||= PacketIdLog.new(File.join(@data_dir, "packet_ids.log"), @replicator, @vhost.persister)
           @awaiting_pubrel.concat(log.awaiting_pubrel)
         end
         restore_publish_sent
@@ -314,6 +334,9 @@ module LavinMQ
           client.force_close
         end
         close
+        # One that never became a queue wrote nothing, and its directory can
+        # belong to a queue imported under the same name since
+        return true unless @registered
         @msg_store_lock.synchronize do
           @msg_store.try &.delete
         end
@@ -331,6 +354,14 @@ module LavinMQ
 
       def clean_session?
         @auto_delete
+      end
+
+      # Called once `DefinitionsStore#register_session` has released the
+      # definitions lock, which a delete of a same-named queue holds until its
+      # directory is gone. Nothing yields in between.
+      protected def registered! : Nil
+        @registered = true
+        load_from_disk
       end
 
       private def deliver_loop

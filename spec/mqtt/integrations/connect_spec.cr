@@ -156,17 +156,69 @@ module MqttSpecs
           end
         end
 
-        it "session present when reconnecting a non-clean session without subscriptions [MQTT-3.1.2-4]" do
+        it "no session present for a persistent client that only published at QoS 0 or 1" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)
+              publish(io, topic: "a/b", qos: 0u8)
+              publish(io, topic: "a/b", qos: 1u8)
               disconnect(io)
             end
             with_client_io(server) do |io|
-              connack = connect(io, clean_session: false)
-              connack.should be_a(MQTT::Protocol::Connack)
-              connack = connack.as(MQTT::Protocol::Connack)
-              connack.session_present?.should be_true
+              # It held no state, and like on main its session never became a queue
+              connect(io, clean_session: false).as(MQTT::Protocol::Connack).session_present?.should be_false
+            end
+          end
+        end
+
+        # A CONNECT can run while a delete of its session waits for the
+        # followers, before the directory is removed
+        it "does not resume a session from the files of a deleted one" do
+          with_server do |server|
+            vhost = server.vhosts["/"]
+            with_client_io(server) do |io|
+              connect(io, client_id: "a", clean_session: false)
+              subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+              publish(io, topic: "x/y", qos: 2u8, packet_id: 7u16, expect_response: false)
+              read_packet(io).should be_a(MQTT::Protocol::PubRec)
+              disconnect(io)
+            end
+            with_client_io(server) do |io|
+              connect(io, client_id: "p")
+              publish(io, topic: "a/b", qos: 1u8, packet_id: 1u16)
+            end
+            data_dir = vhost.session("mqtt.a").@data_dir
+            FileUtils.cp_r(data_dir, "#{data_dir}.stash")
+            vhost.delete_queue("mqtt.a")
+            FileUtils.mv("#{data_dir}.stash", data_dir)
+            with_client_io(server) do |io|
+              connect(io, client_id: "a", clean_session: false).as(MQTT::Protocol::Connack).session_present?.should be_false
+              io.should be_silent
+              # The delete finishes, as it does before a SUBSCRIBE can register
+              FileUtils.rm_rf(data_dir)
+              subscribe(io, topic_filters: mk_topic_filters({"a/c", 1u8}))
+              io.should be_silent
+              # Packet id 7 is not held, so this is a new message
+              publish(io, topic: "a/c", qos: 2u8, packet_id: 7u16, expect_response: false)
+              packets = Array.new(2) { read_packet(io) }
+              packets.count(&.is_a?(MQTT::Protocol::Publish)).should eq 1
+            end
+          end
+        end
+
+        it "session present after a durable QoS 2 publish [MQTT-3.1.2-4]" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              connect(io, clean_session: false)
+              publish(io, topic: "a/b", qos: 2u8, packet_id: 7u16)
+              disconnect(io)
+            end
+            with_client_io(server) do |io|
+              connect(io, clean_session: false).as(MQTT::Protocol::Connack).session_present?.should be_true
+              # Still held, so a re-send is answered without routing it again
+              publish(io, topic: "a/b", qos: 2u8, packet_id: 7u16, dup: true)
+              pubrel(io, 7u16)
+              read_packet(io).should be_a(MQTT::Protocol::PubComp)
             end
           end
         end
@@ -176,6 +228,7 @@ module MqttSpecs
             vhost = server.vhosts["/"]
             with_client_io(server) do |io|
               connect(io, client_id: "a", clean_session: false)
+              subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
               # A deliberate delete, so the read fiber must not log an error.
               Log.capture("lmq.mqtt.client", :error) do |logs|
                 vhost.delete_queue("mqtt.a")
@@ -197,6 +250,7 @@ module MqttSpecs
             vhost = server.vhosts["/"]
             with_client_io(server) do |io|
               connect(io, client_id: "a", clean_session: false)
+              subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
               # Stands in for `get_packet` closing the session on a
               # MessageStore::Error while this client is attached.
               vhost.session("mqtt.a").close
@@ -461,7 +515,7 @@ module MqttSpecs
 
   describe "a session's resources" do
     session_dir = ->(server : LavinMQ::Server, client_id : String) do
-      server.vhosts["/"].session("mqtt.#{client_id}").@data_dir
+      File.join(server.vhosts["/"].data_dir, Digest::SHA1.hexdigest("mqtt.#{client_id}"))
     end
     session_files = ->(server : LavinMQ::Server, client_id : String) do
       dir = session_dir.call(server, client_id)
@@ -472,21 +526,24 @@ module MqttSpecs
     end
 
     {false, true}.each do |clean_session|
-      it "has no segment or deliver loop for a publish-only client (clean_session=#{clean_session})" do
+      it "creates no session queue for a publish-only client (clean_session=#{clean_session})" do
         with_server do |server|
+          vhost = server.vhosts["/"]
           with_client_io(server) do |io|
             connect(io, client_id: "pub", clean_session: clean_session)
             publish(io, topic: "a/b", qos: 1u8, packet_id: 1u16)
             publish(io, topic: "a/b", qos: 0u8)
+            # A clean session's QoS 2 state is in memory, so it needs no queue either
+            publish(io, topic: "a/b", qos: 2u8, packet_id: 2u16) if clean_session
             pingpong(io)
+            vhost.session?("mqtt.pub").should be_nil
             Dir.exists?(session_dir.call(server, "pub")).should be_false
-            session = server.vhosts["/"].session("mqtt.pub")
+            session = client_session(server, "pub")
             session.@msg_store.should be_nil
-            # QoS 0 and 1 write no packet id record, so nothing is mapped
-            session.@packet_id_log.try(&.@mfile).should be_nil
-            deliver_loop_started.call(server, "pub").should be_false
+            session.@deliver_loop_started.should be_false
             disconnect(io)
           end
+          vhost.sessions_size.should eq 0
         end
       end
     end
@@ -541,7 +598,7 @@ module MqttSpecs
     end
 
     describe "across a restart" do
-      it "keeps a publish-only session without a segment, until it subscribes" do
+      it "leaves nothing for a persistent publish-only client, until it subscribes" do
         with_server(clean_dir: false) do |server|
           with_client_io(server) do |sub|
             connect(sub, client_id: "sub")
@@ -551,9 +608,9 @@ module MqttSpecs
         end
         with_server do |server|
           Dir.exists?(session_dir.call(server, "sub")).should be_false
-          deliver_loop_started.call(server, "sub").should be_false
+          server.vhosts["/"].session?("mqtt.sub").should be_nil
           with_client_io(server) do |sub|
-            connect(sub, client_id: "sub").as(MQTT::Protocol::Connack).session_present?.should be_true
+            connect(sub, client_id: "sub").as(MQTT::Protocol::Connack).session_present?.should be_false
             subscribe(sub, topic_filters: mk_topic_filters({"a/b", 1u8}))
             session_files.call(server, "sub").should eq ["msgs.0000000001"]
             with_client_io(server) do |pub|
@@ -579,6 +636,10 @@ module MqttSpecs
           dir = session_dir.call(server, "pub")
           Dir.children(dir).should eq ["packet_ids.log"]
           server.vhosts["/"].session("mqtt.pub").@msg_store.should be_nil
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub").as(MQTT::Protocol::Connack).session_present?.should be_true
+            disconnect(pub)
+          end
           server.vhosts["/"].delete_queue("mqtt.pub")
           Dir.exists?(dir).should be_false
         end

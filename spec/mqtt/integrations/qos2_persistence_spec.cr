@@ -98,7 +98,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           with_drain_held do |gate|
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
@@ -121,7 +121,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           with_drain_held do |gate|
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
@@ -154,7 +154,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           with_drain_held do |gate|
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
@@ -174,7 +174,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           client = session.client.should_not be_nil
           with_drain_held do |gate|
@@ -195,7 +195,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           with_drain_held do |gate|
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
@@ -233,23 +233,28 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
+          # Its first QoS 2 PUBLISH makes the durable session a queue
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16)
+          pubrel(io, 1u16)
+          read_packet(io).should be_a(MQTT::Protocol::PubComp)
           disconnect(io)
         end
         session = server.vhosts["/"].session("mqtt.pub")
         log = session.@packet_id_log.should_not be_nil
+        base = log_size(log)
         session.publish_received(7u16).should be_true
         stale = session.publish_routed(7u16).should_not be_nil
         session.pubrel_received(7u16).should be_true
         session.publish_received(7u16).should be_true
         current = session.publish_routed(7u16).should_not be_nil
         # Never recorded, so its release writes nothing either
-        log_size(log).should eq 0
+        log_size(log).should eq base
         session.record_publish_received(7u16, stale)
-        log_size(log).should eq 0 # its routing may not be durable yet
+        log_size(log).should eq base # its routing may not be durable yet
         session.record_publish_received(7u16, current)
-        log_size(log).should eq 4 + 4
+        log_size(log).should eq base + 4
         session.record_publish_received(7u16, current)
-        log_size(log).should eq 4 + 4
+        log_size(log).should eq base + 4
       end
     end
 
@@ -290,7 +295,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           log = session.@packet_id_log.should_not be_nil
           with_drain_held do
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
@@ -317,11 +322,10 @@ module MqttSpecs
           pub = read_publish(sub_io)
           puback(sub_io, pub.packet_id.should_not be_nil)
           pingpong(sub_io)
-          %w[mqtt.sub mqtt.pub].each do |name|
-            log = server.vhosts["/"].session(name).@packet_id_log.should_not be_nil
-            path = log.@path
-            File.exists?(path).should be_false
-          end
+          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.should_not be_nil
+          File.exists?(log.@path).should be_false
+          # The publisher's session never became a queue, so it has no files
+          server.vhosts["/"].session?("mqtt.pub").should be_nil
         end
       end
     end
@@ -331,7 +335,7 @@ module MqttSpecs
         offline_subscriber(server)
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
-          log = server.vhosts["/"].session("mqtt.pub").@packet_id_log.should_not be_nil
+          log = client_session(server, "pub").@packet_id_log.should_not be_nil
           with_drain_held do |gate|
             (1u16..3u16).each do |id|
               publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: id, expect_response: false)
@@ -431,7 +435,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: false)
           # In the way of the file the first record creates
-          log = server.vhosts["/"].session("mqtt.pub").@packet_id_log.should_not be_nil
+          log = client_session(server, "pub").@packet_id_log.should_not be_nil
           Dir.mkdir_p(log.@path)
           publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
           io.should be_closed
@@ -457,7 +461,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "pub", clean_session: true)
           publish(io, topic: "a/b", qos: 2u8, packet_id: 7u16)
-          server.vhosts["/"].session("mqtt.pub").@packet_id_log.should be_nil
+          client_session(server, "pub").@packet_id_log.should be_nil
         end
       end
     end

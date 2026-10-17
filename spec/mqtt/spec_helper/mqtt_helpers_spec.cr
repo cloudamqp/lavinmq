@@ -12,6 +12,11 @@ module MqttHelpers
   PACKET_TIMEOUT  = 5.seconds
   SILENCE_TIMEOUT = 300.milliseconds
 
+  # The session of a connected client, also one that is not a queue yet
+  def client_session(server, client_id, vhost = "/") : LavinMQ::MQTT::Session
+    server.mqtt_server.broker(vhost).@clients[client_id].session
+  end
+
   def next_packet_id
     GENERATOR.next.as(UInt16)
   end

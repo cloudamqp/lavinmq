@@ -137,6 +137,30 @@ module LavinMQ
 
     # Session accessors
 
+    # Declares a session that already exists in memory, see
+    # `MQTT::Sessions#register`. False if the name is taken.
+    def register_session(session : MQTT::Session, fsync = true) : Bool
+      @definitions_lock.synchronize do
+        name = session.name
+        return false if @queues.has_key?(name) || @sessions.has_key?(name)
+        # Under the lock: a registration waiting for the followers below is
+        # not counted until it inserts, so a check before the lock lets every
+        # concurrent one through
+        if @vhost.queue_limit_reached?
+          raise MQTT::Sessions::LimitReached.new("queue limit (#{@vhost.max_queues}) reached in vhost \"#{@vhost.name}\"")
+        end
+        # Before the insert, so a failed write leaves no session behind
+        if session.durable?
+          store_definition(AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, true, false,
+            session.auto_delete?, false, MQTT::Session::ARGUMENTS), fsync: fsync)
+        end
+        @sessions[name] = session
+        @vhost.apply_policies([session] of Queue)
+        @vhost.event_tick(EventType::QueueDeclared)
+      end
+      true
+    end
+
     def session?(name : String) : MQTT::Session?
       @sessions[name]?
     end
