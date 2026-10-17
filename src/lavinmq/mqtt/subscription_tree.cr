@@ -13,6 +13,9 @@ module LavinMQ
     # tree they read without locks, on any thread, while subscribes and
     # unsubscribes on other threads build the next one. Writers are
     # serialized by a mutex.
+    #
+    # Subscribers are compared with `==` and `hash`, which `Subscriber`
+    # defines as identity.
     class SubscriptionTree(T)
       # MQTT wildcard markers, compared by content against the Bytes tokens.
       HASH = "#".to_slice
