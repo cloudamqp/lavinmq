@@ -18,6 +18,11 @@ module LavinMQ::Clustering
       raise StaleLeadership.new unless @node.propose_isr(synced_node_ids)
     end
 
+    # The committed ISR, nil before a leader has committed one
+    def isr : Set(Int32)?
+      @node.committed_isr.try &.dup
+    end
+
     def password : String
       @password
     end
