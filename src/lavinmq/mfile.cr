@@ -269,8 +269,10 @@ class MFile < IO
     raise RuntimeError.from_errno("msync") if code < 0
   end
 
-  # Returns whether the file already was marked
+  # Returns whether the file already was marked. Checked before the swap: a
+  # swap writes the line on every publish, while consumers read it every shift
   def mark_needs_msync! : Bool
+    return true if @needs_msync.get(:acquire)
     @needs_msync.swap(true, :acquire_release)
   end
 

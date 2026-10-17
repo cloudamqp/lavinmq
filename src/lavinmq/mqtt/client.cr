@@ -50,7 +50,9 @@ module LavinMQ
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
       # Created with the PUBACK writer fiber on the first QoS 1 publish
-      @puback_mailbox : ::Channel(UInt64)?
+      # See AMQP::Channel's @confirm_pending and @confirm_signal
+      @puback_pending = Atomic(UInt64).new(0u64)
+      @puback_signal : ::Channel(Nil)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -146,7 +148,7 @@ module LavinMQ
         when Auth::OAuthUser
           user.cleanup
         end
-        @puback_mailbox.try &.close
+        @puback_signal.try &.close
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
@@ -227,33 +229,36 @@ module LavinMQ
       # PUBACK is sent by the writer fiber, so the read loop never waits for
       # the disk.
       private def enqueue_puback(packet_id : UInt16) : Nil
-        unless @puback_mailbox
-          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
-          spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
+        unless @puback_signal
+          signal = @puback_signal = ::Channel(Nil).new(1)
+          spawn puback_writer(signal), name: "MQTT client #{@client_id} puback writer"
         end
         seq = @publish_seq &+= 1
         @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
         vhost.enqueue_ack(self, seq)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
-      # (confirms are cumulative).
+      # Called from the Persister's thread, so it must never block or spin.
+      # The seq replaces the pending one (confirms are cumulative) and the
+      # writer is signalled only when it had drained the previous one, see
+      # AMQP::Channel#enqueue_confirm_ack.
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @puback_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
+        signal = @puback_signal || return
+        if @puback_pending.swap(msgid, :acquire_release).zero?
+          signal.try_send nil
         end
       rescue ::Channel::ClosedError
       end
 
-      private def puback_writer(mailbox : ::Channel(UInt64))
-        while seq = mailbox.receive?
+      private def puback_writer(signal : ::Channel(Nil))
+        loop do
+          signal.receive
+          seq = @puback_pending.swap(0_u64, :acquire_release)
           while pending = next_puback(seq)
             send(Protocol::PubAck.new(pending.packet_id))
           end
         end
-      rescue ::IO::Error
+      rescue ::Channel::ClosedError | ::IO::Error
       end
 
       private def next_puback(seq : UInt64) : PendingPubAck?
