@@ -121,7 +121,7 @@ module MqttSpecs
           resent = read_publish(io)
           resent.packet_id.should eq second.try &.packet_id
           String.new(resent.payload).should eq "1"
-          read_packet(io).should be_nil
+          io.should be_silent
 
           disconnect(io)
         end
@@ -141,7 +141,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -190,7 +190,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -231,11 +231,12 @@ module MqttSpecs
         wait_for { session.client.nil? }
 
         session.purge.should eq 1
-        session.@msg_store.@packet_ids.should be_empty
+        store = session.@msg_store.should_not be_nil
+        store.@original_packet_ids.should be_empty
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
       end
@@ -255,22 +256,24 @@ module MqttSpecs
         vhost.apply_policies
 
         session.message_count.should eq 0
-        session.@msg_store.@packet_ids.should be_empty
+        store = session.@msg_store.should_not be_nil
+        store.@original_packet_ids.should be_empty
       end
     end
 
-    it "does not resend under packet id 0 [MQTT-2.3.1-5]" do
+    it "does not resend under packet id 0 [MQTT-2.3.1-1]" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 
         session = server.vhosts["/"].session("mqtt.resumer")
         wait_for { session.client.nil? }
 
-        # `next_id` hands out 0 once the sequence wraps, so a real session can put
-        # one in here. Reissued from memory, the client rejects the illegal id and
-        # gets it again on every reconnect.
-        sp = session.@msg_store.@packet_ids.keys.first
-        session.@msg_store.@packet_ids[sp] = 0u16
+        # Guards the check for 0 in `packet_id_for`: nothing hands out 0 any
+        # more, so it is planted. Reissued, the client would reject the illegal
+        # id and get it again on every reconnect.
+        store = session.@msg_store.should_not be_nil
+        sp = store.@original_packet_ids.keys.first
+        store.@original_packet_ids[sp] = 0u16
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
@@ -293,7 +296,8 @@ module MqttSpecs
         # A purge takes the requeued messages first, in delivery order, so "0"
         # goes and the two the client still holds ids for stay.
         session.purge(1).should eq 1
-        session.@msg_store.@packet_ids.size.should eq 2
+        store = session.@msg_store.should_not be_nil
+        store.@original_packet_ids.size.should eq 2
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
@@ -321,7 +325,8 @@ module MqttSpecs
         # that were published while the session was offline.
         session.purge(3).should eq 3
         session.message_count.should eq 2
-        session.@msg_store.@packet_ids.should be_empty
+        store = session.@msg_store.should_not be_nil
+        store.@original_packet_ids.should be_empty
       end
     end
 
@@ -338,8 +343,9 @@ module MqttSpecs
         # Point the second message at the first one's id. Resends go out in sp
         # order, so the first delivery books that id and the second one arrives
         # to find it taken.
-        second_sp = session.@msg_store.@packet_ids.keys.last
-        session.@msg_store.@packet_ids[second_sp] = first_id
+        store = session.@msg_store.should_not be_nil
+        second_sp = store.@original_packet_ids.keys.last
+        store.@original_packet_ids[second_sp] = first_id
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
@@ -347,10 +353,12 @@ module MqttSpecs
           resent = read_publishes(io, 2)
           resent.map { |p| String.new(p.payload) }.should eq ["0", "1"]
           resent.first.packet_id.should eq first_id
-          # Both still booked, under different ids. `wait_for` because
-          # `@unacked[id] = sp` is written after the yielding send.
+          # Both still booked, under different ids. The booking now precedes the
+          # yielding send, so this holds by the time the client has the packets;
+          # `wait_for` is kept because it costs nothing and does not depend on
+          # that ordering.
           resent.last.packet_id.should_not eq first_id
-          wait_for { session.@unacked.size == 2 }
+          wait_for { session.@inflight.size == 2 }
 
           disconnect(io)
         end
@@ -368,7 +376,7 @@ module MqttSpecs
           publish_from(server, "a/b", ["0", "1", "2", "3"])
 
           sent = read_publishes(io, 3).map &.packet_id
-          read_packet(io).should be_nil
+          io.should be_silent
           disconnect(io)
         end
 
@@ -379,7 +387,7 @@ module MqttSpecs
           resent.each &.dup?.should be_true
           resent.map(&.packet_id).should eq sent
           # The window is still full, so the fourth message stays in the store.
-          read_packet(io).should be_nil
+          io.should be_silent
 
           # Acking one frees a slot, and the fourth is delivered with a fresh id.
           puback(io, resent.first.packet_id)

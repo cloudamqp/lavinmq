@@ -137,6 +137,24 @@ module LavinMQ
 
     # Session accessors
 
+    # Declares a session that already exists in memory, see
+    # `MQTT::Sessions#register`. False if the name is taken.
+    def register_session(session : MQTT::Session, fsync = true) : Bool
+      @definitions_lock.synchronize do
+        name = session.name
+        return false if @queues.has_key?(name) || @sessions.has_key?(name)
+        # Before the insert, so a failed write leaves no session behind
+        if session.durable?
+          store_definition(AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, true, false,
+            session.auto_delete?, false, MQTT::Session::ARGUMENTS), fsync: fsync)
+        end
+        @sessions[name] = session
+        @vhost.apply_policies([session] of Queue)
+        @vhost.event_tick(EventType::QueueDeclared)
+      end
+      true
+    end
+
     def session?(name : String) : MQTT::Session?
       @sessions[name]?
     end
@@ -218,10 +236,20 @@ module LavinMQ
         when AMQP::Frame::Queue::Delete
           if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
             unless @vhost.closed?
-              @exchanges.each_value do |ex|
-                ex.bindings_details.each do |binding|
-                  next unless binding.destination == q
-                  ex.unbind(q, binding.routing_key, binding.arguments)
+              if q.is_a?(MQTT::Session)
+                # Only the MQTT exchange binds a session, and the session
+                # knows its filters. Walking every binding instead made each
+                # session delete, one per clean MQTT disconnect, cost the
+                # vhost's subscription count.
+                q.subscriptions.to_a.each do |filter, qos|
+                  @mqtt_exchange.unbind(q, filter, MQTT.qos_arguments(qos))
+                end
+              else
+                @exchanges.each_value do |ex|
+                  ex.bindings_details.each do |binding|
+                    next unless binding.destination == q
+                    ex.unbind(q, binding.routing_key, binding.arguments)
+                  end
                 end
               end
             end
@@ -256,6 +284,12 @@ module LavinMQ
 
     def queue_bindings(queue : Queue)
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
+      if queue.is_a?(MQTT::Session)
+        subscriptions = queue.subscriptions.map do |filter, qos|
+          MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+        end
+        return [default_binding] + subscriptions
+      end
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end

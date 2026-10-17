@@ -4,6 +4,15 @@ require "../vhost"
 module LavinMQ
   module MQTT
     class Sessions
+      class LimitReached < MQTT::Error; end
+
+      # A queue that is not a session already has the session's name. AMQP and
+      # the HTTP API refuse the prefix, but a definitions import does not.
+      class NameTaken < MQTT::Error; end
+
+      # With `permission_check_enabled`, the user may not write to the queue
+      class NotPermitted < MQTT::Error; end
+
       def initialize(@vhost : VHost)
       end
 
@@ -11,21 +20,29 @@ module LavinMQ
         @vhost.session?("#{SESSION_PREFIX}#{client_id}")
       end
 
-      def [](client_id : String) : Session
-        @vhost.session("#{SESSION_PREFIX}#{client_id}")
+      # A connection's session. It becomes a queue only once it needs one,
+      # see `#register`, so a publish-only client costs no queue.
+      def build(client_id : String, clean_session : Bool) : Session
+        Session.new(@vhost, "#{SESSION_PREFIX}#{client_id}", clean_session, registered: false)
       end
 
-      # Returns nil if creating the session would exceed the vhost's max-queues
-      # limit. An existing session is always returned, reusing one consumes no
-      # new resource.
-      def declare(client : Client) : Session?
-        self[client.client_id]? || begin
-          return if @vhost.queue_limit_reached?
-          @vhost.declare_queue("#{SESSION_PREFIX}#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
-          session = self[client.client_id]
-          session.client = client
-          session
+      # A queue that is not a session has the session's name
+      def name_taken?(client_id : String) : Bool
+        !@vhost.queue?("#{SESSION_PREFIX}#{client_id}").nil?
+      end
+
+      # Makes `session` a queue. Raises rather than returning false, so a
+      # caller can tell the failures apart. A new durable session fsyncs the
+      # definitions file, once: a reconnect finds it registered.
+      def register(session : Session) : Nil
+        return if session.registered?
+        if @vhost.queue_limit_reached?
+          raise LimitReached.new("queue limit (#{@vhost.max_queues}) reached in vhost \"#{@vhost.name}\"")
         end
+        unless @vhost.register_session(session)
+          raise NameTaken.new("queue \"#{session.name}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
+        end
+        session.registered!
       end
     end
   end

@@ -34,7 +34,8 @@ module LavinMQ
         msg.needs_sync = packet.qos > 0
         count = 0u32
         @tree.each_entry(packet.topic) do |subscriber, qos, filter|
-          msg.properties.delivery_mode = qos
+          # The lower of the publish and the subscription QoS [MQTT-3.8.4-6].
+          msg.properties.delivery_mode = Math.min(packet.qos, qos)
           if subscriber.deliver(msg, filter, ctx)
             count += 1
             msg.body_io.rewind
@@ -69,12 +70,16 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        @tree.subscribe(routing_key, destination, MQTT.qos(arguments))
+        qos = MQTT.qos(arguments)
+        # Before routing to it, so the session's storage is ready
+        return false unless destination.subscription_bound(routing_key, qos)
+        @tree.subscribe(routing_key, destination, qos)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         @tree.unsubscribe(routing_key, destination)
+        destination.subscription_unbound(routing_key)
         delete if @auto_delete && @tree.empty?
         true
       end

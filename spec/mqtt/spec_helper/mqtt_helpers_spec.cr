@@ -3,7 +3,19 @@ require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers
-  GENERATOR = (0u16..).each
+  # From 1: a QoS 1 or 2 PUBLISH with id 0 is a protocol violation [MQTT-2.3.1-1]
+  GENERATOR = (1u16..).each
+
+  # Durable acks wait for fsyncs, which take hundreds of ms on a loaded disk,
+  # so a packet that should come gets long. Proving that nothing comes costs
+  # the whole wait, so `be_silent` uses a short one.
+  PACKET_TIMEOUT  = 5.seconds
+  SILENCE_TIMEOUT = 300.milliseconds
+
+  # The session of a connected client, also one that is not a queue yet
+  def client_session(server, client_id, vhost = "/") : LavinMQ::MQTT::Session
+    server.mqtt_server.broker(vhost).@clients[client_id].session
+  end
 
   def next_packet_id
     GENERATOR.next.as(UInt16)
@@ -26,7 +38,7 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = false
     socket.buffer_size = 16384
-    socket.read_timeout = 300.milliseconds
+    socket.read_timeout = PACKET_TIMEOUT
     socket
   end
 
@@ -76,7 +88,7 @@ module MqttHelpers
       password:      "guest".to_slice,
       will:          nil,
     }.merge(args)).to_io(io)
-    MQTT::Protocol::Packet.from_io(io) if expect_response
+    read_packet(io) if expect_response
   end
 
   def disconnect(io)
@@ -117,7 +129,13 @@ module MqttHelpers
   def publish(io, expect_response = true, **args)
     packet = publish_packet(**args)
     packet.to_io(io)
-    MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
+    return unless expect_response
+    # QoS 2 is answered with PUBREC, not PUBACK, so decoding blindly as a
+    # PubAck would fail on the flags rather than on the assertion.
+    case packet.qos
+    when 1u8 then read_packet(io).should be_a(MQTT::Protocol::PubAck)
+    when 2u8 then read_packet(io).should be_a(MQTT::Protocol::PubRec)
+    end
   end
 
   # After a QoS 1 publish to a topic the same client subscribes to: the PUBACK
@@ -133,6 +151,28 @@ module MqttHelpers
     MQTT::Protocol::PubAck.new(packet_id).to_io(io)
   end
 
+  def pubrec(io, packet_id : UInt16)
+    MQTT::Protocol::PubRec.new(packet_id).to_io(io)
+  end
+
+  def pubrel(io, packet_id : UInt16)
+    MQTT::Protocol::PubRel.new(packet_id).to_io(io)
+  end
+
+  def pubcomp(io, packet_id : UInt16)
+    MQTT::Protocol::PubComp.new(packet_id).to_io(io)
+  end
+
+  # The receiver half of the QoS 2 flow: PUBLISH, PUBREC, PUBREL, PUBCOMP.
+  #
+  # Takes an explicit `packet_id` rather than using `next_packet_id`, because
+  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.3.1-1].
+  def publish_qos2(io, packet_id : UInt16, **args)
+    publish(io, **{packet_id: packet_id, qos: 2u8}.merge(args))
+    pubrel(io, packet_id)
+    read_packet(io).should be_a(MQTT::Protocol::PubComp)
+  end
+
   def ping(io)
     MQTT::Protocol::PingReq.new.to_io(io)
   end
@@ -146,26 +186,41 @@ module MqttHelpers
     end
   end
 
-  def read_packet(io)
+  # Fails rather than returning nil, so `io.should be_silent` can
+  # never pass: assert that nothing arrives with `be_silent`.
+  def read_packet(io) : MQTT::Protocol::Packet
     MQTT::Protocol::Packet.from_io(io)
   rescue IO::TimeoutError
-    nil
+    fail "No packet within #{PACKET_TIMEOUT}"
   end
 
   # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
-  # QoS needs one and none at QoS 0 [MQTT-2.3.1-5]. Use this instead of casting
-  # `read_packet` when comparing packet ids: `packet_id` is nilable, so a pair of
-  # nils would otherwise satisfy an equality assertion.
+  # QoS needs one and none at QoS 0 [MQTT-2.3.1-1] [MQTT-2.3.1-5]. Use this
+  # instead of casting `read_packet` when comparing packet ids: `packet_id` is
+  # nilable, so a pair of nils would otherwise satisfy an equality assertion.
   def read_publish(io) : MQTT::Protocol::Publish
-    # `should be_a` rather than `as`: on a read timeout `read_packet` returns nil,
-    # and a cast would report "cast from Nil" instead of naming the PUBLISH that
-    # never arrived.
     pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
     if pub.qos.positive?
       pub.packet_id.should_not be_nil
+      # [MQTT-2.3.1-1]. Free teeth for every delivery spec in the suite.
+      pub.packet_id.should_not eq 0u16
     else
       pub.packet_id.should be_nil
     end
     pub
+  end
+
+  # Returns the PUBLISH `io` was delivered, unacknowledged, so the session still
+  # owes it.
+  def deliver_qos2(server, io, payload = "1", topic = "a/b")
+    subscribe(io, topic_filters: mk_topic_filters({topic, 2u8}))
+    with_client_io(server) do |pub_io|
+      connect(pub_io, client_id: "publisher")
+      publish(pub_io, topic: topic, payload: payload.to_slice, qos: 2u8, packet_id: 1u16)
+      pubrel(pub_io, 1u16)
+      read_packet(pub_io).should be_a(MQTT::Protocol::PubComp)
+      disconnect(pub_io)
+    end
+    read_publish(io)
   end
 end
