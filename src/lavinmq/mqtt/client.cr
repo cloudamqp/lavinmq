@@ -163,7 +163,7 @@ module LavinMQ
       def read_and_handle_packet
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
-        @recv_oct_count.add(packet.bytesize, :relaxed)
+        recv_oct_count_add!(packet.bytesize)
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
@@ -182,7 +182,7 @@ module LavinMQ
         @lock.synchronize do
           @io.write_packet(packet)
           @io.flush
-          @send_oct_count.add(packet.bytesize, :relaxed)
+          send_oct_count_add!(packet.bytesize)
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet

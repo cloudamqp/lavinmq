@@ -144,7 +144,7 @@ module LavinMQ::AMQP
       return PublishResult::Closed if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        @publish_count.add(1, :relaxed)
+        publish_count_add!
       end
       # Notify all waiting stream consumers about new messages
       notify_all_stream_consumers
@@ -182,10 +182,10 @@ module LavinMQ::AMQP
       get(consumer) do |env|
         yield env
         if env.redelivered
-          @redeliver_count.add(1, :relaxed)
+          redeliver_count_atomic_add!
         else
-          @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
+          deliver_count_atomic_add!
+          deliver_get_count_atomic_add!
         end
       end
     end
