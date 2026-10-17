@@ -12,6 +12,20 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# A queue whose next ack write fails, like a store error that's left once
+# corrupt data is skipped
+class AckFailsQueue < LavinMQ::AMQP::Queue
+  property? fail_ack = false
+
+  protected def delete_message(sp : LavinMQ::SegmentPosition) : Nil
+    if fail_ack?
+      @fail_ack = false
+      raise LavinMQ::MessageStore::Error.new(@msg_store.@segments.first_value)
+    end
+    super
+  end
+end
+
 # Adds a consumer when the queue's TTL fires, just before expire_queue checks
 # for consumers, like a consume racing the expiry on another thread
 class ConsumerAtExpiryQueue < LavinMQ::AMQP::Queue
@@ -898,6 +912,29 @@ describe LavinMQ::AMQP::Queue do
         props = LavinMQ::AMQP::Properties.new(expiration: "10000")
         queue.publish(LavinMQ::Message.new("", queue.name, "body", props)).ok?.should be_true
         queue.message_count.should eq 1
+      end
+    end
+
+    it "cancels a consumer whose delivery runs into a store error" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        queue = AckFailsQueue.create(vhost, "ack-fails")
+        vhost.register_queue(queue)
+        queue.publish(LavinMQ::Message.new("", queue.name, "1"))
+        queue.publish(LavinMQ::Message.new("", queue.name, "2"))
+        queue.fail_ack = true
+        with_channel(s) do |ch|
+          q = ch.queue_declare(queue.name, passive: true)
+          ch.basic_consume(queue.name, no_ack: true) { }
+          # Cancelled like a closed queue's consumers, rather than left without
+          # a deliver loop while the queue still has messages
+          should_eventually(be_true) { queue.consumers.empty? }
+          queue.closed?.should be_false
+          ch.closed?.should be_false
+          q[:message_count].should eq 2
+        end
+      ensure
+        queue.try &.delete
       end
     end
 

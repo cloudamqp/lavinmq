@@ -226,7 +226,7 @@ module LavinMQ::AMQP
       end
     rescue ex : MessageStore::Error
       # Not restarted here, where it would run into the error again, but by
-      # the next publish or ack
+      # the next publish or when the last consumer is removed
       failed = true
       @log.error(ex) { "Message expire loop stopped due to error" }
     rescue ::Channel::ClosedError
