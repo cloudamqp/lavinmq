@@ -74,6 +74,24 @@ describe LavinMQ::MQTT::PacketIdLog do
     end
   end
 
+  # After a crash the file is capacity-sized, so a record whose state byte
+  # survived but not the rest reads as a whole record of zeros
+  {PacketIdLog::State::PublishReceived, PacketIdLog::State::PublishSent}.each do |state|
+    it "drops a torn #{state} record that a capacity-sized file pads with zeros" do
+      with_log_path do |path|
+        log = PacketIdLog.new(path, nil, nil)
+        log.publish_received(1u16)
+        log.close
+        File.open(path, "a", &.write(Bytes[state.value]))
+        File.open(path, "r+", &.truncate(PacketIdLog::MIN_CAPACITY))
+        log = PacketIdLog.new(path, nil, nil)
+        log.awaiting_pubrel.should eq Set{1u16}
+        log.publish_sent.should be_empty
+        log.close
+      end
+    end
+  end
+
   it "stops at a zeroed or unknown state byte mid-file" do
     with_log_path do |path|
       log = PacketIdLog.new(path, nil, nil)
@@ -106,7 +124,7 @@ describe LavinMQ::MQTT::PacketIdLog do
       log.publish_received(9u16)
       log.publish_sent(5u16, LavinMQ::SegmentPosition.new(3u32, 40u32, 0u32))
       log.close
-      File.read(path).to_slice.should eq Bytes[1, 0, 0, 0, 1, 9, 0, 3, 5, 0, 3, 0, 0, 0, 40, 0, 0, 0]
+      File.read(path).to_slice.should eq Bytes[1, 0, 0, 0, 1, 9, 0, 136, 3, 5, 0, 3, 0, 0, 0, 40, 0, 0, 0, 173]
     end
   end
 
@@ -123,7 +141,7 @@ describe LavinMQ::MQTT::PacketIdLog do
       end
       File.size(path).should eq PacketIdLog::MIN_CAPACITY
       log.close
-      File.size(path).should be < 4 + 3 * 100
+      File.size(path).should be < 4 + 4 * 100
       log = PacketIdLog.new(path, nil, nil)
       log.awaiting_pubrel.should eq Set{7u16}
       sp = log.publish_sent[8u16]
@@ -167,7 +185,23 @@ describe LavinMQ::MQTT::PacketIdLog do
       log.awaiting_pubrel.should eq Set{1u16}
       log.publish_received(2u16)
       log.close
-      File.read(crashed).to_slice.should eq Bytes[1, 0, 0, 0, 1, 1, 0, 1, 2, 0]
+      File.read(crashed).to_slice.should eq Bytes[1, 0, 0, 0, 1, 1, 0, 128, 1, 2, 0, 131]
+    end
+  end
+
+  it "does not read a record torn at a page boundary of a crashed log" do
+    with_log_path do |path|
+      log = PacketIdLog.new(path, nil, nil)
+      log.publish_received(1u16)
+      crashed = File.join(File.dirname(path), "crashed.log")
+      File.copy(path, crashed)
+      log.close
+      # A record whose last bytes were on a page that never reached the disk
+      File.open(crashed, "r+") do |f|
+        f.pos = PacketIdLog::HEADER_SIZE + PacketIdLog::RECORD_SIZE
+        f.write Bytes[PacketIdLog::State::PublishReceived.value, 0x34u8]
+      end
+      PacketIdLog.new(crashed, nil, nil).awaiting_pubrel.should eq Set{1u16}
     end
   end
 

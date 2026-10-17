@@ -201,6 +201,9 @@ module LavinMQ
           # it changes its file format. Listed in docs/mqtt.md Limitations.
           props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
           msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+          # A durable session records a QoS 2 delivery's packet id before the
+          # send, and that record must not outlive the message on power loss
+          msg.needs_sync = qos > 0
           session.publish(msg)
         end
         Protocol::SubAck::ReturnCode.from_int(qos)
