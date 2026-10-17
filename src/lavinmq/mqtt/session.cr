@@ -455,10 +455,6 @@ module LavinMQ
 
       def resume!; end
 
-      def restart! : Bool
-        false
-      end
-
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
       end

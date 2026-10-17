@@ -262,8 +262,28 @@ module LavinMQ::AMQP
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex
-        raise Error.new(rfile, cause: ex)
+      rescue ex : CorruptDataError
+        skip_corrupt_segment(consumer, rfile, ex)
+        nil
+      end
+    end
+
+    # The message at the consumer's position can't be read, and where the
+    # next one starts is unknown, so the consumer skips the rest of the
+    # segment. A copy of the segment is kept next to it.
+    private def skip_corrupt_segment(consumer, rfile : MFile, ex : Exception) : Nil
+      @log.error(exception: ex) { "Message at segment #{consumer.segment} pos #{consumer.pos} can't be read, skipping the rest of the segment for consumer #{consumer.tag}" }
+      keep_corrupt_copy(rfile)
+      if rfile == @wfile
+        # So that what's written next isn't after the corrupt data, where it
+        # couldn't be read, nor counted when the segment is loaded again
+        open_new_segment
+        # Not from a push, so @last_offset isn't the next message's offset yet
+        @segment_first_offset[@segments.last_key] = @last_offset + 1
+      end
+      if next_seg = next_segment_offset(consumer.segment)
+        next_segment(consumer)
+        consumer.offset = next_seg[1]
       end
     end
 
@@ -276,8 +296,8 @@ module LavinMQ::AMQP
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
-          rescue ex
-            raise Error.new(segment, cause: ex)
+          rescue ex : CorruptDataError
+            @log.error(exception: ex) { "Skipping requeued message #{sp}, it can't be read" }
           end
         end
       end

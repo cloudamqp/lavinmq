@@ -49,7 +49,6 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `purge_queue <queue>` | Purge all messages from a queue |
 | `pause_queue <queue>` | Pause all consumers on a queue |
 | `resume_queue <queue>` | Resume consumers on a queue |
-| `restart_queue <queue>` | Restart a closed queue |
 
 ### Exchange Management
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- A queue or stream with a message that can't be read, for example after disk errors, is no longer closed. The rest of that segment is skipped and a copy of it is kept as `msgs.{segment_id}.corrupt`, see [Storage](docs/storage.md#corrupt-data). At startup a corrupt segment is kept up to its last readable message, or moved aside, instead of leaving its queue closed [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
+
+### Removed
+
+- Restarting a closed queue: the `PUT /api/queues/:vhost/:name/restart` endpoint, the "Restart queue" button in the management UI and `lavinmqctl restart_queue`. Queues are no longer closed by errors reading their messages [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
+
 ## [2.11.0-rc.1] - 2026-10-16
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker.

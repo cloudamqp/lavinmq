@@ -33,6 +33,7 @@ module LavinMQ::AMQP
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
+      # Closed so that its primary queue replaces it, see #active_retry_queue
       @log.error(ex) { "Queue closed due to error, message requeued instantly" }
       close
       false
