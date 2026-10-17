@@ -52,7 +52,11 @@ module LavinMQ
       @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
-      @confirm_ack_mailbox : ::Channel(UInt64)?
+      # The latest msgid the Persister has made durable but the writer hasn't
+      # acked yet (acks are cumulative), 0 when the writer has drained it
+      @confirm_pending = Atomic(UInt64).new(0_u64)
+      # Wakes the confirm writer, sent only on the first msgid after a drain
+      @confirm_signal : ::Channel(Nil)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -132,8 +136,8 @@ module LavinMQ
           return
         end
         unless @confirm
-          @confirm_ack_mailbox = mailbox = ::Channel(UInt64).new(1)
-          spawn confirm_writer(mailbox), name: "Channel##{@id} confirm writer"
+          @confirm_signal = signal = ::Channel(Nil).new(1)
+          spawn confirm_writer(signal), name: "Channel##{@id} confirm writer"
           @confirm = true
         end
         unless frame.no_wait
@@ -342,20 +346,27 @@ module LavinMQ
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
+      # Called from the Persister's thread for every confirmed publish, so it
+      # must never block or spin: the msgid replaces the pending one (acks are
+      # cumulative), and the writer is only signalled when it had drained the
+      # previous one. A signal can't be lost: the slot is only full while a
+      # signal the writer hasn't consumed yet is there, and the writer reads
+      # the pending msgid after consuming it.
       def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @confirm_ack_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
+        signal = @confirm_signal || return
+        if @confirm_pending.swap(msgid, :acquire_release).zero?
+          signal.try_send nil
         end
       rescue ::Channel::ClosedError
       end
 
-      private def confirm_writer(mailbox : ::Channel(UInt64))
-        while msgid = mailbox.receive?
-          do_confirm_ack(msgid, multiple: true)
+      private def confirm_writer(signal : ::Channel(Nil))
+        loop do
+          signal.receive
+          msgid = @confirm_pending.swap(0_u64, :acquire_release)
+          do_confirm_ack(msgid, multiple: true) unless msgid.zero?
         end
+      rescue ::Channel::ClosedError
       end
 
       private def confirm_nack(msgid, multiple = false)
@@ -743,7 +754,7 @@ module LavinMQ
       def close : Bool
         return false unless @running
         @running = false
-        @confirm_ack_mailbox.try &.close
+        @confirm_signal.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close
           consumer.queue.rm_consumer(consumer)

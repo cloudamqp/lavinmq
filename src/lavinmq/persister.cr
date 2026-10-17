@@ -36,6 +36,10 @@ module LavinMQ
       getter paths = Set(String).new
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
+      # Whether the loop has been signalled about this batch. The signal
+      # channel is a SpinLock, so it's taken once per batch, not per ack;
+      # the batch is swapped out, flag and all, by the drain the signal wakes
+      property? requested = false
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty?
@@ -74,8 +78,13 @@ module LavinMQ
     # actual sync while sync is disabled (see drain), so no-sync only pays a
     # single hop to the loop, not a disk flush.
     def enqueue_ack(target : ConfirmTarget, id : UInt64)
-      @pending.lock { |batch| batch.acks[target] = id }
-      @publish_confirm_requested.try_send true
+      signal = @pending.lock do |batch|
+        batch.acks[target] = id
+        first = !batch.requested?
+        batch.requested = true
+        first
+      end
+      @publish_confirm_requested.try_send true if signal
     rescue ::Channel::ClosedError
     end
 
@@ -97,8 +106,13 @@ module LavinMQ
     # persist their acks, so it syncs the whole filesystem.
     def sync : Nil
       waiter = ::Channel(Nil).new
-      @pending.lock &.waiters.push(waiter)
+      @pending.lock do |batch|
+        batch.waiters.push(waiter)
+        batch.requested = true
+      end
       begin
+        # Always signalled, even if the batch already was: the closed error
+        # below is how a sync after shutdown finds out the loop is gone
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
         # The loop has exited (shutdown), and its final drain may have run
@@ -147,6 +161,7 @@ module LavinMQ
           batch = current
           Batch.new
         else
+          current.requested = false
           current
         end
       end

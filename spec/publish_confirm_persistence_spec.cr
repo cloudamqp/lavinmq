@@ -136,6 +136,23 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  it "keeps confirming after the writer has drained, one publish at a time and in bursts" do
+    # Each sequential confirm finds the channel's pending msgid drained, so it
+    # has to signal the writer again; each burst is coalesced into one
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("drain_resignal_test")
+        ch.confirm_select
+        3.times do
+          200.times { q.publish_confirm("one").should be_true }
+          200.times { ch.basic_publish "burst", "", q.name }
+          ch.wait_for_confirms.should be_true
+        end
+        s.vhosts["/"].queue(q.name).message_count.should eq 1200
+      end
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.
