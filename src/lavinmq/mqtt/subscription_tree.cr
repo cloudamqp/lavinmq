@@ -4,7 +4,7 @@ require "../persistent_map"
 
 module LavinMQ
   module MQTT
-    # SubscriberSet(T) (subscriber, QoS) by topic filter, matched against
+    # Subscriptions (subscriber, QoS) by topic filter, matched against
     # published topics.
     #
     # The tree is immutable. A subscribe or unsubscribe builds a new tree that
@@ -260,13 +260,13 @@ module LavinMQ
     # return a copy with the change that shares the unchanged children. A node
     # that would hold nothing is nil instead, so no empty nodes are kept.
     class SubscriptionTreeNode(T)
-      # SubscriberSet(T) whose filter ends at this level, and that filter
+      # Subscribers whose filter ends at this level, and that filter
       getter leafs : SubscriberSet(T)?
       getter leaf_filter : String?
-      # SubscriberSet(T) with '#' at this level, and that filter
+      # Subscribers whose filter has '#' at this level, and that filter
       getter wildcard_rest : SubscriberSet(T)?
       getter wildcard_rest_filter : String?
-      # SubscriberSet(T) with '+' at this level
+      # The subtree of filters with '+' at this level
       getter plus : SubscriptionTreeNode(T)?
       getter sublevels : PersistentMap(SubscriptionTreeLevel, SubscriptionTreeNode(T))?
 
