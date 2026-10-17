@@ -121,9 +121,12 @@ module LavinMQ
       @bindings = CowMap(TopicBindingKey, BindingSet).new
       # Bumped after every change to @bindings
       @bindings_version = Atomic(UInt64).new(0u64)
-      # Rebuilt by the first publish after a change, so that a bind costs
-      # O(1) array work and loading n bindings stays O(n), not O(n²)
+      # Rebuilt by a fiber after changes, not by binds, so that loading n
+      # bindings stays O(n), not O(n²), and not by publishes, so that they
+      # don't allocate. Until it's rebuilt publishes scan @bindings instead.
       @routes = Atomic(Routes).new(Routes.new(0u64, Array({TopicBindingKey, BindingSet}).new))
+      # Set while a rebuild is scheduled, so a burst of changes spawns one
+      @routes_rebuild_scheduled = Atomic(Bool).new(false)
       # Serializes binds and unbinds, which read, change and replace a key's
       # bindings
       @bindings_lock = Mutex.new
@@ -156,8 +159,9 @@ module LavinMQ
           current = @bindings[rk]? || BindingSet.empty
           bindings = current.add(destination, binding_key) || return false
           @bindings[rk] = bindings
-          @bindings_version.add(1u64, :release)
+          @bindings_version.add(1u64)
         end
+        schedule_routes_rebuild
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -175,8 +179,9 @@ module LavinMQ
           else
             @bindings[rk] = bindings
           end
-          @bindings_version.add(1u64, :release)
+          @bindings_version.add(1u64)
         end
+        schedule_routes_rebuild
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_unbound(data)
@@ -185,15 +190,18 @@ module LavinMQ
         true
       end
 
-      # The routes for the current bindings. The version is read before the
-      # bindings, so routes built here hold at least every change up to it; a
-      # bind returns only after bumping the version, so a publish after it
-      # rebuilds and sees the binding. Concurrent rebuilds are harmless: an
-      # older one that's published last is rebuilt again by the next publish.
-      private def current_routes : Routes
-        version = @bindings_version.get(:acquire)
-        routes = @routes.get(:acquire)
-        return routes if routes.version == version
+      private def schedule_routes_rebuild : Nil
+        return if @routes_rebuild_scheduled.swap(true)
+        spawn(name: "topic exchange routes rebuild") { rebuild_routes }
+      end
+
+      # The version is read before the bindings, so the routes hold at least
+      # every change up to it. The flag is cleared first, and both with
+      # sequentially consistent ordering, so a change this rebuild may miss
+      # schedules another. Of concurrent rebuilds the newest routes win.
+      private def rebuild_routes : Nil
+        @routes_rebuild_scheduled.swap(false)
+        version = @bindings_version.get
         snapshot = @bindings.snapshot
         entries = Array({TopicBindingKey, BindingSet}).new(snapshot.size)
         snapshot.each { |kv| entries << kv }
@@ -202,12 +210,26 @@ module LavinMQ
         # measured over 10% slower (the GC doesn't move objects)
         entries.sort_by! { |(key, _)| key.object_id }
         routes = Routes.new(version, entries)
-        @routes.set(routes, :release)
-        routes
+        current = @routes.get(:acquire)
+        while current.version < version
+          current, swapped = @routes.compare_and_set(current, routes, :release, :acquire)
+          break if swapped
+        end
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        routes = current_routes.entries
+        # A bind returns only after bumping the version, so a publish after
+        # it sees routes with the binding or scans the bindings themselves
+        version = @bindings_version.get(:acquire)
+        current = @routes.get(:acquire)
+        if current.version < version
+          rk = RkIterator.new(routing_key.to_slice)
+          @bindings.each do |(bks, destinations)|
+            destinations.each_destination { |d| yield d } if bks.matches? rk
+          end
+          return
+        end
+        routes = current.entries
         return if routes.empty?
 
         # optimize the case where the only binding key is '#'
