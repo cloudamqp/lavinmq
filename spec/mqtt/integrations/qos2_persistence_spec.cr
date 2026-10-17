@@ -546,6 +546,45 @@ module MqttSpecs
       end
     end
 
+    it "sends a batch of QoS 2 PUBLISHes after one drain" do
+      with_server do |server|
+        offline_subscriber(server, qos: 2u8)
+        log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.should_not be_nil
+        with_drain_held do |gate|
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            3.times { |i| publish(pub_io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16, expect_response: false) }
+            pingpong(pub_io)
+          end
+          with_client_io(server) do |sub_io|
+            connect(sub_io, client_id: "sub", clean_session: false)
+            wait_for { log_size(log) == 4 + 3 * 11 } # all recorded, one wait
+            sub_io.should be_silent
+            step_drain(gate)
+            3.times { read_publish(sub_io).qos.should eq 2u8 }
+          end
+        end
+      end
+    end
+
+    it "keeps publish order across a batch that a QoS 1 message ends" do
+      with_server do |server|
+        offline_subscriber(server, qos: 2u8)
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          [2u8, 1u8, 2u8].each_with_index do |qos, i|
+            publish(pub_io, topic: "a/b", payload: i.to_s.to_slice, qos: qos, packet_id: (i + 1).to_u16, expect_response: false)
+          end
+          pingpong(pub_io)
+        end
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          pubs = Array.new(3) { read_publish(sub_io) }
+          pubs.map { |p| {String.new(p.payload), p.qos, p.dup?} }.should eq [{"0", 2u8, false}, {"1", 1u8, false}, {"2", 2u8, false}]
+        end
+      end
+    end
+
     it "sends a QoS 2 PUBLISH only once its packet id is durable" do
       with_server do |server|
         with_client_io(server) do |sub_io|
@@ -713,20 +752,20 @@ module MqttSpecs
 
     it "stops delivering QoS 2 once the persister has stopped" do
       with_server do |server|
+        offline_subscriber(server, qos: 2u8)
+        log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.should_not be_nil
+        server.persister.close
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          3.times { |i| publish(pub_io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16, expect_response: false) }
+          pingpong(pub_io)
+        end
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)
-          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
-          log = server.vhosts["/"].session("mqtt.sub").@packet_id_log.should_not be_nil
-          server.persister.close
-          with_client_io(server) do |pub_io|
-            connect(pub_io, client_id: "pub")
-            3.times { |i| publish(pub_io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16, expect_response: false) }
-            pingpong(pub_io)
-          end
           wait_for { log_size(log) >= 4 + 11 }
           sub_io.should be_silent
-          # One record, not one per message the deliver_loop walked past
-          log_size(log).should eq 4 + 11
+          # One batch of all three, and requeued messages are not recorded again
+          log_size(log).should eq 4 + 3 * 11
         end
       end
     end
