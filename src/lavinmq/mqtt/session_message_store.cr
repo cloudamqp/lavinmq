@@ -70,6 +70,12 @@ module LavinMQ
       # Called for a released id once its delete is written and marked dirty
       property on_original_packet_id_released : Proc(UInt16, Nil)? = nil
 
+      # Like `shift_with_lease?`, for a caller that holds several messages at
+      # once: call under the store's lock, and `Envelope#release` each one.
+      def shift_leased? : Envelope?
+        shift?.try &.lease
+      end
+
       # Whether `sp` is still a message in this store. Positions are never
       # reused, so a missing one is a deleted one. Only exact at load: a
       # delete after that is not reflected in `@deleted`.

@@ -105,6 +105,8 @@ module LavinMQ
       # message we send under it [MQTT-4.3.3-2]. Only the deliver_loop waits.
       @durable_mailbox : ::Channel(UInt64)?
       @durable_seq = 0u64
+      # Reused by `deliver_qos2_batch`, so a batch allocates nothing once grown
+      @qos2_batch = Array({Envelope, UInt16, Bool}).new
       # Routed inbound ids whose PUBLISH_RECEIVED record waits for a drain, by
       # routing generation: a barrier left by an older connection must not
       # record an id the client released and reused since.
@@ -114,6 +116,9 @@ module LavinMQ
       @persister_stopped = false
       @deliver_loop_started = false
       @packet_ids_exhausted = false
+      # Bumped by every `client=`, so a QoS 2 batch can tell that a reattach
+      # requeued what it booked so far
+      @attach_count = 0u32
       # The username in the .metadata file, see #persist_username
       @metadata_username : String? = nil
       # This session's topic filters and their QoS, kept by the MQTT exchange
@@ -316,7 +321,10 @@ module LavinMQ
         # A session without a store can still have a directory, for its
         # packet_ids.log
         FileUtils.rm_rf(@data_dir)
-        @replicator.try &.delete_file(@metadata_file)
+        # Every file registered under it, also those `close_unloaded`
+        # registered: a stale packet_ids.log left on a follower would be
+        # loaded by a new session with this name after a failover
+        @replicator.try &.delete_dir(@data_dir)
         @vhost.delete_queue(@name)
         true
       end
@@ -337,14 +345,14 @@ module LavinMQ
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
-            delivered_bytes &+= bytesize
+            # Per message, also within a QoS 2 batch
+            if (delivered_bytes &+= bytesize) > Config.instance.yield_each_delivered_bytes
+              delivered_bytes = 0
+              Fiber.yield
+            end
           end
           # Nothing is confirmed again, so every QoS 2 delivery would park
           break if @persister_stopped
-          if delivered_bytes > Config.instance.yield_each_delivered_bytes
-            delivered_bytes = 0
-            Fiber.yield
-          end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           # Sending yields, so a write can fail after the session was
@@ -398,6 +406,7 @@ module LavinMQ
         # A closed store can't be touched, but `delete` still has to know which
         # connection to close.
         return @client = client if closed?
+        @attach_count &+= 1
         @last_get_time = RoughTime.instant
 
         # Ids past PUBREC, which owe a PUBREL rather than a message.
@@ -559,30 +568,142 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
+      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Nil
         raise ClosedError.new if closed?
-        loop do
-          # The payload is sent straight from the segment, which a close or
-          # delete of the session can unmap while the send is suspended
-          msg_store.shift_with_lease?(@msg_store_lock) do |env|
-            sp = env.segment_position
-            # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
-            # id would leak the slot. Nothing produces a nil today.
-            delivery_mode = env.message.properties.delivery_mode
-            if delivery_mode.nil? || delivery_mode.zero?
-              deliver_no_ack(env, sp) { |packet, bytesize| yield packet, bytesize }
-            else
-              delivered = deliver_acked(env, sp) { |packet, bytesize| yield packet, bytesize }
-              return false unless delivered
-            end
-            return true
-          end || break
+        # The payload is sent straight from the segment, which a close or
+        # delete of the session can unmap while the send is suspended, so it
+        # stays leased until sent
+        env = @msg_store_lock.synchronize { msg_store.shift_leased? } || return
+        if qos2_batched?(env)
+          deliver_qos2_batch(env) { |packet, bytesize| yield packet, bytesize }
+          return
         end
-        false
+        begin
+          sp = env.segment_position
+          # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
+          # id would leak the slot. Nothing produces a nil today.
+          delivery_mode = env.message.properties.delivery_mode
+          if delivery_mode.nil? || delivery_mode.zero?
+            deliver_no_ack(env, sp) { |packet, bytesize| yield packet, bytesize }
+          else
+            deliver_acked(env, sp) { |packet, bytesize| yield packet, bytesize }
+          end
+        ensure
+          env.release
+        end
       rescue ex : MessageStore::Error
         @log.error(ex) { "Queue closed due to error" }
         close
         raise ClosedError.new(cause: ex)
+      end
+
+      # A durable session's QoS 2 PUBLISH waits for its packet id record to be
+      # durable, since a subscriber holding an id we forgot dedupes the next
+      # message under it [MQTT-4.3.3-2]
+      private def qos2_batched?(env : Envelope) : Bool
+        return false unless @packet_id_log
+        delivery_mode = env.message.properties.delivery_mode
+        !delivery_mode.nil? && delivery_mode >= 2u8
+      end
+
+      MAX_QOS2_BATCH = 128
+
+      # Up to `MAX_QOS2_BATCH` durable QoS 2 PUBLISHes are recorded, wait for
+      # one drain together, then are sent, so the drain is not paid per
+      # message.
+      private def deliver_qos2_batch(first : Envelope, & : Protocol::Publish, UInt32 -> Nil) : Nil
+        batch = @qos2_batch
+        sent = 0
+        begin
+          collect_qos2_batch(first)
+          return if batch.empty?
+          unless wait_until_durable
+            batch.each { |(e, id, _)| unsend_on_stopped_persister(id, e.segment_position) } unless closed?
+            return
+          end
+          batch.each do |(e, id, original)|
+            sp = e.segment_position
+            # `client=` requeued it while we waited; the new connection sends it
+            if booked?(id, sp)
+              yield build_packet(e, id, original), sp.bytesize
+              count_delivery(e)
+              msg_store.forget_original_packet_id(sp) if booked?(id, sp)
+            end
+            sent += 1
+          end
+          refresh_capacity
+        rescue ex
+          # Back in the store, as in `deliver_acked`. A closed store has nothing
+          # to requeue into.
+          unless closed?
+            batch.each(start: sent, count: batch.size - sent) do |(e, id, _)|
+              sp = e.segment_position
+              unsend(id, sp) if booked?(id, sp)
+            end
+          end
+          raise ex
+        ensure
+          batch.each { |(e, _, _)| e.release }
+          # A burst's buffer is not kept by an idle session
+          if batch.size > 16
+            @qos2_batch = Array({Envelope, UInt16, Bool}).new
+          else
+            batch.clear
+          end
+        end
+      end
+
+      # Books and records each message into `@qos2_batch`. Only a message that
+      # joins is shifted: one that does not stays first in the store, for the
+      # deliver_loop to send next, in order and to the current client.
+      private def collect_qos2_batch(env : Envelope) : Nil
+        batch = @qos2_batch
+        attached = @attach_count
+        sp = env.segment_position
+        id, original = packet_id_for(sp) || begin
+          env.release
+          requeue_without_packet_id(sp)
+          return
+        end
+        loop do
+          # Booked before the record and the send, see `deliver_acked`
+          book(id, sp, Inflight::Awaiting::PubRec)
+          batch << {env, id, original}
+          log_packet_id &.publish_sent(id, sp)
+          return if batch.size >= MAX_QOS2_BATCH
+          env, id, original = next_qos2_batched(attached) || return
+          sp = env.segment_position
+        end
+      end
+
+      # The next message, leased, with its packet id, if it can join the batch.
+      # Its id is taken before it is shifted: one requeued for lack of an id
+      # would go out marked as a re-send. Stops once a reattach requeued what
+      # is booked, which shifting again would put in the batch twice.
+      private def next_qos2_batched(attached : UInt32) : {Envelope, UInt16, Bool}?
+        @msg_store_lock.synchronize do
+          return unless @attach_count == attached
+          next_env = msg_store.first?
+          return unless next_env && qos2_batched?(next_env)
+          id, original = packet_id_for(next_env.segment_position) || return
+          env = msg_store.shift_leased? || return
+          {env, id, original}
+        end
+      end
+
+      private def book(id : UInt16, sp : SegmentPosition, awaiting : Inflight::Awaiting) : Nil
+        @inflight[id] = Inflight.new(awaiting, sp)
+        @unacked_count.add(1, :relaxed)
+        @unacked_bytesize.add(sp.bytesize, :relaxed)
+      end
+
+      private def count_delivery(env : Envelope) : Nil
+        if env.redelivered
+          @redeliver_count.add(1, :relaxed)
+        else
+          @deliver_count.add(1, :relaxed)
+          @deliver_get_count.add(1, :relaxed)
+        end
       end
 
       private def deliver_no_ack(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Nil
@@ -601,12 +722,11 @@ module LavinMQ
         delete_message(sp)
       end
 
-      # False when no packet id was available, which leaves the message
-      # requeued for the next attempt.
-      private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Bool
+      # Without a free packet id the message is requeued for the next attempt
+      private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Nil
         id, original = packet_id_for(sp) || begin
           requeue_without_packet_id(sp)
-          return false
+          return
         end
         # Raises before anything is booked, which the rescue below would not
         # roll back. Unreachable today, but being wrong loses the message.
@@ -620,21 +740,9 @@ module LavinMQ
           # Booked before the send, which yields: the client can acknowledge
           # before we return, and an acknowledgement finding no entry is either
           # fatal (`puback`) or silently dropped (`pubrec`).
-          @inflight[id] = Inflight.new(packet.qos == 1u8 ? Inflight::Awaiting::PubAck : Inflight::Awaiting::PubRec, sp)
-          @unacked_count.add(1, :relaxed)
-          @unacked_bytesize.add(sp.bytesize, :relaxed)
-          # A re-send too: its id was remembered, but its record may have
-          # failed or not be durable yet
-          if packet.qos == 2u8 && @packet_id_log
-            return true unless publish_sent_durable?(id, sp)
-          end
+          book(id, sp, packet.qos == 1u8 ? Inflight::Awaiting::PubAck : Inflight::Awaiting::PubRec)
           yield packet, sp.bytesize
-          if env.redelivered
-            @redeliver_count.add(1, :relaxed)
-          else
-            @deliver_count.add(1, :relaxed)
-            @deliver_get_count.add(1, :relaxed)
-          end
+          count_delivery(env)
           # `client=` may have requeued `sp` and remembered `id` during the
           # send; forgetting then costs the redelivery its id [MQTT-4.4.0-1].
           msg_store.forget_original_packet_id(sp) if booked?(id, sp)
@@ -645,7 +753,6 @@ module LavinMQ
           unsend(id, sp) if booked?(id, sp)
           raise ex
         end
-        true
       end
 
       private def requeue_without_packet_id(sp : SegmentPosition) : Nil
@@ -661,18 +768,6 @@ module LavinMQ
         @log.warn { "No free packet id, delivery paused" } unless @packet_ids_exhausted
         @packet_ids_exhausted = true
         @has_capacity.swap(false)
-      end
-
-      # One drain per delivery, so a durable session's QoS 2 rate is bounded by
-      # persister latency; recording a batch of ids per drain would lift that.
-      # Records `id` as sent and waits for it to be durable. False when the
-      # session closed meanwhile, `client=` requeued `sp` (the new connection
-      # then sends it under this id), or the persister stopped.
-      private def publish_sent_durable?(id : UInt16, sp : SegmentPosition) : Bool
-        log_packet_id &.publish_sent(id, sp)
-        durable = wait_until_durable
-        unsend_on_stopped_persister(id, sp) unless durable || closed?
-        durable && booked?(id, sp)
       end
 
       # Cumulative confirms suit a single waiter, the deliver_loop: any id at
