@@ -443,6 +443,21 @@ describe "PostgreSQL shovel" do
       end
     end
 
+    it "gives up on a server that accepts the connection but never answers" do
+      server = TCPServer.new("127.0.0.1", 0)
+      accepted = Channel(TCPSocket).new(1)
+      spawn { accepted.send server.accept }
+      uri = URI.parse("postgres://u@127.0.0.1:#{server.local_address.port}/db?sslmode=disable")
+      started = Time.instant
+      expect_raises(LavinMQ::Shovel::Postgres::Error, /Could not connect/) do
+        LavinMQ::Shovel::Postgres::Connection.connect(uri, timeout: 200.milliseconds)
+      end
+      (Time.instant - started).should be < 5.seconds
+    ensure
+      accepted.try(&.receive?).try &.close
+      server.try &.close
+    end
+
     it "percent-decodes the database name" do
       conn = LavinMQ::Shovel::Postgres::Connection
       conn.database(URI.parse("postgres://u@h/db%20name"), "u").should eq "db name"
