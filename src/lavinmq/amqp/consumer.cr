@@ -102,6 +102,7 @@ module LavinMQ
             if wait_for_queue_ready == :timeout
               @log.debug { "deliver loop idle, exiting fiber" }
               @deliver_loop_running.set(false, :release)
+              pass_wake
               ensure_deliver_loop unless @queue.empty?
               return
             end
@@ -115,10 +116,21 @@ module LavinMQ
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
+        pass_wake
       rescue ex
         @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
+        pass_wake
         raise ex
+      end
+
+      # The queue wakes one consumer per message (see StateChannel#wake_one),
+      # so a consumer that stops taking messages while the queue may have
+      # some (no capacity, flow off, paused, closing) wakes the next parked
+      # one. A no-op when the queue is empty or no consumer is parked.
+      private def pass_wake : Nil
+        @queue.empty.when_false.signal_one
+      rescue ::Channel::ClosedError
       end
 
       # How many messages to take from the queue per store lock acquisition:
@@ -316,8 +328,11 @@ module LavinMQ
         }
       end
 
+      # Called before every wait. Passing the wake on is a no-op before the
+      # wait for the queue itself, as the queue is empty then
       def flush
         @channel.flush
+        pass_wake
         Fiber.yield # We are waiting so might as well let other fibers run to improve fairness
       end
 

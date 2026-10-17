@@ -16,15 +16,44 @@ class BoolChannel
 
     @queue = EndlessQueue.new
 
+    # Wake one parked receiver per activation instead of all of them, for a
+    # state that means "there is work": the woken receiver takes the work,
+    # and whoever adds more work while the state stays active wakes one more
+    # with #signal_one. A woken receiver that can't take the work must pass
+    # the wake on (#signal_one) before parking on something else, or the
+    # receivers left parked never find out about it.
+    property? wake_one = false
+
     def activate
       @lock.sync do
         @queue.as(EndlessQueue).empty = false
-        while receiver_ptr = dequeue_receiver
-          receiver_ptr.value.data = nil
-          receiver_ptr.value.state = DeliveryState::Delivered
-          receiver_ptr.value.fiber.enqueue
+        if wake_one?
+          wake_receiver
+        else
+          while wake_receiver
+          end
         end
       end
+    end
+
+    # Wakes one parked receiver, if there is one and the state is active (an
+    # inactive state wakes one when activated). The unlocked check is sound:
+    # while the state is active no receiver parks, so any parked one was
+    # there before the activation, which the caller saw.
+    def signal_one : Nil
+      return if @receivers.empty?
+      @lock.sync do
+        return if @queue.as(EndlessQueue).empty?
+        wake_receiver
+      end
+    end
+
+    private def wake_receiver : Bool
+      receiver_ptr = dequeue_receiver || return false
+      receiver_ptr.value.data = nil
+      receiver_ptr.value.state = DeliveryState::Delivered
+      receiver_ptr.value.fiber.enqueue
+      true
     end
 
     def deactivate

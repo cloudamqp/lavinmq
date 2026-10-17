@@ -33,4 +33,37 @@ describe BoolChannel do
     end
     mismatches.should eq 0
   end
+
+  it "wakes one receiver per activation and per signal in wake_one mode" do
+    bc = BoolChannel.new(true)
+    bc.when_false.wake_one = true
+    woken = Channel(Int32).new(3)
+    3.times do |i|
+      spawn do
+        bc.when_false.receive
+        woken.send i
+      end
+    end
+    nothing_woken = -> do
+      select
+      when woken.receive then false
+      when timeout 20.milliseconds then true
+      end
+    end
+    sleep 10.milliseconds    # let them park
+    bc.when_false.signal_one # inactive: nothing to wake for
+    nothing_woken.call.should be_true
+    bc.set(false)
+    woken.receive.should eq 0 # the first to park
+    nothing_woken.call.should be_true
+    bc.when_false.signal_one
+    woken.receive.should eq 1
+    bc.set(true)
+    bc.when_false.signal_one # inactive again, the third stays parked
+    nothing_woken.call.should be_true
+    bc.set(false)
+    woken.receive.should eq 2
+    bc.when_false.signal_one # no one left to wake
+    nothing_woken.call.should be_true
+  end
 end
