@@ -20,13 +20,20 @@ module MqttSpecs
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
+        # A session that is a queue, so it can be deleted
+        with_client_io(server) do |io|
+          connect(io, client_id: "a", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          disconnect(io)
+        end
+        wait_for { broker.@clients.empty? }
         reader, writer = IO.pipe
         done = Channel(Nil).new
         spawn do
-          # Stands in for a same client_id CONNECT deleting the session while
-          # this one is still writing its CONNACK.
+          # Stands in for an API delete of the session while this client is
+          # still writing its CONNACK.
           broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
-            server.users["guest"], connect_packet("a")) { vhost.delete_queue("mqtt.a") }
+            server.users["guest"], connect_packet("a", clean_session: false)) { vhost.delete_queue("mqtt.a") }
           done.send nil
         end
         select
@@ -58,7 +65,7 @@ module MqttSpecs
               broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
                 user, connect_packet("a", clean_session: false)) { }
             end
-            wait_for { b_client = vhost.session?("mqtt.a").try(&.client) }
+            wait_for { b_client = broker.@clients["a"]?.try { |c| c if c.session.client == c } }
           end
           a_done.send nil
         end
@@ -67,48 +74,39 @@ module MqttSpecs
         when timeout(1.second)
           fail "the earlier connection kept running alongside the later one"
         end
-        vhost.session("mqtt.a").client.should be b_client
+        b_client.should_not be_nil
+        broker.@clients["a"].should be b_client
         vhost.@connections.@connections.should eq [b_client]
       ensure
         {a_reader, a_writer, b_reader, b_writer}.each { |io| io.try &.close }
       end
     end
 
-    it "takes over a connection whose CONNECT is still declaring its session [MQTT-3.1.4-2]" do
+    it "keeps a session the old connection makes a queue during a takeover [MQTT-3.1.4-2]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
-        user = server.users["guest"]
         definitions = vhost.@definitions.should_not be_nil
         lock = definitions.@definitions_lock
-        a_reader, a_writer = IO.pipe
-        b_reader, b_writer = IO.pipe
-        a_done = Channel(Nil).new
-        # Parks A inside `Sessions#declare`, before it is registered.
-        lock.lock
-        spawn do
-          broker.run_client(MQTT::Protocol::IO.new(a_reader), LavinMQ::ConnectionInfo.local,
-            user, connect_packet("a", clean_session: false)) { }
-          a_done.send nil
+        with_client_io(server) do |io|
+          connect(io, client_id: "a", clean_session: false)
+          # Parks the read fiber in `Sessions#register`, on the definitions lock
+          lock.lock
+          subscribe(io, expect_response: false, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          sleep 50.milliseconds # the read fiber parks on the lock
+          broker.@clients["a"].session.registered?.should be_false
+          connack = Channel(MQTT::Protocol::Connack).new(1)
+          with_client_io(server) do |io2|
+            # The takeover waits for the parked read fiber, see Broker rule 6
+            spawn { connack.send connect(io2, client_id: "a", clean_session: false).as(MQTT::Protocol::Connack) }
+            sleep 50.milliseconds
+            lock.unlock
+            connack.receive.session_present?.should be_true
+            vhost.session("mqtt.a").subscriptions.keys.should eq ["a/b"]
+            vhost.session("mqtt.a").client.should be broker.@clients["a"]
+            disconnect(io2)
+          end
         end
-        Fiber.yield
-        spawn do
-          broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
-            user, connect_packet("a", clean_session: false)) { }
-        end
-        Fiber.yield
-        lock.unlock
-        select
-        when a_done.receive
-        when timeout(1.second)
-          fail "the earlier connection kept running alongside the later one"
-        end
-        b_client = broker.@clients["a"]
-        vhost.session("mqtt.a").client.should be b_client
-        vhost.@connections.@connections.should eq [b_client]
-        broker.@client_locks.should be_empty
-      ensure
-        {a_reader, a_writer, b_reader, b_writer}.each { |io| io.try &.close }
       end
     end
 
@@ -116,40 +114,32 @@ module MqttSpecs
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
-        user = server.users["guest"]
         definitions = vhost.@definitions.should_not be_nil
         lock = definitions.@definitions_lock
-        c_reader, c_writer = IO.pipe
-        n_reader, n_writer = IO.pipe
-        n_done = Channel(Nil).new(1)
-        spawn do
-          broker.run_client(MQTT::Protocol::IO.new(c_reader), LavinMQ::ConnectionInfo.local,
-            user, connect_packet("a")) { }
+        with_client_io(server) do |io|
+          connect(io, client_id: "a", clean_session: true)
+          # A session that is a queue, so its delete takes the definitions lock
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          old_session = vhost.session("mqtt.a")
+          # Parks the old connection's `Session#delete` in `@vhost.delete_queue`,
+          # after it has marked the session deleted.
+          lock.lock
+          with_client_io(server) do |io2|
+            connack = Channel(MQTT::Protocol::Connack).new(1)
+            spawn { connack.send connect(io2, client_id: "a", clean_session: true).as(MQTT::Protocol::Connack) }
+            sleep 50.milliseconds
+            lock.unlock
+            connack.receive.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            n_client = broker.@clients["a"]
+            wait_for(1.second) { n_client.session.client == n_client }
+            n_client.session.should_not be old_session
+            # The new connection was not closed after CONNACK
+            pingpong(io2).should be_a(MQTT::Protocol::PingResp)
+            # The old connection's `remove_client` may still be waiting to run.
+            wait_for(1.second) { broker.@client_locks.empty? }
+            disconnect(io2)
+          end
         end
-        wait_for { vhost.session?("mqtt.a").try &.client }
-        old_session = vhost.session("mqtt.a")
-        # Parks the old connection's `Session#delete` in `@vhost.delete_queue`,
-        # after it has marked the session deleted.
-        lock.lock
-        spawn do
-          broker.run_client(MQTT::Protocol::IO.new(n_reader), LavinMQ::ConnectionInfo.local,
-            user, connect_packet("a")) { }
-          n_done.send nil
-        end
-        sleep 50.milliseconds
-        lock.unlock
-        wait_for(1.second) { vhost.session?("mqtt.a").try { |s| s != old_session && s.client } }
-        n_client = broker.@clients["a"]
-        vhost.session("mqtt.a").client.should be n_client
-        # The old connection's `remove_client` may still be waiting to run.
-        wait_for(1.second) { broker.@client_locks.empty? }
-        select
-        when n_done.receive
-          fail "the new connection was closed after CONNACK"
-        else
-        end
-      ensure
-        {c_reader, c_writer, n_reader, n_writer}.each { |io| io.try &.close }
       end
     end
 
@@ -200,6 +190,8 @@ module MqttSpecs
         lock = definitions.@definitions_lock
         with_client_io(server) do |io|
           connect(io, client_id: "a")
+          # A session that is a queue, so the delete below reaches it
+          subscribe(io, topic_filters: mk_topic_filters({"x", 0}))
           client = server.mqtt_server.broker("/").@clients["a"]
           holding = Channel(Nil).new
           go = Channel(Nil).new

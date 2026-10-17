@@ -47,7 +47,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "pub")
-          session = server.vhosts["/"].session("mqtt.pub")
+          session = client_session(server, "pub")
           wait_for { session.client }
           client = session.client.should_not be_nil
           pointerof(client.@io).value = MQTT::Protocol::IO.new(WriteFailingIO.new(client.@io.io))

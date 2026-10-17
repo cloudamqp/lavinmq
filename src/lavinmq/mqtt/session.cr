@@ -126,10 +126,16 @@ module LavinMQ
       # doesn't walk every subscription in the vhost
       getter subscriptions = Hash(String, UInt8).new
 
+      # Whether the session is a queue: in the definitions, counted towards
+      # max-queues and visible in the API. A connection's session becomes one
+      # only once it needs one, see `Sessions#register`.
+      getter? registered : Bool
+
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
-                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new,
+                               @registered = true)
         @last_packet_id = 0u16
         @client_id = @name.lchop(SESSION_PREFIX)
         @permission_service = @vhost.mqtt_permission_service
@@ -314,6 +320,9 @@ module LavinMQ
           client.force_close
         end
         close
+        # One that never became a queue wrote nothing, and its directory can
+        # belong to a queue imported under the same name since
+        return true unless @registered
         @msg_store_lock.synchronize do
           @msg_store.try &.delete
         end
@@ -331,6 +340,10 @@ module LavinMQ
 
       def clean_session?
         @auto_delete
+      end
+
+      protected def registered! : Nil
+        @registered = true
       end
 
       private def deliver_loop
