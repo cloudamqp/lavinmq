@@ -22,4 +22,5 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 - Skip trivial code (getters, covered refactors, config plumbing); extend existing spec files rather than adding new ones.
 
 ## Docs
-- Add a short CHANGELOG.md entry linking the PR; describe user-facing features in docs/.
+- Describe user-facing features in docs/.
+- Don't add CHANGELOG.md entries in feature or fix PRs; the changelog is written when tagging a release.
