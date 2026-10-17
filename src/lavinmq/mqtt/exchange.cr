@@ -22,7 +22,7 @@ module LavinMQ
 
       def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
         ctx.reset
-        @publish_in_count.add(1, :relaxed)
+        publish_in_count_add!
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
 
@@ -40,8 +40,8 @@ module LavinMQ
             msg.body_io.rewind
           end
         end
-        @unroutable_count.add(1, :relaxed) if count.zero?
-        @publish_out_count.add(count, :relaxed)
+        unroutable_count_add! if count.zero?
+        publish_out_count_add!(count)
         count
       end
 

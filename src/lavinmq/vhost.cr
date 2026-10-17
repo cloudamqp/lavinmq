@@ -36,17 +36,16 @@ module LavinMQ
     STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
                   "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
-    rate_stats(STATS_KEYS)
+    rate_stats(STATS_KEYS, striped: true)
 
     DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
-    {% for key in DEAD_LETTER_KEYS %}
-      @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
-
+    @dead_lettered = Stats::StripedCounters.new(DEAD_LETTER_KEYS.size)
+    {% for key, i in DEAD_LETTER_KEYS %}
       def {{ key.id }}_count : UInt64
-        @{{ key.id }}_count.get(:relaxed)
+        @dead_lettered.get({{ i }})
       end
     {% end %}
 
@@ -638,54 +637,50 @@ module LavinMQ
 
     def event_tick(event_type)
       case event_type
-      in EventType::ChannelClosed          then @channel_closed_count.add(1, :relaxed)
-      in EventType::ChannelCreated         then @channel_created_count.add(1, :relaxed)
-      in EventType::ConnectionClosed       then @connection_closed_count.add(1, :relaxed)
-      in EventType::ConnectionCreated      then @connection_created_count.add(1, :relaxed)
-      in EventType::QueueDeclared          then @queue_declared_count.add(1, :relaxed)
-      in EventType::QueueDeleted           then @queue_deleted_count.add(1, :relaxed)
-      in EventType::ClientAck              then @ack_count.add(1, :relaxed)
-      in EventType::ClientPublish          then @publish_count.add(1, :relaxed)
-      in EventType::ClientPublishConfirm   then @confirm_count.add(1, :relaxed)
-      in EventType::ClientRedeliver        then @redeliver_count.add(1, :relaxed)
-      in EventType::ClientReject           then @reject_count.add(1, :relaxed)
-      in EventType::ConsumerAdded          then @consumer_added_count.add(1, :relaxed)
-      in EventType::ConsumerRemoved        then @consumer_removed_count.add(1, :relaxed)
-      in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
+      in EventType::ChannelClosed          then channel_closed_count_add!
+      in EventType::ChannelCreated         then channel_created_count_add!
+      in EventType::ConnectionClosed       then connection_closed_count_add!
+      in EventType::ConnectionCreated      then connection_created_count_add!
+      in EventType::QueueDeclared          then queue_declared_count_add!
+      in EventType::QueueDeleted           then queue_deleted_count_add!
+      in EventType::ClientAck              then ack_count_add!
+      in EventType::ClientPublish          then publish_count_add!
+      in EventType::ClientPublishConfirm   then confirm_count_add!
+      in EventType::ClientRedeliver        then redeliver_count_add!
+      in EventType::ClientReject           then reject_count_add!
+      in EventType::ConsumerAdded          then consumer_added_count_add!
+      in EventType::ConsumerRemoved        then consumer_removed_count_add!
+      in EventType::ClientReturnUnroutable then return_unroutable_count_add!
       in EventType::ClientGet
-        @get_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
+        get_count_add!
+        deliver_get_count_add!
       in EventType::ClientGetNoAck
-        @get_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
+        get_no_ack_count_add!
+        deliver_get_count_add!
       in EventType::ClientDeliver
-        @deliver_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
+        deliver_count_add!
+        deliver_get_count_add!
       in EventType::ClientDeliverNoAck
-        @deliver_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
+        deliver_no_ack_count_add!
+        deliver_get_count_add!
       end
     end
 
     def count_dead_lettered(reason : Symbol, *, dlx : Bool) : Nil
       case reason
-      when :delivery_limit
-        dlx ? @dead_lettered_delivery_limit_at_most_once_count.add(1, :relaxed) : @dead_lettered_delivery_limit_disabled_count.add(1, :relaxed)
-      when :expired
-        dlx ? @dead_lettered_expired_at_most_once_count.add(1, :relaxed) : @dead_lettered_expired_disabled_count.add(1, :relaxed)
-      when :maxlen, :maxlenbytes
-        dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
-      when :rejected
-        dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      when :delivery_limit       then @dead_lettered.add(dlx ? 1 : 0, 1_u64)
+      when :expired              then @dead_lettered.add(dlx ? 3 : 2, 1_u64)
+      when :maxlen, :maxlenbytes then @dead_lettered.add(dlx ? 5 : 4, 1_u64)
+      when :rejected             then @dead_lettered.add(dlx ? 7 : 6, 1_u64)
       end
     end
 
     def add_recv_bytes(bytes : UInt64) : Nil
-      @recv_oct_count.add(bytes, :relaxed)
+      recv_oct_count_add!(bytes)
     end
 
     def add_send_bytes(bytes : UInt64) : Nil
-      @send_oct_count.add(bytes, :relaxed)
+      send_oct_count_add!(bytes)
     end
 
     def sync : Nil

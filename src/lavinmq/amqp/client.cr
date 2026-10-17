@@ -34,9 +34,11 @@ module LavinMQ
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
       @running = true
+      # The read loop's fields, then (after the pad) the fields the sending
+      # fibers write, so the two sides don't share a cache line
       @last_recv_frame = RoughTime.instant
+      rate_stats({"recv_oct", "send_oct"}, pad_after: "recv_oct")
       @last_sent_frame = RoughTime.instant
-      rate_stats({"send_oct", "recv_oct"})
       DEFAULT_EX = "amq.default"
       Log        = LavinMQ::Log.for "amqp.client"
 
@@ -270,9 +272,9 @@ module LavinMQ
           s = @socket
           s.write_bytes frame, IO::ByteFormat::NetworkEndian
           s.flush
+          @last_sent_frame = RoughTime.instant
+          send_oct_count_add!(8_u64 + frame.bytesize)
         end
-        @last_sent_frame = RoughTime.instant
-        @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
         @vhost.add_send_bytes(8_u64 + frame.bytesize)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
@@ -312,7 +314,7 @@ module LavinMQ
           {% end %}
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+          send_oct_count_add!(8_u64 + frame.bytesize)
           @vhost.add_send_bytes(8_u64 + frame.bytesize)
           # Remove BCC header to not expose it to clients.
           # Table#delete will always make the underlying IO writable, even if
@@ -328,7 +330,7 @@ module LavinMQ
           {% end %}
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count.add(8_u64 + header.bytesize, :relaxed)
+          send_oct_count_add!(8_u64 + header.bytesize)
           @vhost.add_send_bytes(8_u64 + header.bytesize)
           pos = 0
           while pos < msg.bodysize
@@ -344,7 +346,7 @@ module LavinMQ
                    end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
-            @send_oct_count.add(8_u64 + body.bytesize, :relaxed)
+            send_oct_count_add!(8_u64 + body.bytesize)
             @vhost.add_send_bytes(8_u64 + body.bytesize)
             pos += length
           end
@@ -448,7 +450,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
         @last_recv_frame = RoughTime.instant
-        @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+        recv_oct_count_add!(8_u64 + frame.bytesize)
         @vhost.add_recv_bytes(8_u64 + frame.bytesize)
         case frame
         when AMQP::Frame::Channel::Open

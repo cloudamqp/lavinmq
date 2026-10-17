@@ -42,8 +42,8 @@ module LavinMQ::AMQP
       return false if @closed
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
+        publish_count_add!
       end
-      @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
       ensure_expire_fiber # restart the release fiber if it died on a transient store error
       true
