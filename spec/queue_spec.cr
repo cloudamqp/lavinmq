@@ -938,6 +938,24 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "deletes an auto-delete queue whose only consumer runs into a store error" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        queue = AckFailsQueue.create(vhost, "ack-fails-auto-delete", auto_delete: true)
+        vhost.register_queue(queue)
+        queue.publish(LavinMQ::Message.new("", queue.name, "1"))
+        queue.fail_ack = true
+        with_channel(s) do |ch|
+          ch.basic_consume(queue.name, no_ack: true) { }
+          # Cancelling the consumer deletes the queue, without waiting for the
+          # deliver loop that cancels it
+          should_eventually(be_nil) { vhost.queue?(queue.name) }
+          queue.state.deleted?.should be_true
+          ch.closed?.should be_false
+        end
+      end
+    end
+
     it "reports no message instead of erroring when its queue is deleted during a get" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
