@@ -56,7 +56,7 @@ A PUBREC, PUBCOMP or PUBREL for a packet ID the session has no record of is trea
 
 Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 and QoS 2 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state. MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
 
-Every connection has a session, created at CONNECT whether or not the client ever subscribes [MQTT-3.1.2-4]. It holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session. A session creates its message storage at its first subscription, so a client that only publishes at QoS 0 or QoS 1 keeps no files and maps no memory. A durable session that publishes at QoS 2 still keeps its `packet_ids.log`, see [QoS 2 exactly-once](#qos-2-exactly-once).
+Every connection has a session, which holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. A session becomes a queue only when it needs one: at its first SUBSCRIBE, or for a persistent session at its first QoS 2 PUBLISH, since its held packet IDs must survive a restart. A client that only publishes at QoS 0 or QoS 1, or a clean session that only publishes, creates no queue, files or memory mappings. Only a persistent session that became a queue is reported as present on reconnect [MQTT-3.1.2-4]; one that held no state is not. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session. A durable session that publishes at QoS 2 keeps its `packet_ids.log`, see [QoS 2 exactly-once](#qos-2-exactly-once).
 
 ### Clean Sessions
 
@@ -70,7 +70,7 @@ When a client connects with `clean_session=true`:
 
 When a client connects with `clean_session=false`:
 
-- The session persists across disconnections
+- The session persists across disconnections, once it is a queue, see [Sessions](#sessions)
 - Subscriptions are preserved
 - Unacknowledged QoS 1 and QoS 2 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
 - QoS 2 deliveries that reached PUBREC but not PUBCOMP have no message left to resend, so their PUBREL is re-sent instead, under the original packet ID [MQTT-4.4.0-1]
@@ -86,9 +86,7 @@ If a client connects with a client ID that already has an active connection, the
 
 ### Session Limits
 
-Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. Since every connection has a session, a clean session counts while its client is connected and a persistent one counts until it is deleted, whether or not the client subscribes. A CONNECT that would create a session past the limit is answered with a CONNACK carrying return code 3 (server unavailable) and the socket is closed. A persistent client reconnecting to its existing session, or a client taking over its own connection, is still accepted, since that consumes no new resource.
-
-Creating the session is part of accepting the connection, so it is not subject to `permission_check_enabled`: any user allowed to connect to the vhost gets one, and `max-queues` is what bounds them.
+Sessions that are queues count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues: a clean one while its client is connected, a persistent one until it is deleted. A CONNECT is never refused for the limit. A SUBSCRIBE whose session would become a queue past it is answered with Failure (`0x80`) for every topic. A persistent session's first QoS 2 PUBLISH past the limit, or without that permission, closes the connection and publishes the client's Will, since MQTT 3.1.1 has no way to refuse a single publish. A persistent client reconnecting to its existing session, or a client taking over its own connection, consumes no new queue.
 
 AMQP clients and the HTTP API cannot create queues with the `mqtt.` prefix, but a definitions import can. If a queue that is not an MQTT session already has the name `mqtt.<client_id>`, a CONNECT with that client ID is answered with a CONNACK carrying return code 2 (identifier rejected) and the socket is closed, until that queue is removed.
 
@@ -281,7 +279,7 @@ Definitions generated from a data directory include the groups in `mqtt_permissi
 ### Upgrading
 
 - A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
-- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it. The session queue itself is created at CONNECT without a permission check, see [Session Limits](#session-limits)
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it. A persistent session's first QoS 2 PUBLISH, which makes it a queue, needs the same write permission on `mqtt.<client_id>`, see [Session Limits](#session-limits)
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication

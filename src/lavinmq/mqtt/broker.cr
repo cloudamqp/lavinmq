@@ -37,6 +37,9 @@ module LavinMQ
       #    when the client is already closing.
       # 4. A client lock is never taken while holding the definitions lock.
       # 5. Only the registered client detaches its session.
+      # 6. Making a session a queue takes the definitions lock, never a client
+      #    lock. A takeover then finds it a queue: `Client#close` waits for the
+      #    read fiber that registers it.
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
@@ -76,10 +79,10 @@ module LavinMQ
         client
       end
 
-      # Every connection gets a session, not only one that subscribes: it holds
-      # the inbound QoS 2 state too, and it is what makes a returning persistent
-      # client's session present [MQTT-3.1.2-4]. Raises before anything is
-      # sent, so the CONNECT can still be refused.
+      # Every connection gets a session, which holds its inbound QoS 2 state.
+      # It becomes a queue only once it needs one, see `#register_session`, so
+      # only such a session is present for a returning client [MQTT-3.1.2-4].
+      # Raises before anything is sent, so the CONNECT can still be refused.
       private def add_client(io, connection_info, user, packet) : {Client, Bool}
         with_client_lock(packet.client_id) { add_client_locked(io, connection_info, user, packet) }
       end
@@ -104,16 +107,12 @@ module LavinMQ
         if existing && existing.closed?
           raise Protocol::Error::ServerUnavailable.new("session \"#{existing.name}\" in vhost \"#{@vhost.name}\" is closed")
         end
-        session = begin
-          sessions.declare(client_id, packet.clean_session?)
-        rescue Sessions::LimitReached
-          raise Protocol::Error::ServerUnavailable.new(
-            "queue limit (#{@vhost.max_queues}) reached in vhost \"#{@vhost.name}\"")
-        rescue ex : Sessions::NameTaken
+        if sessions.name_taken?(client_id)
           # Retrying cannot help until an operator removes that queue.
           raise Protocol::Error::IdentifierRejected.new(
-            "queue \"#{ex.message}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
+            "queue \"#{SESSION_PREFIX}#{client_id}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
         end
+        session = existing || sessions.build(client_id, packet.clean_session?)
         client = MQTT::Client.new(io,
           connection_info,
           user,
@@ -165,7 +164,8 @@ module LavinMQ
           session = client.session
           if session.client.nil? || (session.client == client)
             session.client = nil
-            session.delete if session.clean_session?
+            # One that is not a queue holds no state, and nothing else has it
+            session.delete if session.clean_session? || !session.registered?
           end
         end
       ensure
@@ -186,7 +186,26 @@ module LavinMQ
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
         session = client.session
+        begin
+          register_session(session)
+        rescue ex : MQTT::Error
+          client.log.warn { "Rejecting SUBSCRIBE, its session cannot become a queue: #{ex.message}" }
+          return topics.map { Protocol::SubAck::ReturnCode::Failure }
+        end
         topics.map { |tf| grant(session, tf) }
+      end
+
+      # Makes the session a queue, at its first SUBSCRIBE or a durable
+      # session's first QoS 2 PUBLISH. Raises a `Sessions` error if it can't.
+      def register_session(session : Session) : Nil
+        return if session.registered?
+        if Config.instance.mqtt_permission_check_enabled?
+          user = session.client.try(&.user)
+          unless user && user.can_write?(@vhost.name, session.name)
+            raise Sessions::NotPermitted.new("no write permission on queue \"#{session.name}\"")
+          end
+        end
+        sessions.register(session)
       end
 
       def grant(session : Session, tf) : Protocol::SubAck::ReturnCode

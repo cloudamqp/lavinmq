@@ -43,8 +43,10 @@ module LavinMQ
       @mfile : MFile? = nil
       @closed = false
 
-      def initialize(@path : String, @replicator : Clustering::Replicator?, @persister : Persister?)
-        load if File.exists?(@path)
+      # Without `read_file`, a file at `path` is not read, and the first append
+      # replaces it with the empty live view
+      def initialize(@path : String, @replicator : Clustering::Replicator?, @persister : Persister?, read_file = true)
+        load if read_file && File.exists?(@path)
       end
 
       def publish_received(id : UInt16) : Nil

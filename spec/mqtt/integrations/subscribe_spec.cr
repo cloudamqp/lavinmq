@@ -175,7 +175,7 @@ module MqttSpecs
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
         with_client_io(server) do |io|
           connect(io, client_id: "sub")
-          session = server.vhosts["/"].session("mqtt.sub")
+          session = client_session(server, "sub")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}, {"c/#", 1}))
           session.subscriptions.should eq({"a/b" => 1u8, "c/#" => 1u8})
           exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 1u8

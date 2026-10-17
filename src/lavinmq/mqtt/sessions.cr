@@ -10,6 +10,9 @@ module LavinMQ
       # the HTTP API refuse the prefix, but a definitions import does not.
       class NameTaken < MQTT::Error; end
 
+      # With `permission_check_enabled`, the user may not write to the queue
+      class NotPermitted < MQTT::Error; end
+
       def initialize(@vhost : VHost)
       end
 
@@ -17,19 +20,26 @@ module LavinMQ
         @vhost.session?("#{SESSION_PREFIX}#{client_id}")
       end
 
-      # Raises rather than returning nil, so a caller can tell the failures
-      # apart. An existing session is always returned, reusing one consumes no
-      # new resource.
-      def declare(client_id : String, clean_session : Bool) : Session
-        if session = self[client_id]?
-          return session
+      # A connection's session. It becomes a queue only once it needs one,
+      # see `#register`, so a publish-only client costs no queue.
+      def build(client_id : String, clean_session : Bool) : Session
+        Session.new(@vhost, "#{SESSION_PREFIX}#{client_id}", clean_session, registered: false)
+      end
+
+      # A queue that is not a session has the session's name
+      def name_taken?(client_id : String) : Bool
+        !@vhost.queue?("#{SESSION_PREFIX}#{client_id}").nil?
+      end
+
+      # Makes `session` a queue. Raises rather than returning false, so a
+      # caller can tell the failures apart. A new durable session fsyncs the
+      # definitions file, once: a reconnect finds it registered.
+      def register(session : Session) : Nil
+        return if session.registered?
+        unless @vhost.register_session(session)
+          raise NameTaken.new("queue \"#{session.name}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
         end
-        raise LimitReached.new if @vhost.queue_limit_reached?
-        # A new durable session fsyncs the definitions file. Only its first
-        # CONNECT pays: a reconnect returns the existing one above.
-        name = "#{SESSION_PREFIX}#{client_id}"
-        @vhost.declare_queue(name, !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
-        self[client_id]? || raise NameTaken.new(name)
+        session.registered!
       end
     end
   end

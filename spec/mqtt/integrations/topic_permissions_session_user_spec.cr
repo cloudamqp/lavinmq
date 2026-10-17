@@ -131,13 +131,17 @@ module MqttSpecs
         service = server.vhosts["/"].mqtt_permission_service
         service.delete("default")
         service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true),
+           LavinMQ::MQTT::PermissionGroup::Rule.new("dev", "dev/#", write: true)]))
         service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
 
         with_client_io(server) do |io|
           connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
-          pingpong(io)
+          # Makes the durable session a queue without a subscription
+          publish(io, topic: "dev/x", qos: 2u8, packet_id: 1u16)
+          pubrel(io, 1u16)
+          read_packet(io).should be_a(MQTT::Protocol::PubComp)
           disconnect(io)
         end
         # As the HTTP API or a definitions import would

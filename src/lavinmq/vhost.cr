@@ -168,6 +168,10 @@ module LavinMQ
       definitions.session?(name)
     end
 
+    def register_session(session : MQTT::Session) : Bool
+      definitions.register_session(session)
+    end
+
     def session(name : String) : MQTT::Session
       definitions.session(name)
     end
