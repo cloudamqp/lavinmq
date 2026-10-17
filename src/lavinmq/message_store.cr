@@ -32,11 +32,13 @@ module LavinMQ
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
+    # when_false wakes one consumer per message, see StateChannel#wake_one
     getter empty = BoolChannel.new(true)
 
     def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
                    metadata : ::Log::Metadata = ::Log::Metadata.empty, persister : Persister? = nil)
       @log = Logger.new(Log, metadata)
+      @empty.when_false.wake_one = true
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
@@ -63,7 +65,7 @@ module LavinMQ
       was_empty = @size.zero?
       @bytesize += sp.bytesize
       @size += 1
-      @empty.set false if was_empty
+      notify_not_empty(was_empty)
       sp
     end
 
@@ -73,7 +75,17 @@ module LavinMQ
       @requeued.insert(sp)
       @bytesize += sp.bytesize
       @size += 1
-      @empty.set false if was_empty
+      notify_not_empty(was_empty)
+    end
+
+    # Wakes one consumer per message: the first by the empty -> not empty
+    # transition, the following ones only when consumers are still parked
+    protected def notify_not_empty(was_empty : Bool) : Nil
+      if was_empty
+        @empty.set false
+      else
+        @empty.when_false.signal_one
+      end
     end
 
     def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity

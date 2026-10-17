@@ -56,6 +56,7 @@ module LavinMQ::AMQP
         migrate_from_single_store
 
         @empty = BoolChannel.new(empty?)
+        @empty.when_false.wake_one = true
       end
 
       private def init_sub_stores(stores)
@@ -135,7 +136,7 @@ module LavinMQ::AMQP
         prio = msg.properties.priority || 0u8
         was_empty = size.zero?
         sp = store_for prio, &.push(msg)
-        @empty.set false if was_empty
+        notify_not_empty(was_empty)
         sp
       end
 
@@ -143,7 +144,7 @@ module LavinMQ::AMQP
         raise ClosedError.new if @closed
         was_empty = size.zero?
         store_for sp, &.requeue(sp)
-        @empty.set false if was_empty
+        notify_not_empty(was_empty)
       end
 
       def first? : Envelope?
