@@ -5,6 +5,7 @@ require "./filesystem"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "sync/exclusive"
+require "../stdlib/isolated_wait_for"
 
 module LavinMQ
   # Makes confirmed publishes durable before they are confirmed. A single

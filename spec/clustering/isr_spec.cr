@@ -107,7 +107,8 @@ describe LavinMQ::Clustering::Server do
       client_io.close # drop while behind; no further replication write follows
 
       wait_for { coordinator.last_isr.try { |s| !s.includes?(follower_id) } }
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_false
     ensure
       client_io.try &.close
       server.try &.close
@@ -135,7 +136,8 @@ describe LavinMQ::Clustering::Server do
       # confirmed so far and is a valid candidate). It is only removed before
       # the next replicated durable operation or publish confirm (see the
       # specs below).
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_true
     ensure
       client_io.try &.close
       server.try &.close
@@ -156,7 +158,7 @@ describe LavinMQ::Clustering::Server do
       wait_for { server.followers.any? &.id.== follower_id }
       client_io.close # caught up, so it stays listed
       wait_for { server.followers.empty? }
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+      coordinator.last_isr.should_not(be_nil).includes?(follower_id).should be_true
 
       # Back, maybe with lost or stale data: not electable during its full sync
       client_io = connect_follower(server, port, follower_id)
@@ -297,7 +299,8 @@ describe LavinMQ::Clustering::Server do
 
       client_io.close # caught-up disconnect: stays in the ISR, marks it dirty
       wait_for { server.followers.empty? }
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_true
 
       # Durable operations that don't go through the Persister (queue/exchange
       # declares appending to definitions.amqp, users.json replaces, segment
@@ -305,7 +308,8 @@ describe LavinMQ::Clustering::Server do
       # before they are acknowledged to any client — otherwise a leader crash
       # could elect the disconnected follower without the acknowledged change.
       server.append_bytes(File.join(data_dir, "definitions.amqp"), "frame".to_slice, 0i64)
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_false
     ensure
       client_io.try &.close
       server.try &.close
@@ -354,7 +358,8 @@ describe LavinMQ::Clustering::Server do
           when timeout(5.seconds)
             fail "Declare-Ok never delivered after the follower acked"
           end
-          coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+          isr = coordinator.last_isr.should_not be_nil
+          isr.includes?(follower_id).should be_true
         end
       end
     ensure
@@ -394,7 +399,8 @@ describe LavinMQ::Clustering::Server do
           when timeout(10.seconds)
             fail "Declare-Ok never delivered after the silent follower was evicted"
           end
-          coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+          isr = coordinator.last_isr.should_not be_nil
+          isr.includes?(follower_id).should be_false
         end
       end
     ensure
@@ -420,7 +426,8 @@ describe LavinMQ::Clustering::Server do
 
       client_io.close # caught-up disconnect: stays in the ISR, marks it dirty
       wait_for { server.followers.empty? }
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_true
 
       # The confirm itself must commit the shrunken ISR first: everything
       # confirmed from here on is missing on the disconnected follower, so it
@@ -431,7 +438,8 @@ describe LavinMQ::Clustering::Server do
           q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
         end
       end
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_false
     ensure
       client_io.try &.close
       server.try &.close
@@ -454,7 +462,8 @@ describe LavinMQ::Clustering::Server do
 
       client_io.close # caught-up disconnect: stays in the ISR, marks it dirty
       wait_for { server.followers.empty? }
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_true
 
       with_amqp_server(replicator: server) do |s|
         with_channel(s) do |ch|
@@ -462,7 +471,8 @@ describe LavinMQ::Clustering::Server do
           q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
         end
       end
-      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+      isr = coordinator.last_isr.should_not be_nil
+      isr.includes?(follower_id).should be_false
     ensure
       client_io.try &.close
       server.try &.close
@@ -505,7 +515,7 @@ describe LavinMQ::Clustering::Server do
           end
 
           follower = server.followers.find!(&.id.== follower_id)
-          client_io.not_nil!.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+          client_io.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
           select
           when ok = confirmed.receive
             ok.should be_true
@@ -568,7 +578,8 @@ describe LavinMQ::Clustering::Server do
           when timeout(5.seconds)
             fail "confirm never delivered after the ISR write succeeded"
           end
-          coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+          isr = coordinator.last_isr.should_not be_nil
+          isr.includes?(follower_id).should be_false
         end
       end
     ensure

@@ -20,17 +20,17 @@ module LavinMQ
         "x-consistent-hash"
       end
 
-      def handle_arguments
+      private def stage_arguments
         super
         if v = @arguments["x-algorithm"]?
           if hasher = v.as?(String)
             if algo = ConsistentHashAlgorithm.parse?(hasher)
               @hasher = select_hasher(algo)
-              @effective_args << "x-algorithm"
+              @staged_effective_args << "x-algorithm"
             end
           end
         end
-        @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+        @staged_effective_args << "x-hash-on" if @arguments["x-hash-on"]?
       end
 
       private def select_hasher(option : ConsistentHashAlgorithm)
@@ -59,7 +59,7 @@ module LavinMQ
         return false unless @bindings.add?({destination, binding_key})
         @hasher.add(destination.name, w, destination)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        upstreams_bound(data)
         true
       end
 
@@ -73,7 +73,7 @@ module LavinMQ
         end
         @hasher.remove(destination.name, w) unless has_other_binding
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        upstreams_unbound(data)
 
         delete if @auto_delete && @bindings.empty?
         true

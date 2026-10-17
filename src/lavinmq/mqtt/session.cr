@@ -12,6 +12,7 @@ require "../vhost"
 require "./consts"
 require "./permission_service"
 require "./session_message_store"
+require "./subscriber"
 
 module LavinMQ
   module MQTT
@@ -21,6 +22,7 @@ module LavinMQ
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
+      include MQTT::Subscriber
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
@@ -232,10 +234,12 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
+      # A concurrent API deletion can make the bind fail.
+      # TODO: Check session identity under the definitions lock before binding.
+      def subscribe(tf, qos) : Bool
         arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
+          return true if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
@@ -245,6 +249,10 @@ module LavinMQ
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
         end
+      end
+
+      def deliver(msg : Message, filter : String, ctx : PublishContext) : Bool
+        publish(msg)
       end
 
       # Returns whether the message was accepted, so the exchange only counts

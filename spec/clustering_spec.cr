@@ -191,19 +191,16 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
         serve_metrics(s) do |http|
           body = http.get("/metrics").body
-          sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id})
-          acked = metric_value(body, "lavinmq_follower_bytes_acked_total", {"id" => follower_id})
-          sent.should_not be_nil
-          acked.should_not be_nil
-          sent.not_nil!.should be > 0
-          acked.not_nil!.should be > 0
+          sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id}).should_not be_nil
+          acked = metric_value(body, "lavinmq_follower_bytes_acked_total", {"id" => follower_id}).should_not be_nil
+          sent.should be > 0
+          acked.should be > 0
         end
 
         serve_follower_metrics(cluster.repli) do |http|
           body = http.get("/metrics").body
-          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total "))
-          line.should_not be_nil
-          line.not_nil!.split(' ').last.to_f.should be > 0
+          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total ")).should_not be_nil
+          line.split(' ').last.to_f.should be > 0
         end
       end
     end
@@ -470,7 +467,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       config = LavinMQ::Config.new
       config.data_dir = data_dir
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!)
+      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!("advertised URI not set"))
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
       controller = SelfLeaderController.new(config, etcd, coordinator)
       done = Channel(Exception?).new(1)

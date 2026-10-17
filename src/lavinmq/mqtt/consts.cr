@@ -8,6 +8,8 @@ module LavinMQ
 
     SESSION_PREFIX = "mqtt."
 
+    RETAIN_HEADERS = AMQP::Table.new({RETAIN_HEADER => true})
+
     QOS0_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 0u8})
     QOS1_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 1u8})
 

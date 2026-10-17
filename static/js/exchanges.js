@@ -99,7 +99,3 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
     })
     .catch(() => {})
 })
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('addExchange', 'arguments', e)
-})

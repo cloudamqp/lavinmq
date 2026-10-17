@@ -2,6 +2,8 @@ require "log"
 require "file"
 require "systemd"
 require "./server"
+require "../stdlib/io_buffered"
+require "../stdlib/fiber"
 require "./amqp/server"
 require "./mqtt/server"
 require "./http/http_server"
@@ -28,6 +30,7 @@ module LavinMQ
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
+    @metrics_server : LavinMQ::HTTP::MetricsServer?
 
     def initialize(@config : Config)
       print_environment_info
@@ -42,10 +45,12 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
+      @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
+
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
+        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
         @replicator = Clustering::Server.new(@config, coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
@@ -71,17 +76,18 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
       start_listeners(amqp_server, mqtt_server, http_server)
-      start_metrics_server(server) unless @config.metrics_http_port == -1
+      @metrics_server.try &.leader = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
-    rescue ex : Socket::BindError
+    rescue ex : Socket::BindError | HTTP::ControlSocketError
       stop
       abort "Error: #{ex.message}"
     end
 
     def run
+      start_metrics_server
       @runner.run do
         start
       end
@@ -192,12 +198,17 @@ module LavinMQ
       exit 1
     end
 
-    private def start_metrics_server(server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server)
+    # Bound once, before the node knows its role, and kept until shutdown so
+    # that the port isn't rebound when a follower becomes leader
+    private def start_metrics_server
+      return unless metrics_server = @metrics_server
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
+    rescue ex : Socket::BindError
+      stop
+      abort "Error: #{ex.message}"
     end
 
     private def start_listeners(amqp_server, mqtt_server, http_server)
@@ -258,7 +269,26 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
+      total_stack = 0_u64
+      Fiber.list do |f|
+        if stack = f.stack_used
+          total_stack += stack
+          puts "  #{f.inspect}: #{stack.humanize_bytes}"
+        else
+          puts "  #{f.inspect}: running"
+        end
+      end
+      puts "  total stack used (excluding running fibers): #{total_stack.humanize_bytes}"
+      IO::BufferPool.all.each do |pool|
+        stats = pool.stats
+        puts "Buffer pool (#{stats[:buffer_size].humanize_bytes} buffers)"
+        puts "  threads: #{stats[:threads]}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+        puts "  dropped: #{stats[:dropped]}"
+      end
       STDOUT.flush
     end
 

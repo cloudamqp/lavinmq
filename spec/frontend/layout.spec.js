@@ -46,6 +46,38 @@ test.describe('theme switcher', _ => {
     await expect(page.locator('html')).toContainClass('theme-dark')
   })
 
+  test('theme changed in another tab is applied', async ({ page, context }) => {
+    await page.goto('/')
+    await expect(page.locator('html')).not.toContainClass('theme-dark')
+    const other = await context.newPage()
+    await other.goto('/')
+    await other.locator('#theme-dark').click()
+    await expect(page.locator('html')).toContainClass('theme-dark')
+    await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+  })
+
+  test('theme set on a later page is applied when navigating back', async ({ playwright, browserName, baseURL, storageState }, testInfo) => {
+    test.skip(browserName !== 'chromium', 'launch flags are chromium specific')
+    // Playwright disables the back/forward cache by default
+    const browser = await playwright.chromium.launch({
+      ...testInfo.project.use.launchOptions,
+      ignoreDefaultArgs: ['--disable-back-forward-cache'],
+      args: ['--enable-features=BackForwardCache']
+    })
+    try {
+      const page = await (await browser.newContext({ baseURL, storageState })).newPage()
+      await page.goto('/')
+      await page.locator('#theme-light').click()
+      await page.goto('/queues')
+      await page.locator('#theme-dark').click()
+      await page.evaluate(() => history.back())
+      await expect(page.locator('html')).toContainClass('theme-dark')
+      await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+    } finally {
+      await browser.close()
+    }
+  })
+
   test('html gets theme-dark when OS changes to dark and system theme is active', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' })
     await page.goto('/')
@@ -76,6 +108,27 @@ test.describe('theme switcher', _ => {
   })
 })
 
+test.describe('phone header', _ => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('the open user menu fits the screen', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('#usermenu-button').click()
+    for (const item of ['#username', '#refresh-toggle', '#theme-switcher', '#signoutLink']) {
+      await expect(page.locator(item)).toBeInViewport({ ratio: 1 })
+    }
+  })
+
+  test('the theme toggle cycles through system, light and dark', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('#usermenu-button').click()
+    for (const theme of ['theme-light', 'theme-dark', 'system']) {
+      await page.locator('#theme-switcher button:visible').click()
+      await expect(page.locator('html')).toContainClass(theme)
+    }
+  })
+})
+
 test.describe('version', _ => {
   // The version is advertised via the `LavinMQ-Version` header on API responses
   // and picked up by http.js. The queues page is used because the nodes page
@@ -95,6 +148,19 @@ test.describe('version', _ => {
     const shown = await page.locator('#version').textContent()
     const stored = await page.evaluate(() => window.sessionStorage.getItem('lavinmq_version'))
     expect(stored).toBe(shown)
+  })
+
+  test('stats interval is read from the LavinMQ-Stats-Interval header', async ({ page }) => {
+    await page.route(/\/api\//, async route => {
+      const response = await route.fetch()
+      const headers = { ...response.headers(), 'lavinmq-stats-interval': '60000' }
+      await route.fulfill({ response, headers })
+    })
+    await page.goto('/')
+    await expect.poll(() =>
+      page.evaluate(url => import(url).then(m => m.statsInterval()), '/js/http.js')
+    ).toBe(60000)
+    await page.unrouteAll({ behavior: 'wait' })
   })
 
   // The header partial has an inline script that paints the cached version

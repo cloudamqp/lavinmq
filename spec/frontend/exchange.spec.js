@@ -22,6 +22,19 @@ test.describe('exchange', _ => {
     }
   })
 
+  test('renders the details once a refresh succeeds after a failed first load', async ({ page }) => {
+    await page.clock.install()
+    let failed = false
+    await page.route(`**/${apiPath}`, route => {
+      if (failed) return route.fallback()
+      failed = true
+      return route.fulfill({ status: 503, json: { reason: 'unavailable' } })
+    })
+    await page.goto(pagePath)
+    await page.clock.runFor(5000)
+    await expect(page.locator('#e-type')).toHaveText('topic')
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 
@@ -40,6 +53,44 @@ test.describe('exchange', _ => {
     // Verify the new exchange is loaded
     await expect(apiNewExchangeRequest).toBeRequested()
     await expect(page).toHaveURL(new RegExp(`exchange${newHash}`))
+  })
+
+  test('marks policy and arguments unsupported for x-mqtt-topic exchanges', async ({ page }) => {
+    const exchangeResponse = {
+      name: 'mlogs',
+      vhost: '/',
+      type: 'x-mqtt-topic',
+      durable: true,
+      auto_delete: false,
+      internal: true,
+      arguments: {},
+      effective_arguments: [],
+      message_stats: {},
+      policy: 'all-queues'
+    }
+    const exchangeLoaded = helpers.waitForPathRequest(page, 'api/exchanges/%2F/mlogs', { response: exchangeResponse })
+    await page.goto('/exchange#vhost=%2F&name=mlogs')
+    await expect(exchangeLoaded).toBeRequested()
+    await expect(page.locator('#e-policy')).toHaveText('Not supported')
+    await expect(page.locator('#e-arguments')).toHaveText('Not supported by this exchange type')
+  })
+
+  test('hints MQTT filter syntax in the binding form for x-mqtt-topic exchanges', async ({ page }) => {
+    const exchangeResponse = {
+      name: 'mlogs',
+      vhost: '/',
+      type: 'x-mqtt-topic',
+      durable: true,
+      auto_delete: false,
+      internal: true,
+      arguments: {},
+      effective_arguments: [],
+      message_stats: {}
+    }
+    const exchangeLoaded = helpers.waitForPathRequest(page, 'api/exchanges/%2F/mlogs', { response: exchangeResponse })
+    await page.goto('/exchange#vhost=%2F&name=mlogs')
+    await expect(exchangeLoaded).toBeRequested()
+    await expect(page.locator('#addBinding [name="routing_key"]')).toHaveAttribute('placeholder', 'MQTT topic filter, e.g. sensors/+/temp')
   })
 
   test('keeps binding form values and table unchanged when add fails', async ({ page }) => {

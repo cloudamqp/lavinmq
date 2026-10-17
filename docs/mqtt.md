@@ -86,6 +86,9 @@ MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wil
 Examples:
 - `sensor/+/temperature` matches `sensor/room1/temperature` but not `sensor/room1/sub/temperature`
 - `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
+- `sensor/#` also matches `sensor`, because `#` includes the parent level
+
+A filter that starts with `#` or `+` does not match a topic that starts with `$`. To get messages on `$` topics, subscribe to a filter that starts with the `$` level, for example `$SYS/#`.
 
 ## MQTT-AMQP Bridge
 
@@ -94,8 +97,26 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 - A dedicated MQTT exchange handles topic routing
 - Each MQTT session is an AMQP queue
 - MQTT subscriptions are bindings on the MQTT exchange
-- MQTT topic separators (`/`) map directly to AMQP routing key segments
+- The MQTT topic is used unchanged as the routing key: `/` is not translated to `.`, also not for messages delivered to AMQP consumers through an [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp)
 - Message properties are mapped between protocols (e.g., `delivery_mode` maps to QoS, `mqtt.retain` header tracks retain flag)
+
+## Consuming MQTT Messages over AMQP
+
+An exchange of type `x-mqtt-topic` makes MQTT publishes available to AMQP consumers. Declare one, then bind queues to it with MQTT topic filters as binding keys:
+
+```
+exchange.declare  name=sensors  type=x-mqtt-topic  durable=true
+queue.declare     name=sensor-readings  durable=true
+queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+/temp
+```
+
+Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
+
+- The exchange is always internal, so AMQP clients cannot publish into it
+- Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
+- The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
+- [Retained messages](#retained-messages) are not replayed when a binding is created
+- Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
 
 ## Configuration
 
@@ -248,5 +269,5 @@ Note that connecting with a client_id already in use takes over that session, so
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
-- AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
+- An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).

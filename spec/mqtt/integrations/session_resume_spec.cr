@@ -330,7 +330,7 @@ module MqttSpecs
     it "passes over a remembered id that is already in flight" do
       with_server do |server|
         sent = deliver_unacked(server, ["0", "1"])
-        first_id = sent.first.packet_id.not_nil!
+        first_id = sent.first.packet_id.should_not be_nil
 
         session = server.vhosts["/"].session("mqtt.resumer")
         wait_for { session.client.nil? }
