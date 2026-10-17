@@ -1,7 +1,44 @@
 require "./spec_helper"
 require "../../src/lavinmq/mqtt/subscription_tree"
 
+# Equal to every other instance, as a subscriber's superclass could be
+class ValueEqualBase
+  def ==(other : ValueEqualBase)
+    true
+  end
+
+  def hash(hasher)
+    hasher
+  end
+end
+
+class ValueEqualSubscriber < ValueEqualBase
+  include LavinMQ::MQTT::Subscriber
+
+  def deliver(msg : LavinMQ::Message, filter : String, ctx : LavinMQ::MQTT::PublishContext) : Bool
+    true
+  end
+end
+
 describe LavinMQ::MQTT::SubscriptionTree do
+  it "keeps subscribers apart that their superclass considers equal" do
+    tree = LavinMQ::MQTT::SubscriptionTree(LavinMQ::MQTT::Subscriber).new
+    subscribers = Array.new(LavinMQ::MQTT::SubscriberSet::ARRAY_MAX + 1) { ValueEqualSubscriber.new }
+    count = -> do
+      n = 0
+      tree.each_entry("a/b") { n += 1 }
+      n
+    end
+    # The first two in array mode, then all of them in map mode
+    tree.subscribe("a/b", subscribers[0], 0u8)
+    tree.subscribe("a/b", subscribers[1], 0u8)
+    count.call.should eq 2
+    subscribers.each { |s| tree.subscribe("a/b", s, 0u8) }
+    count.call.should eq subscribers.size
+    tree.unsubscribe("a/b", subscribers[0])
+    count.call.should eq subscribers.size - 1
+  end
+
   describe "#any?" do
     it "returns false for empty tree" do
       tree = LavinMQ::MQTT::SubscriptionTree(String).new
