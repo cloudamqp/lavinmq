@@ -84,7 +84,7 @@ describe LavinMQ::MQTT::SubscriptionTree do
         tree.subscribe("topic#{i}", session, 0u8)
         tree.unsubscribe("topic#{i}", session)
       end
-      tree.@non_wildcards.size.should eq 0
+      tree.@root.get.non_wildcards.size.should eq 0
     end
 
     it "keeps the entry when other subscribers remain on the filter" do
@@ -92,7 +92,7 @@ describe LavinMQ::MQTT::SubscriptionTree do
       tree.subscribe("topic", "session1", 0u8)
       tree.subscribe("topic", "session2", 0u8)
       tree.unsubscribe("topic", "session1")
-      tree.@non_wildcards.size.should eq 1
+      tree.@root.get.non_wildcards.size.should eq 1
       matched = 0
       tree.each_entry("topic") { matched += 1 }
       matched.should eq 1
@@ -320,5 +320,125 @@ describe LavinMQ::MQTT::SubscriptionTree do
       calls += 1
     end
     calls.should eq 7
+  end
+
+  # Publishes walk the tree on several threads while subscribes and
+  # unsubscribes on another thread replace it
+  it "matches a stable subscription while other subscriptions churn", tags: "slow" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    stable = "stable"
+    tree.subscribe("a/+/c", stable, 1u8)
+    filters = Array(String).new(200) do |i|
+      case i % 4
+      when 0 then "a/b#{i}/c"
+      when 1 then "a/+/c/#{i}"
+      when 2 then "a/b/#"
+      else        "a/b/c"
+      end
+    end
+    churners = Array(String).new(50) { |i| "churner#{i}" }
+    stop = Atomic(Bool).new(false)
+    misses = Atomic(Int32).new(0)
+    ctx = Fiber::ExecutionContext::Parallel.new("tree-churn", 4)
+    wg = WaitGroup.new(4)
+    4.times do
+      ctx.spawn do
+        i = 0
+        until stop.get(:relaxed)
+          found = 0
+          tree.each_entry("a/b/c") do |s, qos, filter|
+            found += 1 if s.same?(stable) && qos == 1u8 && filter == "a/+/c"
+          end
+          misses.add(1) unless found == 1
+          Fiber.yield if (i += 1) % 64 == 0
+        end
+      ensure
+        wg.done
+      end
+    end
+    20.times do
+      churners.each { |c| filters.each { |f| tree.subscribe(f, c, 0u8) } }
+      churners.each { |c| filters.each { |f| tree.unsubscribe(f, c) } }
+    end
+    stop.set(true)
+    wg.wait
+    misses.get.should eq 0
+    tree.size.should eq 1
+  end
+
+  it "doesn't lose subscriptions from concurrent subscribes and unsubscribes", tags: "slow" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    sessions = Array(String).new(8) { |t| "session#{t}" }
+    ctx = Fiber::ExecutionContext::Parallel.new("tree-writers", 4)
+    wg = WaitGroup.new(8)
+    8.times do |t|
+      ctx.spawn do
+        100.times do |i|
+          filter = i.even? ? "t#{t}/k#{i}/+" : "t#{t}/k#{i}"
+          tree.subscribe(filter, sessions[t], 0u8)
+          tree.unsubscribe(filter, sessions[t]) if i % 4 >= 2
+        end
+      ensure
+        wg.done
+      end
+    end
+    wg.wait
+    tree.size.should eq 8 * 50
+    8.times do |t|
+      100.times do |i|
+        topic = i.even? ? "t#{t}/k#{i}/x" : "t#{t}/k#{i}"
+        count = 0
+        tree.each_entry(topic) { count += 1 }
+        count.should eq(i % 4 >= 2 ? 0 : 1)
+      end
+    end
+  end
+
+  it "keeps a tree read before a change unchanged" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    tree.subscribe("a/+", "s1", 0u8)
+    before = tree.@root.get
+    tree.subscribe("a/+", "s2", 1u8)
+    tree.unsubscribe("a/+", "s1")
+    seen = [] of String
+    before.each_entry("a/b") { |s, _, _| seen << s }
+    seen.should eq ["s1"]
+    seen.clear
+    tree.each_entry("a/b") { |s, _, _| seen << s }
+    seen.should eq ["s2"]
+  end
+end
+
+describe LavinMQ::MQTT::SubscriberSet do
+  it "switches between array and map at the size limits, keeping its contents" do
+    limit = LavinMQ::MQTT::SubscriberSet::ARRAY_MAX
+    subscribers = Array(String).new(limit + 10) { |i| "s#{i}" }
+    ref = Hash(String, UInt8).new
+    set = LavinMQ::MQTT::SubscriberSet(String).empty
+    check = ->(current : LavinMQ::MQTT::SubscriberSet(String)) do
+      current.size.should eq ref.size
+      seen = Hash(String, UInt8).new
+      current.each { |s, q| seen[s] = q }
+      seen.should eq ref
+    end
+    subscribers.each_with_index do |s, i|
+      ref[s] = (i % 3).to_u8
+      set = set.put(s, (i % 3).to_u8)
+      check.call(set)
+    end
+    set.@map.should_not be_nil
+    # Changing the QoS of a subscriber replaces it, the same QoS is a no-op
+    set.put(subscribers[0], 0u8).should be(set)
+    ref[subscribers[0]] = 2u8
+    set = set.put(subscribers[0], 2u8)
+    check.call(set)
+    set.delete("missing").should be(set)
+    subscribers.each do |s|
+      ref.delete(s)
+      set = set.delete(s)
+      check.call(set)
+    end
+    set.@entries.should_not be_nil
+    set.empty?.should be_true
   end
 end
