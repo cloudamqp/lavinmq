@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- PostgreSQL source for shovels: a shovel with a `postgres://` `src-uri` and a `src-publication` streams the publication's row changes over logical replication (`pgoutput`) and publishes one JSON message per committed transaction to the destination, at-least-once, resuming from its replication slot. Requires PostgreSQL 14 or later [#2472](https://github.com/cloudamqp/lavinmq/pull/2472)
 - Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have unrestricted read and configure permissions on that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 
 ### Changed

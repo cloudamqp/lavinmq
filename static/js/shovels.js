@@ -65,12 +65,16 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   const srcDiv = document.createElement('span')
   const consumerArgs = item.value['src-consumer-args'] || {}
   let srcType = 'exchange'
-  if (consumerArgs['x-stream-offset']) {
+  if (item.value['src-publication']) {
+    srcType = 'publication'
+  } else if (consumerArgs['x-stream-offset']) {
     srcType = 'stream'
   } else if (item.value['src-queue']) {
     srcType = 'queue'
   }
-  if (srcType === 'exchange') {
+  if (srcType === 'publication') {
+    srcDiv.textContent = item.value['src-publication']
+  } else if (srcType === 'exchange') {
     srcDiv.textContent = item.value['src-exchange']
   } else {
     srcDiv.textContent = item.value['src-queue']
@@ -121,7 +125,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   const editBtn = DOM.button.edit({
     click: function () {
       Form.editItem('#createShovel', item, {
-        'src-type': (_item) => srcType,
+        'src-type': (_item) => srcType === 'publication' ? 'queue' : srcType,
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
@@ -156,10 +160,29 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 11, btns, 'right')
 })
 
-document.querySelector('[name=src-type]').addEventListener('change', function () {
-  document.getElementById('srcRoutingKey').classList.toggle('hide', this.value !== 'exchange')
-  document.getElementById('srcOffset').classList.toggle('hide', this.value !== 'stream')
-})
+function isPostgresUri (uri) {
+  return /^postgres(ql)?:\/\//.test(uri)
+}
+
+// A PostgreSQL source streams a publication; it has no queue/exchange
+function updateSrcFields () {
+  const form = document.querySelector('#createShovel')
+  const isPg = isPostgresUri(form.querySelector('[name=src-uri]').value)
+  const srcType = form.querySelector('[name=src-type]').value
+  // Hidden fields are disabled so they're neither validated nor submitted
+  form.querySelectorAll('.amqp-src-field').forEach(e => e.classList.toggle('hide', isPg))
+  form.querySelectorAll('.amqp-src-field :is(input, select)').forEach(e => { e.disabled = isPg })
+  form.querySelectorAll('.pg-src-field').forEach(e => e.classList.toggle('hide', !isPg))
+  form.querySelectorAll('.pg-src-field input').forEach(e => { e.disabled = !isPg })
+  document.getElementById('srcRoutingKey').classList.toggle('hide', isPg || srcType !== 'exchange')
+  document.getElementById('srcOffset').classList.toggle('hide', isPg || srcType !== 'stream')
+}
+
+document.querySelector('[name=src-type]').addEventListener('change', updateSrcFields)
+// Reset (Cancel, or after saving) restores the values after this event fires
+document.querySelector('#createShovel').addEventListener('reset', () => setTimeout(updateSrcFields))
+document.querySelector('[name=src-uri]').addEventListener('input', updateSrcFields)
+document.querySelector('[name=src-uri]').addEventListener('change', updateSrcFields)
 
 document.querySelector('[name=dest-uri]').addEventListener('change', function () {
   const isHttp = this.value.startsWith('http')
@@ -187,9 +210,14 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       'ack-mode': data.get('ack-mode')
     }
   }
-  const srcType = data.get('src-type')
+  const srcType = isPostgresUri(data.get('src-uri')) ? 'publication' : data.get('src-type')
   const offset = data.get('src-offset')
   switch (srcType) {
+    case 'publication':
+      body.value['src-publication'] = data.get('src-publication')
+      if (data.get('src-slot')) body.value['src-slot'] = data.get('src-slot')
+      delete body.value['src-delete-after']
+      break
     case 'queue':
       body.value['src-queue'] = data.get('src-endpoint')
       break
