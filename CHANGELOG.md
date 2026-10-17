@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
 - An exchange uses its alternate exchange only when none of its own bindings match the routing key or CC/BCC keys, as in RabbitMQ. Before, the alternate exchange was used only if no queue had been found anywhere in the routing so far, so the outcome depended on binding order, and an exchange-to-exchange binding whose exchange routed nowhere didn't count as a match [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- MQTT publishes match subscriptions through an immutable subscription tree, without locking, which keeps matching safe while clients subscribe and unsubscribe on other threads [#2484](https://github.com/cloudamqp/lavinmq/pull/2484)
 
 ### Fixed
 
