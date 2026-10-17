@@ -22,6 +22,13 @@ module LavinMQ
       end
 
       def_hash properties_key
+
+      # Not the default struct equality: that would also compare the
+      # properties_key cache, so a key whose hash had been computed would
+      # differ from an identical fresh one
+      def ==(other : BindingKey) : Bool
+        @routing_key == other.routing_key && @arguments == other.arguments
+      end
     end
   end
 end

@@ -9,12 +9,15 @@ module LavinMQ
       private class Binding
         private record Pair, key : String, value : AMQP::Field
 
-        getter destinations = Set({Destination, BindingKey}).new
+        # Replaced, never mutated (see `with`)
+        getter destinations : BindingSet
         @match_any : Bool
-        @args_empty : Bool
+        # Only a binding without arguments matches a message without headers
+        getter? args_empty : Bool
         @pairs : Array(Pair)
 
         def initialize(args : AMQP::Table, default_match_any : Bool)
+          @destinations = BindingSet.empty
           @args_empty = args.empty?
           @match_any = case args["x-match"]?
                        when "any" then true
@@ -25,6 +28,17 @@ module LavinMQ
           args.each do |k, v|
             @pairs << Pair.new(k, v) unless k.starts_with?("x-")
           end
+        end
+
+        protected def initialize(other : Binding, @destinations : BindingSet)
+          @args_empty = other.@args_empty
+          @match_any = other.@match_any
+          @pairs = other.@pairs
+        end
+
+        # The same match spec with another set of destinations
+        def with(destinations : BindingSet) : Binding
+          Binding.new(self, destinations)
         end
 
         def matches?(headers : AMQP::Table?) : Bool
@@ -38,7 +52,30 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(AMQP::Table, Binding).new
+      # The bindings as a flat array, which publishes scan as every binding
+      # has to be matched: an array scans much faster than the trie. Built
+      # from the version of @bindings it is tagged with.
+      private class Routes
+        getter version : UInt64
+        getter entries : Array(Binding)
+
+        def initialize(@version, @entries)
+        end
+      end
+
+      # Arguments => match spec and bindings. Replaced, never mutated, so
+      # publishers on other threads route without locks.
+      @bindings = CowMap(AMQP::Table, Binding).new
+      # Bumped after every change to @bindings
+      @bindings_version = Atomic(UInt64).new(0u64)
+      # Rebuilt by a fiber after changes, see TopicExchange@routes. Until
+      # it's rebuilt publishes scan @bindings instead.
+      @routes = Atomic(Routes).new(Routes.new(0u64, Array(Binding).new))
+      # Set while a rebuild is scheduled, so a burst of changes spawns one
+      @routes_rebuild_scheduled = Atomic(Bool).new(false)
+      # Serializes binds and unbinds, which read, change and replace the
+      # bindings of an arguments table
+      @bindings_lock = Mutex.new
       @default_match_any : Bool
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -54,15 +91,19 @@ module LavinMQ
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.values.flat_map do |binding|
-          binding.destinations.map do |d, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, d)
+        details = Array(BindingDetails).new
+        @bindings.each_value do |binding|
+          binding.destinations.each do |e|
+            details << BindingDetails.new(name, vhost.name, e.binding_key, e.destination)
           end
         end
+        details
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.destinations.size)
+        count = 0
+        @bindings.each_value { |binding| count += binding.destinations.size }
+        count
       end
 
       def bind(destination : Destination, routing_key, arguments)
@@ -70,8 +111,13 @@ module LavinMQ
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments] ||= Binding.new(arguments, @default_match_any)
-        return false unless binding.destinations.add?({destination, binding_key})
+        @bindings_lock.synchronize do
+          binding = @bindings[arguments]? || Binding.new(arguments, @default_match_any)
+          destinations = binding.destinations.add(destination, binding_key) || return false
+          @bindings[arguments] = binding.with(destinations)
+          @bindings_version.add(1u64)
+        end
+        schedule_routes_rebuild
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_bound(data)
         true
@@ -80,14 +126,23 @@ module LavinMQ
       def unbind(destination : Destination, routing_key, arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments]? || return false
-        return false unless binding.destinations.delete({destination, binding_key})
-        @bindings.delete(arguments) if binding.destinations.empty?
+        @bindings_lock.synchronize do
+          binding = @bindings[arguments]? || return false
+          destinations = binding.destinations.delete(destination, binding_key)
+          return false if destinations.same?(binding.destinations)
+          if destinations.empty?
+            @bindings.delete(arguments)
+          else
+            @bindings[arguments] = binding.with(destinations)
+          end
+          @bindings_version.add(1u64)
+        end
+        schedule_routes_rebuild
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         upstreams_unbound(data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.destinations.empty?)
+        delete if @auto_delete && @bindings.empty?
         true
       end
 
@@ -101,11 +156,58 @@ module LavinMQ
         end
       end
 
+      private def schedule_routes_rebuild : Nil
+        return if @routes_rebuild_scheduled.swap(true)
+        spawn(name: "headers exchange routes rebuild") { rebuild_routes }
+      end
+
+      # See TopicExchange#rebuild_routes
+      private def rebuild_routes : Nil
+        @routes_rebuild_scheduled.swap(false)
+        version = @bindings_version.get
+        snapshot = @bindings.snapshot
+        entries = Array(Binding).new(snapshot.size)
+        snapshot.each_value { |binding| entries << binding }
+        # In memory order, see TopicExchange#rebuild_routes
+        entries.sort_by!(&.object_id)
+        routes = Routes.new(version, entries)
+        current = @routes.get(:acquire)
+        while current.version < version
+          current, swapped = @routes.compare_and_set(current, routes, :release, :acquire)
+          break if swapped
+        end
+      end
+
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-        @bindings.each_value do |binding|
-          next unless binding.matches?(headers)
-          binding.destinations.each do |destination, _binding_key|
-            yield destination
+        # See TopicExchange#each_destination
+        version = @bindings_version.get(:acquire)
+        current = @routes.get(:acquire)
+        if current.version < version
+          @bindings.each_value do |binding|
+            next unless binding.matches?(headers)
+            binding.destinations.each_destination { |d| yield d }
+          end
+          return
+        end
+        routes = current.entries
+        # Index and bounds in locals: measured faster than Array#each in these
+        # loops, which are inlined into a large method
+        ptr = routes.to_unsafe
+        size = routes.size
+        i = 0
+        if headers.nil? || headers.empty?
+          while i < size
+            binding = ptr[i]
+            i += 1
+            next unless binding.args_empty?
+            binding.destinations.each_destination { |d| yield d }
+          end
+        else
+          while i < size
+            binding = ptr[i]
+            i += 1
+            next unless binding.matches?(headers)
+            binding.destinations.each_destination { |d| yield d }
           end
         end
       end

@@ -14,6 +14,9 @@ abstract class Hasher(T)
   # Get the target for the given key, or nil if no targets exist.
   abstract def get(key : String) : T?
 
+  # A deep copy that `add` and `remove` can change without affecting this one.
+  abstract def copy : Hasher(T)
+
   # Hash a string key to a UInt32 value using CRC32.
   protected def hash_key(key : String) : UInt32
     Digest::CRC32.checksum(key)

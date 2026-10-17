@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
+- An exchange uses its alternate exchange only when none of its own bindings match the routing key or CC/BCC keys, as in RabbitMQ. Before, the alternate exchange was used only if no queue had been found anywhere in the routing so far, so the outcome depended on binding order, and an exchange-to-exchange binding whose exchange routed nowhere didn't count as a match [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+
+### Fixed
+
+- A consistent-hash exchange declared with `x-algorithm` stopped routing to all its bound queues when a policy was applied to it [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
