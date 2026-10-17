@@ -44,8 +44,14 @@ module LavinMQ
         @flow_change.close
       end
 
+      # Messages taken from the queue per store lock acquisition, at most
+      MAX_BATCH_SIZE = 64
+
       def ensure_deliver_loop
         return if @closed
+        # Checked before the swap: every publish into a non-empty queue gets
+        # here, and the swap would write a line the deliver loop reads
+        return if @deliver_loop_running.get(:acquire)
         return if @deliver_loop_running.swap(true, :acquire_release)
         fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
         @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
@@ -71,32 +77,35 @@ module LavinMQ
         wait_for_single_active_consumer
         queue = @queue
         delivered_bytes = 0_i32
+        buf = uninitialized Envelope[MAX_BATCH_SIZE]
         loop do
           wait_for_capacity
           loop do
             raise ClosedError.new if @closed
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
-            case wait_for_queue_ready
-            when :timeout
-              @log.debug { "deliver loop idle, exiting fiber" }
-              @deliver_loop_running.set(false, :release)
-              ensure_deliver_loop unless @queue.empty?
-              return
-            when :ready
-              next
-            end
             next if wait_for_paused_queue
             next if wait_for_flow
             break
           end
           {% unless flag?(:release) %}
-            @log.debug { "Getting a new message" }
+            @log.debug { "Getting new messages" }
           {% end %}
-          queue.consume_get(@no_ack) do |env|
+          # Try the queue first and only wait when it had nothing: checking
+          # emptiness before each take reads a line the publisher writes
+          got = queue.consume_get(@no_ack, buf.to_slice[0, batch_size]) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.segment_position.bytesize
             @channel.increment_deliver_count(env.redelivered, @no_ack)
+          end
+          unless got
+            if wait_for_queue_ready == :timeout
+              @log.debug { "deliver loop idle, exiting fiber" }
+              @deliver_loop_running.set(false, :release)
+              ensure_deliver_loop unless @queue.empty?
+              return
+            end
+            next
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
@@ -110,6 +119,23 @@ module LavinMQ
         @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
         raise ex
+      end
+
+      # How many messages to take from the queue per store lock acquisition:
+      # as many as the prefetch allows, but one at a time when competing with
+      # other consumers without a prefetch limit, so they still get messages
+      # in turn, and with a global prefetch, which is only enforced per take
+      private def batch_size : Int32
+        prefetch = @prefetch_count
+        if prefetch.zero?
+          return 1 if @queue.consumers_size > 1
+          return 1 if @channel.global_prefetch_count > 0
+          MAX_BATCH_SIZE
+        else
+          return 1 if @channel.global_prefetch_count > 0
+          headroom = prefetch.to_i32 - @unacked.get(:relaxed).to_i32
+          headroom.clamp(1, MAX_BATCH_SIZE)
+        end
       end
 
       private def wait_for_global_capacity
