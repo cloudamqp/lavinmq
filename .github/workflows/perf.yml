@@ -7,6 +7,16 @@ on:
       - 'shard.*'
       - 'extras/perf_compare.sh'
       - '.github/workflows/perf.yml'
+  # Only builds and caches the base binaries, so PRs against main can reuse them
+  push:
+    branches:
+      - main
+    paths:
+      - Makefile
+      - 'src/**'
+      - 'shard.*'
+      - 'extras/perf_compare.sh'
+      - '.github/workflows/perf.yml'
   workflow_dispatch:
     inputs:
       base_ref:
@@ -35,7 +45,7 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-26.04
     timeout-minutes: 60
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
 
     steps:
       - name: Install dependencies
@@ -49,15 +59,17 @@ jobs:
       - name: Checkout base
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git worktree add base "$(git rev-parse "origin/$BASE_SHA" 2>/dev/null || echo "$BASE_SHA")"
+          git worktree add base "$(git rev-parse --verify --quiet "origin/$BASE_SHA^{commit}" || echo "$BASE_SHA")"
           echo "BASE_COMMIT=$(git -C base rev-parse HEAD)" >> "$GITHUB_ENV"
+          # A cached base built by another compiler would skew the comparison
+          echo "CRYSTAL_ID=$(crystal --version | sha256sum | cut -c1-16)" >> "$GITHUB_ENV"
 
       - name: Cache base build
         id: base-cache
         uses: actions/cache@v5
         with:
           path: base/bin
-          key: perf-base-${{ env.BASE_COMMIT }}
+          key: perf-base-${{ env.CRYSTAL_ID }}-${{ env.BASE_COMMIT }}
 
       # lavinmqperf is built from base so both brokers are driven by the same client
       - name: Build base
@@ -65,10 +77,12 @@ jobs:
         run: make -C base -j bin/lavinmq bin/lavinmqperf DOCS= CRYSTAL_FLAGS=--release
 
       - name: Build head
+        if: github.event_name != 'push'
         run: make -j bin/lavinmq DOCS= CRYSTAL_FLAGS=--release
 
       - name: Compare performance
         id: compare
+        if: github.event_name != 'push'
         continue-on-error: true
         env:
           PERF: base/bin/lavinmqperf
@@ -77,13 +91,13 @@ jobs:
         run: extras/perf_compare.sh base/bin/lavinmq bin/lavinmq
 
       - name: Write summary
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: |
           echo "Base: \`$BASE_COMMIT\`, head: \`$(git rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
           cat tmp/perf/summary.md >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload results
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         uses: actions/upload-artifact@v7
         with:
           name: perf-results
