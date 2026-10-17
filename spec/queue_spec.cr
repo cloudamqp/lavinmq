@@ -1457,6 +1457,78 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "batched consume" do
+    # Messages are shifted from the store in batches for delivery, so a
+    # delivery that raises must put the rest of the batch back, in order
+    it "requeues the rest of the batch in order when an acked delivery raises" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("batch_requeue_ack")
+          5.times { |i| q.publish_confirm "m#{i}" }
+          queue = s.vhosts["/"].queue("batch_requeue_ack").as(LavinMQ::AMQP::Queue)
+          buf = Pointer(LavinMQ::Envelope).malloc(8).to_slice(8)
+          delivered = [] of String
+          expect_raises(Exception, "boom") do
+            queue.consume_get(false, buf) do |env|
+              delivered << String.new(env.message.body)
+              raise "boom" if delivered.size == 2
+            end
+          end
+          delivered.should eq ["m0", "m1"]
+          # The one that raised is in the channel's unacked list by then
+          queue.unacked_count.should eq 2
+          queue.message_count.should eq 3
+          remaining = [] of String
+          3.times { queue.basic_get(true) { |env| remaining << String.new(env.message.body) } }
+          remaining.should eq ["m2", "m3", "m4"]
+        end
+      end
+    end
+
+    it "requeues the failed and the remaining deliveries of a no-ack batch" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("batch_requeue_no_ack")
+          5.times { |i| q.publish_confirm "m#{i}" }
+          queue = s.vhosts["/"].queue("batch_requeue_no_ack").as(LavinMQ::AMQP::Queue)
+          buf = Pointer(LavinMQ::Envelope).malloc(8).to_slice(8)
+          delivered = [] of String
+          expect_raises(Exception, "boom") do
+            queue.consume_get(true, buf) do |env|
+              delivered << String.new(env.message.body)
+              raise "boom" if delivered.size == 2
+            end
+          end
+          delivered.should eq ["m0", "m1"]
+          queue.unacked_count.should eq 0
+          queue.message_count.should eq 4
+          remaining = [] of {String, Bool}
+          4.times { queue.basic_get(true) { |env| remaining << {String.new(env.message.body), env.redelivered} } }
+          remaining.should eq [{"m1", true}, {"m2", true}, {"m3", true}, {"m4", true}]
+        end
+      end
+    end
+
+    it "delivers a batch and takes the rest of the queue in the next one" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("batch_consume")
+          5.times { |i| q.publish_confirm "m#{i}" }
+          queue = s.vhosts["/"].queue("batch_consume").as(LavinMQ::AMQP::Queue)
+          buf = Pointer(LavinMQ::Envelope).malloc(3).to_slice(3)
+          delivered = [] of String
+          queue.consume_get(true, buf) { |env| delivered << String.new(env.message.body) }.should be_true
+          delivered.should eq ["m0", "m1", "m2"]
+          queue.consume_get(true, buf) { |env| delivered << String.new(env.message.body) }.should be_true
+          delivered.should eq ["m0", "m1", "m2", "m3", "m4"]
+          queue.consume_get(true, buf) { |env| delivered << String.new(env.message.body) }.should be_false
+          queue.message_count.should eq 0
+          queue.deliver_get_count.should eq 5
+        end
+      end
+    end
+  end
+
   describe "Consumers concurrency" do
     it "admits at most one exclusive consumer when added concurrently", tags: "slow" do
       with_amqp_server do |s|

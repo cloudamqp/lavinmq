@@ -302,7 +302,8 @@ module LavinMQ
         }
       end
 
-      @write_lock = Mutex.new(:checked)
+      # Never re-entered, see Channel's @unack_lock
+      @write_lock = Mutex.new(:unchecked)
 
       def deliver(frame, msg, flush = true)
         return false if closed?

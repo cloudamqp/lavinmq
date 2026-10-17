@@ -1153,16 +1153,97 @@ module LavinMQ::AMQP
       false
     end
 
-    # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, & : Envelope -> Nil) : Bool
-      get(no_ack) do |env|
-        yield env
-        if env.redelivered
-          redeliver_count_atomic_add!
-        else
-          no_ack ? deliver_no_ack_count_atomic_add! : deliver_count_atomic_add!
-          deliver_get_count_atomic_add!
+    # Delivers up to `buf.size` messages, shifted under one acquisition of
+    # @msg_store_lock, by yielding each to the block. Expired messages are
+    # dead-lettered instead. Returns false if the queue had no message, true
+    # if it had, even if none was delivered because they all had expired.
+    #
+    # If the block raises, the messages after the one that raised are put
+    # back at the head of the queue, in order. With no_ack the one that raised
+    # is put back too; otherwise it's in the channel's unacked list by then
+    # and requeued from there.
+    def consume_get(no_ack : Bool, buf : Slice(Envelope), & : Envelope -> Nil) : Bool
+      raise ClosedError.new if @closed
+      settings = self.settings
+      @msg_store.shift_batch_with_lease?(@msg_store_lock, buf) do |batch|
+        # Bit i set when batch[i] was delivered; expired ones are already
+        # dead-lettered, and on failure the rest are requeued
+        delivered = 0_u64
+        redelivered = 0
+        bytesize = 0_u64
+        batch.each_with_index do |env, i|
+          if has_expired?(env.message) # guarantee to not deliver expired messages
+            expire_msg(env, :expired)
+            next
+          end
+          if settings.counts_deliveries? && !no_ack
+            env = with_delivery_count_header(env, settings)
+          end
+          begin
+            yield env # deliver the message
+          rescue ex
+            if no_ack
+              requeue_undelivered(batch[i..])
+            else
+              # The failed one is unacked, like the delivered ones
+              unacked_delivered(delivered.popcount + 1, bytesize + env.segment_position.bytesize)
+              requeue_undelivered(batch[i + 1..])
+            end
+            finish_batch(batch, delivered, redelivered, no_ack)
+            raise ex
+          end
+          delivered |= 1_u64 << i
+          redelivered += 1 if env.redelivered
+          bytesize += env.segment_position.bytesize
         end
+        unacked_delivered(delivered.popcount, bytesize) unless no_ack
+        finish_batch(batch, delivered, redelivered, no_ack)
+        # Signal expire loop to recalculate wait time for next message. Only
+        # it receives, so without it the try_send? would fail anyway (after
+        # taking the channel's lock)
+        @message_ttl_change.try_send? nil if message_expire_fiber_active?
+      end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ClosedError.new(cause: ex)
+    end
+
+    private def unacked_delivered(count : Int, bytesize : UInt64) : Nil
+      return if count.zero?
+      @unacked_count.add(count.to_u32, :relaxed)
+      @unacked_bytesize.add(bytesize, :relaxed)
+    end
+
+    # Counts the delivered messages of a batch, once per batch, and deletes
+    # them under one acquisition of @msg_store_lock if no_ack
+    private def finish_batch(batch : Slice(Envelope), delivered : UInt64, redelivered : Int32, no_ack : Bool) : Nil
+      count = delivered.popcount
+      return if count.zero?
+      redeliver_count_atomic_add!(redelivered) if redelivered > 0
+      if count > redelivered
+        no_ack ? deliver_no_ack_count_atomic_add!(count - redelivered) : deliver_count_atomic_add!(count - redelivered)
+        deliver_get_count_atomic_add!(count - redelivered)
+      end
+      return unless no_ack
+      return if closed? # see delete_message
+      counts_deliveries = settings.counts_deliveries?
+      @msg_store_lock.synchronize do
+        batch.each_with_index do |env, i|
+          next if delivered.bit(i).zero?
+          sp = env.segment_position
+          @deliveries.delete(sp) if counts_deliveries
+          @msg_store.delete(sp)
+        end
+      end
+    end
+
+    # The requeued store keeps publish order, so the order of the requeues
+    # doesn't matter
+    private def requeue_undelivered(envs : Slice(Envelope)) : Nil
+      return if envs.empty?
+      @msg_store_lock.synchronize do
+        envs.each { |env| @msg_store.requeue(env.segment_position) }
       end
     end
 
