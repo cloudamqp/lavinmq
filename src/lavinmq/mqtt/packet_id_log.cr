@@ -16,10 +16,13 @@ module LavinMQ
       # Not an IO::Error, so a disk failure is not mistaken for a socket one
       class Error < LavinMQ::Error; end
 
-      SCHEMA_VERSION    = 1u32
-      HEADER_SIZE       =    4
-      RECORD_SIZE       =    3
-      PUBLISH_SENT_SIZE =   11
+      SCHEMA_VERSION = 1u32
+      HEADER_SIZE    =    4
+      # Each record ends in a check byte, never zero, so a record torn at a
+      # page boundary (its tail still the zeros of a sparse file) is not read
+      # as a valid one with a truncated id
+      RECORD_SIZE       =  4
+      PUBLISH_SENT_SIZE = 12
       # Capacity of a new file, and the floor of a compacted one. A page
       # multiple, and room for a few thousand records between compactions.
       MIN_CAPACITY = 16 * 1024
@@ -107,10 +110,20 @@ module LavinMQ
       private def encode(buf : Bytes, state : State, id : UInt16, sp : SegmentPosition?) : Bytes
         buf[0] = state.value
         IO::ByteFormat::LittleEndian.encode(id, buf[1, 2])
-        return buf[0, RECORD_SIZE] unless sp
-        IO::ByteFormat::LittleEndian.encode(sp.segment, buf[3, 4])
-        IO::ByteFormat::LittleEndian.encode(sp.position, buf[7, 4])
-        buf[0, PUBLISH_SENT_SIZE]
+        len = RECORD_SIZE
+        if sp
+          IO::ByteFormat::LittleEndian.encode(sp.segment, buf[3, 4])
+          IO::ByteFormat::LittleEndian.encode(sp.position, buf[7, 4])
+          len = PUBLISH_SENT_SIZE
+        end
+        buf[len - 1] = check_byte(buf[0, len - 1])
+        buf[0, len]
+      end
+
+      private def check_byte(bytes : Bytes) : UInt8
+        x = 0u8
+        bytes.each { |b| x ^= b }
+        0x80u8 | (x & 0x7Fu8)
       end
 
       # Header plus the live set (both directions) into a new file, made
@@ -198,7 +211,10 @@ module LavinMQ
           state = State.from_value?(bytes[pos]) || break
           len = state.publish_sent? ? PUBLISH_SENT_SIZE : RECORD_SIZE
           break if pos + len > bytes.size
+          break unless bytes[pos + len - 1] == check_byte(bytes[pos, len - 1])
           id = IO::ByteFormat::LittleEndian.decode(UInt16, bytes[pos + 1, 2])
+          # Never written [MQTT-2.3.1-1]: a torn record with a zeroed id
+          break if id.zero?
           case state
           in .publish_received? then @awaiting_pubrel << id
           in .pubrel_received?  then @awaiting_pubrel.delete(id)

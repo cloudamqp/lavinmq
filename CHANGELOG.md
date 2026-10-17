@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - Every MQTT connection now gets a session at CONNECT, not at its first SUBSCRIBE, so a vhost at its `max-queues` limit refuses the CONNECT instead of the SUBSCRIBE. See `docs/mqtt.md` [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - Deleting an MQTT session queue closes its client's connection. A CONNECT is refused with return code 2 when its `mqtt.<client_id>` name belongs to a queue that is not a session, and with return code 3 when its persistent session is closed, for example because its files could not be loaded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
-- Rolling back to an earlier version, or failing over to a node that runs one, disconnects MQTT clients that resume a QoS 2 exchange: earlier versions close the connection on a PUBREL. Upgrade every node in a cluster before clients use QoS 2 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Rolling back to an earlier version, or failing over to a node that runs one, disconnects MQTT clients that resume a QoS 2 exchange: earlier versions close the connection on a PUBREL. Upgrade every node in a cluster before clients use QoS 2. Downgrading after QoS 2 was used is not supported without deleting the MQTT sessions first: a later upgrade would load stale QoS 2 state, and an earlier version cannot remove a QoS 2 subscription for good [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ### Fixed
 

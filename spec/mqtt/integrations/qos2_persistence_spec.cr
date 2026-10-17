@@ -164,7 +164,7 @@ module MqttSpecs
             wait_for { session.client.nil? }
             release_drain(gate)
           end
-          wait_for { log_size(log) == 4 + 3 }
+          wait_for { log_size(log) == 4 + 4 }
         end
       end
     end
@@ -184,7 +184,7 @@ module MqttSpecs
             pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
             release_drain(gate)
           end
-          wait_for { log_size(log) == 4 + 3 }
+          wait_for { log_size(log) == 4 + 4 }
           io.should be_closed
         end
       end
@@ -203,7 +203,7 @@ module MqttSpecs
             with_client_io(server) do |io2|
               connect(io2, client_id: "pub", clean_session: false) # takeover
               release_drain(gate)
-              wait_for { log_size(log) == 4 + 3 }
+              wait_for { log_size(log) == 4 + 4 }
               # The PUBREC is the old connection's; the new one gets nothing
               io2.should be_silent
               disconnect(io2)
@@ -247,9 +247,9 @@ module MqttSpecs
         session.record_publish_received(7u16, stale)
         log_size(log).should eq 0 # its routing may not be durable yet
         session.record_publish_received(7u16, current)
-        log_size(log).should eq 4 + 3
+        log_size(log).should eq 4 + 4
         session.record_publish_received(7u16, current)
-        log_size(log).should eq 4 + 3
+        log_size(log).should eq 4 + 4
       end
     end
 
@@ -296,7 +296,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
             pingpong(io) # routed, the barrier is still queued in the client
             session.close
-            File.size(log.@path).should eq 4 + 3 # closed, so truncated to it
+            File.size(log.@path).should eq 4 + 4 # closed, so truncated to it
           end
         end
       end
@@ -339,7 +339,7 @@ module MqttSpecs
             pingpong(io) # all three are routed
             step_drain(gate)
             # All three ids recorded after the first drain, not one per drain
-            wait_for { log_size(log) == 4 + 3 * 3 }
+            wait_for { log_size(log) == 4 + 3 * 4 }
             step_drain(gate)
             Array.new(3) { read_packet(io).as(MQTT::Protocol::PubRec).packet_id }.should eq [1u16, 2u16, 3u16]
           end
@@ -558,7 +558,7 @@ module MqttSpecs
           end
           with_client_io(server) do |sub_io|
             connect(sub_io, client_id: "sub", clean_session: false)
-            wait_for { log_size(log) == 4 + 3 * 11 } # all recorded, one wait
+            wait_for { log_size(log) == 4 + 3 * 12 } # all recorded, one wait
             sub_io.should be_silent
             step_drain(gate)
             3.times { read_publish(sub_io).qos.should eq 2u8 }
@@ -582,6 +582,30 @@ module MqttSpecs
           pubs = Array.new(3) { read_publish(sub_io) }
           pubs.map { |p| {String.new(p.payload), p.qos, p.dup?} }.should eq [{"0", 2u8, false}, {"1", 1u8, false}, {"2", 2u8, false}]
         end
+      end
+    end
+
+    it "keeps re-sends under their original ids within max_inflight_messages" do
+      with_server do |server|
+        offline_subscriber(server, qos: 2u8)
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          5.times { |i| publish(pub_io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16, expect_response: false) }
+          pingpong(pub_io)
+        end
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          5.times { read_publish(sub_io) }
+          disconnect(sub_io)
+        end
+        LavinMQ::Config.instance.max_inflight_messages = 2u16
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", clean_session: false)
+          2.times { read_publish(sub_io).dup?.should be_true }
+          sub_io.should be_silent
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
       end
     end
 
@@ -648,6 +672,25 @@ module MqttSpecs
       end
     end
 
+    # Its packet id record is synced before the send, so on power loss the
+    # message must not be the part that is lost
+    it "syncs a retained message replayed at QoS 2 with its packet id record" do
+      with_server do |server|
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "pub")
+          publish(pub_io, topic: "a/b", payload: "retained".to_slice, qos: 1u8, retain: true)
+        end
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          read_publish(io).qos.should eq 2u8
+          last_sync = server.persister.last_sync.should_not be_nil
+          last_sync.paths.any?(&.ends_with?("packet_ids.log")).should be_true
+          last_sync.paths.any?(&.ends_with?("msgs.0000000001")).should be_true
+        end
+      end
+    end
+
     it "syncs the data dir before the PUBREL when the PUBREC deleted the segment" do
       segment_size = LavinMQ::Config.instance.segment_size
       LavinMQ::Config.instance.segment_size = 64 # one message per segment
@@ -687,11 +730,11 @@ module MqttSpecs
               connect(pub_io, client_id: "pub")
               publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
             end
-            wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
+            wait_for { log_size(log) == 4 + 12 } # the deliver_loop waits
             with_client_io(server) do |io2|
               connect(io2, client_id: "sub", clean_session: false) # takeover
               step_drain(gate)
-              wait_for { log_size(log) == 4 + 2 * 11 } # recorded again
+              wait_for { log_size(log) == 4 + 2 * 12 } # recorded again
               io2.should be_silent
               release_drain(gate)
               resent = read_publish(io2)
@@ -727,7 +770,7 @@ module MqttSpecs
               publish(pub_io, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
               disconnect(pub_io)
             end
-            wait_for { log_size(log) == 4 + 11 } # the deliver_loop waits
+            wait_for { log_size(log) == 4 + 12 } # the deliver_loop waits
             started = deliver_loops.call - before
             started.size.should eq 1
             loop_fiber = started.first
@@ -762,10 +805,10 @@ module MqttSpecs
         end
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", clean_session: false)
-          wait_for { log_size(log) >= 4 + 11 }
+          wait_for { log_size(log) >= 4 + 12 }
           sub_io.should be_silent
           # One batch of all three, and requeued messages are not recorded again
-          log_size(log).should eq 4 + 3 * 11
+          log_size(log).should eq 4 + 3 * 12
         end
       end
     end

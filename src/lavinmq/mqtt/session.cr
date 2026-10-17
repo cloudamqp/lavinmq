@@ -644,8 +644,9 @@ module LavinMQ
           raise ex
         ensure
           batch.each { |(e, _, _)| e.release }
-          # A burst's buffer is not kept by an idle session
-          if batch.size > 16
+          # A burst's buffer is not kept by an idle session, but is reused
+          # while there is more to send
+          if batch.size > 16 && @msg_store.try(&.empty?) != false
             @qos2_batch = Array({Envelope, UInt16, Bool}).new
           else
             batch.clear
@@ -671,6 +672,9 @@ module LavinMQ
           batch << {env, id, original}
           log_packet_id &.publish_sent(id, sp)
           return if batch.size >= MAX_QOS2_BATCH
+          # A re-send keeps its remembered id without asking `next_packet_id`,
+          # so the window is checked here too
+          return if @inflight.size >= Config.instance.max_inflight_messages
           env, id, original = next_qos2_batched(attached) || return
           sp = env.segment_position
         end

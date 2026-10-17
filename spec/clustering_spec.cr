@@ -312,7 +312,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       mfile = log.@mfile.should_not be_nil
       File.read(follower_path).to_slice.should eq mfile.to_slice
       # Past what fits, so it compacts
-      (LavinMQ::MQTT::PacketIdLog::MIN_CAPACITY // 6 + 1).times do
+      (LavinMQ::MQTT::PacketIdLog::MIN_CAPACITY // (2 * LavinMQ::MQTT::PacketIdLog::RECORD_SIZE) + 1).times do
         log.publish_received(3u16)
         log.pubrel_received(3u16)
       end
@@ -320,7 +320,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
       cluster.stop
       log.close
-      File.size(path).should be < 4 + 3 * 100 # compacted
+      File.size(path).should be < 4 + 4 * 100 # compacted
       File.read(follower_path).should eq File.read(path)
       follower = LavinMQ::MQTT::PacketIdLog.new(follower_path, nil, nil)
       follower.awaiting_pubrel.should eq Set{1u16, 4u16}
