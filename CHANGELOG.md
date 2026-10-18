@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An exchange uses its alternate exchange only when none of its own bindings match the routing key or CC/BCC keys, as in RabbitMQ. Before, the alternate exchange was used only if no queue had been found anywhere in the routing so far, so the outcome depended on binding order, and an exchange-to-exchange binding whose exchange routed nowhere didn't count as a match [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - MQTT publishes match subscriptions through an immutable subscription tree, without locking, which keeps matching safe while clients subscribe and unsubscribe on other threads [#2484](https://github.com/cloudamqp/lavinmq/pull/2484)
+- Creating, updating or deleting a policy or operator policy, or adding a parameter, applies the policies before returning, so an HTTP API response means the change is in effect. Before, they were applied in the background [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
 ### Fixed
 
