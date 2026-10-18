@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Publish confirms no longer spin on a per-channel mailbox or signal the confirm loop for every message: the loop is woken once per batch and each channel keeps only the latest confirmed id, and on Linux the loop's thread is scheduled as a batch task so waking it doesn't preempt the worker that signalled it, so confirm throughput no longer collapses when the confirm thread shares a CPU with the worker threads (`--workers=0`, one per CPU, is safe with confirms)
+- Publish confirms no longer spin on a per-channel mailbox or signal the confirm loop for every message: the loop is woken once per batch and each channel keeps only the latest confirmed id, so confirm throughput no longer collapses when the confirm thread shares a CPU with the worker threads (`--workers=0`, one per CPU, is safe with confirms)
 - Per-vhost and per-exchange counters are kept per worker thread and summed when read, and connection, channel and queue counters that only one fiber writes (or that are written under the queue's lock) use plain stores, so the worker threads no longer contend on ~34 locked counter updates per message. Objects with a publisher side and a consumer side (connections, message segments) keep them on separate cache lines
 - A consumer takes up to 64 messages from its queue per acquisition of the queue's lock (as many as its prefetch leaves room for, one at a time when competing with other consumers without a prefetch limit), and tries the queue before checking whether it's empty, so a single consumer keeps up with many publishers on other threads
 - A message published to a queue wakes one of its parked consumers instead of all of them, and a consumer that can't take it (out of prefetch, flow off, queue paused) wakes the next one. With many consumers on one queue most wake-ups were wasted fiber switches
@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers
+- A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers [#2486](https://github.com/cloudamqp/lavinmq/pull/2486)
+- The publish confirm loop's thread is scheduled as a batch task on Linux, so waking it no longer preempts the worker that signalled it. When the loop shared a CPU with a worker thread it ran at once and spun on the channel lock the preempted worker still held, and confirms ran at 65k msg/s; they now run at 587k msg/s with the broker on one core [#2487](https://github.com/cloudamqp/lavinmq/pull/2487)
 - A consistent-hash exchange declared with `x-algorithm` stopped routing to all its bound queues when a policy was applied to it [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 
