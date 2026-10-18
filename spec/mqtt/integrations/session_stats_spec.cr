@@ -5,6 +5,34 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "MQTT::Session stats" do
+    it "logs the stats of a session once it got a message" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          session = server.vhosts["/"].session("mqtt.sub")
+          3.times { session.update_rates }
+          session.@publish_log.should be_empty
+          session.@deliver_log.should be_empty
+          session.message_count_log.should be_empty
+          # Not preallocated either, until the first message
+          session.@publish_log.@capacity.should eq 0
+          session.message_count_log.@capacity.should eq 0
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", qos: 0u8)
+            pingpong(pub_io)
+            disconnect(pub_io)
+          end
+          read_publish(io)
+          2.times { session.update_rates }
+          session.@publish_log.size.should eq 2
+          session.message_count_log.size.should eq 2
+          disconnect(io)
+        end
+      end
+    end
+
     it "increments publish_count when a message is published to the session" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -61,7 +89,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -87,7 +115,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -115,7 +143,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
@@ -138,7 +166,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", qos: 0u8)
+            publish(pub_io, topic: "a/b", qos: 1u8)
             disconnect(pub_io)
           end
 
