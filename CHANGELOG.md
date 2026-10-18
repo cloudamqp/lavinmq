@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
+- Creating, updating or deleting a policy or operator policy, or adding a parameter, applies the policies before returning, so an HTTP API response means the change is in effect. Before, they were applied in the background [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
 ### Fixed
 
