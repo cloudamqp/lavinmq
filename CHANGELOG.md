@@ -76,6 +76,8 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - The queue API's `exclusive_consumer_tag` reports the tag of the queue's exclusive consumer. It was based on whether the queue itself was exclusive, so it showed the first consumer of an exclusive queue and nothing for a normal queue with an exclusive consumer [#2328](https://github.com/cloudamqp/lavinmq/pull/2328)
 - An exclusive consumer is refused with `ACCESS_REFUSED` when the queue already has non-exclusive-consumers [#2327](https://github.com/cloudamqp/lavinmq/pull/2327)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+- Messages published to a delayed exchange whose internal delayed queue was closed (e.g. after a store error) were silently dropped but confirmed. The publish is now nacked, like a publish to a closed queue, and a mandatory publish is returned with `312 NO_ROUTE` [#2046](https://github.com/cloudamqp/lavinmq/pull/2046)
+- Delayed exchanges counted each delayed message twice in `publish_out`: when it was delayed and again when it was routed after the delay [#2046](https://github.com/cloudamqp/lavinmq/pull/2046)
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
