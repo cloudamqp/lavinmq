@@ -229,7 +229,9 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, client_id: "", clean_session: true)
-              server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first.client_id.should_not eq("")
+              # The client is added to the vhost after its CONNACK is sent
+              client = wait_for { server.vhosts["/"].connections.find(&.is_a?(LavinMQ::MQTT::Client)) }.as(LavinMQ::MQTT::Client)
+              client.client_id.should_not eq("")
             end
           end
         end
