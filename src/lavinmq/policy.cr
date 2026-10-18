@@ -12,9 +12,9 @@ module LavinMQ
       @effective_policy_args.get(:acquire)
     end
 
-    # apply_policies is spawned per policy/parameter add & delete, so concurrent
-    # applies can hit the same resource; serialize them to protect the shared
-    # @effective_args / store state.
+    # apply_policies runs per policy/parameter add & delete, and those can run
+    # concurrently, so applies can hit the same resource; serialize them to
+    # protect the shared @effective_args / store state.
     @policy_lock = Mutex.new(:reentrant)
 
     def reapply_policy

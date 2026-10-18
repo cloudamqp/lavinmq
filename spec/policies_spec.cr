@@ -53,9 +53,10 @@ describe LavinMQ::VHost do
     end
   end
 
-  # Each policy change spawns its own apply_policies. One that read the
-  # policies before a delete must not apply them after a later run has
-  # already applied the delete.
+  # Each policy change runs its own apply_policies, and changes from
+  # different HTTP requests can overlap. One that read the policies before a
+  # delete must not apply them after a later run has already applied the
+  # delete.
   it "doesn't leave a deleted policy on queues when policy applies overlap" do
     PoliciesSpec.with_vhost do |vhost|
       gated = GatedPolicyQueue.create(vhost, "q0")
@@ -65,7 +66,7 @@ describe LavinMQ::VHost do
       end
       gate = Channel(Nil).new
       gated.gate = gate
-      vhost.add_policy("p", "^q", "queues", {"max-length" => JSON::Any.new(1_i64)}, 0_i8)
+      spawn { vhost.add_policy("p", "^q", "queues", {"max-length" => JSON::Any.new(1_i64)}, 0_i8) }
       gated.entered.receive # the run that saw the policy is now suspended
       vhost.delete_policy("p")
       sleep 50.milliseconds # let the run for the delete go first
