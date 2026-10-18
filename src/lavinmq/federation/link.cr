@@ -1,4 +1,5 @@
 require "amqp-client"
+require "../amqp_client_consume"
 require "../logger"
 require "../sortable_json"
 
