@@ -10,6 +10,9 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
+{% if flag?(:linux) %}
+  require "syscall"
+{% end %}
 require "./etcd"
 require "./clustering/controller"
 require "./clustering/etcd_coordinator"
@@ -35,6 +38,7 @@ module LavinMQ
     @metrics_server : LavinMQ::HTTP::MetricsServer?
 
     def initialize(@config : Config)
+      Launcher.batch_scheduling
       resize_default_execution_context
       print_environment_info
       print_max_map_count
@@ -121,6 +125,36 @@ module LavinMQ
       @data_dir_lock = lock
     rescue ex : DataDirLock::Error
       abort "Error: #{ex.message}"
+    end
+
+    {% if flag?(:linux) %}
+      SCHED_BATCH = 3
+      # A raw syscall, as musl's sched_setscheduler is a stub that always fails
+      ::Syscall.def_syscall sched_setscheduler, LibC::Int, pid : LibC::PidT, policy : LibC::Int, param : LibC::Int*
+    {% end %}
+
+    # Schedules all of the process' threads as batch tasks on Linux. Called
+    # before the default execution context starts its workers. A thread
+    # inherits the policy of the thread that starts it, and the threads that
+    # start others (the main thread, the SYSMON thread that hands a scheduler
+    # blocked in a syscall to a new thread, a worker waking the context) are
+    # all batch tasks, so every later thread is too.
+    #
+    # A woken batch task doesn't preempt the task running on its CPU. When
+    # threads share a CPU, the thread that wakes another one, e.g. by
+    # enqueueing a fiber, keeps running until it blocks or its slice ends,
+    # instead of being preempted while it may hold a lock the woken thread
+    # then spins on. Wake-ups pile up into batches, at the cost of up to a
+    # slice of extra latency when the CPU is contended. With an idle CPU to
+    # run on, a woken thread runs right away as before.
+    def self.batch_scheduling : Nil
+      {% if flag?(:linux) %}
+        Dir.each_child("/proc/self/task") do |tid|
+          priority = 0 # sched_param.sched_priority, must be 0 for SCHED_BATCH
+          ret = sched_setscheduler(tid.to_i, SCHED_BATCH, pointerof(priority))
+          Log.warn { "Could not schedule thread #{tid} as a batch task: errno #{-ret}" } if ret < 0
+        end
+      {% end %}
     end
 
     private def resize_default_execution_context
