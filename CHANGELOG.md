@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers
 - A consistent-hash exchange declared with `x-algorithm` stopped routing to all its bound queues when a policy was applied to it [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 - A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 
