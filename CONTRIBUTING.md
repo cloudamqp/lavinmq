@@ -38,7 +38,7 @@ PRs are reviewed by AI in CI. To run the same review locally, install [local-rev
 
 #### Performance regressions
 
-A performance regression is treated as a breaking change. The `Performance` workflow builds the PR's base and head in release mode on a dedicated Depot runner and runs `extras/perf_compare.sh`, which benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine and fails if a scenario's median throughput drops by more than 5%. Results are in the job summary.
+A performance regression is treated as a breaking change. The `Performance` workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh`, which benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine and fails if a scenario's median throughput drops by more than 5%. Results are in the job summary.
 
 To reproduce locally, build the base into a separate worktree and compare:
 

@@ -40,8 +40,7 @@ permissions:
 jobs:
   perf:
     name: Performance regression
-    # Dedicated VM, less noisy than shared GitHub runners
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubuntu-26.04
     container: 84codes/crystal:latest-ubuntu-26.04
     timeout-minutes: 60
     env:

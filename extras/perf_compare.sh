@@ -169,6 +169,7 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rounds "$ROUNDS" '
         head: ($head | map(.[$m]) | median),
         change_pct: (($ratio - 1) * 100),
         slower_rounds: ($ratios | map(select(. < 1)) | length),
+        range_pct: [(($ratios | min) - 1) * 100, (($ratios | max) - 1) * 100],
         broken: (($b | median) == 0 or ($head | map(.[$m]) | median) == 0),
         regression: ($ratio < (1 - $threshold / 100)
                      and ($ratios | map(select(. < 1)) | length) >= ([$rounds - 1, 1] | max))
@@ -181,10 +182,10 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rounds "$ROUNDS" '
     echo
     echo "Median of $ROUNDS interleaved rounds, ${DURATION}s each. Regression threshold: -${THRESHOLD}%."
     echo
-    echo "| Scenario | Metric | Base msgs/s | Head msgs/s | Change | Slower rounds | |"
-    echo "|---|---|---:|---:|---:|---:|---|"
+    echo "| Scenario | Metric | Base msgs/s | Head msgs/s | Change | Round range | Slower rounds | |"
+    echo "|---|---|---:|---:|---:|---:|---:|---|"
     jq -r --argjson rounds "$ROUNDS" '.[] |
-      "| \(.scenario) | \(.metric) | \(.base | round) | \(.head | round) | \(.change_pct * 10 | round / 10)% | \(.slower_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
+      "| \(.scenario) | \(.metric) | \(.base | round) | \(.head | round) | \(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … ")) | \(.slower_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
       "$OUT_DIR/results.json"
 } > "$OUT_DIR/summary.md"
 
