@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `CRYSTAL_WORKERS` or `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
+### Fixed
+
+- A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers [#2486](https://github.com/cloudamqp/lavinmq/pull/2486)
+- The publish confirm loop's thread is scheduled as a batch task on Linux, so waking it no longer preempts the worker that signalled it. When the loop shared a CPU with a worker thread it ran at once and spun on the channel lock the preempted worker still held, and confirms ran at 65k msg/s; they now run at 587k msg/s with the broker on one core [#2487](https://github.com/cloudamqp/lavinmq/pull/2487)
+
 ## [2.11.0-rc.1] - 2026-10-16
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker.
