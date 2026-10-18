@@ -63,7 +63,10 @@ module LavinMQ
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
       # Run on a dedicated thread so the blocking syscalls only stall this
       # thread, not the worker threads handling client connections.
-      Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
+      Fiber::ExecutionContext::Isolated.new("Publish confirm loop") do
+        Persister.batch_scheduling!
+        publish_confirm_loop
+      end
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
@@ -122,6 +125,18 @@ module LavinMQ
 
     def close : Nil
       @publish_confirm_requested.close
+    end
+
+    # The loop's thread is woken by the first ack of a batch. A normal wake-up
+    # lets the woken thread preempt the waker, so on a core shared with a
+    # worker the loop ran after every ack, spinning on the channel's lock the
+    # preempted worker still held. A batch task only runs when the worker
+    # blocks or its slice ends, which is when the acks have piled up
+    protected def self.batch_scheduling! : Nil
+      {% if flag?(:linux) %}
+        param = LibC::SchedParam.new
+        LibC.sched_setscheduler(0, LibC::SCHED_BATCH, pointerof(param))
+      {% end %}
     end
 
     private def publish_confirm_loop
