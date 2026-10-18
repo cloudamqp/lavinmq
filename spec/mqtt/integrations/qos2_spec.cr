@@ -245,6 +245,43 @@ module MqttSpecs
     ensure
       LavinMQ::Config.instance.max_awaiting_pubrel = UInt16::MAX
     end
+
+    it "routes once to earlier subscribers when a later one closes mid fan-out" do
+      with_server do |server|
+        with_client_io(server) do |early|
+          # Subscribed first, so the fan-out reaches it before the closing one
+          connect(early, client_id: "early", clean_session: false)
+          subscribe(early, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          with_client_io(server) do |closing_io|
+            connect(closing_io, client_id: "closing", clean_session: false)
+            subscribe(closing_io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+            closing = server.vhosts["/"].session("mqtt.closing")
+            lock = closing.@msg_store_lock
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub", clean_session: false)
+              lock.lock
+              publish(pub, topic: "a/b", qos: 2u8, packet_id: 1u16, expect_response: false)
+              sleep 100.milliseconds # the publisher is parked on the store lock
+              # As a clean disconnect does: detach under the lock, release it,
+              # then close without yielding
+              closing.client = nil
+              lock.unlock
+              closing.close
+              id = read_publish(early).packet_id.should_not be_nil
+              pubrec(early, id)
+              read_packet(early).should be_a(MQTT::Protocol::PubRel)
+              pubcomp(early, id)
+              # A failed fan-out would close the publisher, whose re-send is
+              # then routed again
+              read_packet(pub).should be_a(MQTT::Protocol::PubRec)
+              pubrel(pub, 1u16)
+              read_packet(pub).should be_a(MQTT::Protocol::PubComp)
+            end
+          end
+          early.should be_silent
+        end
+      end
+    end
   end
 
   describe "qos2 as sender" do
