@@ -181,7 +181,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
             publish(io, topic: "a/b", payload: "2".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
             pingpong(io) # both routed, the PUBACK ahead of the barrier
-            pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
+            pointerof(client.@io).value = MQTT::Protocol::IO.v3(NonIOErrorWriteIO.new(client.@io.io))
             release_drain(gate)
           end
           wait_for { log_size(log) == 4 + 4 }
@@ -371,12 +371,12 @@ module MqttSpecs
         vhost.session("mqtt.sub").closed?.should be_false
         with_client_io(server) do |io|
           connack = connect(io, client_id: "pub", clean_session: false).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
         # A clean CONNECT replaces it
         with_client_io(server) do |io|
           connack = connect(io, client_id: "pub", clean_session: true).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           disconnect(io)
         end
       end
@@ -405,7 +405,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           # Not attached, so no PUBREL for a message the store never loaded
           connack = connect(io, client_id: "sub", clean_session: false).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
       end
     end
@@ -647,7 +647,7 @@ module MqttSpecs
               read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
               # The PUBLISH_SENT record is written and waiting, so the send
               # fails after the client may already hold the id
-              pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
+              pointerof(client.@io).value = MQTT::Protocol::IO.v3(NonIOErrorWriteIO.new(client.@io.io))
               release_drain(gate)
             end
           end
@@ -682,7 +682,9 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "a/b", payload: "retained".to_slice, qos: 1u8, retain: true)
+          # QoS 2, as a retained message is replayed at the lower of its own
+          # and the subscription's QoS
+          publish_qos2(pub_io, 1u16, topic: "a/b", payload: "retained".to_slice, retain: true)
         end
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)

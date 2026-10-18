@@ -152,7 +152,7 @@ module LavinMQ
         # Before the insert, so a failed write leaves no session behind
         if session.durable?
           store_definition(AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, true, false,
-            session.auto_delete?, false, MQTT::Session::ARGUMENTS), fsync: fsync)
+            session.auto_delete?, false, session.arguments), fsync: fsync)
         end
         @sessions[name] = session
         @vhost.apply_policies([session] of Queue)
@@ -247,8 +247,8 @@ module LavinMQ
                 # knows its filters. Walking every binding instead made each
                 # session delete, one per clean MQTT disconnect, cost the
                 # vhost's subscription count.
-                q.subscriptions.to_a.each do |filter, qos|
-                  @mqtt_exchange.unbind(q, filter, MQTT.qos_arguments(qos))
+                q.subscriptions.to_a.each do |filter, options|
+                  @mqtt_exchange.unbind(q, filter, MQTT.subscription_arguments(options))
                 end
               else
                 @exchanges.each_value do |ex|
@@ -291,8 +291,8 @@ module LavinMQ
     def queue_bindings(queue : Queue)
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
       if queue.is_a?(MQTT::Session)
-        subscriptions = queue.subscriptions.map do |filter, qos|
-          MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+        subscriptions = queue.subscriptions.map do |filter, options|
+          MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, options), queue)
         end
         return [default_binding] + subscriptions
       end

@@ -10,10 +10,10 @@ module MqttSpecs
         with_proxy_protocol do
           with_client_socket(server) do |socket|
             socket.write "PROXY TCP4 127.0.0.1 127.0.0.1 54321 1883\r\n".to_slice
-            io = MQTT::Protocol::IO.new(socket)
+            io = MQTT::Protocol::IO.v3(socket)
             connack = connect(io)
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::NotAuthorized)
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::NotAuthorized)
           end
         end
       end
@@ -25,7 +25,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io)
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
             disconnect(io)
           end
         end

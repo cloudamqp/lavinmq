@@ -11,7 +11,7 @@ module MqttSpecs
           connect(io)
 
           temp_io = IO::Memory.new
-          unsubscribe(MQTT::Protocol::IO.new(temp_io), topics: ["a/b"], expect_response: false)
+          unsubscribe(MQTT::Protocol::IO.v3(temp_io), topics: ["a/b"], expect_response: false)
           temp_io.rewind
           unsubscribe_pkt = temp_io.to_slice
           # This will overwrite the protocol level byte
@@ -29,7 +29,7 @@ module MqttSpecs
           connect(io)
 
           temp_io = IO::Memory.new
-          unsubscribe(MQTT::Protocol::IO.new(temp_io), topics: ["a/b"], expect_response: false)
+          unsubscribe(MQTT::Protocol::IO.v3(temp_io), topics: ["a/b"], expect_response: false)
           temp_io.rewind
           unsubscribe_pkt = temp_io.to_slice
           # Overwrite remaining length
@@ -89,6 +89,28 @@ module MqttSpecs
             disconnect(io)
           end
           disconnect(pubio)
+        end
+      end
+    end
+  end
+
+  describe "MQTT 5.0 unsubscribe" do
+    it "UNSUBACK carries a reason code per topic filter, in order [MQTT-3.11.3-1]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: [subtopic("a/b", 0)], packet_id: 1u16)
+
+          # "a/b" was subscribed -> Success (0x00); "x/y" never was ->
+          # NoSubscriptionExisted (0x11). Order matches the topic filters.
+          unsuback = unsubscribe(io, topics: ["a/b", "x/y"], packet_id: 2u16)
+            .as(MQTT::Protocol::UnsubAck)
+          unsuback.packet_id.should eq(2u16)
+          unsuback.reason_codes.should eq([
+            MQTT::Protocol::UnsubAck::ReasonCode::Success,
+            MQTT::Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted,
+          ])
         end
       end
     end

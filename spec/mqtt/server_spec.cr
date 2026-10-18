@@ -2,17 +2,17 @@ require "./spec_helper"
 
 private def connect_mqtt(port : Int32, client_id = "mqtt-server-spec")
   socket = TCPSocket.new("127.0.0.1", port, connect_timeout: 5)
-  mqtt_io = MQTT::Protocol::IO.new(socket)
+  mqtt_io = MQTT::Protocol::IO.v3(socket)
   MQTT::Protocol::Connect.new(
-    client_id: client_id,
-    clean_session: true,
-    keepalive: 30_u16,
+    client_id,
+    clean_start: true,
+    keep_alive: 30_u16,
     username: "guest",
     password: "guest".to_slice,
-    will: nil
+    version: MQTT::Protocol::Version::V3_1_1,
   ).to_io(mqtt_io)
   connack = MQTT::Protocol::Packet.from_io(mqtt_io).as(MQTT::Protocol::Connack)
-  connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+  connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
   {socket, mqtt_io}
 end
 

@@ -12,6 +12,10 @@ module MqttMatchers
       false
     rescue IO::Error
       true
+    rescue ex : MQTT::Protocol::Error::PacketDecode
+      # The shard reports an EOF within a packet this way: the server closed
+      # mid-send
+      ex.message == "truncated packet"
     end
 
     def failure_message(actual_value)

@@ -6,12 +6,12 @@ module MqttSpecs
 
   def self.connect_packet(client_id, clean_session = true)
     MQTT::Protocol::Connect.new(
-      client_id: client_id,
-      clean_session: clean_session,
-      keepalive: 60u16,
+      client_id,
+      clean_start: clean_session,
+      keep_alive: 60u16,
       username: "guest",
       password: nil,
-      will: nil,
+      version: MQTT::Protocol::Version::V3_1_1,
     )
   end
 
@@ -32,7 +32,7 @@ module MqttSpecs
         spawn do
           # Stands in for an API delete of the session while this client is
           # still writing its CONNACK.
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a", clean_session: false)) { vhost.delete_queue("mqtt.a") }
           done.send nil
         end
@@ -48,7 +48,7 @@ module MqttSpecs
       end
     end
 
-    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-2]" do
+    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
@@ -58,11 +58,11 @@ module MqttSpecs
         a_done = Channel(Nil).new
         b_client = nil
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(a_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(a_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a", clean_session: false)) do
             # B connects in full while A is still writing its CONNACK.
             spawn do
-              broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
+              broker.run_client(MQTT::Protocol::IO.v3(b_reader), LavinMQ::ConnectionInfo.local,
                 user, connect_packet("a", clean_session: false)) { }
             end
             wait_for { b_client = broker.@clients["a"]?.try { |c| c if c.session.client == c } }
@@ -82,7 +82,7 @@ module MqttSpecs
       end
     end
 
-    it "keeps a session the old connection makes a queue during a takeover [MQTT-3.1.4-2]" do
+    it "keeps a session the old connection makes a queue during a takeover [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
@@ -129,7 +129,7 @@ module MqttSpecs
             spawn { connack.send connect(io2, client_id: "a", clean_session: true).as(MQTT::Protocol::Connack) }
             sleep 50.milliseconds
             lock.unlock
-            connack.receive.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.receive.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             n_client = broker.@clients["a"]
             wait_for(1.second) { n_client.session.client == n_client }
             n_client.session.should_not be old_session
@@ -151,7 +151,7 @@ module MqttSpecs
         closed_before = vhost.connection_closed_count
         reader, writer = IO.pipe
         expect_raises(IO::Error) do
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a")) { raise IO::Error.new("CONNACK write failed") }
         end
         server.update_stats_rates

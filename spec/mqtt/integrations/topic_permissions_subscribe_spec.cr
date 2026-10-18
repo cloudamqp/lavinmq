@@ -29,10 +29,10 @@ module MqttSpecs
           suback = subscribe(io, topic_filters: topic_filters)
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
-          suback.return_codes.size.should eq(2)
+          suback.reason_codes.size.should eq(2)
           # Both accepted: filtering happens when a message is accepted into the session.
-          suback.return_codes[0].should eq(MQTT::Protocol::SubAck::ReturnCode::QoS1)
-          suback.return_codes[1].should eq(MQTT::Protocol::SubAck::ReturnCode::QoS1)
+          suback.reason_codes[0].should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQos1)
+          suback.reason_codes[1].should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQos1)
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub", username: "pub", password: "pub".to_slice)

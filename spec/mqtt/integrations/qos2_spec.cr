@@ -20,7 +20,7 @@ module MqttSpecs
   end
 
   describe "qos2 as receiver" do
-    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-2]" do
+    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-10]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -136,7 +136,7 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
-    it "keeps inbound QoS 2 state across a persistent reconnect [MQTT-4.4.0-1]" do
+    it "keeps inbound QoS 2 state across a persistent reconnect [MQTT-4.3.3-10]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -165,7 +165,7 @@ module MqttSpecs
       end
     end
 
-    it "drops inbound QoS 2 state on a clean session [MQTT-3.1.2-6]" do
+    it "drops inbound QoS 2 state on a clean session [MQTT-3.1.2-4]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -192,6 +192,24 @@ module MqttSpecs
           disconnect(sub_io)
         end
       end
+    end
+
+    it "disconnects a v5 publisher over the cap with Receive Maximum exceeded (0x93)" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 2u16
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "publisher", version: MQTT::Protocol::Version::V5)
+          2.times { |i| publish(io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16) }
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 3u16, expect_response: false)
+          pkt = read_packet(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ReceiveMaximumExceeded)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = UInt16::MAX
     end
 
     it "accepts a re-send at max_awaiting_pubrel but closes on a new packet id" do
@@ -315,6 +333,36 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
+    it "ends the delivery without a PUBREL on a PUBREC with a failure reason code [MQTT-4.3.3-4]" do
+      LavinMQ::Config.instance.max_inflight_messages = 1u16
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          String.new(first.payload).should eq "0"
+          first_id = first.packet_id.should_not be_nil
+          MQTT::Protocol::PubRec.new(first_id,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+
+          # The refusal frees the only slot in the window, so the next packet
+          # is the second message, not a PUBREL.
+          second = read_publish(io)
+          String.new(second.payload).should eq "1"
+          session.ack_count.should eq 1
+          session.@inflight.keys.should eq [second.packet_id.should_not be_nil]
+
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
+
     it "parks delivery when every packet id is owed to a requeued message" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -343,7 +391,37 @@ module MqttSpecs
       end
     end
 
-    it "encodes PUBCOMP with the reserved flags at 0 [MQTT-3.7.1]" do
+    it "owes no PUBREL when a re-send under its original packet id is refused [MQTT-4.3.3-4]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          read_publish(io)
+          id = first.packet_id.should_not be_nil
+          # The state while a re-send is still being written: booked, and the
+          # original id not yet forgotten
+          sp = session.@inflight[id].sp.should_not be_nil
+          store = session.@msg_store.should_not be_nil
+          store.remember_original_packet_id(sp, id)
+
+          MQTT::Protocol::PubRec.new(id,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+          pingpong(io)
+
+          session.@inflight.has_key?(id).should be_false
+          store.original_packet_id_in_use?(id).should be_false
+
+          disconnect(io)
+        end
+      end
+    end
+
+    it "encodes PUBCOMP with the reserved flags at 0 [MQTT-2.1.3-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
@@ -351,7 +429,7 @@ module MqttSpecs
           pubrel(io, 7u16)
 
           # Read as bytes, not as a packet: only PUBREL, SUBSCRIBE and
-          # UNSUBSCRIBE carry 0b0010. [MQTT-2.2.2-2] requires a receiver to
+          # UNSUBSCRIBE carry 0b0010. §2.1.3 requires a receiver to
           # close on bad reserved bits, though mosquitto does not enforce it.
           io.read_byte.should eq 0x70u8
           io.read_byte.should eq 2u8
@@ -387,8 +465,8 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK, publishing its will [MQTT-4.8.0-1] [MQTT-3.1.2-8]" do
-      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK is a
+    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK, publishing its will [MQTT-4.13.1-1] [MQTT-3.1.2-8]" do
+      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-3], so a PUBACK is a
       # protocol violation. 3.1.2.5 lists a close on a protocol error among the
       # situations in which the Will is published.
       with_server do |server|
@@ -412,7 +490,7 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that answers a QoS 1 delivery with PUBREC [MQTT-4.8.0-1]" do
+    it "closes a subscriber that answers a QoS 1 delivery with PUBREC [MQTT-4.13.1-1]" do
       # The mirror of the PUBACK case: a QoS 1 delivery is settled by PUBACK.
       with_server do |server|
         with_client_io(server) do |io|
@@ -431,7 +509,7 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that sends PUBCOMP before PUBREC [MQTT-4.8.0-1]" do
+    it "closes a subscriber that sends PUBCOMP before PUBREC [MQTT-4.13.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
@@ -460,6 +538,37 @@ module MqttSpecs
           pubcomp(io, 4243u16)
           io.should be_drained
 
+          disconnect(io)
+        end
+      end
+    end
+
+    it "answers a v5 PUBREC for an unknown packet id with PUBREL 0x92" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          pubrec(io, 4242u16)
+          pubrel = read_packet(io).as(MQTT::Protocol::PubRel)
+          pubrel.packet_id.should eq 4242u16
+          pubrel.reason_code.should eq MQTT::Protocol::PubRel::ReasonCode::PacketIdentifierNotFound
+          pubcomp(io, 4242u16)
+          disconnect(io)
+        end
+      end
+    end
+
+    it "does not answer a refused v5 PUBREC for an unknown packet id [MQTT-4.3.3-4]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          session = client_session(server, "subscriber")
+          MQTT::Protocol::PubRec.new(4242u16,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+          session.@unknown_pubrecs.includes?(4242u16).should be_false
           disconnect(io)
         end
       end

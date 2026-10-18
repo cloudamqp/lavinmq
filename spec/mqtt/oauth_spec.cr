@@ -9,7 +9,7 @@ module MqttSpecs
     it "allows connection with wildcard vhost permissions" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO.v3(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # OAuthUser with wildcard vhost "*" should match default vhost "/"
@@ -18,12 +18,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-wildcard-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-wildcard-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
@@ -41,7 +41,7 @@ module MqttSpecs
     it "allows connection with exact vhost permissions" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO.v3(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
@@ -49,12 +49,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-exact-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-exact-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
@@ -71,7 +71,7 @@ module MqttSpecs
     it "cleans up OAuthUser on disconnect" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO.v3(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
@@ -79,12 +79,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-cleanup-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-cleanup-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }

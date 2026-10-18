@@ -24,7 +24,7 @@ module LavinMQ
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
       #
-      # Connection lifecycle rules, which the takeover [MQTT-3.1.4-2] relies on:
+      # Connection lifecycle rules, which the takeover [MQTT-3.1.4-3] relies on:
       # 1. Registering, taking over and removing a client, and creating or
       #    deleting its session for it, happen under its client_id's lock.
       # 2. A registered client always reaches `run_client`'s `ensure`.
@@ -45,6 +45,13 @@ module LavinMQ
 
       def permission_service : PermissionService
         @vhost.mqtt_permission_service
+      end
+
+      # v5 reads the property, absent meaning 0 (§3.1.2.11.2). The shard gives a
+      # v3 CONNECT the same reading of its Clean Session bit: 1 ends the session
+      # with the connection, 0 keeps it forever, as LavinMQ has always done.
+      private def session_expiry_interval(packet : Protocol::Connect) : UInt32
+        packet.properties.session_expiry_interval
       end
 
       # A reconnecting client_id displaces the existing connection in
@@ -87,13 +94,18 @@ module LavinMQ
         if prev_client = @clients[client_id]?
           prev_client.close(
             "New client #{connection_info.remote_address} " \
-            "(username=#{packet.username}) connected as #{client_id}")
+            "(username=#{packet.username}) connected as #{client_id}",
+            Protocol::Disconnect::ReasonCode::SessionTakenOver)
           remove_client_locked(prev_client)
         end
+        interval = session_expiry_interval(packet)
         existing = sessions[client_id]?
-        # A clean session starts with no state at all [MQTT-3.1.2-6], and a
-        # clean session's state lasts only as long as its connection.
-        if existing && (packet.clean_session? || existing.clean_session?)
+        # A clean session starts with no state at all [MQTT-3.1.2-4], and a
+        # 0-interval session ends with its connection, which a takeover is
+        # (3.1.4). Clean Start and the interval are separate inputs: the first
+        # decides whether to discard, the second how long the session this
+        # connection ends up with will outlive it.
+        if existing && (packet.clean_start? || existing.auto_delete?)
           existing.delete
           existing = nil
         end
@@ -107,18 +119,30 @@ module LavinMQ
           raise Protocol::Error::IdentifierRejected.new(
             "queue \"#{SESSION_PREFIX}#{client_id}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
         end
-        session = existing || sessions.build(client_id, packet.clean_session?)
+        # A resumed session adopts this connection's interval. Its expiry clock,
+        # if running, captured the old one at disconnect and stops once
+        # `session.resume` below claims it, so narrowing it here cannot expire
+        # the session about to be resumed.
+        existing.session_expiry_interval = interval if existing
+        session = existing || sessions.build(client_id, interval)
         client = MQTT::Client.new(io,
           connection_info,
           user,
           self,
           session,
-          client_id,
-          ProtocolVersion.from_value(packet.version),
-          packet.keepalive,
-          packet.will)
+          client_id: client_id,
+          keepalive: packet.keep_alive,
+          will: packet.will,
+          max_packet_size: packet.properties.maximum_packet_size,
+          receive_maximum: packet.properties.receive_maximum,
+          session_expiry_interval: interval)
         @clients[client_id] = client
         @vhost.add_connection client
+        # Here, not at attach, which waits for CONNACK: a connection opened
+        # within the Will Delay Interval cancels the will [MQTT-3.1.3-9], and
+        # the session must not expire after CONNACK says it is present. Last,
+        # so nothing can raise between the claim and `remove_client` ending it.
+        session.resume
         {client, !existing.nil?}
       end
 
@@ -160,7 +184,7 @@ module LavinMQ
           if session.client.nil? || (session.client == client)
             session.client = nil
             # One that is not a queue holds no state, and nothing else has it
-            session.delete if session.clean_session? || !session.registered?
+            session.delete if session.auto_delete? || !session.registered?
           end
         end
       ensure
@@ -168,18 +192,33 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish, ctx : PublishContext)
+      def publish(packet : Protocol::Publish, publisher : String, ctx : PublishContext)
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet, ctx)
+        @exchange.publish(packet, publisher, ctx)
       end
 
-      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
+      # Retain Handling [MQTT-3.3.1-9/10/11], spelled as the spec words it.
+      #
+      # Careful if you check this against the local MQTT-v5.0-spec.txt: its
+      # Appendix B row for [MQTT-3.3.1-10] states the value-1 case inverted.
+      # Four body locations agree against it - §3.3.1.3's definition of that
+      # statement, §3.8.3.1's list of the three values, and §3.8.4's separate
+      # new-vs-replaced rules - so the body governs.
+      private def replay_retained?(retain_handling : Protocol::Subscribe::RetainHandling, new_subscription : Bool) : Bool
+        case retain_handling
+        in .send_on_subscribe?        then true
+        in .send_on_new_subscription? then new_subscription
+        in .do_not_send?              then false
+        end
+      end
+
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReasonCode)
         session = client.session
         begin
           register_session(session)
         rescue ex : MQTT::Error
           client.log.warn { "Rejecting SUBSCRIBE, its session cannot become a queue: #{ex.message}" }
-          return topics.map { Protocol::SubAck::ReturnCode::Failure }
+          return topics.map { Protocol::SubAck::ReasonCode::UnspecifiedError }
         end
         topics.map { |tf| grant(session, tf) }
       end
@@ -197,29 +236,40 @@ module LavinMQ
         sessions.register(session)
       end
 
-      def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
-        # `Subscribe.from_io` has already rejected anything above 2.
-        qos = tf.qos
-        return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
-        ts = RoughTime.unix_ms
-        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-          # At the subscription's QoS, not capped like `Exchange#publish`
-          # [MQTT-3.8.4-6]: the retain store keeps no publish QoS, and adding
-          # it changes its file format. Listed in docs/mqtt.md Limitations.
-          props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
-          msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
-          # A durable session records a QoS 2 delivery's packet id before the
-          # send, and that record must not outlive the message on power loss
-          msg.needs_sync = qos > 0
-          session.publish(msg)
+      def grant(session : Session, tf) : Protocol::SubAck::ReasonCode
+        # We only deliver up to MAX_QOS, so grant (and store/deliver at) the
+        # clamped QoS - the SUBACK must report the granted max [MQTT-3.8.4-7].
+        options = SubscriptionOptions.new(
+          MQTT.granted_qos(tf.qos), tf.no_local?, tf.retain_as_published?)
+        result = session.subscribe(tf.topic, options)
+        return Protocol::SubAck::ReasonCode::UnspecifiedError if result.failed?
+        if replay_retained?(tf.retain_handling, result.new?)
+          @retain_store.each(tf.topic) do |retained|
+            props = retained.properties
+            # The lower of the publish and the subscription QoS [MQTT-3.8.4-8].
+            qos = Math.min(props.delivery_mode || 0u8, options.qos)
+            props.delivery_mode = qos
+            # The original timestamp, so the replay counts down the Message
+            # Expiry Interval like any stored message [MQTT-3.3.2-6].
+            msg = Message.new(retained.timestamp, EXCHANGE, retained.topic, props,
+              retained.bodysize, retained.body_io)
+            # A durable session records a QoS 2 delivery's packet id before the
+            # send, and that record must not outlive the message on power loss
+            msg.needs_sync = qos > 0
+            session.publish(msg)
+          end
         end
-        Protocol::SubAck::ReturnCode.from_int(qos)
+        Protocol::SubAck::ReasonCode.from_value(options.qos)
       end
 
-      def unsubscribe(client, topics)
+      def unsubscribe(client, topics) : Array(Protocol::UnsubAck::ReasonCode)
         session = client.session
-        topics.each do |tf|
-          session.unsubscribe(tf)
+        topics.map do |tf|
+          if session.unsubscribe(tf)
+            Protocol::UnsubAck::ReasonCode::Success
+          else
+            Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted
+          end
         end
       end
 

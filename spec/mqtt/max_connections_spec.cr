@@ -14,7 +14,7 @@ module MqttSpecs
           wait_for { vhost.connections_size == 1 }
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "c2").should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
             io2.should be_closed
           end
         end
@@ -31,7 +31,7 @@ module MqttSpecs
           vhost.max_connections = -1
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "c2").should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           end
         end
       end
@@ -48,7 +48,7 @@ module MqttSpecs
           wait_for { vhost.connections_size == 1 }
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "c1").should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             io.should be_closed
           end
         end

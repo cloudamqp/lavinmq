@@ -13,7 +13,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "a", clean_session: false).should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
           disconnect(io)
         end
@@ -30,7 +30,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "a")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
           pingpong(io).should be_a(MQTT::Protocol::PingResp)
         end
         vhost.sessions_size.should eq 0
@@ -77,11 +77,11 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "a", clean_session: false).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           connack.session_present?.should be_true
           ack = subscribe(io, topic_filters: mk_topic_filters({"e/f", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQos0]
         end
       end
     end
@@ -97,7 +97,7 @@ module MqttSpecs
 
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "a", clean_session: true).should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             io.should be_closed
           end
         end
@@ -118,7 +118,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "b")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
         end
       end
     end
@@ -131,10 +131,10 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "a")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
           vhost.delete_queue("q")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQos0]
         end
       end
     end
@@ -154,7 +154,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "b", clean_session: true)
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQos0]
         end
       end
     end
@@ -169,7 +169,7 @@ module MqttSpecs
           vhost.declare_queue("mqtt.x", true, false)
           # Its session cannot become a queue now
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8})).as(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
           disconnect(io)
         end
         wait_for { server.mqtt_server.broker("/").@clients.empty? }
