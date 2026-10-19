@@ -141,7 +141,7 @@ module LavinMQ
           client = @client
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
-          get_packet do |pub_packet, bytesize|
+          get_packet(client) do |pub_packet, bytesize|
             client.send(pub_packet)
             delivered_bytes &+= bytesize
           end
@@ -202,21 +202,24 @@ module LavinMQ
         # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
         # persistent one requeues what it owes and remembers the packet ids, to
         # resend under the ids the client already knows [MQTT-4.4.0-1].
-        unless clean_session?
-          @msg_store_lock.synchronize do
+        # `@unacked` and `@client` change together under the store lock, so a
+        # delivery to the previous client can't be recorded as in flight to
+        # this one (see #get_packet).
+        @msg_store_lock.synchronize do
+          unless clean_session?
             @unacked.each do |packet_id, sp|
               @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
           end
+          # Subtracted rather than reset: a delivery being sent counts too,
+          # and takes itself off when it finds its client gone
+          @unacked_count.sub(@unacked.size.to_u32, :release)
+          @unacked_bytesize.sub(@unacked.sum(0_u64) { |_, sp| sp.bytesize.to_u64 }, :release)
+          @unacked.clear
+          @client = client
         end
-
-        @unacked.clear
-        @unacked_count.set(0, :release)
-        @unacked_bytesize.set(0, :release)
         refresh_capacity
-
-        @client = client
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
@@ -300,7 +303,9 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
+      # `@unacked` is only read or changed under `@msg_store_lock`: the client's
+      # fiber acks, and attaching or detaching a client requeues and clears it.
+      private def get_packet(client : MQTT::Client, & : Protocol::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if closed?
         loop do
           # The payload is sent straight from the segment, which a close or
@@ -325,7 +330,7 @@ module LavinMQ
               delete_message(sp)
             else
               begin
-                id = delivery_id(sp)
+                id = @msg_store_lock.synchronize { delivery_id(sp) }
                 unless id
                   @msg_store_lock.synchronize { @msg_store.requeue(sp) }
                   # Without this the deliver_loop spins: the store is non-empty and
@@ -345,8 +350,18 @@ module LavinMQ
                   @deliver_count.add(1, :relaxed)
                   @deliver_get_count.add(1, :relaxed)
                 end
-                @unacked[id] = sp
-                @msg_store.forget_packet_id(sp)
+                @msg_store_lock.synchronize do
+                  if @client.same?(client)
+                    @unacked[id] = sp
+                    @msg_store.forget_packet_id(sp)
+                  else
+                    # The client was replaced or detached while this was sent
+                    # to it, and the current one won't ack it: deliver it again
+                    @msg_store.requeue(sp)
+                    @unacked_count.sub(1, :relaxed)
+                    @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                  end
+                end
                 refresh_capacity
               rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -404,7 +419,7 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
+        if sp = @msg_store_lock.synchronize { @unacked.delete(id) }
           begin
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)
