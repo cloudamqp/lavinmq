@@ -4,24 +4,29 @@ require "./logger"
 
 module LavinMQ
   class ConnectionStore
+    # Clients add and delete themselves from their own fibers, which can run
+    # on different threads, so changes are serialized and readers iterate a
+    # copy
+    @lock = Mutex.new
+
     def initialize
       @connections = Array(Client).new(512)
     end
 
     def add(client : Client)
-      @connections << client
+      @lock.synchronize { @connections << client }
     end
 
     def delete(client : Client)
-      @connections.delete client
+      @lock.synchronize { @connections.delete client }
     end
 
     def each(& : Client ->) : Nil
-      @connections.each { |c| yield c }
+      to_a.each { |c| yield c }
     end
 
     def to_a : Array(Client)
-      @connections.dup
+      @lock.synchronize { @connections.dup }
     end
 
     def size : Int32
@@ -38,7 +43,7 @@ module LavinMQ
         fiber_count = 0
         # A copy, as a closed client deletes itself, which would skip the
         # next one in the iteration
-        @connections.dup.each do |client|
+        to_a.each do |client|
           select
           when to_close.send client
           else
