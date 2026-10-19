@@ -47,7 +47,7 @@ module LavinMQ
       # A reconnecting client_id displaces the existing connection in
       # `add_client`, so the connection count doesn't grow
       def connection_limit_reached?(client_id : String) : Bool
-        return false if @clients.has_key?(client_id)
+        return false if @clients_lock.synchronize { @clients.has_key?(client_id) }
         @vhost.connection_limit_reached?
       end
 
