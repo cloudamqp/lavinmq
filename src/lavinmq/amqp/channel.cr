@@ -64,7 +64,9 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = Atomic(UInt64).new(1_u64)
-      @unack_lock = Mutex.new(:checked)
+      # Never re-entered, a checked mutex (two Fiber.current lookups per
+      # acquisition) would only raise on a bug the suite would have found
+      @unack_lock = Mutex.new(:unchecked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
       @tx = false
@@ -413,20 +415,21 @@ module LavinMQ
         @client.deliver(frame, msg, flush)
       end
 
-      def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
+      def increment_deliver_count(redelivered : Bool, no_ack : Bool = false, count : Int = 1)
+        return if count.zero?
         # From any consumer's deliver loop, so atomic
         if redelivered
-          redeliver_count_atomic_add!
-          @client.vhost.event_tick(EventType::ClientRedeliver)
+          redeliver_count_atomic_add!(count)
+          @client.vhost.event_tick(EventType::ClientRedeliver, count)
         else
           if no_ack
-            deliver_no_ack_count_atomic_add!
-            @client.vhost.event_tick(EventType::ClientDeliverNoAck)
+            deliver_no_ack_count_atomic_add!(count)
+            @client.vhost.event_tick(EventType::ClientDeliverNoAck, count)
           else
-            deliver_count_atomic_add!
-            @client.vhost.event_tick(EventType::ClientDeliver)
+            deliver_count_atomic_add!(count)
+            @client.vhost.event_tick(EventType::ClientDeliver, count)
           end
-          deliver_get_count_atomic_add!
+          deliver_get_count_atomic_add!(count)
         end
       end
 

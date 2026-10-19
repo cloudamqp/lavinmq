@@ -130,6 +130,36 @@ module LavinMQ
       true
     end
 
+    # Like #shift_with_lease?, for up to `buf.size` messages under one
+    # acquisition of `lock`. Yields the shifted messages (a prefix of `buf`),
+    # outside the lock and with their segments leased until the block
+    # returns. Returns false if there was no message.
+    def shift_batch_with_lease?(lock : Mutex, buf : Slice(Envelope), & : Slice(Envelope) -> _) : Bool
+      count = lock.synchronize do
+        n = 0
+        begin
+          while n < buf.size && (env = shift?)
+            buf[n] = env.lease
+            n += 1
+          end
+        rescue ex
+          # The shifted messages are the caller's now (shift? took them out of
+          # the store), but it never gets them: let their segments go
+          buf[0, n].each &.release
+          raise ex
+        end
+        n
+      end
+      return false if count.zero?
+      batch = buf[0, count]
+      begin
+        yield batch
+      ensure
+        batch.each &.release
+      end
+      true
+    end
+
     # The envelope points into the segment, so it's only valid while the lock
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
