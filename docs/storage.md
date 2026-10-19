@@ -39,6 +39,15 @@ Streams do not record individual message deletions in ack files. Acknowledgments
 
 For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
+## Corrupt Data
+
+A queue keeps running when part of a segment can't be read, for example after disk errors or an unclean shutdown. Where the next message in the segment starts is then unknown, so the rest of the segment is skipped:
+
+- **When a message is read**: the unreadable message and the rest of its segment are no longer counted or delivered. The segment is deleted once the messages before the corrupt one are acknowledged. If the segment was still being written to, new messages go to a new segment. A requeued message that can't be read is dropped and acknowledged. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
+- **At startup**: a segment is kept up to its last readable message. A segment with an unreadable header, for example from a newer LavinMQ version, is moved aside and not loaded.
+
+Each such segment is logged as an error and copied, or moved, to `msgs.{segment_id}.corrupt` next to it for inspection. The copies are deleted with the queue.
+
 ## Data Directory Layout
 
 ```

@@ -414,15 +414,6 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
-  @[Cmd("Restarts a closed queue", "<queue>", section: "Queues")]
-  private def restart_queue
-    vhost = @options["vhost"]? || "/"
-    queue = ARGV.shift?
-    abort @banner unless queue
-    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/restart", @headers
-    handle_response(resp, 204)
-  end
-
   @[Cmd("Lists AMQP 0.9.1 connections for the node", "", section: "Connections")]
   private def list_connections
     columns = ARGV

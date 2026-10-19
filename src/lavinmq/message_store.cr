@@ -21,7 +21,9 @@ module LavinMQ
   # Deleted messages are written to acks.#{segment}
   class MessageStore
     PURGE_YIELD_INTERVAL = 16_384
-    Log                  = LavinMQ::Log.for "message_store"
+    # What reading a message from corrupt data raises
+    alias CorruptDataError = IndexError | IO::EOFError | OverflowError | AMQ::Protocol::Error
+    Log = LavinMQ::Log.for "message_store"
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
@@ -76,16 +78,16 @@ module LavinMQ
       @empty.set false if was_empty
     end
 
-    def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+    # Messages that can't be read are dropped, see #drop_requeued and
+    # #skip_corrupt_tail
+    def first? : Envelope?
       raise ClosedError.new if @closed
-      if sp = @requeued.first?
-        seg = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true, segment: seg)
-        rescue ex
-          raise Error.new(seg, cause: ex)
+      while sp = @requeued.first?
+        if env = requeued_envelope?(sp)
+          return env
         end
+        @requeued.shift?
+        drop_requeued(sp)
       end
 
       loop do
@@ -95,24 +97,19 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          return reset_size_at_eof
         end
-        if deleted?(seg, pos)
-          BytesMessage.skip(rfile)
-          next
+        begin
+          if deleted?(seg, pos)
+            BytesMessage.skip(rfile)
+            next
+          end
+          msg = read_message(rfile, seg, pos)
+          sp = SegmentPosition.make(seg, pos, msg)
+          return Envelope.new(sp, msg, redelivered: false, segment: rfile)
+        rescue ex : CorruptDataError
+          skip_corrupt_tail(seg, rfile, pos, ex)
         end
-        msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
-        sp = SegmentPosition.make(seg, pos, msg)
-        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex : IndexError
-        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
-        select_next_read_segment && next
-        return if @size.zero?
-        raise Error.new(@rfile, cause: ex)
-      rescue ex
-        @log.error(exception: ex) { "first? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
       end
     end
 
@@ -132,26 +129,18 @@ module LavinMQ
 
     # The envelope points into the segment, so it's only valid while the lock
     # guarding the store is held, see #shift_with_lease? for using it outside it
-    def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+    # Messages that can't be read are dropped, see #drop_requeued and
+    # #skip_corrupt_tail
+    def shift?(consumer = nil) : Envelope?
       raise ClosedError.new if @closed
-      if sp = @requeued.shift?
-        begin
-          segment = @segments[sp.segment]
-          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+      while sp = @requeued.shift?
+        if env = requeued_envelope?(sp)
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true, segment: segment)
-        rescue ex
-          # sp has already been removed from @requeued; drop its accounting too
-          # so @size/@bytesize don't leak when the segment is gone or the
-          # payload can't be parsed. Without this, future shift? calls can hit
-          # EOF with @size > 0 because the requeued entry can never be re-read.
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          raise Error.new(@segments[sp.segment]? || @rfile, cause: ex)
+          return env
         end
+        drop_requeued(sp)
       end
 
       loop do
@@ -161,29 +150,130 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          return reset_size_at_eof
         end
-        if deleted?(seg, pos)
-          BytesMessage.skip(rfile)
+        begin
+          if deleted?(seg, pos)
+            BytesMessage.skip(rfile)
+            next
+          end
+          msg = read_message(rfile, seg, pos)
+          sp = SegmentPosition.make(seg, pos, msg)
+        rescue ex : CorruptDataError
+          skip_corrupt_tail(seg, rfile, pos, ex)
           next
         end
-        msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
-        sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex : IndexError
-        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
-        select_next_read_segment && next
-        return if @size.zero?
-        raise Error.new(@rfile, cause: ex)
-      rescue ex
-        @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
       end
+    end
+
+    private def read_message(rfile : MFile, seg : UInt32, pos : UInt32) : BytesMessage
+      msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+      raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+      if pos.to_u64 + msg.bytesize > rfile.size
+        raise IndexError.new("Message at segment #{seg} pos #{pos} ends past the end of the segment")
+      end
+      msg
+    end
+
+    private def requeued_envelope?(sp : SegmentPosition) : Envelope?
+      segment = @segments[sp.segment]
+      msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+      Envelope.new(sp, msg, redelivered: true, segment: segment)
+    rescue ex : KeyError | CorruptDataError # KeyError when the segment is gone
+      @log.error(exception: ex) { "Dropping requeued message #{sp}, it can't be read" }
+      nil
+    end
+
+    # A requeued message that can't be read, already taken off @requeued, is
+    # acked, so that its segment can be deleted. Unless it's not even in its
+    # segment, then an ack could have the segment deleted too early.
+    private def drop_requeued(sp : SegmentPosition) : Nil
+      @bytesize -= Math.min(@bytesize, sp.bytesize.to_u64)
+      @size -= 1 unless @size.zero?
+      @empty.set true if @size.zero?
+      if (segment = @segments[sp.segment]?) && sp.position < segment.size
+        delete(sp)
+      end
+    end
+
+    # The segments are read through but @size says there are messages left:
+    # the counters are out of sync with the segments, so they're reset
+    private def reset_size_at_eof : Nil
+      @log.warn { "EOF but @size=#{@size}, resetting the counters: #{state_snapshot}" }
+      @size = 0u32
+      @bytesize = 0u64
+      @empty.set true
+      nil
+    end
+
+    # The message at `pos` in segment `seg` can't be read. Its size, and so
+    # where the next message starts, is unknown, so the rest of the segment
+    # is skipped: its messages are no longer counted, the segment is deleted
+    # once the messages before `pos` are acked, and if it's being written to,
+    # writes go to a new segment. A copy of it is kept next to it.
+    private def skip_corrupt_tail(seg : UInt32, mfile : MFile, pos : UInt32, ex : Exception) : Nil
+      @log.error(exception: ex) { "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: #{state_snapshot}" }
+      keep_corrupt_copy(mfile)
+      before = count_messages(mfile, pos)
+      # Acks loaded from disk, the only ones that can be after the read position
+      acked_after = @deleted[seg]?.try(&.count { |p| p >= pos }.to_u32) || 0u32
+      total = @segment_msg_count[seg]
+      skipped = total - Math.min(total, before + acked_after)
+      @size -= Math.min(@size, skipped)
+      # The skipped messages' sizes are unknown, the rest of the segment is
+      # an upper bound
+      @bytesize = @size.zero? ? 0u64 : @bytesize - Math.min(@bytesize, Math.max(mfile.size - pos, 0).to_u64)
+      @empty.set true if @size.zero?
+      # So that the segment is deleted once the messages before pos are acked
+      @segment_msg_count[seg] = before + acked_after
+      mfile.pos = mfile.size
+      open_new_segment if seg == @wfile_id
+      select_next_read_segment if seg == @rfile_id
+      return unless @segments.has_key?(seg) # deleted when the new segment was opened
+      acked = @acks[seg]?.try { |a| (a.size // sizeof(UInt32)).to_u32 } || 0u32
+      if acked >= @segment_msg_count[seg]
+        @log.debug { "Deleting segment #{seg}, all its readable messages are acked" }
+        @segment_msg_count.delete(seg)
+        @deleted.delete(seg)
+        if a = @acks.delete(seg)
+          delete_file(a)
+        end
+        if f = @segments.delete(seg)
+          delete_file(f, including_meta: true)
+        end
+      else
+        write_metadata_file(seg, mfile)
+      end
+    end
+
+    # The number of messages before `pos` in `mfile`
+    private def count_messages(mfile : MFile, pos : UInt32) : UInt32
+      mfile.pos = 4
+      count = 0u32
+      while mfile.pos < pos
+        BytesMessage.skip(mfile)
+        count += 1
+      end
+      count
+    rescue CorruptDataError
+      count || 0u32
+    end
+
+    # Keeps a copy of a segment that has corrupt data, for inspection. It's
+    # not loaded, but deleted with the queue.
+    private def keep_corrupt_copy(mfile : MFile) : Nil
+      return unless @durable
+      copy = "#{mfile.path}.corrupt"
+      return if File.exists?(copy)
+      File.copy(mfile.path, copy)
+      @log.warn { "Kept a copy of the corrupt segment in #{copy}" }
+    rescue ex : File::Error
+      @log.error(exception: ex) { "Could not keep a copy of corrupt segment #{mfile.path}" }
     end
 
     def [](sp : SegmentPosition) : BytesMessage
@@ -575,23 +665,41 @@ module LavinMQ
               next
             end
           rescue ex
-            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
-            @segments[seg] = file
-            # Register remaining segments by path so the replicator knows about
-            # all files on disk even though we won't load them due to the abort.
-            if replicator = @replicator
-              ids[(idx + 1)..].each do |remaining_seg|
-                replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
-              end
-            end
-            close
-            break
+            @log.error { "Could not initialize segment #{seg}: #{ex.message}" }
+            move_aside(file)
+            next
           end
         end
         file.pos = 4
         @segments[seg] = file
         Fiber.yield
       end
+      open_first_segment(ids.last + 1) if @segments.empty? # all were moved aside
+    end
+
+    # Moved aside rather than deleted, as the segment may be from a newer
+    # version that a downgrade can't read
+    private def move_aside(file : MFile) : Nil
+      path = file.path
+      @log.error { "Moving segment #{path} aside to #{path}.corrupt" }
+      file.close                                       # back to its size on disk
+      File.rename(path, "#{path}.corrupt") if @durable # else already unlinked
+      File.delete?(meta_file_name(path))
+      if replicator = @replicator
+        replicator.delete_file(meta_file_name(path))
+        replicator.delete_file(path)
+      end
+    end
+
+    private def open_first_segment(seg : UInt32) : Nil
+      path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+      file = open_segment(path, Config.instance.segment_size)
+      @replicator.try &.register_file file
+      file.delete unless @durable
+      file.write_bytes Schema::VERSION
+      @replicator.try &.append_value path, Schema::VERSION, 0i64
+      file.pos = 4
+      @segments[seg] = file
     end
 
     # Populate bytesize, size and segment_msg_count
@@ -746,9 +854,15 @@ module LavinMQ
         end
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close
-        return count
+        # Where the next message starts is unknown, so the rest of the
+        # segment is dropped, after keeping a copy of it
+        @log.error { "Failed to read segment #{seg} at pos #{pos}, dropping the rest of it: #{ex}" }
+        if pos
+          keep_corrupt_copy(mfile)
+          mfile.resize(pos)
+          @replicator.try &.replace_file(mfile)
+        end
+        break
       end
       mfile.pos = 4
       mfile.dontneed

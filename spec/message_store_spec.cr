@@ -476,7 +476,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
+  it "moves a segment with a corrupt schema version aside with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
@@ -488,12 +488,15 @@ describe LavinMQ::MessageStore do
         seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
         File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
 
-        # With a replicator (no followers), close spawns a fiber that races
-        # with the constructor — this should close gracefully, not crash
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
-          store.closed.should be_true
+          store.closed.should be_false
+          File.exists?(File.join(dir, "#{seg_file}.corrupt")).should be_true
+          store.size.should eq 0
+          store.push(LavinMQ::Message.new("ex", "rk", "body"))
+          store.shift?.should_not be_nil
+          store.close
         ensure
           replicator.close
         end
@@ -501,7 +504,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when a middle segment is corrupt with replicator", tags: "etcd" do
+  it "moves a middle segment with a corrupt schema version aside with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
@@ -516,15 +519,105 @@ describe LavinMQ::MessageStore do
         seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
         File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
 
-        # With a replicator (no followers), this should close gracefully
-        # even though valid segments before the corrupt one were already loaded
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
-          store.closed.should be_true
+          store.closed.should be_false
+          File.exists?(File.join(dir, "#{seg_files[1]}.corrupt")).should be_true
+          store.size.should eq 2
+          store.close
         ensure
           replicator.close
         end
+      end
+    end
+  end
+
+  describe "corrupt data" do
+    corrupt = ->(mfile : MFile, pos : UInt32) do
+      # Garbage after the timestamp, so the message can't be read
+      File.open(mfile.path, "r+") { |f| f.seek(pos + 8); f.write(Bytes.new(64, 0xff_u8)) }
+    end
+
+    it "skips the rest of a segment with a message that can't be read" do
+      with_store do |store|
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) } # one message per segment
+        seg_ids = store.@segments.keys
+        bad = store.@segments[seg_ids[1]]
+        corrupt.call(bad, 4u32)
+
+        store.shift?.should_not(be_nil).segment_position.segment.should eq seg_ids[0]
+        store.shift?.should_not(be_nil).segment_position.segment.should eq seg_ids[2]
+        store.shift?.should be_nil
+        store.size.should eq 0
+        store.bytesize.should eq 0
+        File.exists?("#{bad.path}.corrupt").should be_true
+        # Nothing before the corrupt message is left to ack
+        store.@segments.has_key?(seg_ids[1]).should be_false
+      end
+    end
+
+    it "writes to a new segment when the one being written has a message that can't be read" do
+      with_store do |store|
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        sp2 = store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        corrupt.call(store.@segments[sp2.segment], sp2.position)
+
+        store.shift?.should_not(be_nil).segment_position.should eq sp1
+        store.shift?.should be_nil
+        store.size.should eq 0
+        sp3 = store.push(LavinMQ::Message.new("ex", "rk", "3"))
+        sp3.segment.should be > sp1.segment
+        store.shift?.should_not(be_nil).segment_position.should eq sp3
+
+        # The segment is deleted once the message before the corrupt one is acked
+        store.delete(sp1)
+        store.@segments.has_key?(sp1.segment).should be_false
+      end
+    end
+
+    it "drops and acks a requeued message that can't be read" do
+      with_store do |store|
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        store.shift?.should_not be_nil
+        store.shift?.should_not be_nil
+        store.requeue(sp1)
+        corrupt.call(store.@segments[sp1.segment], sp1.position)
+
+        store.first?.should be_nil
+        store.shift?.should be_nil
+        store.size.should eq 0
+        store.@acks[sp1.segment].size.should eq sizeof(UInt32)
+      end
+    end
+
+    it "keeps the messages before data it can't skip when loading the segment being written" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        sp2 = store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        store.push(LavinMQ::Message.new("ex", "rk", "3"))
+        path = store.@segments[sp2.segment].path
+        store.close
+        # Empty exchange, routing key and properties, and a body size that
+        # can't be skipped
+        File.open(path, "r+") do |f|
+          f.seek(sp2.position + 8)
+          f.write(Bytes[0, 0, 0, 0])
+          f.write(Bytes.new(8, 0xff_u8))
+        end
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.closed.should be_false
+        store.size.should eq 1
+        File.exists?("#{path}.corrupt").should be_true
+        store.shift?.should_not(be_nil).segment_position.should eq sp1
+        store.push(LavinMQ::Message.new("ex", "rk", "4"))
+        store.shift?.should_not(be_nil).message.body.should eq "4".to_slice
+        store.close
       end
     end
   end
@@ -676,7 +769,7 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "deletes orphaned ack file and registers valid ack files when a segment is corrupt" do
+    it "deletes orphaned ack files and registers valid ack files when a segment is corrupt" do
       mktmpdir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil, durable: true)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
@@ -694,12 +787,15 @@ describe LavinMQ::MessageStore do
 
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator)
-        sleep 1.millisecond
-        store.closed.should be_true
+        store.closed.should be_false
         registered = replicator.registered_files.keys.map { |p| File.basename(p) }
-        ack_files.each { |f| registered.should contain(f) }
-        replicator.deleted_files.should contain(orphan_ack)
-        File.exists?(orphan_ack).should be_false
+        ack_files[1..].each { |f| registered.should contain(f) }
+        # The corrupt segment is moved aside, which orphans its ack file
+        [orphan_ack, File.join(dir, ack_files[0])].each do |path|
+          replicator.deleted_files.should contain(path)
+          File.exists?(path).should be_false
+        end
+        store.close
       end
     end
 
@@ -708,7 +804,7 @@ describe LavinMQ::MessageStore do
       {"middle segment", 4, 1},
       {"last segment", 3, -1},
     ].each do |desc, n_segments, corrupt_idx|
-      it "registers all files when the #{desc} is corrupt" do
+      it "moves the #{desc} aside and registers the other files when it is corrupt" do
         mktmpdir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil, durable: true)
           msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
@@ -724,10 +820,16 @@ describe LavinMQ::MessageStore do
 
           replicator = SpyReplicator.new
           store = LavinMQ::MessageStore.new(dir, replicator)
-          sleep 1.millisecond
-          store.closed.should be_true
+          store.closed.should be_false
+          corrupt = seg_files[corrupt_idx]
+          File.exists?(File.join(dir, "#{corrupt}.corrupt")).should be_true
+          replicator.deleted_files.should contain(File.join(dir, corrupt))
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
-          (seg_files + ack_files).each { |f| registered.should contain(f) }
+          (seg_files + ack_files).each do |f|
+            next if f.ends_with?(corrupt[5..]) # its ack file is deleted as orphaned
+            registered.should contain(f)
+          end
+          store.close
         end
       end
     end
@@ -903,9 +1005,7 @@ describe LavinMQ::MessageStore do
         # an exception while the requeued entry's accounting is left behind.
         store.@segments.delete(env.segment_position.segment)
 
-        expect_raises(LavinMQ::MessageStore::Error) do
-          store.shift?
-        end
+        store.shift?.should be_nil
         store.@size.should eq 0
         store.@bytesize.should eq 0
       end

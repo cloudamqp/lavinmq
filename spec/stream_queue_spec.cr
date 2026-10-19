@@ -296,6 +296,52 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "skips the rest of a segment with a message that can't be read" do
+    with_amqp_server do |s|
+      q_name = "stream-corrupt"
+      StreamSpecHelpers.publish(s, q_name, 2)
+      stream = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::Stream)
+      # Corrupt the second message only
+      mfile = stream.@msg_store.@segments.first_value
+      msg_size = (mfile.size - 4) // 2
+      File.open(mfile.path, "r+") do |f|
+        f.seek(4 + msg_size)
+        f.write(Bytes.new(msg_size, 0xff_u8))
+      end
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue(q_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+        offsets = Channel(Int64).new(3)
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+          offsets.send StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+          msg.ack
+        end
+        receive = -> do
+          select
+          when offset = offsets.receive
+            offset
+          when timeout 5.seconds
+            fail "no message delivered"
+          end
+        end
+        receive.call.should eq 1
+        # Continues with what's written after the corrupt message
+        StreamSpecHelpers.publish(s, q_name, 1)
+        receive.call.should eq 3
+        stream.closed?.should be_false
+        File.exists?("#{mfile.path}.corrupt").should be_true
+      end
+      # What's written after the corrupt message is kept, with its offset
+      restart_server(s)
+      StreamSpecHelpers.publish(s, q_name, 1)
+      msg = StreamSpecHelpers.consume_one(s, q_name, "after-restart", AMQP::Client::Arguments.new({"x-stream-offset": 3}))
+      StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+      msg.body_io.to_s.should eq "m0"
+      msg = StreamSpecHelpers.consume_one(s, q_name, "after-restart-2", AMQP::Client::Arguments.new({"x-stream-offset": 4}))
+      StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 4
+    end
+  end
+
   describe "deliver loop scheduling" do
     it "yields to other fibers after yield_each_delivered_bytes during a replay" do
       config = LavinMQ::Config.instance
@@ -855,12 +901,9 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
           q.message_count.should eq 3
-
-          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          stream.close
-          stream.restart!
-          stream.message_count.should eq 3
         end
+        restart_server(s)
+        s.vhosts["/"].queue(queue_name).message_count.should eq 3
       end
     end
   end
@@ -1393,40 +1436,6 @@ describe LavinMQ::AMQP::Stream do
   end
 
   describe "Restarting stream" do
-    queue_name = Random::Secure.hex
-    it "should restart a closed stream" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          ch.prefetch 1
-          args = {"x-queue-type": "stream"}
-          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          q.publish_confirm "test message"
-          stream.message_count.should eq 1
-
-          # Close the stream
-          stream.close
-          stream.closed?.should be_true
-
-          # Restart the stream & verify
-          stream.restart!
-          stream.closed?.should be_false
-          stream.message_count.should eq 1
-
-          msgs = Channel(AMQP::Client::DeliverMessage).new
-          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
-            msgs.send msg
-            msg.ack
-          end
-          if msg = msgs.receive
-            msg.body_io.to_s.should eq "test message"
-          else
-            fail("Did not receive message after stream restart")
-          end
-        end
-      end
-    end
-
     it "should resume consuming from the correct position after a restart" do
       queue_name = Random::Secure.hex
       consumer_tag = Random::Secure.hex
@@ -1439,11 +1448,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.close
-        stream.closed?.should be_true
-        stream.restart!
-        stream.closed?.should be_false
+        restart_server(s)
 
         # should continue from tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)

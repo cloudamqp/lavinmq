@@ -106,6 +106,14 @@ module LavinMQ
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
+      rescue ex : MessageStore::Error
+        # The queue stays open, so the consumer is cancelled, rather than left
+        # without a deliver loop that a publish to a non-empty queue doesn't
+        # start again. Not on this fiber: removing an auto-delete queue's last
+        # consumer closes the queue, which waits for the deliver loops.
+        @log.error(exception: ex) { "Consumer cancelled due to error" }
+        @deliver_loop_running.set(false, :release)
+        spawn(name: "Consumer#cancel #{@tag}") { cancel }
       rescue ex
         @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
