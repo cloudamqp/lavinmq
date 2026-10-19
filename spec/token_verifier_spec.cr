@@ -369,6 +369,37 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
     end
   end
 
+  describe "reload without an issuer" do
+    it "keeps all current settings when the issuer is removed" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      config.oauth_preferred_username_claims = ["preferred_username"]
+      config.oauth_audience = "my-api"
+      # Never started and the spec never fetches keys, so it makes no requests
+      fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(URI.parse("https://auth.example.com"), 1.hour)
+      verifier = TestableTokenVerifier.new(config.oauth_provider.should_not(be_nil), fetcher)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+
+      config.oauth_issuer_url = nil
+      config.oauth_audience = "other-api"
+      config.oauth_preferred_username_claims = ["sub"]
+      config.oauth_scope_prefix = "mq."
+      config.oauth_jwks_cache_ttl = 5.minutes
+      authenticator.reload(config)
+
+      verifier.fetcher.should be fetcher
+      fetcher.default_cache_ttl.should eq 1.hour
+      payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com",
+        exp: RoughTime.utc.to_unix + 3600, aud: "my-api", sub: "other-user", scope: "tag:administrator")
+      payload["preferred_username"] = JSON::Any.new("testuser")
+      verifier.test_validate_issuer(payload)
+      verifier.test_validate_audience(payload)
+      claims = verifier.test_parse(JWTTestHelper.create_mock_token(payload))
+      claims.username.should eq "testuser"
+      claims.tags.should eq [LavinMQ::Tag::Administrator]
+    end
+  end
+
   describe "#disable" do
     it "rejects a token whose verification was waiting for keys" do
       config = LavinMQ::Config.new
