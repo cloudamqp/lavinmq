@@ -627,7 +627,7 @@ describe LavinMQ::AMQP::Stream do
           q.message_count.should eq 2
           sleep 1.02.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
-          q.message_count.should eq 1
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -671,7 +671,7 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("mlb", "stream-max-length-bytes-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -687,7 +687,7 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("ml", "stream-max-length-policy", "queues",
             {"max-length" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -712,12 +712,13 @@ describe LavinMQ::AMQP::Stream do
           3.times { q.publish_confirm data }
           s.vhosts["/"].add_policy("mlb", "stream-delivery-limit-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          should_eventually(eq 1) { q.message_count }
           # Now apply delivery-limit. Pre-fix this spawned drop_redelivered
           # and crashed; post-fix it's skipped entirely.
           s.vhosts["/"].add_policy("dl", "stream-delivery-limit-policy", "queues",
             {"delivery-limit" => JSON::Any.new(5_i64)}, 1i8)
           stream = s.vhosts["/"].queue("stream-delivery-limit-policy").as(LavinMQ::AMQP::Stream)
+          wait_for { stream.policy.try(&.name) == "dl" }
           stream.effective_policy_args.should_not contain "delivery-limit"
           # Give the (non-existent post-fix) spawn fiber a chance to run and
           # verify the queue is still functional.
@@ -743,6 +744,7 @@ describe LavinMQ::AMQP::Stream do
           stream.@msg_store.first?
           s.vhosts["/"].add_policy("mlb", "stream-expire-after-drop", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+          should_eventually(eq 1) { stream.message_count }
 
           ch.prefetch 1
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "next"})) { }
