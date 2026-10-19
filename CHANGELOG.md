@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
+
 ### Fixed
 
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)
@@ -55,8 +59,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - MQTT QoS 1 PUBACKs are sent once the publish is persisted to disk, in publish order. QoS 1 throughput is lower as a result [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - Internal queues (e.g. delayed exchange queues) are protected from AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED`, and they are no longer included in definitions exports. They remain visible and manageable through the HTTP API [#2252](https://github.com/cloudamqp/lavinmq/pull/2252)
 - Heartbeats, deduplication TTLs and other timers using `RoughTime.utc` or `RoughTime.instant` read the clock directly instead of a cache refreshed every 100 ms, improving clock resolution to typically 1–4 ms on Linux and removing the background clock thread. Resolution depends on the platform; message timestamps and message TTL checks still use a clock rounded to 100 ms [#2289](https://github.com/cloudamqp/lavinmq/pull/2289)
-- TLS handshake failures and invalid TLS configuration are logged with an error message instead of a stack trace. A failed TLS configuration reload logs the error and keeps the previous configuration [#1762](https://github.com/cloudamqp/lavinmq/pull/1762)
-- A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
 
 ### Fixed
 
