@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LavinMQ Cluster Demo</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">🐇</span>
+    <h1 id="title">LavinMQ cluster</h1>
+  </div>
+  <div class="cluster-meta">
+    <span id="backend" class="pill"></span>
+    <span id="term" class="pill"></span>
+    <span id="version" class="pill muted"></span>
+    <span id="conn" class="pill critical" hidden>Dashboard disconnected</span>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden role="status"></div>
+
+<section class="nodes" id="nodes" aria-label="Cluster nodes"></section>
+
+<section class="hero" aria-label="Throughput">
+  <div class="hero-numbers">
+    <div class="stat">
+      <div class="stat-label">Published / s</div>
+      <div class="stat-value" id="pub-rate">–</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Delivered / s</div>
+      <div class="stat-value" id="del-rate">–</div>
+    </div>
+    <div class="stat lost">
+      <div class="stat-label">Messages lost</div>
+      <div class="stat-value" id="lost">–</div>
+      <div class="stat-note" id="lost-note"></div>
+    </div>
+  </div>
+  <figure class="chart">
+    <figcaption>Messages per second through the cluster, last 2 minutes
+      <span class="legend"><i class="sw sw-pub"></i>published <i class="sw sw-del"></i>delivered <i class="sw sw-out"></i>confirms paused</span>
+    </figcaption>
+    <div class="chart-wrap">
+      <canvas id="chart" role="img" aria-label="Throughput chart"></canvas>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </div>
+  </figure>
+  <section class="events" aria-label="Cluster events">
+    <h2>What just happened</h2>
+    <ol id="events"></ol>
+  </section>
+</section>
+
+<section class="scenarios">
+  <article class="card" id="sc-sequence">
+    <header><h2>Ordered delivery check</h2><span class="run"></span></header>
+    <p class="explain">Numbered messages, publisher confirms, a consumer checking for gaps.</p>
+    <dl class="kv">
+      <div><dt>Confirmed</dt><dd data-k="published"></dd></div>
+      <div><dt>Received</dt><dd data-k="received"></dd></div>
+      <div><dt>Waiting for confirm</dt><dd data-k="in_flight"></dd></div>
+      <div><dt>Redelivered</dt><dd data-k="duplicates"></dd></div>
+      <div><dt>Last recovery</dt><dd data-k="last_outage"></dd></div>
+      <div><dt>Reconnects</dt><dd data-k="reconnects"></dd></div>
+    </dl>
+  </article>
+
+  <article class="card" id="sc-stream">
+    <header><h2>Stream replay</h2><span class="run"></span></header>
+    <p class="explain">An append-only log. Each reader keeps its own position and continues from it after a failover.</p>
+    <div class="readers"></div>
+    <dl class="kv small">
+      <div><dt>Appended / s</dt><dd data-k="published_rate"></dd></div>
+      <div><dt>Head offset</dt><dd data-k="head"></dd></div>
+    </dl>
+  </article>
+
+  <article class="card" id="sc-iot">
+    <header><h2>IoT sensors (MQTT)</h2><span class="run"></span></header>
+    <p class="explain">Each dot is a device with its own connection, colored by the node it's connected to.</p>
+    <canvas class="dots" aria-label="Device grid"></canvas>
+    <dl class="kv small">
+      <div><dt>Connected</dt><dd data-k="connected"></dd></div>
+      <div><dt>Readings / s</dt><dd data-k="received_rate"></dd></div>
+      <div><dt>Reconnects</dt><dd data-k="reconnects"></dd></div>
+    </dl>
+  </article>
+
+  <article class="card" id="sc-work_queue">
+    <header><h2>Work queue</h2><span class="run"></span></header>
+    <p class="explain">Competing consumers sharing the work from one durable queue.</p>
+    <dl class="kv">
+      <div><dt>Published / s</dt><dd data-k="published_rate"></dd></div>
+      <div><dt>Consumed / s</dt><dd data-k="consumed_rate"></dd></div>
+      <div><dt>Queue depth</dt><dd data-k="queue_depth"></dd></div>
+      <div><dt>Consumers</dt><dd data-k="consumers"></dd></div>
+      <div><dt>Reconnects</dt><dd data-k="reconnects"></dd></div>
+    </dl>
+  </article>
+</section>
+
+<aside id="operator" class="operator" hidden>
+  <h2>Operator</h2>
+  <div class="op-row">
+    <button data-op="transfer">Hand over leadership</button>
+    <button data-op="reset" class="secondary">Reset demo</button>
+  </div>
+  <div id="op-scenarios"></div>
+  <p class="op-hint">Hide with <kbd>o</kbd></p>
+</aside>
+
+<script src="/app.js"></script>
+</body>
+</html>

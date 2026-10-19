@@ -1,0 +1,22 @@
+; LavinMQ on booth Pi {{NAME}} ({{IP}}), rendered by pi/setup.sh
+[main]
+data_dir = /var/lib/lavinmq
+; The laptop reads each node's own metrics, including raft state, from here
+metrics_http_bind = 0.0.0.0
+
+[amqp]
+bind = 0.0.0.0
+
+[mqtt]
+bind = 0.0.0.0
+
+[mgmt]
+bind = 0.0.0.0
+
+[clustering]
+enabled = true
+bind = 0.0.0.0
+advertised_uri = tcp://{{IP}}:5679
+seeds = {{SEEDS}}
+password_file = /etc/lavinmq/clustering_password
+{{BOOTSTRAP}}

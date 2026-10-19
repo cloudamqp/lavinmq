@@ -1,0 +1,15 @@
+[Unit]
+Description=LavinMQ (booth cluster node)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lavinmq
+Group=lavinmq
+ExecStart=/usr/local/bin/lavinmq --config /etc/lavinmq/lavinmq.ini
+Restart=always
+RestartSec=1
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+# For dev/local-cluster.sh
+title: LavinMQ cluster (local rehearsal)
+listen: 127.0.0.1:8080
+user: booth
+password: booth
+nodes:
+  - {name: node-a, host: 127.0.0.2}
+  - {name: node-b, host: 127.0.0.3}
+  - {name: node-c, host: 127.0.0.4}

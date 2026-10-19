@@ -1,0 +1,41 @@
+# Copy to booth.yml and adjust
+title: LavinMQ on Raspberry Pi
+# The dashboard and operator controls; keep it on localhost unless the booth
+# display is another machine
+listen: 127.0.0.1:8080
+
+# The administrator created in pi/README.md step 3
+user: booth
+password: change-me
+vhost: /
+
+nodes:
+  - {name: pi-1, host: 192.168.50.11}
+  - {name: pi-2, host: 192.168.50.12}
+  - {name: pi-3, host: 192.168.50.13}
+
+# Ports, the same on every node
+# amqp_port: 5672
+# mqtt_port: 1883
+# http_port: 15672
+# metrics_port: 15692
+
+scenarios:
+  work_queue:
+    enabled: true
+    rate: 500        # msg/s over all publishers; tune on the real Pis
+    publishers: 2
+    consumers: 4
+    size: 256        # bytes per message
+  sequence:
+    enabled: true
+    rate: 100
+  stream:
+    enabled: true
+    rate: 100
+    replay_rate: 300 # msg/s for the readers catching up
+  iot:
+    enabled: true
+    devices: 300
+    max_devices: 2000
+    interval: 2.0    # seconds between readings per device
