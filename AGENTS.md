@@ -23,3 +23,8 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 
 ## Docs
 - Add a short CHANGELOG.md entry linking the PR; describe user-facing features in docs/.
+
+## Git
+- Branch names describe the change in kebab-case, e.g. `fix-queue-ttl-overflow`; rename a generated branch name with `git branch -m` before the first push.
+- Commit as the person you work for: never change git `user.name`/`user.email` or pass `--author`.
+- No AI attribution in commits, PR descriptions or comments: no Co-Authored-By trailers for the agent, no "Generated with" footers.
