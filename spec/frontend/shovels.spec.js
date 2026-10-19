@@ -5,6 +5,7 @@ test.describe("shovels", _ => {
   const shovelVhost = 'foo'
   const shovelName = 'shovel1'
   const httpShovelName = 'httpshovel'
+  const pgShovelName = 'pgshovel'
   const parameterShovelsResponse = {
     "items": [
       {
@@ -18,18 +19,25 @@ test.describe("shovels", _ => {
         "value": {"src-uri":"amqp://","dest-uri":"http://example.com/hook","dest-timeout":5,"src-prefetch-count":1000,"src-delete-after":"never","reconnect-delay":120,"ack-mode":"on-confirm","src-queue":"qsrc"},
         "component": "shovel",
         "vhost": shovelVhost
+      },
+      {
+        "name": pgShovelName,
+        "value": {"src-uri":"postgres://u:p@db/app","src-publication":"pub","src-slot":"myslot","dest-uri":"amqp://","dest-exchange":"amq.topic","src-prefetch-count":1000,"reconnect-delay":5,"ack-mode":"on-confirm"},
+        "component": "shovel",
+        "vhost": shovelVhost
       }
     ]
-    ,"filtered_count": 2,
-    "item_count": 2,
+    ,"filtered_count": 3,
+    "item_count": 3,
     "page": 1,
     "page_count": 1,
     "page_size": 100,
-    "total_count": 2
+    "total_count": 3
   }
   const shovelsResponse = [
     {"name": shovelName, "vhost": shovelVhost, "state": "Running", "error": null, "message_count": 0},
     {"name": httpShovelName, "vhost": shovelVhost, "state": "Running", "error": null, "message_count": 0},
+    {"name": pgShovelName, "vhost": shovelVhost, "state": "Running", "error": null, "message_count": 0},
   ]
 
   test.beforeEach(async ({ apimap, page }) => {
@@ -43,7 +51,7 @@ test.describe("shovels", _ => {
 
 
   test('are loaded', async ({ page, baseURL }) => {
-    await expect(page.locator('#pagename-label')).toHaveText("2")
+    await expect(page.locator('#pagename-label')).toHaveText("3")
   })
 
   test('are refreshed automatically', async({ page }) => {
@@ -78,6 +86,44 @@ test.describe("shovels", _ => {
     await form.locator('[name=dest-uri]').fill('amqp://')
     await form.locator('[name=dest-uri]').dispatchEvent('change')
     await expect(timeout).toBeHidden()
+  })
+
+  test('show publication fields for postgres sources only', async ({ page }) => {
+    const form = page.locator('#createShovel')
+    const publication = form.locator('[name=src-publication]')
+    await expect(publication).toBeHidden()
+    await form.locator('[name=src-uri]').fill('postgres://u:p@db/app')
+    await expect(publication).toBeVisible()
+    await expect(form.locator('[name=src-slot]')).toBeVisible()
+    await expect(form.locator('[name=src-endpoint]')).toBeHidden()
+    await expect(form.locator('[name=src-delete-after]')).toBeHidden()
+    await form.locator('[name=src-uri]').fill('amqp://')
+    await expect(publication).toBeHidden()
+    await expect(form.locator('[name=src-endpoint]')).toBeVisible()
+  })
+
+  test('with postgres source keep publication when updated', async ({ page }) => {
+    const actionPath = `/api/parameters/shovel/${encodeURIComponent(shovelVhost)}/${encodeURIComponent(pgShovelName)}`
+    const putRequest = helpers.waitForPathRequest(page, actionPath, { method: 'PUT' })
+    await page.locator(`#table tr[data-name='"${pgShovelName}"']`).getByRole('button', { name: /^edit$/i }).click()
+    await page.locator('#createShovel').getByRole('button', { name: /update/i }).click()
+    const body = (await putRequest).postDataJSON()
+    expect(body.value['src-publication']).toBe('pub')
+    expect(body.value['src-slot']).toBe('myslot')
+    expect(body.value['dest-exchange']).toBe('amq.topic')
+    expect(body.value).not.toHaveProperty('src-queue')
+    expect(body.value).not.toHaveProperty('src-exchange')
+    expect(body.value).not.toHaveProperty('src-delete-after')
+  })
+
+  test('cancel after editing a postgres shovel restores the amqp source fields', async ({ page }) => {
+    const form = page.locator('#createShovel')
+    await page.locator(`#table tr[data-name='"${pgShovelName}"']`).getByRole('button', { name: /^edit$/i }).click()
+    await expect(form.locator('[name=src-publication]')).toBeVisible()
+    await form.getByRole('button', { name: /cancel/i }).click()
+    await expect(form.locator('[name=src-publication]')).toBeHidden()
+    await expect(form.locator('[name=src-endpoint]')).toBeVisible()
+    await expect(form.locator('[name=src-endpoint]')).toBeEnabled()
   })
 
   test('can be deleted', async ({ page }) => {
