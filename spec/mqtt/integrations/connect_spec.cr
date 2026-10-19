@@ -357,7 +357,9 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               payload = Bytes[1, 254, 200, 197, 123, 4, 87]
-              publish(io, topic: "test", payload: payload, qos: 0u8)
+              # One write, so the server can't close the socket (and reset
+              # the connection) while the rest of the packet is being sent
+              io.write_bytes_raw publish_packet(topic: "test", payload: payload, qos: 0u8).to_slice
               io.should be_closed
             end
           end
@@ -377,14 +379,17 @@ module MqttSpecs
         it "for invalid client id [MQTT-3.1.3-4]." do
           with_server do |server|
             with_client_io(server) do |io|
-              MQTT::Protocol::Connect.new(
+              # One write, so the server can't close the socket (and reset
+              # the connection) while the rest of the packet is being sent
+              connect = MQTT::Protocol::Connect.new(
                 client_id: "client\u0000_id",
                 clean_session: true,
                 keepalive: 30u16,
                 username: "valid_user",
                 password: "valid_user".to_slice,
                 will: nil
-              ).to_io(io)
+              ).to_slice
+              io.write_bytes_raw connect
 
               io.should be_closed
             end
