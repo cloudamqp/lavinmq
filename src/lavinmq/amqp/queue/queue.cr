@@ -220,6 +220,10 @@ module LavinMQ::AMQP
       loop do
         break unless wait_for_consumers_empty
         break unless wait_for_messages
+        # The store wakes one waiter per message (see StateChannel#wake_one)
+        # and the message is for a consumer, or an MQTT session's deliver
+        # loop, which may still be parked: pass the wake on
+        @msg_store.empty.when_false.signal_one
         next unless consumers_empty?
         break unless wait_for_message_expiration
       end

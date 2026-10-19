@@ -164,6 +164,63 @@ describe LavinMQ::Client::Channel::Consumer do
     end
   end
 
+  # The queue wakes one consumer per message, so the consumers that stop
+  # taking messages must wake the next one, or messages are stranded
+  describe "wake one consumer per message" do
+    it "delivers every message when the consumers are parked without a prefetch limit" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("wake-one-no-prefetch")
+          received = Atomic(Int32).new(0)
+          4.times do
+            q.subscribe(no_ack: true) { |_| received.add(1) }
+          end
+          sleep 20.milliseconds # let the consumers park
+          200.times { |i| q.publish "m#{i}" }
+          wait_for { received.get == 200 }
+          received.get.should eq 200
+        end
+      end
+    end
+
+    it "delivers every message when the consumers run out of prefetch in turn" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("wake-one-prefetch")
+          received = Atomic(Int32).new(0)
+          4.times do
+            q.subscribe(no_ack: false) do |msg|
+              received.add(1)
+              msg.ack
+            end
+          end
+          sleep 20.milliseconds # let the consumers park
+          100.times { |i| q.publish "m#{i}" }
+          wait_for { received.get == 100 }
+          received.get.should eq 100
+        end
+      end
+    end
+
+    it "delivers to the other consumer when one is stopped by channel flow" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("wake-one-flow")
+          msgs = Channel(String).new(10)
+          q.subscribe(no_ack: true) { |msg| msgs.send msg.body_io.to_s }
+          ch.flow(false)
+          with_channel(s) do |ch2|
+            ch2.queue("wake-one-flow").subscribe(no_ack: true) { |msg| msgs.send msg.body_io.to_s }
+            sleep 20.milliseconds # let both consumers park
+            3.times { |i| q.publish "m#{i}" }
+            3.times { msgs.receive.should start_with "m" }
+          end
+        end
+      end
+    end
+  end
+
   describe "on-demand deliver_loop" do
     it "delivers messages published after consumer connects to empty queue" do
       with_amqp_server do |s|
