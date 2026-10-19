@@ -179,6 +179,9 @@ module MqttSpecs
           subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          # Receiving it on the publisher's own subscription means the broker
+          # has retained and routed it, before the subscriber connects
+          read_packet(io).should be_a(MQTT::Protocol::Publish)
           disconnect(io)
         end
         with_client_io(server) do |io|
@@ -206,6 +209,9 @@ module MqttSpecs
           subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          # Receiving it on the publisher's own subscription means the broker
+          # has retained and routed it, before the subscriber connects
+          read_packet(io).should be_a(MQTT::Protocol::Publish)
           disconnect(io)
         end
         with_client_io(server) do |io|
