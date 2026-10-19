@@ -18,7 +18,7 @@ module LavinMQ
       /^mqtt/i => Protocol::MQTT,
     }
 
-    def initialize(&@proc : ::HTTP::WebSocket, IO, ::HTTP::Server::Context, Protocol? ->)
+    def initialize(&@proc : WebSocketIO, ::HTTP::Server::Context, Protocol? ->)
     end
 
     def call(context) : Nil
@@ -57,9 +57,7 @@ module LavinMQ
         if io.responds_to?(:write_timeout=)
           io.write_timeout = LavinMQ::Config.instance.tcp_send_timeout.seconds
         end
-        ws_session = ::HTTP::WebSocket.new(io, sync_close: false)
-        @proc.call(ws_session, io, context, protocol)
-        ws_session.run
+        @proc.call(WebSocketIO.new(io), context, protocol)
       end
     end
 
@@ -87,7 +85,7 @@ module LavinMQ
   # Acts as a proxy between websocket clients and the normal TCP servers
   class WebsocketProxy
     def self.new(amqp_server : LavinMQ::AMQP::Server, mqtt_server : LavinMQ::MQTT::Server)
-      WebSocketHandler.new do |ws, socket, ctx, protocol|
+      WebSocketHandler.new do |io, ctx, protocol|
         req = ctx.request
         protocol ||= fallback_protocol(req)
 
@@ -96,15 +94,16 @@ module LavinMQ
         remote_address = req.remote_address.as?(Socket::IPAddress) ||
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
-        io = WebSocketIO.new(ws, socket)
 
         case protocol
         in .mqtt?
           Log.debug { "Protocol: mqtt" }
-          spawn mqtt_server.handle_connection(io, connection_info), name: "HandleWSconnection MQTT #{remote_address}"
+          Fiber.current.name = "HandleWSconnection MQTT #{remote_address}"
+          mqtt_server.handle_connection(io, connection_info)
         in .amqp?
           Log.debug { "Protocol: amqp" }
-          spawn amqp_server.handle_connection(io, connection_info), name: "HandleWSconnection AMQP #{remote_address}"
+          Fiber.current.name = "HandleWSconnection AMQP #{remote_address}"
+          amqp_server.handle_connection(io, connection_info)
         end
       end
     end
@@ -118,47 +117,57 @@ module LavinMQ
     end
   end
 
+  # Exposes a WebSocket as a byte stream to the AMQP and MQTT servers. Frame
+  # payloads are read straight into the caller's buffer, so a fragmented
+  # message needs no reassembly. Every frame the server sends, data, pong or
+  # close, goes through one write lock, like a client's write lock.
   class WebSocketIO < IO
     include IO::Buffered
 
-    private enum SendState
+    CLOSE_FRAME_TIMEOUT = 1.second
+
+    private enum WriteState
       Idle
-      Sending
+      Writing
       Closed
     end
 
-    @send_state = Atomic(SendState).new(SendState::Idle)
-
-    CLOSE_FRAME_TIMEOUT = 1.second
+    @write_lock = Mutex.new
+    @write_state = Atomic(WriteState).new(WriteState::Idle)
+    @eof = false
 
     # *socket* is the connection the WebSocket runs over
-    def initialize(@ws : ::HTTP::WebSocket, @socket : IO)
-      @r, @w = IO.pipe
-      @r.read_buffering = false
-      @w.sync = true
-      @ws.on_binary do |slice|
-        @w.write(slice)
-      end
-      # The reader gets what was already received, e.g. a DISCONNECT, before end of stream
-      @ws.on_close do |_code, _message|
-        send_close_frame
-        @w.close
-      end
+    def initialize(@socket : IO)
+      @ws = ::HTTP::WebSocket::Protocol.new(@socket, masked: false, sync_close: false)
       self.buffer_size = 4096
     end
 
-    def unbuffered_read(slice : Bytes)
-      @r.read(slice)
+    def unbuffered_read(slice : Bytes) : Int32
+      return 0 if @eof
+      loop do
+        info = @ws.receive(slice)
+        case info.opcode
+        in .binary?, .continuation?
+          return info.size unless info.size.zero?
+        in .ping?
+          write_frame(slice[0, info.size], :pong) if info.final
+        in .pong?
+          # An unsolicited pong isn't answered
+        in .close?
+          @eof = true
+          code = ::HTTP::WebSocket::CloseCode.new(IO::ByteFormat::NetworkEndian.decode(UInt16, slice)) if info.size >= 2
+          send_close_frame(code)
+          return 0
+        in .text?
+          @eof = true
+          send_close_frame(:unsupported_data)
+          return 0
+        end
+      end
     end
 
     def unbuffered_write(slice : Bytes) : Nil
-      _, ok = @send_state.compare_and_set(SendState::Idle, SendState::Sending)
-      raise IO::Error.new("Closed stream") unless ok
-      begin
-        @ws.send(slice)
-      ensure
-        @send_state.compare_and_set(SendState::Sending, SendState::Idle)
-      end
+      write_frame(slice, :binary)
     end
 
     def unbuffered_flush
@@ -171,33 +180,52 @@ module LavinMQ
       return if @closed
       @closed = true
       send_close_frame
-      @r.close
-      @w.close
     end
 
     def read_timeout=(timeout : Time::Span?)
-      @r.read_timeout = timeout
+      socket = @socket
+      socket.read_timeout = timeout if socket.responds_to?(:read_timeout=)
     end
 
-    # Shuts down the underlying connection, see `Socket#shutdown_read_write`
+    # Shuts down the underlying connection, see `Socket#shutdown_read_write`.
+    # A close frame is sent first, unless a frame is being written: the
+    # shutdown mustn't wait for a write to a client that stopped reading, and
+    # a close frame in the middle of another frame would corrupt it.
     def shutdown_read_write : Nil
       socket = @socket
       # Don't let a client that stopped reading hold up the close for tcp_send_timeout
       socket.write_timeout = CLOSE_FRAME_TIMEOUT if socket.responds_to?(:write_timeout=)
-      send_close_frame
+      _, ok = @write_state.compare_and_set(WriteState::Idle, WriteState::Closed)
+      write_close_frame if ok
       socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
     end
 
-    # Skipped while a frame is being sent, a close frame would corrupt it
-    private def send_close_frame : Nil
-      _, ok = @send_state.compare_and_set(SendState::Idle, SendState::Closed)
-      @send_state.set(SendState::Closed)
-      return unless ok
-      begin
-        @ws.close
-      rescue IO::Error | OpenSSL::SSL::Error
-        # The connection is already gone, so the close frame can't be sent
+    private def write_frame(payload : Bytes, opcode : ::HTTP::WebSocket::Protocol::Opcode) : Nil
+      @write_lock.synchronize do
+        _, ok = @write_state.compare_and_set(WriteState::Idle, WriteState::Writing)
+        raise IO::Error.new("Closed stream") unless ok
+        begin
+          @ws.send(payload, opcode)
+        ensure
+          @write_state.compare_and_set(WriteState::Writing, WriteState::Idle)
+        end
       end
+    end
+
+    # Sent once, after the frame being written, if any. A client that sent a
+    # close frame still reads, so that write completes. Nothing is written
+    # after the close frame.
+    private def send_close_frame(code : ::HTTP::WebSocket::CloseCode? = nil) : Nil
+      @write_lock.synchronize do
+        _, ok = @write_state.compare_and_set(WriteState::Idle, WriteState::Closed)
+        write_close_frame(code) if ok
+      end
+    end
+
+    private def write_close_frame(code : ::HTTP::WebSocket::CloseCode? = nil) : Nil
+      @ws.close(code)
+    rescue IO::Error | OpenSSL::SSL::Error
+      # The connection is already gone, so the close frame can't be sent
     end
   end
 end
