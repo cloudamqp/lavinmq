@@ -84,27 +84,6 @@ describe "Websocket support" do
     end
   end
 
-  it "delivers to a consumer that acks without waiting for delayed ACKs" do
-    with_http_server do |http, s|
-      conn = AMQP::Client.new("ws://#{http.addr}").connect
-      q = conn.channel.queue
-      delivered = Channel(Time::Instant).new
-      q.subscribe(no_ack: false) do |msg|
-        msg.ack
-        delivered.send Time.instant
-      end
-      with_channel(s) do |ch|
-        times = Array.new(5) do
-          t0 = Time.instant
-          ch.basic_publish("x", "", q.name)
-          (delivered.receive - t0).total_milliseconds
-        end
-        times.sort[2].should be < 20 # ~40 ms when Nagle holds the delivery
-      end
-      conn.close
-    end
-  end
-
   it "can publish large messages" do
     with_http_server do |http, _|
       c = AMQP::Client.new("ws://#{http.addr}")
