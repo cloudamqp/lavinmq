@@ -77,6 +77,66 @@ module MqttSpecs
       end
     end
 
+    describe "when client already connected, with the broker on several threads" do
+      # The old client's cleanup used to be able to detach the session after
+      # the new client had been attached, which then lost its unacked messages
+      # and was disconnected on its next PUBACK
+      it "keeps the replacement client attached to the session" do
+        # The broker's fibers run on several threads, the clients here
+        started = Channel(LavinMQ::Server).new
+        stop = Channel(Nil).new
+        stopped = Channel(Nil).new
+        Fiber::ExecutionContext::Parallel.new("mqtt takeover", 8).spawn do
+          with_server do |server|
+            started.send server
+            stop.receive
+          end
+        ensure
+          stopped.close
+        end
+        server = started.receive
+        begin
+          broker = server.mqtt_server.broker("/")
+          vhost = server.vhosts["/"]
+          client_id = "takeover-race"
+          # The broker changes its clients on other threads
+          registered = -> { broker.@clients_lock.synchronize { broker.@clients[client_id]? } }
+          500.times do
+            with_client_io(server) do |io|
+              connect(io, client_id: client_id)
+              subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+              old_client = wait_for { registered.call }
+              with_client_io(server) do |pub|
+                connect(pub, client_id: "takeover-publisher")
+                publish(pub, topic: "a/b", payload: "m".to_slice, qos: 1u8)
+                disconnect(pub)
+              end
+              read_publish(io) # left unacked, so the session has some to requeue
+
+              with_client_io(server) do |io2|
+                # The old client's cleanup runs while the new one connects
+                disconnect(io)
+                connect(io2, client_id: client_id)
+                new_client = wait_for do
+                  c = registered.call
+                  c if c && !c.same?(old_client)
+                end
+                wait_for { vhost.connections.none?(&.same?(old_client)) }
+                vhost.session("mqtt.#{client_id}").client.same?(new_client).should be_true
+                puback(io2, read_publish(io2).packet_id)
+                pingpong(io2).should be_a(MQTT::Protocol::PingResp)
+                disconnect(io2)
+              end
+            end
+            wait_for { registered.call.nil? }
+          end
+        ensure
+          stop.send nil
+          stopped.receive?
+        end
+      end
+    end
+
     describe "receives connack" do
       describe "with expected flags set" do
         it "no session present when reconnecting a non-clean session with a clean session [MQTT-3.1.2-6]" do
