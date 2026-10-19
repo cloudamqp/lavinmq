@@ -143,7 +143,8 @@ module LavinMQ::AMQP
         raise ClosedError.new if @closed
         was_empty = size.zero?
         store_for sp, &.requeue(sp)
-        @empty.set false if was_empty
+        # The sub store skips a message whose segment a purge has deleted
+        @empty.set false if was_empty && !size.zero?
       end
 
       def first? : Envelope?

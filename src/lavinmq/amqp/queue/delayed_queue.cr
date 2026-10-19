@@ -55,17 +55,17 @@ module LavinMQ::AMQP
     end
 
     def expire_messages
-      @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
-          end
-        end
+      # The messages are routed after the lock is released, see Queue#drop_messages
+      drop_messages(:expired) do
+        env = delayed_msg_store.first_delayed? || next
+        delayed_msg_store.shift_delayed? if has_expired?(env)
       end
+    end
+
+    # Every expired message is passed on by expire_msg, whether or not this
+    # queue has a dead letter exchange (the retry queue has none)
+    private def route_dropped?(sp : SegmentPosition) : Bool
+      true
     end
 
     private def has_expired?(env : Envelope) : Bool
@@ -73,6 +73,11 @@ module LavinMQ::AMQP
       timestamp = env.message.timestamp
       expire_at = timestamp + delay
       expire_at <= RoughTime.unix_ms
+    end
+
+    # The delayed store can't requeue, it orders messages by delivery time
+    private def put_back_dropped(sp : SegmentPosition) : Nil
+      delayed_msg_store.restore_delayed(sp)
     end
 
     private def delayed_msg_store
