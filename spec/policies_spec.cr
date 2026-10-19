@@ -215,9 +215,8 @@ describe LavinMQ::VHost do
         expire_before = queue.settings.expires
         expire_before.should eq 1000
         s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(100)}, 2_i8)
-        Fiber.yield
-        expire_after = queue.settings.expires
-        expire_after.should eq 100
+        # The policy is applied by a spawned fiber, possibly on another thread
+        should_eventually(eq 100) { queue.settings.expires }
         select
         when queue.@paused.when_true.receive?
           fail "queue state not closed?" unless queue.closed?
