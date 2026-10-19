@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `CRYSTAL_WORKERS` or `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
+
 ### Fixed
 
+- An MQTT client that reconnected under the same client id while its previous connection was still closing could have its session detached again by that connection's cleanup, and was then disconnected on its next PUBACK [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 - A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers [#2486](https://github.com/cloudamqp/lavinmq/pull/2486)
 - The publish confirm loop's thread is scheduled as a batch task on Linux, so waking it no longer preempts the worker that signalled it. When the loop shared a CPU with a worker thread it ran at once and spun on the channel lock the preempted worker still held, and confirms ran at 65k msg/s; they now run at 587k msg/s with the broker on one core [#2487](https://github.com/cloudamqp/lavinmq/pull/2487)
 

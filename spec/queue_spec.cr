@@ -103,6 +103,9 @@ describe LavinMQ::AMQP::Queue do
         sleep 110.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
+        # basic_cancel doesn't wait for the server, and the queue expires
+        # counting from when its last consumer is gone
+        wait_for { queue.consumer_count.zero? }
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
         (Time.instant - start).total_milliseconds.should be_close 100, 50
@@ -955,27 +958,36 @@ describe LavinMQ::AMQP::Queue do
         store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
-      yields = 0
+      yields = Atomic(Int32).new(0)
       done = Channel(Nil).new
-      spawn(name: "yield counter") do
+      yields_while_purging = Channel(Int32).new
+      # Counts how often the purge lets another fiber run, which only means
+      # something when both fibers share one thread
+      ctx = Fiber::ExecutionContext::Concurrent.new("purge yields")
+      counting = Channel(Nil).new
+      ctx.spawn(name: "yield counter") do
+        counting.send nil
         loop do
           select
           when timeout(0.seconds)
-            yields += 1
+            yields.add(1, :relaxed)
           when done.receive
             break
           end
         end
       end
 
-      spawn(name: "purger") do
+      counting.receive
+      ctx.spawn(name: "purger") do
+        # Only count the yields during the purge
+        before = yields.get(:relaxed)
         store.purge
-        2.times { done.send nil }
+        count = yields.get(:relaxed) - before
+        done.send nil
+        yields_while_purging.send count
       end
 
-      done.receive
-
-      yields.should eq 2
+      yields_while_purging.receive.should eq 2
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end

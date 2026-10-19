@@ -56,7 +56,8 @@ module MqttSpecs
 
           with_client_io(server) do |io|
             connect(io, client_id: client_id)
-            old_client = broker.@clients[client_id]
+            # The client is added to the broker after its CONNACK is sent
+            old_client = wait_for { broker.@clients[client_id]? }
 
             with_client_io(server) do |io2|
               connect(io2, client_id: client_id)
@@ -72,6 +73,75 @@ module MqttSpecs
               pingpong(io2).should be_a(MQTT::Protocol::PingResp)
             end
           end
+        end
+      end
+    end
+
+    describe "when client already connected, with the broker on several threads" do
+      # The old client's cleanup used to be able to detach the session after
+      # the new client had been attached, which then lost its unacked messages
+      # and was disconnected on its next PUBACK
+      it "keeps the replacement client attached to the session" do
+        # The broker's fibers run on several threads, the clients here
+        started = Channel(LavinMQ::Server).new
+        stop = Channel(Nil).new
+        stopped = Channel(Nil).new
+        Fiber::ExecutionContext::Parallel.new("mqtt takeover", 8).spawn do
+          with_server do |server|
+            started.send server
+            stop.receive
+          end
+        ensure
+          stopped.close
+        end
+        server = started.receive
+        begin
+          broker = server.mqtt_server.broker("/")
+          vhost = server.vhosts["/"]
+          client_id = "takeover-race"
+          # The broker changes its clients on other threads
+          registered = -> { broker.@clients_lock.synchronize { broker.@clients[client_id]? } }
+          # A QoS 1 publish is acked once it's durable, which can take longer
+          # than the helpers' read timeout on a slow runner
+          patient = ->(io : MQTT::Protocol::IO) { io.io.as(TCPSocket).read_timeout = 5.seconds }
+          # Bounded by time too, to stay well within the spec timeout on slow runners
+          deadline = Time.instant + 3.seconds
+          500.times do
+            break if Time.instant > deadline
+            with_client_io(server) do |io|
+              patient.call(io)
+              connect(io, client_id: client_id)
+              subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+              old_client = wait_for { registered.call }
+              with_client_io(server) do |pub|
+                patient.call(pub)
+                connect(pub, client_id: "takeover-publisher")
+                publish(pub, topic: "a/b", payload: "m".to_slice, qos: 1u8)
+                disconnect(pub)
+              end
+              read_publish(io) # left unacked, so the session has some to requeue
+
+              with_client_io(server) do |io2|
+                patient.call(io2)
+                # The old client's cleanup runs while the new one connects
+                disconnect(io)
+                connect(io2, client_id: client_id)
+                new_client = wait_for do
+                  c = registered.call
+                  c if c && !c.same?(old_client)
+                end
+                wait_for { vhost.connections.none?(&.same?(old_client)) }
+                vhost.session("mqtt.#{client_id}").client.same?(new_client).should be_true
+                puback(io2, read_publish(io2).packet_id)
+                pingpong(io2).should be_a(MQTT::Protocol::PingResp)
+                disconnect(io2)
+              end
+            end
+            wait_for { registered.call.nil? }
+          end
+        ensure
+          stop.send nil
+          stopped.receive?
         end
       end
     end
@@ -229,7 +299,9 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, client_id: "", clean_session: true)
-              server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first.client_id.should_not eq("")
+              # The client is added to the vhost after its CONNACK is sent
+              client = wait_for { server.vhosts["/"].connections.find(&.is_a?(LavinMQ::MQTT::Client)) }.as(LavinMQ::MQTT::Client)
+              client.client_id.should_not eq("")
             end
           end
         end
@@ -285,7 +357,9 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               payload = Bytes[1, 254, 200, 197, 123, 4, 87]
-              publish(io, topic: "test", payload: payload, qos: 0u8)
+              # One write, so the server can't close the socket (and reset
+              # the connection) while the rest of the packet is being sent
+              io.write_bytes_raw publish_packet(topic: "test", payload: payload, qos: 0u8).to_slice
               io.should be_closed
             end
           end
@@ -305,14 +379,17 @@ module MqttSpecs
         it "for invalid client id [MQTT-3.1.3-4]." do
           with_server do |server|
             with_client_io(server) do |io|
-              MQTT::Protocol::Connect.new(
+              # One write, so the server can't close the socket (and reset
+              # the connection) while the rest of the packet is being sent
+              connect = MQTT::Protocol::Connect.new(
                 client_id: "client\u0000_id",
                 clean_session: true,
                 keepalive: 30u16,
                 username: "valid_user",
                 password: "valid_user".to_slice,
                 will: nil
-              ).to_io(io)
+              ).to_slice
+              io.write_bytes_raw connect
 
               io.should be_closed
             end
