@@ -10,13 +10,13 @@ module TokenParserTestHelper
     scope_prefix : String? = nil,
     additional_scopes_keys = [] of String,
   ) : LavinMQ::Auth::JWT::TokenParser
-    config = LavinMQ::Config.new
-    config.oauth_issuer_url = URI.parse("https://auth.example.com")
-    config.oauth_preferred_username_claims = preferred_username_claims
-    config.oauth_resource_server_id = resource_server_id
-    config.oauth_scope_prefix = scope_prefix
-    config.oauth_additional_scopes_keys = additional_scopes_keys
-    LavinMQ::Auth::JWT::TokenParser.new(config)
+    provider = LavinMQ::OAuthProviderConfig.new(
+      issuer_url: URI.parse("https://auth.example.com"),
+      preferred_username_claims: preferred_username_claims,
+      resource_server_id: resource_server_id,
+      scope_prefix: scope_prefix,
+      additional_scopes_keys: additional_scopes_keys)
+    LavinMQ::Auth::JWT::TokenParser.new(provider)
   end
 
   def create_mock_token(payload : LavinMQ::Auth::JWT::Payload) : LavinMQ::Auth::JWT::Token

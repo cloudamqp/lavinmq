@@ -43,6 +43,40 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "#oauth_provider" do
+    it "is nil when no issuer is configured" do
+      LavinMQ::Config.new.oauth_provider.should be_nil
+    end
+
+    it "carries the [oauth] settings" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [oauth]
+          issuer = https://auth.example.com
+          resource_server_id = my-service
+          preferred_username_claims = email
+          additional_scopes_keys = roles
+          scope_prefix = mq.
+          verify_aud = false
+          audience = my-audience
+          jwks_cache_ttl = 300
+          CONFIG
+      end
+
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      provider = config.oauth_provider.should_not be_nil
+      provider.issuer_url.should eq(URI.parse("https://auth.example.com"))
+      provider.resource_server_id.should eq("my-service")
+      provider.preferred_username_claims.should eq(["email"])
+      provider.additional_scopes_keys.should eq(["roles"])
+      provider.scope_prefix.should eq("mq.")
+      provider.verify_aud?.should be_false
+      provider.audience.should eq("my-audience")
+      provider.jwks_cache_ttl.should eq(300.seconds)
+    end
+  end
+
   describe "OAuth configuration parsing" do
     it "parses oauth section from config with issuer_url" do
       config_file = File.tempfile do |file|

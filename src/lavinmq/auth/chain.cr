@@ -41,9 +41,9 @@ module LavinMQ
             if existing = current.find(&.is_a?(OAuthAuthenticator))
               existing.reload(config)
               authenticators << existing
-            elsif uri = config.oauth_issuer_url
-              jwks_fetcher = Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
-              verifier = Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
+            elsif provider = config.oauth_provider
+              jwks_fetcher = Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
+              verifier = Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
               verifier.fetcher.start_refresh_loop
               authenticators << OAuthAuthenticator.new(verifier)
             else
