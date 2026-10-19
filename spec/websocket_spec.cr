@@ -168,6 +168,14 @@ describe "Websocket support" do
       end
     end
 
+    it "raises IO::Error on a malformed frame" do
+      with_websocket_io do |io, _, peer|
+        unmasked = HTTP::WebSocket::Protocol.new(peer, masked: false)
+        unmasked.send("data".to_slice)
+        expect_raises(IO::Error, "expected masked frame") { io.read(Bytes.new(16)) }
+      end
+    end
+
     it "replies to a close frame after the frame being written, with the same code" do
       with_websocket_io do |io, client|
         frame = Bytes.new(1000, 1u8)

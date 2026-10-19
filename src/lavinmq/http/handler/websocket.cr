@@ -164,6 +164,12 @@ module LavinMQ
           return 0
         end
       end
+    rescue ex : IO::Error | OpenSSL::SSL::Error
+      raise ex
+    rescue ex
+      # A malformed frame is a broken connection to the protocol handler,
+      # not an unexpected exception
+      raise IO::Error.new("WebSocket #{ex.message}", cause: ex)
     end
 
     def unbuffered_write(slice : Bytes) : Nil
