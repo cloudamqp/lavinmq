@@ -129,8 +129,10 @@ module LavinMQ
       @ws.on_binary do |slice|
         @w.write(slice)
       end
+      # Let the reader drain what was received before it sees EOF
       @ws.on_close do |_code, _message|
-        close
+        @w.close
+        close_websocket
       end
       self.buffer_size = 4096
     end
@@ -154,12 +156,13 @@ module LavinMQ
       @closed = true
       @r.close
       @w.close
-      begin
-        @ws.close
-      rescue IO::Error | OpenSSL::SSL::Error
-        # The connection is already gone (e.g. a failed read closes the IO),
-        # so the close frame can't be sent
-      end
+      close_websocket
+    end
+
+    private def close_websocket
+      @ws.close
+    rescue IO::Error | OpenSSL::SSL::Error
+      # The connection is already gone, so the close frame can't be sent
     end
 
     def read_timeout=(timeout : Time::Span?)

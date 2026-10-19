@@ -66,7 +66,21 @@ describe "Websocket support" do
     # The next read fails, and closing the IO then can't send a close frame
     socket.shutdown_read_write
     ws.run
-    io.@closed.should be_true
+    io.read_byte.should be_nil
+  ensure
+    peer.try &.close
+    socket.try &.close
+  end
+
+  it "lets the reader drain data received before the close frame" do
+    peer, socket = UNIXSocket.pair
+    ws = HTTP::WebSocket.new(socket, sync_close: false)
+    io = LavinMQ::WebSocketIO.new(ws, socket)
+    client = HTTP::WebSocket::Protocol.new(peer, masked: true)
+    client.send("last words".to_slice)
+    client.close
+    ws.run
+    io.gets_to_end.should eq "last words"
   ensure
     peer.try &.close
     socket.try &.close
