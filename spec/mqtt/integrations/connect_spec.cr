@@ -56,7 +56,8 @@ module MqttSpecs
 
           with_client_io(server) do |io|
             connect(io, client_id: client_id)
-            old_client = broker.@clients[client_id]
+            # The client is added to the broker after its CONNACK is sent
+            old_client = wait_for { broker.@clients[client_id]? }
 
             with_client_io(server) do |io2|
               connect(io2, client_id: client_id)
