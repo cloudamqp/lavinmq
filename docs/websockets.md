@@ -34,9 +34,15 @@ WebSocket connections are proxied to the internal AMQP or MQTT server. The WebSo
 
 1. Upgrades the HTTP connection to a WebSocket
 2. Detects the protocol from the sub-protocol header or URL path
-3. Creates a bidirectional IO bridge between the WebSocket and the protocol handler
+3. Exposes the WebSocket as a byte stream to the protocol handler
 
-From the protocol handler's perspective, the connection behaves identically to a direct TCP connection.
+From the protocol handler's perspective, the connection behaves identically to a direct TCP connection. Only binary frames carry protocol data; a message may be split over several frames. Ping frames are answered with pong frames, on top of the protocol's own heartbeat or keepalive.
+
+## Closing
+
+- When the broker closes a connection, after an MQTT `DISCONNECT`, an AMQP `connection.close`, a close from the management UI, API or `lavinmqctl`, a `tcp_send_timeout` or at shutdown, it sends a close frame with status `1000` and then closes the TCP connection. The close frame is skipped if a frame is still being written to a client that stopped reading, and its write is capped at 1 second, so closing never waits for such a client.
+- When the client sends a close frame, the broker replies with a close frame carrying the same status code and closes the TCP connection. Data received before the close frame, such as an MQTT `DISCONNECT` sent together with it, is handled first, so a clean MQTT disconnect doesn't publish the client's Will.
+- A text frame closes the connection with status `1003` (unsupported data).
 
 ## Client IP
 
