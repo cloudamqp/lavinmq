@@ -66,9 +66,10 @@ describe LavinMQ::Server do
 
   it "reads the PROXY header a follower sends in front of a proxied TLS connection" do
     with_datadir do |data_dir|
-      # A connected follower on loopback, so connections from 127.0.0.1 come from a follower
-      replication_server = TCPServer.new("127.0.0.1", 0)
-      follower_client = TCPSocket.new("127.0.0.1", replication_server.local_address.port)
+      # A connected follower on the same loopback address as the listener (localhost
+      # can be ::1), so connections from it come from a follower
+      replication_server = TCPServer.new("localhost", 0)
+      follower_client = TCPSocket.new(replication_server.local_address.address, replication_server.local_address.port)
       follower_socket = replication_server.accept
       follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
       replicator = FollowersReplicator.new([follower])
@@ -78,7 +79,7 @@ describe LavinMQ::Server do
         with_amqp_server(tls: true, replicator: replicator) do |s|
           port = amqp_tls_port(s)
           Log.capture("lmq.server", :info) do |logs|
-            socket = TCPSocket.new("127.0.0.1", port)
+            socket = TCPSocket.new(replication_server.local_address.address, port)
             socket.write "PROXY TCP4 192.168.1.100 127.0.0.1 54321 #{port}\r\n".to_slice
             client_ctx = OpenSSL::SSL::Context::Client.new
             client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
