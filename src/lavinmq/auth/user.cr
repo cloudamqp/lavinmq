@@ -12,10 +12,8 @@ module LavinMQ
       getter permissions : Hash(String, Permissions) = Hash(String, Permissions).new
       property tags : Array(Tag)
       getter password
-      property plain_text_password
 
       @password : Password? = nil
-      @plain_text_password : String?
       @tags = Array(Tag).new
       @permission_revision = Atomic(UInt32).new(0u32)
 
@@ -86,14 +84,6 @@ module LavinMQ
             raise UnknownHashAlgoritm.new(hash_algorithm)
           end
         end
-      end
-
-      def self.create_hidden_user(name)
-        password = Random::Secure.urlsafe_base64(32)
-        password_hash = hash_password(password, "sha256")
-        user = new(name, password_hash, [Tag::Administrator])
-        user.plain_text_password = password
-        user
       end
 
       def initialize(@name, password_hash, hash_algorithm, @tags)

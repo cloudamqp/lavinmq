@@ -190,6 +190,10 @@ module LavinMQ
       if users = body["users"]?
         users.as_a.each do |u|
           name = u["name"].as_s
+          if Auth::UserStore.hidden?(name)
+            Log.warn { "Skipping reserved user name #{name}" }
+            next
+          end
           next if skip_existing && @amqp_server.users[name]?
           pass_hash = parse_user_password_hash(u)
           hash_algo = parse_user_hash_algo(u)

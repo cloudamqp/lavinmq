@@ -236,15 +236,9 @@ module LavinMQ
         vhost.enqueue_ack(self, seq)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
-      # (confirms are cumulative).
       def enqueue_confirm_ack(msgid : UInt64) : Nil
         mailbox = @puback_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
+        post_confirm_ack(mailbox, msgid)
       end
 
       private def puback_writer(mailbox : ::Channel(UInt64))
