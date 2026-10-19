@@ -142,6 +142,35 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
+  describe LavinMQ::Etcd::Lease do
+    it "revokes the lease before signaling expiry on release" do
+      etcd = RecordingEtcd.new("127.0.0.1:1")
+      lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+      revoked_on_wake = Channel(Bool).new
+      spawn do
+        lease.wait(5.seconds)
+        revoked_on_wake.send false
+      rescue LavinMQ::Etcd::Lease::Expired
+        revoked_on_wake.send etcd.revoked?
+      end
+      Fiber.yield
+      lease.release
+      select
+      when revoked = revoked_on_wake.receive
+        revoked.should be_true
+      when timeout(5.seconds)
+        fail "lease.wait never returned"
+      end
+    end
+
+    it "signals expiry when the revoke fails" do
+      etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
+      lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+      expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
+      expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
+    end
+  end
+
   it "will not lose leadership when only one etcd node is lost", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
@@ -341,5 +370,25 @@ class EtcdCluster
         next
       end
     end
+  end
+end
+
+# Etcd stand-in that never connects: revoke is slow, so a fiber woken by the
+# lease's expired channel runs while the revoke is still in flight
+class RecordingEtcd < LavinMQ::Etcd
+  getter? revoked = false
+
+  def initialize(endpoints, @revoke_error : Exception? = nil)
+    super(endpoints)
+  end
+
+  def lease_revoke(id) : Nil
+    sleep 10.milliseconds
+    @revoke_error.try { |ex| raise ex }
+    @revoked = true
+  end
+
+  def lease_keepalive(id) : Int32
+    raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
   end
 end
