@@ -13,7 +13,7 @@ end
 private def negotiate(follower, client_socket, header) : Nil
   password = "foo"
   client_socket.write header
-  if header == LavinMQ::Clustering::StartV2
+  if header == LavinMQ::Clustering::StartV3
     spawn(name: "answer challenge") { answer_challenge(client_socket, password) }
   else
     client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
@@ -27,7 +27,7 @@ end
 private def answer_challenge(client_socket, password, id = 1) : Nil
   header = Bytes.new(8)
   client_socket.read_fully(header)
-  header.should eq LavinMQ::Clustering::StartV2
+  header.should eq LavinMQ::Clustering::StartV3
   challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
   client_socket.read_fully(challenge)
   client_socket.write LavinMQ::Clustering.challenge_response(password, challenge)
@@ -812,7 +812,20 @@ module FollowerSpec
   end
 
   describe "protocol version" do
-    it "negotiates version 2 from a version 2 header" do
+    it "negotiates version 3 from a version 3 header, with a challenge" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::StartV3)
+        follower.protocol_version.should eq 3
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # As 2.11.0-rc.1 followers connect
+    it "negotiates version 2 from a version 2 header, with the password" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
@@ -824,11 +837,11 @@ module FollowerSpec
       end
     end
 
-    it "rejects a version 2 challenge response made with another password" do
+    it "rejects a version 3 challenge response made with another password" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        client_socket.write LavinMQ::Clustering::StartV2
+        client_socket.write LavinMQ::Clustering::StartV3
         spawn(name: "answer challenge") { answer_challenge(client_socket, "bar") }
         expect_raises(LavinMQ::Clustering::AuthenticationError) do
           follower.negotiate!("foo")
@@ -856,13 +869,13 @@ module FollowerSpec
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
-        client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
+        client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 4, 0, 0]
         expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
           follower.negotiate!("foo")
         end
         header = Bytes.new(8)
         client_socket.read_fully(header)
-        header.should eq LavinMQ::Clustering::StartV2
+        header.should eq LavinMQ::Clustering::StartV3
       ensure
         follower_socket.try &.close
         client_socket.try &.close

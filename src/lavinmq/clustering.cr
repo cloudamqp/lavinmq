@@ -8,9 +8,12 @@ module LavinMQ
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
     # Version 2 followers don't sync to disk before every ack; they fsync the
     # files named by fsync request records (a `$` prefixed path and a zero
-    # length), and syncfs on a bare `$`. Instead of sending the password they
-    # answer a challenge from the leader, see `challenge_response`.
-    StartV2        = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
+    # length), and syncfs on a bare `$`. Like version 1 they send the
+    # password, as 2.11.0-rc.1 does.
+    StartV2 = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
+    # Version 3 is version 2, but instead of sending the password the
+    # follower answers a challenge from the leader, see `challenge_response`.
+    StartV3        = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
     FSYNC_PREFIX   = '$'
     CHALLENGE_SIZE = 32
 
@@ -33,7 +36,7 @@ module LavinMQ
     # The header is part of the MAC so a response can't be replayed against
     # the raft port, which uses the same password but MACs its challenge bare.
     def self.challenge_response(password : String, challenge : Bytes) : Bytes
-      OpenSSL::HMAC.digest(:sha256, password, StartV2 + challenge)
+      OpenSSL::HMAC.digest(:sha256, password, StartV3 + challenge)
     end
 
     class Error < Exception; end
