@@ -82,7 +82,7 @@ class LavinMQ::Server
   def restart_stores_for_specs
     stop
     Dir.mkdir_p @data_dir
-    LavinMQ::Schema.migrate(@data_dir, @replicator)
+    LavinMQ::Schema.verify(@data_dir, @replicator)
     @persister = LavinMQ::Persister.new(@data_dir)
     @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
     @authenticator = LavinMQ::Auth::Chain.create(@config, @users)

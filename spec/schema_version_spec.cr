@@ -51,4 +51,32 @@ describe LavinMQ::SchemaVersion do
       end
     end
   end
+
+  describe "data directory" do
+    it "writes schema_version to a new data directory" do
+      with_datadir do |data_dir|
+        LavinMQ::Schema.verify(data_dir, nil)
+        File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
+      end
+    end
+
+    it "refuses a pre 1.0 data directory without schema_version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion, /LavinMQ < 1.0/) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+        File.exists?(File.join(data_dir, "schema_version")).should be_false
+      end
+    end
+
+    it "refuses an unknown schema version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "schema_version"), "5")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+      end
+    end
+  end
 end
