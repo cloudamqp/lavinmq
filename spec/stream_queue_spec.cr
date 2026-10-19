@@ -343,7 +343,7 @@ describe LavinMQ::AMQP::Stream do
         end
       end
     ensure
-      LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!
+      LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!("original config value not saved")
     end
 
     it "yields to other fibers while scanning past filtered-out messages" do
@@ -877,17 +877,17 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  it "drops a publish when the store is closed concurrently" do
+  it "doesn't store a publish when the store is closed concurrently" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("stream-closed-store-publish", args: stream_queue_args)
         stream = s.vhosts["/"].queue("stream-closed-store-publish").as(LavinMQ::AMQP::Stream)
         # Simulate a delete racing publish_internal: the store is closed after
         # the @state.closed? check but before push, so push raises ClosedError.
-        # The publish must report Dropped, not raise (mirrors the queue spec).
+        # The publish must report Closed, not raise (mirrors the queue spec).
         stream.@msg_store.close
         msg = LavinMQ::Message.new("", "stream-closed-store-publish", "body", LavinMQ::AMQP::Properties.new)
-        stream.publish(msg).dropped?.should be_true
+        stream.publish(msg).closed?.should be_true
       end
     end
   end
@@ -1526,9 +1526,8 @@ describe LavinMQ::AMQP::Stream do
 
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         store.@size.should eq 2
-        env = store.read(seg_id, torn_pos)
-        env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        env = store.read(seg_id, torn_pos).should_not be_nil
+        String.new(env.message.body).should eq body
         store.close
       end
     end
@@ -1673,6 +1672,60 @@ describe LavinMQ::AMQP::Stream do
 
   {% if flag?(:linux) %}
     describe "requeued redeliveries" do
+      # Rejects (the client's read fiber) push to the consumer's requeued
+      # Deque while its deliver loop, possibly on another thread, shifts from it
+      it "redelivers every message requeued while the consumer delivers, once", tags: "slow" do
+        queue_name = Random::Secure.hex
+        msg_count = 3_000
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.prefetch 65_535
+            vhost = s.vhosts["/"]
+            vhost.declare_queue(queue_name, true, false, stream_queue_args)
+            stream = vhost.queue(queue_name).as(LavinMQ::AMQP::Stream)
+            msg_count.times { stream.publish(LavinMQ::Message.new("", queue_name, "m")) }
+            server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
+            frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, queue_name, "requeue-race",
+              false, false, false, false, AMQ::Protocol::Table.new({"x-stream-offset" => "first"}))
+            consumer = LavinMQ::AMQP::StreamConsumer.new(server_ch, stream, frame)
+            server_ch.@consumers << consumer # so that it is closed with the channel
+            ctx = Fiber::ExecutionContext::Parallel.new("stream-requeue-race", 4)
+            wg = WaitGroup.new(1)
+            ctx.spawn do
+              stream.add_consumer(consumer) # its deliver loop runs in ctx
+            ensure
+              wg.done
+            end
+            wg.wait
+            # The consumer counts a delivery before the channel records it,
+            # and the deliver loop may be on another thread
+            wait_for do
+              consumer.unacked == msg_count &&
+                server_ch.@unack_lock.synchronize { server_ch.unacked.size } == msg_count
+            end
+            sps = server_ch.@unack_lock.synchronize { server_ch.unacked.map(&.sp) }
+            sps.size.should eq msg_count
+
+            wg = WaitGroup.new(3)
+            3.times do |t|
+              ctx.spawn do
+                sps.each_with_index do |sp, i|
+                  consumer.reject(sp, requeue: true) if i % 3 == t
+                end
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            wait_for { stream.@redeliver_count.get >= msg_count }
+            sleep 100.milliseconds # any duplicate redelivery
+            stream.@redeliver_count.get.should eq msg_count
+            consumer.unacked.should eq msg_count
+            consumer.requeued.should be_empty
+          end
+        end
+      end
+
       it "keeps an older segment mapped until its last requeued message is redelivered" do
         queue_name = Random::Secure.hex
         # Two messages per segment
@@ -1696,8 +1749,10 @@ describe LavinMQ::AMQP::Stream do
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)
 
-            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
-            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            env1 = store.read(first_seg, 4u32).should_not be_nil
+            sp1 = env1.segment_position
+            env2 = store.read(first_seg, 4u32 + sp1.bytesize).should_not be_nil
+            sp2 = env2.segment_position
             consumer.requeued.push(sp1)
             consumer.requeued.push(sp2)
 

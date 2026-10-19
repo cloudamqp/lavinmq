@@ -1,20 +1,18 @@
 import * as Chart from './chart.js'
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
+import * as Poller from './poller.js'
 
 const numFormatter = new Intl.NumberFormat()
-const msgChart = Chart.render('msgChart', 'msgs', true, true, true)
+const msgChart = Chart.render('msgChart', 'msgs', true)
 const dataChart = Chart.render('dataChart', 'bytes/s')
 const rateChart = Chart.render('rateChart', 'msgs/s')
 
 function updateCharts (response) {
-  const msgStats = {
-    messages_ready: response.queue_totals.messages_ready,
-    messages_unacked: response.queue_totals.messages_unacknowledged,
-    messages_ready_log: response.queue_totals.messages_ready_log,
-    messages_unacked_log: response.queue_totals.messages_unacknowledged_log
-  }
-  Chart.update(msgChart, msgStats, true)
+  Chart.update(msgChart, [
+    { key: 'ready', label: 'Ready', desc: 'Messages waiting to be delivered', value: response.queue_totals.messages_ready, log: response.queue_totals.messages_ready_log },
+    { key: 'unacked', label: 'Unacked', desc: 'Messages delivered but not yet acknowledged', value: response.queue_totals.messages_unacknowledged, log: response.queue_totals.messages_unacknowledged_log }
+  ])
   Chart.update(rateChart, response.message_stats)
 
   const dataStats = {
@@ -80,13 +78,13 @@ function cacheKey () {
   return 'api/overview/' + vhost
 }
 
-function update (cb) {
+function update (cb, signal) {
   const vhost = window.sessionStorage.getItem('vhost')
   const headers = new window.Headers()
   if (vhost && vhost !== '_all') {
     headers.append('x-vhost', vhost)
   }
-  HTTP.request('GET', 'api/overview', { headers }).then(function (response) {
+  return HTTP.request('GET', 'api/overview', { headers, signal }).then(function (response) {
     try {
       window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
     } catch (e) {
@@ -110,6 +108,5 @@ function render (data) {
 }
 
 function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
+  Poller.start(signal => update(cb, signal))
 }

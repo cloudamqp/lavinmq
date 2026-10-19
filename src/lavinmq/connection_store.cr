@@ -36,7 +36,9 @@ module LavinMQ
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        @connections.each do |client|
+        # A copy, as a closed client deletes itself, which would skip the
+        # next one in the iteration
+        @connections.dup.each do |client|
           select
           when to_close.send client
           else

@@ -19,6 +19,8 @@ require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 require "./mqtt/broker"
+require "./mqtt/subscription_tree"
+require "./mqtt/subscriber"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -36,13 +38,31 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
+    DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
+                        "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
+                        "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
+                        "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
+    {% for key in DEAD_LETTER_KEYS %}
+      @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
+
+      def {{ key.id }}_count : UInt64
+        @{{ key.id }}_count.get(:relaxed)
+      end
+    {% end %}
+
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
+    # Routing index for MQTT publishes. Owned by the vhost so that it exists
+    # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
+    getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    # Set by the server's disk space monitor, read by every publishing client
+    @flow = Atomic(Bool).new(true)
+    @policy_snapshot_lock = Mutex.new
+    @policy_generation = 0_u64
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
@@ -50,13 +70,12 @@ module LavinMQ
     @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
@@ -190,6 +209,10 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections.add client
+      # Added after #close closed the connections, it'd be served by a
+      # closed vhost. Not #close, an MQTT client's waits for its read loop,
+      # which only starts after this.
+      client.force_close if closed?
     end
 
     def rm_connection(client : Client)
@@ -521,8 +544,9 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
-      # then force close the remaining (close tcp socket)
-      each_connection &.force_close
+      # then force close the remaining (close tcp socket), a copy as they
+      # delete themselves when closed
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
@@ -540,20 +564,29 @@ module LavinMQ
       FileUtils.rm_rf @data_dir
     end
 
+    # Each policy change spawns its own run, and runs can overlap. Each run
+    # takes a generation along with its snapshot of the policies, and a
+    # resource skips a run older than the newest one it has applied, so a run
+    # that read the policies before a later change can't overwrite that
+    # change's run. No lock is held while applying: applying a policy can
+    # take other locks, e.g. a delayed-message policy registers a queue.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
-      policies = @policies.values.sort_by!(&.priority).reverse
-      operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
+      policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
+        {@policies.values.sort_by!(&.priority).reverse,
+         @operator_policies.values.sort_by!(&.priority).reverse,
+         @policy_generation += 1}
+      end
       if r = resources
         r.each do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       else
         each_policy_target do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       end
     rescue ex : TypeCastError
@@ -592,15 +625,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
     end
 
     def mqtt_broker : MQTT::Broker
-      @mqtt_broker.not_nil!
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -634,6 +667,19 @@ module LavinMQ
       end
     end
 
+    def count_dead_lettered(reason : Symbol, *, dlx : Bool) : Nil
+      case reason
+      when :delivery_limit
+        dlx ? @dead_lettered_delivery_limit_at_most_once_count.add(1, :relaxed) : @dead_lettered_delivery_limit_disabled_count.add(1, :relaxed)
+      when :expired
+        dlx ? @dead_lettered_expired_at_most_once_count.add(1, :relaxed) : @dead_lettered_expired_disabled_count.add(1, :relaxed)
+      when :maxlen, :maxlenbytes
+        dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
+      when :rejected
+        dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
     def add_recv_bytes(bytes : UInt64) : Nil
       @recv_oct_count.add(bytes, :relaxed)
     end
@@ -647,7 +693,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end

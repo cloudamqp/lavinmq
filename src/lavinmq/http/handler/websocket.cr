@@ -154,7 +154,12 @@ module LavinMQ
       @closed = true
       @r.close
       @w.close
-      @ws.close
+      begin
+        @ws.close
+      rescue IO::Error | OpenSSL::SSL::Error
+        # The connection is already gone (e.g. a failed read closes the IO),
+        # so the close frame can't be sent
+      end
     end
 
     def read_timeout=(timeout : Time::Span?)

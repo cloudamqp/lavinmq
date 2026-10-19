@@ -17,7 +17,9 @@ module MqttHelpers
       tcp_listener.port,
       connect_timeout: 30)
     socket.keepalive = true
-    socket.tcp_nodelay = false
+    # Packets are written in pieces to an unbuffered socket. With Nagle each
+    # piece after the first waits for the server's delayed ACK (40 ms or more).
+    socket.tcp_nodelay = true
     socket.tcp_keepalive_idle = 60
     socket.tcp_keepalive_count = 3
     socket.tcp_keepalive_interval = 10

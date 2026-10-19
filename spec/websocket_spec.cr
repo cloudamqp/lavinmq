@@ -59,6 +59,19 @@ describe "Websocket support" do
     end
   end
 
+  it "doesn't raise when the connection is gone before the close frame is sent" do
+    peer, socket = UNIXSocket.pair
+    ws = HTTP::WebSocket.new(socket, sync_close: false)
+    io = LavinMQ::WebSocketIO.new(ws, socket)
+    # The next read fails, and closing the IO then can't send a close frame
+    socket.shutdown_read_write
+    ws.run
+    io.@closed.should be_true
+  ensure
+    peer.try &.close
+    socket.try &.close
+  end
+
   it "tracks AMQP websocket connections on the vhost" do
     with_http_server do |http, s|
       c = AMQP::Client.new("ws://#{http.addr}")

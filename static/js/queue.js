@@ -6,6 +6,7 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 import './tabs.js'
 
 Helpers.disableUserMenuVhost()
@@ -20,7 +21,7 @@ document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   setConsumers (consumers, totalCount) {
     this.items = {
       items: consumers,
@@ -103,8 +104,9 @@ function handleQueueState (state) {
 
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
-function updateQueue (all) {
-  HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
+let detailsRendered = false
+function updateQueue (all, signal) {
+  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
       const qType = item.arguments['x-queue-type']
       if (qType === 'stream') {
@@ -136,7 +138,8 @@ function updateQueue (all) {
           loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
         }
       }
-      if (all) {
+      if (all || !detailsRendered) {
+        detailsRendered = true
         const features = []
         if (item.durable) features.push('Durable')
         if (item.auto_delete) features.push('Auto delete')
@@ -175,8 +178,7 @@ function updateQueue (all) {
       }
     }).catch(() => {})
 }
-updateQueue(true)
-setInterval(updateQueue, 5000)
+Poller.start(signal => updateQueue(false, signal))
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
@@ -407,7 +409,3 @@ restartQueueForm.addEventListener('submit', function (evt) {
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
 Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})

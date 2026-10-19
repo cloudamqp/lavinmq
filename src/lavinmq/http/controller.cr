@@ -160,11 +160,14 @@ module LavinMQ
       end
 
       private def parse_body(context) : JSON::Any
-        if context.request.content_length == 0
+        request = context.request
+        # A POST or PUT without a body is an empty object. Before Crystal 1.22
+        # such requests got a Content-Length of 0, now they have no body.
+        if request.content_length == 0 || (request.body.nil? && request.method.in?("POST", "PUT"))
           return JSON::Any.new(Hash(String, JSON::Any).new)
         end
-        if body = context.request.body
-          ct = context.request.headers["Content-Type"]?
+        if body = request.body
+          ct = request.headers["Content-Type"]?
           if ct.nil? || ct.empty? || ct == "application/json"
             json = JSON.parse(body)
             if json.as_h?

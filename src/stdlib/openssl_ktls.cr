@@ -27,3 +27,30 @@ abstract class OpenSSL::SSL::Socket < IO
     end
   end
 end
+
+# Crystal's `Options::ALL` (0x80000BFF) includes bit 3, which is
+# SSL_OP_ENABLE_KTLS in OpenSSL 3. Crystal 1.21 cleared it again after adding
+# `ALL`, 1.22 doesn't, so every context had kTLS enabled. Keep kTLS opt-in.
+{% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+  abstract class OpenSSL::SSL::Context
+    protected def initialize(method : LibSSL::SSLMethod)
+      previous_def
+      remove_options(OpenSSL::SSL::Options::ENABLE_KTLS)
+    end
+  end
+{% end %}
+
+{% if OpenSSL.has_constant?(:KTLS) %}
+  # The stdlib BIO passes an Errno to OpenSSL as a 0 byte read, so a timeout
+  # surfaced as EOF. Remove once fixed in Crystal.
+  module OpenSSL::KTLS
+    def self.read_record(socket : Socket, data : UInt8*, length : Int32) : Int32 | Errno
+      ret = previous_def
+      # ETIMEDOUT from the polling event loop, ECANCELED from io_uring
+      if ret.in?(Errno::ETIMEDOUT, Errno::ECANCELED)
+        raise IO::TimeoutError.new("Read timed out")
+      end
+      ret
+    end
+  end
+{% end %}

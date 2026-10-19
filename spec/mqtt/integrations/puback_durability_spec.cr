@@ -82,7 +82,7 @@ module MqttSpecs
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
             publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-            sync = server.persister.last_sync.not_nil!
+            sync = server.persister.last_sync.should_not be_nil
             sync.paths.any?(&.ends_with?("msgs.0000000001")).should be_true
           end
         end
@@ -95,7 +95,8 @@ module MqttSpecs
           connect(io)
           publish(io, topic: "retained/a", payload: "a".to_slice, qos: 1u8, retain: true)
           store_dir = File.join(server.vhosts["/"].data_dir, "mqtt_retained_store")
-          server.persister.last_sync.not_nil!.paths.should contain File.join(store_dir, "index")
+          sync = server.persister.last_sync.should_not be_nil
+          sync.paths.should contain File.join(store_dir, "index")
           Dir.children(store_dir).none?(&.ends_with?(".tmp")).should be_true
         end
       end
@@ -107,7 +108,8 @@ module MqttSpecs
           connect(io)
           publish(io, topic: "r/t", payload: "retained".to_slice, qos: 1u8, retain: true)
           dir = File.join(server.vhosts["/"].data_dir, "mqtt_retained_store")
-          paths = server.persister.last_sync.not_nil!.paths
+          sync = server.persister.last_sync.should_not be_nil
+          paths = sync.paths
           paths.should contain dir
           paths.any? { |p| File.dirname(p) == dir && p.ends_with?(LavinMQ::MQTT::RetainStore::MESSAGE_FILE_SUFFIX) }.should be_true
         end
