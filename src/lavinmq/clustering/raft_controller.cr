@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "../etcd"
 require "../../stdlib/channel"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
@@ -40,11 +41,29 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def initialize(config : Config)
     super(config)
+    storage = Raft::Storage.new(@config.data_dir)
+    has_data = Clustering.broker_data?(@config.data_dir)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
-      @advertised_uri, Raft::Storage.new(@config.data_dir),
+      @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?, execution_context: raft_context)
+      has_data: has_data, prior_in_sync: has_data && storage.load.nil? && self.class.prior_in_sync?(@config, @id),
+      execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
+  end
+
+  # Whether this node was in the ISR of the etcd backend, read once when it
+  # starts raft with broker data but no raft state, as after a migration.
+  # That tells the nodes whose data is current, see Raft::Core#bootstrap_choice.
+  protected def self.prior_in_sync?(config : Config, id : Int32) : Bool
+    return false if config.clustering_seed_addresses.all?(config.clustering_raft_address)
+    key = "#{config.clustering_etcd_prefix}/isr"
+    raw = Etcd.new(config.clustering_etcd_endpoints).try_get(key) || return false
+    in_sync = raw.split(',').any? { |i| i.to_i?(36) == id }
+    Log.info { "The etcd backend's ISR (#{raw}) #{in_sync ? "includes" : "doesn't include"} this node" }
+    in_sync
+  rescue ex : ArgumentError
+    Log.warn { "Can't read the etcd backend's ISR: #{ex.message}" }
+    false
   end
 
   # How long stopping to serve, or a startup that lost leadership, may take
@@ -293,14 +312,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node.run(transport)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
-  end
-
-  # Whether this node may win an election before it has any raft state: when
-  # it's the only seed, or when the operator says it has the latest data. An
-  # empty data dir isn't enough, a majority of new nodes would then elect one
-  # of themselves and wipe the data of the nodes that have it.
-  private def may_bootstrap? : Bool
-    @config.clustering_bootstrap? || @config.clustering_seed_addresses.all?(@config.clustering_raft_address)
   end
 
   # Switch leader to replicate from whenever the leader changes, until this

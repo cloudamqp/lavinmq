@@ -49,7 +49,14 @@ module LavinMQ::Clustering::Raft
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?, entries : Array(Entry),
     snapshot_membership : Membership? = nil
 
-  alias Message = RequestVote | VoteResponse | AppendEntries | AppendResponse | InstallSnapshot | TimeoutNow | CatchUp
+  # What a node without a log tells the seeds while there's no cluster yet,
+  # so they can agree on the first leader, see Core#bootstrap_choice.
+  # `has_data`: it has broker data. `prior_in_sync`: it was in the ISR of
+  # the etcd backend before a migration.
+  record SeedInfo, from : Int32, term : Int64, last_index : Int64, has_data : Bool, prior_in_sync : Bool
+
+  alias Message = RequestVote | VoteResponse | AppendEntries | AppendResponse | InstallSnapshot | TimeoutNow |
+                  CatchUp | SeedInfo
 
   module Codec
     extend self
@@ -118,6 +125,13 @@ module LavinMQ::Clustering::Raft
         write_isr io, msg.snapshot_isr
         write_entries io, msg.entries
         write_membership io, msg.snapshot_membership
+      in SeedInfo
+        io.write_byte 8u8
+        io.write_bytes msg.from, Format
+        io.write_bytes msg.term, Format
+        io.write_bytes msg.last_index, Format
+        io.write_byte msg.has_data ? 1u8 : 0u8
+        io.write_byte msg.prior_in_sync ? 1u8 : 0u8
       end
     end
 
@@ -153,6 +167,8 @@ module LavinMQ::Clustering::Raft
       when 7
         CatchUp.new(from, term, io.read_bytes(Int64, Format),
           io.read_bytes(Int64, Format), read_isr(io), read_entries(io, size), read_membership(io))
+      when 8
+        SeedInfo.new(from, term, io.read_bytes(Int64, Format), read_bool(io), read_bool(io))
       else
         raise IO::Error.new("Unknown raft message type #{type}")
       end

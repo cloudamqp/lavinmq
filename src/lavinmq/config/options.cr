@@ -462,11 +462,6 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
       property clustering_heartbeat_interval = 250
 
-      @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet, raft backend only", ->(_v : String) { true }, section: "clustering")]
-      @[IniOpt(ini_name: bootstrap, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]
-      property? clustering_bootstrap = false
-
       # Password shared by all nodes, authenticating election and replication.
       # A configured password_file overrides this value.
       @[CliOpt("", "--clustering-password=PASSWORD", "Clustering password shared by all nodes, raft backend only", section: "clustering")]

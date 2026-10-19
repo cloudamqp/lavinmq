@@ -34,7 +34,7 @@ private def raft_launcher_configs(dirs : Enumerable(String)) : Array(LavinMQ::Co
   end.to_a
   seeds = configs.join(',', &.clustering_raft_advertised_address)
   configs.each &.clustering_seeds = seeds
-  configs[0].clustering_bootstrap = true
+  File.write(File.join(configs[0].data_dir, "spec-broker-data"), "") # the first leader, see Raft::Core#bootstrap_choice
   configs
 end
 
@@ -145,7 +145,7 @@ describe LavinMQ::Clustering::Controller do
         end
         seeds = configs.join(',', &.clustering_raft_advertised_address)
         configs.each &.clustering_seeds = seeds
-        configs[0].clustering_bootstrap = true
+        File.write(File.join(configs[0].data_dir, "spec-broker-data"), "") # the first leader, see Raft::Core#bootstrap_choice
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(2)
         launchers.each { |l| run_launcher(l, exited) }

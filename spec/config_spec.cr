@@ -447,6 +447,7 @@ describe LavinMQ::Config do
           [clustering]
           enabled = true
           backend = raft
+          bind = 0.0.0.0
           seeds = a:1
           raft_advertised_address = a:1
           password = ini-secret
@@ -472,7 +473,7 @@ describe LavinMQ::Config do
         File.write(path, "file-secret\n")
         File.chmod(path, 0o600)
         config = LavinMQ::Config.new(IO::Memory.new)
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
+        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1",
                       "--clustering-raft-advertised-address=a:1", "--clustering-password=file-overrides-this",
                       "--clustering-password-file=#{path}"])
         config.clustering_secret.should eq "file-secret"
@@ -487,7 +488,7 @@ describe LavinMQ::Config do
           File.chmod(path, mode)
           warnings = IO::Memory.new
           config = LavinMQ::Config.new(warnings)
-          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
+          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1",
                         "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
           config.clustering_secret.should eq "file-secret"
           warnings.to_s.should contain("WARNING: clustering password_file #{path} is accessible by group or others")
@@ -501,7 +502,7 @@ describe LavinMQ::Config do
       {"", "a" * 256}.each do |password|
         config = LavinMQ::Config.new(IO::Memory.new)
         expect_raises(LavinMQ::Config::Error, /clustering.*password/) do
-          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
+          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1",
                         "--clustering-raft-advertised-address=a:1", "--clustering-password=#{password}"])
         end
       end
@@ -524,7 +525,7 @@ describe LavinMQ::Config do
     it "accepts seeds without this node, as when joining through a member" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
+      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
       config.clustering_seed_addresses.should eq ["a:1", "b:1"]
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
@@ -534,6 +535,7 @@ describe LavinMQ::Config do
     it "defaults seed ports to 5680 and deduplicates the resulting addresses" do
       config = LavinMQ::Config.new(IO::Memory.new)
       config.parse(["--clustering", "--clustering-password=secret", "--clustering-raft-port=5690",
+                    "--clustering-bind=0.0.0.0",
                     "--clustering-seeds= node1 ,node1:5680,127.0.0.1,[::1],[::1]:5680,node2:5691,[::2]:5692"])
       config.clustering_seed_addresses.should eq ["node1:5680", "127.0.0.1:5680", "[::1]:5680", "node2:5691", "[::2]:5692"]
     end
@@ -543,6 +545,23 @@ describe LavinMQ::Config do
       config.parse(["--clustering", "--clustering-password=secret", "--clustering-bind=127.0.0.1",
                     "--clustering-seeds=127.0.0.1"])
       config.clustering_seed_addresses.should eq [config.clustering_raft_address]
+    end
+
+    it "rejects binding to loopback with a seed on another host" do
+      {"127.0.0.1", "::1", "localhost"}.each do |bind|
+        config = LavinMQ::Config.new(IO::Memory.new)
+        expect_raises(LavinMQ::Config::Error, /bind is #{bind}, so other nodes such as seed node2:5680 can't reach/) do
+          config.parse(["--clustering", "--clustering-password=secret", "--clustering-bind=#{bind}",
+                        "--clustering-seeds=localhost:5680,node2"])
+        end
+      end
+    end
+
+    it "accepts binding to loopback when every seed is on this host" do
+      config = LavinMQ::Config.new(IO::Memory.new)
+      config.parse(["--clustering", "--clustering-password=secret",
+                    "--clustering-seeds=127.0.0.1:5680,127.0.0.2:5681,[::1]:5682,LOCALHOST:5683"])
+      config.clustering_bind.should eq "127.0.0.1"
     end
 
     it "rejects an invalid explicit seed port" do
@@ -570,7 +589,7 @@ describe LavinMQ::Config do
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
       end
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
+      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
       config.clustering_seed_addresses.should eq ["a:1"]
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
@@ -588,7 +607,7 @@ describe LavinMQ::Config do
     it "uses the raft backend when seeds are set" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-seeds=a:1"])
+      config.parse(["--clustering", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
@@ -598,20 +617,20 @@ describe LavinMQ::Config do
     it "applies the raft requirements when seeds select it" do
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /password/) do
-        config.parse(["--clustering", "--clustering-seeds=a:1"])
+        config.parse(["--clustering", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1"])
       end
     end
 
     it "doesn't apply the raft requirements to the etcd backend" do
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=etcd", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
+      config.parse(["--clustering", "--clustering-backend=etcd", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Etcd
     end
 
     it "parses the backend case insensitively" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
+      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-bind=0.0.0.0", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")

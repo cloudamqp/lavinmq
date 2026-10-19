@@ -163,6 +163,7 @@ module LavinMQ::Clustering::Raft
     @logged_seeds = false
     @election_timeout : Time::Span
     @logged_trust_moved = false
+    @logged_bootstrap_wait : String? = nil
     # Metrics, only touched by the event loop
     # The leader and term last counted as a leader change: the same node
     # elected again in a later term is a change too
@@ -174,11 +175,11 @@ module LavinMQ::Clustering::Raft
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
-                   bootstrap = false,
+                   has_data = false, prior_in_sync = false,
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       @election_timeout = election_timeout
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
-        Time.instant, @storage.load, bootstrap: bootstrap)
+        Time.instant, @storage.load, has_data: has_data, prior_in_sync: prior_in_sync)
       @seeds = seeds.to_set << @address
       @term = @core.term
       @committed_isr = @core.committed_isr
@@ -560,6 +561,7 @@ module LavinMQ::Clustering::Raft
       end
       log_seeds_if_different(committed)
       log_trust_moved
+      log_bootstrap_wait
       callbacks.try do |cbs|
         removed.each do |id|
           Log.info { "Node #{id.to_s(36)} was removed from the cluster" }
@@ -585,6 +587,23 @@ module LavinMQ::Clustering::Raft
         end
       else
         Log.info { "Leader found, counting only voters at their listed addresses again" }
+      end
+    end
+
+    # Why a new cluster hasn't elected its first leader, see
+    # Core#bootstrap_choice, logged when it changes
+    private def log_bootstrap_wait : Nil
+      wait = @core.bootstrap_wait
+      return if wait == @logged_bootstrap_wait
+      @logged_bootstrap_wait = wait
+      return unless wait
+      if wait.starts_with?("several")
+        Log.warn do
+          "No first leader: #{wait}. Keep etcd_endpoints set until the cluster has a leader, or empty " \
+          "the data dirs of all but one of them, see \"Forming a cluster\" in docs/clustering.md"
+        end
+      else
+        Log.info { "No first leader yet: #{wait}" }
       end
     end
 

@@ -21,7 +21,9 @@ private class SimCluster
   @seeds : Array(String)
   @inflight = Deque(Tuple(Int32, Raft::Message)).new
 
-  def initialize(size : Int32, seed = 1, @bootstrap : Array(Int32)? = nil)
+  # `data`: the nodes with broker data, `prior_in_sync`: those that were in
+  # the etcd backend's ISR, see Core#bootstrap_choice
+  def initialize(size : Int32, seed = 1, @data = [] of Int32, @prior_in_sync = [] of Int32)
     (1..size).each { |id| @addresses[id] = "n#{id}" }
     @seeds = @addresses.values
     @addresses.each_key do |id|
@@ -122,7 +124,7 @@ private class SimCluster
     @addresses[id] = address
     @disk[id] = state
     @cores[id] = Raft::Core.new(id, address, [address] + seeds.map { |s| @addresses[s] }, "tcp://#{address}:5679",
-      ELECTION, HEARTBEAT, @now, state, Random.new(seed), bootstrap: false)
+      ELECTION, HEARTBEAT, @now, state, Random.new(seed))
     connect(id)
     @cores[id]
   end
@@ -169,7 +171,7 @@ private class SimCluster
   private def new_core(id, seed, state = nil)
     address = @addresses[id]
     Raft::Core.new(id, address, @seeds, "tcp://#{address}:5679", ELECTION, HEARTBEAT,
-      @now, state, Random.new(seed + id - 1), bootstrap: @bootstrap.nil? || @bootstrap.should_not(be_nil).includes?(id))
+      @now, state, Random.new(seed + id - 1), has_data: @data.includes?(id), prior_in_sync: @prior_in_sync.includes?(id))
   end
 end
 
@@ -179,6 +181,12 @@ private def campaigns?(core : Raft::Core, now : Time::Instant, after = 1.second)
   core.take_outbox
   core.tick(now + after)
   core.take_outbox.any?(&.[1].is_a?(Raft::RequestVote))
+end
+
+# Seeds without a log telling `core` so, as they do before the first leader
+private def announce_fresh(core : Raft::Core, ids : Enumerable(Int32), now : Time::Instant,
+                           last_index = 0i64, data = [] of Int32) : Nil
+  ids.each { |i| core.step(Raft::SeedInfo.new(i, 0, last_index, data.includes?(i), false), now) }
 end
 
 private def three_voters : Raft::Membership
@@ -203,8 +211,14 @@ describe Raft::Core do
     sim.run_until { sim.leader.try &.serving_leader? }
   end
 
-  it "only lets a bootstrap node campaign while no node has raft state" do
-    sim = SimCluster.new(3, bootstrap: [2])
+  it "elects the node with the lowest clustering id first when no seed has data" do
+    sim = SimCluster.new(3, seed: 5)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.leader.should_not(be_nil).id.should eq 1
+  end
+
+  it "only lets the node with data campaign while no node has raft state" do
+    sim = SimCluster.new(3, data: [2])
     sim.crash(2)
     sim.advance(2.seconds)
     sim.leader.should be_nil
@@ -213,8 +227,49 @@ describe Raft::Core do
     sim.leader.should_not(be_nil).id.should eq 2
   end
 
-  it "lets a node without bootstrap campaign once it has joined" do
-    sim = SimCluster.new(3, bootstrap: [1])
+  it "elects no first leader when several seeds have data, unless they were in the etcd ISR" do
+    sim = SimCluster.new(3, data: [1, 3])
+    sim.advance(2.seconds)
+    sim.leader.should be_nil
+    sim = SimCluster.new(3, data: [1, 3], prior_in_sync: [3])
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.leader.should_not(be_nil).id.should eq 3
+  end
+
+  it "doesn't campaign for the first leader before every seed has told it has no log" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    core.connected(2, "n2", now)
+    core.connected(3, "n3", now)
+    announce_fresh(core, [2], now)
+    core.bootstrap_choice.should be_nil
+    campaigns?(core, now, after: 1.second).should be_false
+    announce_fresh(core, [3], now, last_index: 4)
+    core.bootstrap_choice.should be_nil
+    campaigns?(core, now, after: 2.seconds).should be_false
+    announce_fresh(core, [3], now)
+    core.bootstrap_choice.should eq 1
+    campaigns?(core, now, after: 3.seconds).should be_true
+  end
+
+  it "only votes for the first leader every node agrees on" do
+    now = Time.instant
+    core = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    core.connected(1, "n1", now)
+    core.connected(3, "n3", now)
+    announce_fresh(core, [1, 3], now, data: [3])
+    core.bootstrap_choice.should eq 3
+    core.take_outbox
+    core.step(Raft::RequestVote.new(1, 1, 0, 0, pre_vote: true, transfer: false), now)
+    core.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))[1].as(Raft::VoteResponse).granted.should be_false
+    core.step(Raft::RequestVote.new(3, 1, 0, 0, pre_vote: true, transfer: false), now)
+    core.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))[1].as(Raft::VoteResponse).granted.should be_true
+  end
+
+  it "lets another node campaign once it has joined" do
+    sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
     sim.propose(sim.leader.should_not(be_nil), Set{1, 2, 3})
     sim.advance(100.milliseconds)
@@ -223,8 +278,8 @@ describe Raft::Core do
     sim.leader.should_not(be_nil).id.should_not eq 1
   end
 
-  it "doesn't let unbootstrapped nodes elect each other after hearing from the first leader" do
-    sim = SimCluster.new(3, bootstrap: [1])
+  it "doesn't let the other nodes elect each other after hearing from the first leader" do
+    sim = SimCluster.new(3)
     sim.run_until { sim[2].last_index > 0 && sim[3].last_index > 0 }
     sim[2].latest_isr.should eq Set{1}
     sim.crash(1)
@@ -419,6 +474,7 @@ describe Raft::Core do
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now,
       Raft::HardState.new(3, nil, 0, 0, nil, [Raft::Entry.new(3, nil)]))
     core.connected(2, "n2", now)
+    core.take_outbox
     core.step(Raft::RequestVote.new(2, 4, 5, 2, pre_vote: false, transfer: false), now)
     _, reply = core.take_outbox.first
     reply.as(Raft::VoteResponse).granted.should be_false
@@ -428,18 +484,22 @@ describe Raft::Core do
     now = Time.instant
     lost = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now)
     lost.connected(2, "n2", now)
+    lost.connected(3, "n3", now)
+    lost.take_outbox
     lost.step(Raft::RequestVote.new(2, 5, 3, 4, pre_vote: false, transfer: true), now)
     _, reply = lost.take_outbox.first
     reply.as(Raft::VoteResponse).granted.should be_false
     lost.voted_for.should be_nil
-    # Like the first election, where no node has a log yet
+    # Like the first election, where no node has a log yet, and the seeds
+    # agree on node 2
+    announce_fresh(lost, [2, 3], now, data: [2])
     lost.step(Raft::RequestVote.new(2, 6, 0, 0, pre_vote: false, transfer: true), now)
     _, reply = lost.take_outbox.first
     reply.as(Raft::VoteResponse).granted.should be_true
   end
 
   it "doesn't elect with the vote of a voter that lost its raft state but kept its id" do
-    sim = SimCluster.new(3, bootstrap: [1])
+    sim = SimCluster.new(3)
     sim.elect(Set{1, 2, 3}).id.should eq 1
     sim.crash(2)
     sim.wipe(2)
@@ -571,8 +631,9 @@ describe Raft::Core do
     peers = (1..5).map { |i| "n#{i}" }
     now = Time.instant
     core = Raft::Core.new(1, "n1", peers, "tcp://n1:5679", SimCluster::ELECTION, SimCluster::HEARTBEAT,
-      now, nil, Random.new(1), bootstrap: true)
+      now, nil, Random.new(1))
     (2..5).each { |i| core.connected(i, "n#{i}", now) }
+    announce_fresh(core, 2..5, now)
     now += 1.second
     core.tick(now)
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
@@ -651,23 +712,64 @@ describe Raft::Core, "membership" do
     sim.cores.each_value { |c| c.committed_membership.should eq three_voters }
   end
 
-  it "seeds the membership only once it knows the clustering id of every configured peer" do
+  it "seeds the membership from the clustering ids of every configured peer" do
     now = Time.instant
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
-      now, nil, Random.new(1), bootstrap: true)
+      now, nil, Random.new(1))
     core.connected(2, "n2", now)
+    announce_fresh(core, [2], now)
     core.quorum.should eq 2
-    now += 1.second
+    core.connect_to.should eq Set{"n2", "n3"}
+    campaigns?(core, now).should be_false # n3's id is unknown
+    core.identified("n3", 3)
+    announce_fresh(core, [3], now)
+    now += 2.seconds
     core.tick(now)
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
     core.role.leader?.should be_true
     core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
     core.serving_leader?.should be_true
-    core.latest_membership.should be_nil
-    core.connect_to.should eq Set{"n2", "n3"}
-    core.identified("n3", 3)
     core.latest_membership.should eq three_voters
+  end
+
+  it "drops a seed that turns out to be itself under another name" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["alias1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    core.quorum.should eq 3
+    core.identified("alias1", 1)
+    core.quorum.should eq 2
+    core.connect_to.should eq Set{"n2", "n3"}
+    core.identified("n2", 2)
+    core.identified("n3", 3)
+    core.connected(2, "n2", now)
+    announce_fresh(core, [2, 3], now)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    core.step(Raft::AppendResponse.new(2, 1, true, core.last_index), now)
+    core.latest_membership.should eq three_voters
+  end
+
+  it "leads alone once its only seed turns out to be itself" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["alias1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    campaigns?(core, now).should be_false
+    core.identified("alias1", 1)
+    core.quorum.should eq 1
+    # Pre-vote, election, then committing the no-op and the membership
+    3.times do
+      now += 1.second
+      core.tick(now)
+      core.take_outbox
+      core.persisted
+    end
+    core.role.leader?.should be_true
+    core.latest_membership.should eq Raft::Membership.new(Set{1}, Set(Int32).new, {1 => "n1"})
   end
 
   it "replicates to a learner without counting it towards commit or quorum" do
@@ -754,9 +856,10 @@ describe Raft::Core, "membership" do
   it "doesn't let a new leader change the membership before its no-op is committed" do
     now = Time.instant
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
-      now, nil, Random.new(1), bootstrap: true)
+      now, nil, Random.new(1))
     core.connected(2, "n2", now)
     core.connected(3, "n3", now)
+    announce_fresh(core, [2, 3], now)
     now += 1.second
     core.tick(now)
     core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
@@ -886,7 +989,7 @@ describe Raft::Core, "membership" do
     now = Time.instant
     state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
     core = Raft::Core.new(1, "n1", ["n1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
-      now, state, Random.new(1), bootstrap: true)
+      now, state, Random.new(1))
     core.quorum.should eq 2
     core.connect_to.should eq Set{"n2", "n3"}
     now += 1.second

@@ -107,10 +107,11 @@ module LavinMQ::Clustering::Raft
   #   voter's latest ISR, so a node lacking confirmed messages can never
   #   lead. Any committed ISR is on a majority, which every winner needs
   #   votes from.
-  # - A node that has never been part of the cluster (empty log) doesn't
-  #   campaign unless `bootstrap` is set: nothing tells it whether its data
-  #   is current, e.g. when starting a new cluster or after migrating from
-  #   etcd.
+  # - A node that has never been part of the cluster (empty log) can't tell
+  #   whether its data is current, e.g. when starting a new cluster or after
+  #   migrating from etcd. So while no seed has a log, the nodes agree on
+  #   the first leader from what each seed tells the others, see
+  #   #bootstrap_choice, and only that node campaigns and gets votes.
   # - Membership changes one server at a time (Raft dissertation §4.1): add as
   #   learner (not counted), promote (one more voter), remove. The latest
   #   membership entry in the log is in effect as soon as it's appended, so
@@ -181,10 +182,14 @@ module LavinMQ::Clustering::Raft
 
     @snapshot = Snapshot.new(0i64, 0i64, nil, nil)
     @entries = Array(Entry).new
-    # The configured seeds, used until the log has a membership
+    # The configured seeds other than this node, used until the log has a
+    # membership. A seed that turns out to be this node under another name
+    # is dropped, see #identified.
     @seed_addresses : Array(String)
     # The clustering ids of the configured seeds that we know of
     @seed_ids = Hash(String, Int32).new
+    # What the seeds without a log told us, by clustering id
+    @seed_info = Hash(Int32, SeedInfo).new
     # Peers connected to us right now, with the address they advertise
     @live = Hash(Int32, String).new
     # Everyone but ourselves that the latest membership lists, voters and learners
@@ -215,7 +220,7 @@ module LavinMQ::Clustering::Raft
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
                    now : Time::Instant, state : HardState? = nil, @random : Random = Random.new,
-                   @bootstrap = false)
+                   @has_data = false, @prior_in_sync = false)
       @seed_addresses = seeds.reject(@address).uniq!
       @now = now
       @leaderless_since = now
@@ -386,6 +391,7 @@ module LavinMQ::Clustering::Raft
       @live[id] = address
       identified(address, id)
       manage_membership
+      announce(id)
     end
 
     def disconnected(id : Int32, address : String) : Nil
@@ -393,10 +399,18 @@ module LavinMQ::Clustering::Raft
     end
 
     # The node at `address` has clustering id `id`. Only matters for
-    # seeds, until there's a membership.
+    # seeds, until there's a membership. When it's this node, listed under
+    # another name than its own address (a short hostname, an IP), the seed
+    # is dropped: it would otherwise count as a voter that never answers, and
+    # the first leader would wait forever to learn its id.
     def identified(address : String, id : Int32) : Nil
-      return if id == @id || !@seed_addresses.includes?(address) || @seed_ids[address]? == id
-      @seed_ids[address] = id
+      if id == @id
+        return unless @seed_addresses.delete(address)
+        @seed_ids.delete(address)
+      else
+        return if !@seed_addresses.includes?(address) || @seed_ids[address]? == id
+        @seed_ids[address] = id
+      end
       return if latest_membership
       refresh_membership
       manage_membership
@@ -506,6 +520,8 @@ module LavinMQ::Clustering::Raft
         @trust_moved = true if leaderless_for(now) >= @election_timeout * MOVED_TRUST_AFTER
         if now >= @election_deadline
           @election_deadline = now + randomized_election_timeout
+          # Again each election timeout, in case one got lost
+          @seed_ids.each_value { |id| announce(id) }
           start_pre_vote(now)
         end
       end
@@ -587,14 +603,57 @@ module LavinMQ::Clustering::Raft
       in InstallSnapshot then handle_install_snapshot(msg, now)
       in TimeoutNow      then handle_timeout_now(msg, now)
       in CatchUp         then handle_catch_up(msg, now)
+      in SeedInfo        then @seed_info[msg.from] = msg
       end
+    end
+
+    # Tells a seed what it needs to agree on the first leader, while there's
+    # no cluster yet, see #bootstrap_choice
+    private def announce(id : Int32) : Nil
+      return if latest_membership
+      send id, SeedInfo.new(@id, @term, last_index, @has_data, @prior_in_sync)
+    end
+
+    # The node that may become the first leader while no seed has a log, nil
+    # while that isn't known. Only once every seed has told us it has no log
+    # either, so a seed that is down, or has a log, stops it: then a cluster
+    # may already exist. A node with broker data goes before nodes without,
+    # so a new node never takes over another's data. When several have data
+    # there's no telling whose is current, unless they were in the etcd ISR
+    # before a migration. Among equals the lowest clustering id leads, so
+    # every node makes the same choice.
+    def bootstrap_choice : Int32?
+      bootstrap_state.as?(Int32)
+    end
+
+    # Why there's no #bootstrap_choice, for logging, nil when there is one or
+    # it doesn't apply
+    def bootstrap_wait : String?
+      bootstrap_state.as?(String)
+    end
+
+    private def bootstrap_state : (Int32 | String)?
+      return if latest_membership || last_index > 0 || @seed_addresses.empty?
+      return "waiting for every seed to be identified" unless seeds_identified?
+      infos = @seed_ids.values.map { |id| @seed_info[id]? || return "waiting to hear from every seed" }
+      return "a seed has election state" if infos.any? { |i| i.last_index > 0 }
+      nodes = infos.map { |i| {i.from, i.has_data, i.prior_in_sync} } << {@id, @has_data, @prior_in_sync}
+      with_data = nodes.select(&.[1])
+      candidates =
+        case with_data.size
+        when 0 then nodes
+        when 1 then with_data
+        else        with_data.select(&.[2])
+        end
+      candidates.min_of?(&.[0]) ||
+        "several seeds have broker data but no election state, and none was in the ISR of the etcd backend"
     end
 
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
       up_to_date = log_up_to_date?(msg.last_log_index, msg.last_log_term)
       candidate_in_isr = in_isr?(latest_isr, msg.from)
       eligible = up_to_date && candidate_in_isr && @voters.includes?(msg.from) && at_home?(msg.from) &&
-                 may_vote_for_log?(msg.last_log_index)
+                 may_vote_for_log?(msg.from, msg.last_log_index)
       sticky = !msg.transfer && leader_recent?(now)
       if msg.pre_vote
         granted = msg.term > @term && !sticky && eligible
@@ -784,7 +843,7 @@ module LavinMQ::Clustering::Raft
       # unless there has been no leader to do so for a long time
       return false if moved_from && !@trust_moved
       return false unless in_isr?(latest_isr, @id)
-      @bootstrap || last_index > 0
+      last_index > 0 || @seed_addresses.empty? || bootstrap_choice == @id
     end
 
     private def start_pre_vote(now : Time::Instant) : Nil
@@ -961,12 +1020,13 @@ module LavinMQ::Clustering::Raft
 
     # Without a log we can't tell whether we already voted in this term: our
     # raft state may have been lost while the clustering id was kept. Voting
-    # again could elect a second leader, so only vote for candidates without a
-    # log either, as when a cluster is first bootstrapped. A candidate with a
-    # log is in the ISR, so it replicated from a leader, and the other voters
-    # that did too have a log.
-    private def may_vote_for_log?(candidate_last_index : Int64) : Bool
-      last_index > 0 || candidate_last_index == 0
+    # again could elect a second leader, so only vote for the first leader of
+    # a new cluster, see #bootstrap_choice. A candidate with a log is in the
+    # ISR, so it replicated from a leader, and the other voters that did too
+    # have a log.
+    private def may_vote_for_log?(candidate : Int32, candidate_last_index : Int64) : Bool
+      return true if last_index > 0
+      candidate_last_index == 0 && bootstrap_choice == candidate
     end
 
     private def log_up_to_date?(index : Int64, term : Int64) : Bool

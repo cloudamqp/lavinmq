@@ -28,7 +28,7 @@ private class TCPRaftCluster
             peers = @addrs) : Raft::Node
     server = @servers[addr]? || (@servers[addr] = TCPServer.new("127.0.0.1", addr.split(':').last.to_i))
     node = @nodes[addr] = Raft::Node.new(id, addr, peers, "tcp://#{addr}", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds)
     transport = @transports[addr] = Raft::TCPTransport.new(@password, id, addr, peers.reject(addr),
       ->node.deliver(Raft::TransportEvent))
     spawn transport.listen(server)
@@ -132,6 +132,8 @@ private class StallingTransport < Raft::Transport
     node = @node.should_not(be_nil)
     id = @node_ids[to]
     case msg
+    when Raft::SeedInfo
+      node.deliver Raft::SeedInfo.new(id, 0, 0, has_data: false, prior_in_sync: false)
     when Raft::RequestVote
       node.deliver Raft::VoteResponse.new(id, msg.term, true, pre_vote: msg.pre_vote)
     when Raft::AppendEntries
@@ -238,7 +240,7 @@ describe Raft::Node do
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     transport.ack = false
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds)
     transport.node = node
     node.run(transport)
     # Its seeded membership, which no caller proposed, can't commit
@@ -254,7 +256,7 @@ describe Raft::Node do
     Dir.mkdir_p dir
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds)
     transport.node = node
     node.run(transport)
     wait_for { node.serving.value }
@@ -385,7 +387,7 @@ describe Raft::Node do
     Dir.mkdir_p dir
     transport = StallingTransport.new({"b" => 2, "c" => 3})
     node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds, bootstrap: true)
+      100.milliseconds, 20.milliseconds)
     transport.node = node
     node.run(transport)
     wait_for { node.serving.value }
@@ -412,7 +414,7 @@ describe Raft::Node do
     addrs = servers.map { |s| "127.0.0.1:#{s.local_address.port}" }
     nodes = addrs.map_with_index do |addr, i|
       node = Raft::Node.new(i + 1, addr, addrs, "tcp://#{addr}", Raft::Storage.new(File.join(dir, i.to_s).tap { |d| Dir.mkdir_p d }),
-        100.milliseconds, 20.milliseconds, bootstrap: true)
+        100.milliseconds, 20.milliseconds)
       transport = Raft::TCPTransport.new("password#{i}", i + 1, addr, addrs.reject(addr), ->node.deliver(Raft::TransportEvent))
       spawn transport.listen(servers[i])
       node.run(transport)
@@ -470,6 +472,25 @@ describe Raft::Node do
     end
   end
 
+  it "leads a single node cluster whose only seed names it differently" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    seeds = ["localhost:#{server.local_address.port}"]
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    node = Raft::Node.new(1, addr, seeds, "tcp://#{addr}", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds)
+    transport = Raft::TCPTransport.new("secret", 1, addr, seeds, ->node.deliver(Raft::TransportEvent))
+    spawn transport.listen(server)
+    node.run(transport)
+    wait_for(5.seconds) { node.serving.value }
+    node.membership.should eq Raft::Membership.new(Set{1}, Set(Int32).new, {1 => addr})
+  ensure
+    node.try &.close
+    server.try &.close
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "ignores a copy of a node's data dir while the original is connected" do
     with_raft_cluster do |c|
       leader = c.propose_isr(Set{1, 2, 3})
@@ -509,6 +530,19 @@ describe Raft::TCPTransport do
     first.try &.close
     copy.try &.close
     myself.try &.close
+  end
+
+  it "recognizes a connection to itself under another address" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    alias_addr = "localhost:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    transport = Raft::TCPTransport.new("secret", 1, addr, [alias_addr], ->(e : Raft::TransportEvent) { events.send e })
+    spawn transport.listen(server)
+    events.receive.should eq Raft::Identified.new(alias_addr, 1)
+    transport.probe(alias_addr).should eq 1
+  ensure
+    transport.try &.close
   end
 
   it "delivers frames that shrink and grow over one connection intact" do
@@ -683,6 +717,7 @@ describe Raft::Codec do
       Raft::InstallSnapshot.new(1, 3, "tcp://a:5679", 8, 2, Set{42}),
       Raft::TimeoutNow.new(1, 3),
       Raft::CatchUp.new(2, 3, 8, 2, Set{42}, [Raft::Entry.new(3, Set{7})]),
+      Raft::SeedInfo.new(3, 0, 0, has_data: true, prior_in_sync: false),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
   end

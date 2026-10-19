@@ -237,7 +237,7 @@ lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clusteri
   --clustering-advertised-uri=tcp://node1:5679 --clustering-seeds=node1,node2,node3
 ```
 
-The first time a new cluster starts, add `--clustering-bootstrap` on one of the nodes, so it may become the first leader.
+The first leader of a new cluster is elected once every node in `seeds` is up.
 
 ### Stream Queues
 

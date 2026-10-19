@@ -43,6 +43,12 @@ module LavinMQ::Clustering::Raft
   # moving to a new address is accepted once its old connections have closed
   # (keepalive drops dead ones within seconds), a copy of a data dir running
   # next to the original is refused while the original is connected.
+  #
+  # A connection that reached this very node, through a seed naming it
+  # differently than its own address, is recognized by the challenge: the
+  # nonce is one this transport just sent itself. It's reported as
+  # Identified with this node's own id, and not taken for a copy of the data
+  # dir.
   class TCPTransport < Transport
     Log = LavinMQ::Log.for "clustering.raft.transport"
 
@@ -67,6 +73,8 @@ module LavinMQ::Clustering::Raft
     @inbound = Set(TCPSocket).new
     # Clustering ids connected to us: their address and number of connections
     @inbound_ids = Hash(Int32, Tuple(String, Int32)).new
+    # Nonces of the inbound handshakes in progress, see #authenticate_client
+    @issued_nonces = Set(Bytes).new
     @server : TCPServer? = nil
     @closed = false
 
@@ -130,6 +138,8 @@ module LavinMQ::Clustering::Raft
       ensure
         socket.close rescue nil
       end
+    rescue SelfConnection
+      @id
     rescue ex : IO::Error | Socket::Error | AuthError | ArgumentError
       Log.warn { "Could not reach #{address}: #{ex.message}" }
       nil
@@ -159,6 +169,7 @@ module LavinMQ::Clustering::Raft
 
     private def outbound_loop(peer : String, ch : Channel(Message)) : Nil
       backoff = 50.milliseconds
+      reported_self = false
       until @closed || ch.closed?
         connected = false
         begin
@@ -183,18 +194,31 @@ module LavinMQ::Clustering::Raft
           ensure
             socket.close rescue nil
           end
-        rescue ex : IO::Error | Socket::Error | AuthError | ArgumentError
+        rescue ex : IO::Error | Socket::Error | AuthError | ArgumentError | SelfConnection
           return if @closed || ch.closed?
-          if ex.is_a?(AuthError)
-            Log.warn { "Connection to #{peer} refused: #{ex.message}" }
-          else
-            Log.debug { "Connection to #{peer} failed: #{ex.message}" }
-          end
+          reported_self = connection_failed(peer, ex, reported_self)
           drain(ch)
           backoff = connected ? 50.milliseconds : Math.min(backoff * 2, 1.second)
           sleep backoff
         end
       end
+    end
+
+    # Logs why connecting to *peer* failed. When *peer* is this node itself
+    # that's reported as Identified with our own id, and raft stops asking
+    # for the address, closing its channel. Returns whether that was logged.
+    private def connection_failed(peer : String, ex : Exception, reported_self : Bool) : Bool
+      case ex
+      when SelfConnection
+        Log.info { "#{peer} is this node (#{@address}), not connecting to it" } unless reported_self
+        @handler.call Identified.new(peer, @id)
+        return true
+      when AuthError
+        Log.warn { "Connection to #{peer} refused: #{ex.message}" }
+      else
+        Log.debug { "Connection to #{peer} failed: #{ex.message}" }
+      end
+      reported_self
     end
 
     # The peer never writes after the handshake, so a read returns once it has
@@ -309,7 +333,16 @@ module LavinMQ::Clustering::Raft
     # Returns the client's clustering id and address.
     private def authenticate_server(socket : IO) : Tuple(Int32, String)
       nonce = Random::Secure.random_bytes(NONCE_SIZE)
-      socket.write nonce
+      @lock.synchronize { @issued_nonces << nonce }
+      begin
+        socket.write nonce
+        verify_client(socket, nonce)
+      ensure
+        @lock.synchronize { @issued_nonces.delete(nonce) }
+      end
+    end
+
+    private def verify_client(socket : IO, nonce : Bytes) : Tuple(Int32, String)
       magic = Bytes.new(MAGIC.size)
       socket.read_fully(magic)
       raise AuthError.new("Bad protocol header") unless magic == MAGIC
@@ -352,6 +385,9 @@ module LavinMQ::Clustering::Raft
     private def authenticate_client(socket : IO) : Int32
       nonce = Bytes.new(NONCE_SIZE)
       socket.read_fully(nonce)
+      # Our own challenge: this connection reached ourselves. Hang up before
+      # answering it, the server side just sees the connection close.
+      raise SelfConnection.new if @lock.synchronize { @issued_nonces.includes?(nonce) }
       client_nonce = Random::Secure.random_bytes(NONCE_SIZE)
       socket.write MAGIC
       socket.write client_nonce
@@ -398,5 +434,8 @@ module LavinMQ::Clustering::Raft
     end
 
     class AuthError < Exception; end
+
+    # The peer address leads to this node itself
+    class SelfConnection < Exception; end
   end
 end
