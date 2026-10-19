@@ -54,8 +54,10 @@ describe LavinMQ::Clustering::Client do
             tls.read_fully(frame)
             frame[0].should eq 1u8 # Connection.Start method frame
             tls.close
-            # The address of the client, not of the follower's connection to the leader
-            logs.check(:info, /^#{Regex.escape(client_address.to_s)} connected with /)
+            # The address of the client, not of the follower's connection to the leader,
+            # formatted as the leader logs it (no brackets around IPv6)
+            expected = LavinMQ::ConnectionInfo::IPAddress.new(client_address).to_s
+            logs.check(:info, /^#{Regex.escape(expected)} connected with /)
           end
         ensure
           repli.close
