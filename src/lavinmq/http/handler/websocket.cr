@@ -156,7 +156,7 @@ module LavinMQ
         in .close?
           @eof = true
           code = ::HTTP::WebSocket::CloseCode.new(IO::ByteFormat::NetworkEndian.decode(UInt16, slice)) if info.size >= 2
-          send_close_frame(code)
+          send_close_frame(code || ::HTTP::WebSocket::CloseCode::NormalClosure)
           return 0
         in .text?
           @eof = true
@@ -215,14 +215,14 @@ module LavinMQ
     # Sent once, after the frame being written, if any. A client that sent a
     # close frame still reads, so that write completes. Nothing is written
     # after the close frame.
-    private def send_close_frame(code : ::HTTP::WebSocket::CloseCode? = nil) : Nil
+    private def send_close_frame(code : ::HTTP::WebSocket::CloseCode = :normal_closure) : Nil
       @write_lock.synchronize do
         _, ok = @write_state.compare_and_set(WriteState::Idle, WriteState::Closed)
         write_close_frame(code) if ok
       end
     end
 
-    private def write_close_frame(code : ::HTTP::WebSocket::CloseCode? = nil) : Nil
+    private def write_close_frame(code : ::HTTP::WebSocket::CloseCode = :normal_closure) : Nil
       @ws.close(code)
     rescue IO::Error | OpenSSL::SSL::Error
       # The connection is already gone, so the close frame can't be sent

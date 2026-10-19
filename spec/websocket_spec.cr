@@ -52,7 +52,7 @@ describe "Websocket support" do
         code = connect_mqtt(http) do |ws|
           ws.stream { |io| MQTT::Protocol::Disconnect.new.to_io(MQTT::Protocol::IO.new(io)) }
         end
-        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
       end
     end
 
@@ -62,7 +62,7 @@ describe "Websocket support" do
           # HTTP::WebSocket#close would close the client's socket before the reply arrives
           ws.@ws.send(Bytes[0x03, 0xe8], HTTP::WebSocket::Protocol::Opcode::CLOSE)
         end
-        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
       end
     end
 
@@ -80,7 +80,7 @@ describe "Websocket support" do
           socket.write(frames.to_slice)
           socket.flush
         end
-        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
         wait_for { s.vhosts["/"].connections.none?(LavinMQ::MQTT::Client) }
         s.vhosts["/"].exchange("mqtt.default").publish_in_count.should eq 0
       end
