@@ -26,6 +26,9 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
+        # Takes over a client id and detaches a closed client as one step, so a
+        # displaced client's own cleanup can't detach its replacement's session
+        @clients_lock = Mutex.new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
       end
@@ -49,11 +52,17 @@ module LavinMQ
       end
 
       def add_client(io, connection_info, user, packet) : Client
+        @clients_lock.synchronize do
+          add_client_locked(io, connection_info, user, packet)
+        end
+      end
+
+      private def add_client_locked(io, connection_info, user, packet) : Client
         if prev_client = @clients[packet.client_id]?
           prev_client.close(
             "New client #{connection_info.remote_address} " \
             "(username=#{packet.username}) connected as #{packet.client_id}")
-          remove_client(prev_client)
+          remove_client_locked(prev_client)
         end
         client = MQTT::Client.new(io,
           connection_info,
@@ -89,6 +98,10 @@ module LavinMQ
       end
 
       def remove_client(client)
+        @clients_lock.synchronize { remove_client_locked(client) }
+      end
+
+      private def remove_client_locked(client)
         client_id = client.client_id
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
