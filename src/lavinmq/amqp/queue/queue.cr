@@ -737,7 +737,7 @@ module LavinMQ::AMQP
     end
 
     private def recover_retry_queue : Nil
-      return if internal? || !durable? || @delayed_retry_queue
+      return if internal? || !durable?
       q_name = "amq.retry-#{@name}"
       return if q_name.bytesize > DelayedQueue::MAX_NAME_LENGTH
       return unless Dir.exists?(File.join(@vhost.data_dir, Digest::SHA1.hexdigest(q_name)))
@@ -773,7 +773,7 @@ module LavinMQ::AMQP
     # Only call while holding @retry_queue_lock
     private def create_retry_queue : DelayedRetryQueue
       if queue = @delayed_retry_queue
-        return queue
+        return queue unless queue.closed?
       end
       queue = DelayedRetryQueue.create(@vhost, self)
       @delayed_retry_queue = queue
