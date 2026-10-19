@@ -306,8 +306,9 @@ describe LavinMQ::Shovel do
           wg = WaitGroup.new(1)
           spawn { source.each { |m| source.ack(m.delivery_tag); wg.done } }
           wg.wait
-          sleep 1.millisecond
-          s.vhosts["/"].queue("source").unacked_count.should eq 0
+          # The ack is flushed by the source's timeout loop, and processed by
+          # the broker after that
+          should_eventually(eq 0) { s.vhosts["/"].queue("source").unacked_count }
           source.stop
         end
       end
