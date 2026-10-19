@@ -23,6 +23,19 @@ describe LavinMQ::HTTP::ExchangesController do
         body.as_a.empty?.should be_false
       end
     end
+
+    # Clients (e.g. rabbit-hole) expect the default exchange first
+    it "should list exchanges sorted by name" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("b-x", "direct", false, false)
+        s.vhosts["/"].declare_exchange("a-x", "direct", false, false)
+        response = http.get("/api/exchanges/%2f")
+        names = JSON.parse(response.body).as_a.map(&.["name"].as_s)
+        # The default exchange ("") is listed as amq.default
+        names.first.should eq "amq.default"
+        names[1..].should eq names[1..].sort
+      end
+    end
   end
 
   describe "GET /api/exchanges/vhost/name" do

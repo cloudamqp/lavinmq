@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Experimental `workers` config option in `[main]` (`--workers`, `LAVINMQ_WORKERS`, default `CRYSTAL_WORKERS` or `1`) for the number of threads that run connections, queues and the HTTP API. `0` uses `CRYSTAL_WORKERS` or one thread per CPU. Values above 1 are not yet safe to use [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 
+### Changed
+
+- Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
+
 ### Fixed
 
 - An MQTT client that reconnected under the same client id while its previous connection was still closing could have its session detached again by that connection's cleanup, and was then disconnected on its next PUBACK [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
