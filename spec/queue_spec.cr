@@ -103,6 +103,9 @@ describe LavinMQ::AMQP::Queue do
         sleep 110.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
+        # basic_cancel doesn't wait for the server, and the queue expires
+        # counting from when its last consumer is gone
+        wait_for { queue.consumer_count.zero? }
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
         (Time.instant - start).total_milliseconds.should be_close 100, 50
