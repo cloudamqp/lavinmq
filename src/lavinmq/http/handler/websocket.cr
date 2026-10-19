@@ -129,6 +129,8 @@ module LavinMQ
 
     @send_state = Atomic(SendState).new(SendState::Idle)
 
+    CLOSE_FRAME_TIMEOUT = 1.second
+
     # *socket* is the connection the WebSocket runs over
     def initialize(@ws : ::HTTP::WebSocket, @socket : IO)
       @r, @w = IO.pipe
@@ -137,8 +139,10 @@ module LavinMQ
       @ws.on_binary do |slice|
         @w.write(slice)
       end
+      # The reader gets what was already received, e.g. a DISCONNECT, before end of stream
       @ws.on_close do |_code, _message|
-        close
+        send_close_frame
+        @w.close
       end
       self.buffer_size = 4096
     end
@@ -177,8 +181,10 @@ module LavinMQ
 
     # Shuts down the underlying connection, see `Socket#shutdown_read_write`
     def shutdown_read_write : Nil
-      send_close_frame
       socket = @socket
+      # Don't let a client that stopped reading hold up the close for tcp_send_timeout
+      socket.write_timeout = CLOSE_FRAME_TIMEOUT if socket.responds_to?(:write_timeout=)
+      send_close_frame
       socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
     end
 

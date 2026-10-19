@@ -13,15 +13,18 @@ private def connect_amqp(websocket : HTTP::WebSocket)
     AMQP::Client::ConnectionInformation.new  )
 end
 
-private def connect_mqtt(http, &)
+private def connect_mqtt(http, will : MQTT::Protocol::Will? = nil, &)
   ws = HTTP::WebSocket.new(http.addr.address, path: "/mqtt", port: http.addr.port)
   connect = MQTT::Protocol::Connect.new(client_id: "ws-close", clean_session: true, keepalive: 30u16,
-    username: "guest", password: "guest".to_slice, will: nil)
+    username: "guest", password: "guest".to_slice, will: will)
   connack = Channel(Nil).new(1)
   closed = Channel(HTTP::WebSocket::CloseCode).new(1)
   ws.on_binary { |_| connack.send nil unless connack.closed? }
   ws.on_close { |code, _| closed.send code }
-  spawn { ws.run }
+  spawn do
+    ws.run
+  rescue IO::Error
+  end
   ws.stream { |io| connect.to_io(MQTT::Protocol::IO.new(io)) }
   connack.receive
   connack.close
@@ -53,18 +56,23 @@ describe "Websocket support" do
       end
     end
 
-    it "when the server closes an AMQP connection" do
+    it "after handling a DISCONNECT received together with the close frame" do
       with_http_server do |http, s|
-        ws = HTTP::WebSocket.new(http.addr.address, path: "/", port: http.addr.port)
-        connect_amqp(ws)
-        closed = Channel(HTTP::WebSocket::CloseCode).new(1)
-        ws.on_close { |code, _| closed.send code }
-        wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
-        s.vhosts["/"].connections.first.force_close
-        select
-        when code = closed.receive then code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
-        when timeout(3.seconds) then fail "WebSocket not closed"
+        will = MQTT::Protocol::Will.new(topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+        code = connect_mqtt(http, will) do |ws|
+          frames = IO::Memory.new
+          protocol = HTTP::WebSocket::Protocol.new(frames, masked: true)
+          disconnect = IO::Memory.new
+          MQTT::Protocol::Disconnect.new.to_io(MQTT::Protocol::IO.new(disconnect))
+          protocol.send(disconnect.to_slice)
+          protocol.send(Bytes[0x03, 0xe8], HTTP::WebSocket::Protocol::Opcode::CLOSE)
+          socket = ws.@ws.@io
+          socket.write(frames.to_slice)
+          socket.flush
         end
+        code.should_not eq HTTP::WebSocket::CloseCode::AbnormalClosure
+        wait_for { s.vhosts["/"].connections.none?(LavinMQ::MQTT::Client) }
+        s.vhosts["/"].exchange("mqtt.default").publish_in_count.should eq 0
       end
     end
   end
@@ -118,10 +126,10 @@ describe "Websocket support" do
     peer, socket = UNIXSocket.pair
     ws = HTTP::WebSocket.new(socket, sync_close: false)
     io = LavinMQ::WebSocketIO.new(ws, socket)
-    # The next read fails, and closing the IO then can't send a close frame
+    # The next read fails, and the close frame then can't be sent
     socket.shutdown_read_write
     ws.run
-    io.@closed.should be_true
+    io.read(Bytes.new(1)).should eq 0
   ensure
     peer.try &.close
     socket.try &.close
