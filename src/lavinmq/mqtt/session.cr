@@ -41,6 +41,8 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      # Makes "detach this client if it's still attached" one step with attach
+      @client_lock = Mutex.new
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
@@ -149,8 +151,11 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          # Only the client the delivery failed to, not one that has replaced it
+          if client
+            client.close("Server force closed client")
+            detach(client)
+          end
         end
       end
 
@@ -180,6 +185,17 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
+        @client_lock.synchronize { set_client(client) }
+      end
+
+      # Detaches `client`, unless another client has been attached since
+      def detach(client : MQTT::Client) : Nil
+        @client_lock.synchronize do
+          set_client(nil) if @client.same?(client)
+        end
+      end
+
+      private def set_client(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
 

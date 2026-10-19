@@ -180,12 +180,15 @@ module MqttSpecs
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
           # Receiving it on the publisher's own subscription means the broker
-          # has retained and routed it, before the subscriber connects
+          # has retained it before the subscriber subscribes
           read_packet(io).should be_a(MQTT::Protocol::Publish)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          # A clean session, so no session is kept from the first server to get
+          # the publish itself, without the retain flag, if routing reaches it
+          # after the subscriber has connected
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
           # Should receive the retained message without crashing. The broker
@@ -210,12 +213,15 @@ module MqttSpecs
           large_payload = "retained_message_" + ("x" * 8192)
           publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
           # Receiving it on the publisher's own subscription means the broker
-          # has retained and routed it, before the subscriber connects
+          # has retained it before the subscriber subscribes
           read_packet(io).should be_a(MQTT::Protocol::Publish)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          # A clean session, so no session is kept from the first server to get
+          # the publish itself, without the retain flag, if routing reaches it
+          # after the subscriber has connected
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
           # Should receive the retained message without crashing. The broker
