@@ -446,17 +446,12 @@ module LavinMQ
             @client.send_internal_queue_refused(frame, frame.queue)
             return
           end
-          if q.in_exclusive_use?(frame.exclusive)
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
-            return
-          end
           c = if q.is_a? Stream
                 AMQP::StreamConsumer.new(self, q, frame)
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
-          q.add_consumer(c)
+          return unless add_consumer(q, c, frame)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
@@ -464,6 +459,23 @@ module LavinMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
+      end
+
+      # The exclusivity check is made atomically with the add, so that
+      # concurrent consumes on other connections can't both pass it
+      private def add_consumer(q, c, frame) : Bool
+        @consumers.push(c)
+        if q.add_consumer(c)
+          true
+        else
+          @consumers.delete(c)
+          @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          false
+        end
+      rescue Queue::ClosedError
+        @consumers.delete(c)
+        @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+        false
       end
 
       def basic_get(frame)
