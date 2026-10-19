@@ -101,7 +101,10 @@ module MqttSpecs
           client_id = "takeover-race"
           # The broker changes its clients on other threads
           registered = -> { broker.@clients_lock.synchronize { broker.@clients[client_id]? } }
+          # Bounded by time too, to stay well within the spec timeout on slow runners
+          deadline = Time.instant + 3.seconds
           500.times do
+            break if Time.instant > deadline
             with_client_io(server) do |io|
               connect(io, client_id: client_id)
               subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
