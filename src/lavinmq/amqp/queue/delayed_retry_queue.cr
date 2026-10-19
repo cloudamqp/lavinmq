@@ -22,9 +22,11 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
+    # Set under @msg_store_lock, which #push_delayed holds across its check and
+    # push, so no delay can land after the drained check finds the queue empty
     def drain : Nil
       return if @draining
-      @draining = true
+      @msg_store_lock.synchronize { @draining = true }
       @log.info { "Retries disabled, draining delayed messages back to #{@primary_queue.name}" }
       notify_if_drained
     end
@@ -44,9 +46,15 @@ module LavinMQ::AMQP
       end
     end
 
+    # Refused while draining: a retry disabled by policy must not delay new
+    # messages, and the drained queue is about to be deleted
     def delay(msg : Message) : Bool
-      return false if @closed
+      push_delayed(msg, refuse_while_draining: true)
+    end
+
+    private def push_delayed(msg : Message, *, refuse_while_draining : Bool) : Bool
       @msg_store_lock.synchronize do
+        return false if @closed || (refuse_while_draining && @draining)
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
@@ -94,7 +102,7 @@ module LavinMQ::AMQP
       msg.properties.headers = h
       redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      if delay(redelayed)
+      if push_delayed(redelayed, refuse_while_draining: false)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
         delete_message sp
       else

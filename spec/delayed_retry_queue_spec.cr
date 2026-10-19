@@ -895,6 +895,29 @@ describe "Retry Queue" do
       end
     end
 
+    # A reject that read the settings before the policy was removed can still
+    # reach the retry queue; it must not land in a queue about to be deleted
+    it "should refuse delays once the retry queue is draining" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-policy-drain-refuse")
+          vhost.add_policy("retry", "^retry-policy-drain-refuse$", "queues",
+            {"delayed-retry-min" => JSON::Any.new(60_000_i64)}, 0_i8)
+          wait_for { vhost.queue?("amq.retry-retry-policy-drain-refuse") }
+          q.publish_confirm "delayed"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          retry_q = vhost.queue("amq.retry-retry-policy-drain-refuse").as(LavinMQ::AMQP::DelayedRetryQueue)
+          wait_for { retry_q.message_count == 1 }
+
+          vhost.delete_policy("retry")
+          wait_for { retry_q.draining? }
+          retry_q.delay(LavinMQ::Message.new("", q.name, "late")).should be_false
+          retry_q.message_count.should eq 1
+        end
+      end
+    end
+
     it "should keep counting deliveries against the argument limit after the policy is removed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
