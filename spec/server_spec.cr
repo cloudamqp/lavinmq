@@ -64,6 +64,44 @@ describe LavinMQ::Server do
     end
   end
 
+  it "reads the PROXY header a follower sends in front of a proxied TLS connection" do
+    with_datadir do |data_dir|
+      # A connected follower on loopback, so connections from 127.0.0.1 come from a follower
+      replication_server = TCPServer.new("127.0.0.1", 0)
+      follower_client = TCPSocket.new("127.0.0.1", replication_server.local_address.port)
+      follower_socket = replication_server.accept
+      follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+      replicator = FollowersReplicator.new([follower])
+      config = LavinMQ::Config.instance
+      config.clustering = true
+      begin
+        with_amqp_server(tls: true, replicator: replicator) do |s|
+          port = amqp_tls_port(s)
+          Log.capture("lmq.server", :info) do |logs|
+            socket = TCPSocket.new("127.0.0.1", port)
+            socket.write "PROXY TCP4 192.168.1.100 127.0.0.1 54321 #{port}\r\n".to_slice
+            client_ctx = OpenSSL::SSL::Context::Client.new
+            client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+            tls = OpenSSL::SSL::Socket::Client.new(socket, client_ctx, sync_close: true)
+            tls.write LavinMQ::AMQP::PROTOCOL_START_0_9_1.to_slice
+            tls.flush
+            tls.read_timeout = 5.seconds
+            frame = Bytes.new(7)
+            tls.read_fully(frame)
+            frame[0].should eq 1u8 # Connection.Start method frame
+            tls.close
+            logs.check(:info, /^192\.168\.1\.100:54321 connected with /)
+          end
+        end
+      ensure
+        config.clustering = false
+        follower.close
+        follower_client.close
+        replication_server.close
+      end
+    end
+  end
+
   it "doesn't hold the TCP read buffer of idle TLS connections" do
     with_amqp_server(tls: true) do |s|
       with_channel(s, tls: true, verify_mode: OpenSSL::SSL::VerifyMode::NONE) do |ch|
@@ -1421,5 +1459,14 @@ describe LavinMQ::Server do
       t.read(buf)
       buf.should eq Bytes['A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord, 0, 0, 9, 1]
     end
+  end
+end
+
+private class FollowersReplicator < NoOpReplicator
+  def initialize(@followers : Array(LavinMQ::Clustering::Follower))
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    @followers
   end
 end
