@@ -448,7 +448,7 @@ module LavinMQ
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.create(op, save: save)
-      apply_policies if apply
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}" if apply
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
@@ -458,7 +458,7 @@ module LavinMQ
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
       @policies.create(p, save: save)
-      apply_policies if apply
+      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}" if apply
       @log.info { "Policy=#{name} Created" }
       p
     end
@@ -479,13 +479,13 @@ module LavinMQ
 
     def delete_operator_policy(name)
       @operator_policies.delete(name)
-      apply_policies
+      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
       @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
       @policies.delete(name)
-      apply_policies
+      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
       @log.info { "Policy=#{name} Deleted" }
     end
 
@@ -497,7 +497,7 @@ module LavinMQ
       @log.debug { "Add parameter #{p.name}" }
       @parameters.create(p, save: save)
       apply_parameters(p)
-      apply_policies if apply
+      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
     def delete_parameter(component_name, parameter_name)
