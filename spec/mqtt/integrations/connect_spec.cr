@@ -101,15 +101,20 @@ module MqttSpecs
           client_id = "takeover-race"
           # The broker changes its clients on other threads
           registered = -> { broker.@clients_lock.synchronize { broker.@clients[client_id]? } }
+          # A QoS 1 publish is acked once it's durable, which can take longer
+          # than the helpers' read timeout on a slow runner
+          patient = ->(io : MQTT::Protocol::IO) { io.io.as(TCPSocket).read_timeout = 5.seconds }
           # Bounded by time too, to stay well within the spec timeout on slow runners
           deadline = Time.instant + 3.seconds
           500.times do
             break if Time.instant > deadline
             with_client_io(server) do |io|
+              patient.call(io)
               connect(io, client_id: client_id)
               subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
               old_client = wait_for { registered.call }
               with_client_io(server) do |pub|
+                patient.call(pub)
                 connect(pub, client_id: "takeover-publisher")
                 publish(pub, topic: "a/b", payload: "m".to_slice, qos: 1u8)
                 disconnect(pub)
@@ -117,6 +122,7 @@ module MqttSpecs
               read_publish(io) # left unacked, so the session has some to requeue
 
               with_client_io(server) do |io2|
+                patient.call(io2)
                 # The old client's cleanup runs while the new one connects
                 disconnect(io)
                 connect(io2, client_id: client_id)
