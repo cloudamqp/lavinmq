@@ -287,7 +287,7 @@ module LavinMQ
           @msg_store.push(msg)
           drop_overflow
         end
-        @publish_count.add(1, :relaxed)
+        publish_count_atomic_add!
         true
       end
 
@@ -318,10 +318,10 @@ module LavinMQ
                 packet = build_packet(env, nil)
                 yield packet, sp.bytesize
                 if env.redelivered
-                  @redeliver_count.add(1, :relaxed)
+                  redeliver_count_atomic_add!
                 else
-                  @deliver_no_ack_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
+                  deliver_no_ack_count_atomic_add!
+                  deliver_get_count_atomic_add!
                 end
               rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -345,10 +345,10 @@ module LavinMQ
                 @unacked_bytesize.add(sp.bytesize, :relaxed)
                 yield packet, sp.bytesize
                 if env.redelivered
-                  @redeliver_count.add(1, :relaxed)
+                  redeliver_count_atomic_add!
                 else
-                  @deliver_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
+                  deliver_count_atomic_add!
+                  deliver_get_count_atomic_add!
                 end
                 @msg_store_lock.synchronize do
                   if @client.same?(client)
@@ -421,7 +421,7 @@ module LavinMQ
         id = packet.packet_id
         if sp = @msg_store_lock.synchronize { @unacked.delete(id) }
           begin
-            @ack_count.add(1, :relaxed)
+            ack_count_atomic_add!
             @unacked_count.sub(1, :relaxed)
             @unacked_bytesize.sub(sp.bytesize, :relaxed)
             delete_message(sp)

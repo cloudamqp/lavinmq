@@ -32,7 +32,7 @@ module LavinMQ
       @staged_effective_args = Array(String).new
       @staged_alternate_exchange : String?
 
-      rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
+      rate_stats({"publish_in", "publish_out", "unroutable", "dedup"}, striped: true)
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
                      @auto_delete = false, @internal = false,
@@ -250,10 +250,10 @@ module LavinMQ
       def publish(msg : Message, immediate : Bool,
                   queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
                   exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : PublishResult
-        @publish_in_count.add(1, :relaxed)
+        publish_in_count_add!
         if d = @deduper
           if d.duplicate?(msg)
-            @dedup_count.add(1, :relaxed)
+            dedup_count_add!
             return PublishResult::None
           end
           d.add(msg)
@@ -261,10 +261,10 @@ module LavinMQ
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
             q.delay(msg)
-            @publish_out_count.add(1, :relaxed)
+            publish_out_count_add!
             return PublishResult::Routed
           else
-            @unroutable_count.add(1, :relaxed)
+            unroutable_count_add!
             return PublishResult::None
           end
         end
@@ -286,7 +286,7 @@ module LavinMQ
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
-          @unroutable_count.add(1, :relaxed)
+          unroutable_count_add!
           return PublishResult::None
         end
 
@@ -303,8 +303,8 @@ module LavinMQ
             # message was a duplicate; nothing to do
           end
         end
-        @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero? && !rejected
+        publish_out_count_add!(count)
+        unroutable_count_add! if count.zero? && !rejected
 
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?

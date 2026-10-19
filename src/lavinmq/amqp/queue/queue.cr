@@ -908,7 +908,7 @@ module LavinMQ::AMQP
       return PublishResult::Closed if @closed
       if d = @deduper
         if d.duplicate?(msg)
-          @dedup_count.add(1, :relaxed)
+          dedup_count_atomic_add!
           return PublishResult::Dropped
         end
         d.add(msg)
@@ -920,9 +920,9 @@ module LavinMQ::AMQP
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
+        publish_count_add!
         drop_overflow(dlx_tasks)
       end
-      @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty
 
       # Record activity if message has TTL (needs expiration)
@@ -1141,8 +1141,8 @@ module LavinMQ::AMQP
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
-      @deliver_get_count.add(1, :relaxed)
-      no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
+      deliver_get_count_atomic_add!
+      no_ack ? get_no_ack_count_atomic_add! : get_count_atomic_add!
       get(no_ack) do |env|
         yield env
       end.tap { ensure_expire_fiber }
@@ -1158,10 +1158,10 @@ module LavinMQ::AMQP
       get(no_ack) do |env|
         yield env
         if env.redelivered
-          @redeliver_count.add(1, :relaxed)
+          redeliver_count_atomic_add!
         else
-          no_ack ? @deliver_no_ack_count.add(1, :relaxed) : @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
+          no_ack ? deliver_no_ack_count_atomic_add! : deliver_count_atomic_add!
+          deliver_get_count_atomic_add!
         end
       end
     end
@@ -1198,8 +1198,10 @@ module LavinMQ::AMQP
             yield env # deliver the message
             # requeuing of failed delivery is up to the consumer
           end
-          # Signal expire loop to recalculate wait time for next message
-          @message_ttl_change.try_send? nil
+          # Signal expire loop to recalculate wait time for next message. Only
+          # it receives, so without it the try_send? would fail anyway (after
+          # taking the channel's lock)
+          @message_ttl_change.try_send? nil if message_expire_fiber_active?
           return true
         end || break
       end
@@ -1245,13 +1247,17 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
       return if @closed
       @log.debug { "Acking #{sp}" }
-      @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
+      delete_message(sp) { ack_count_add! }
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
+      delete_message(sp) { }
+    end
+
+    # Yields under @msg_store_lock, for bookkeeping that is kept under it
+    protected def delete_message(sp : SegmentPosition, &) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1261,6 +1267,7 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
+        yield
         @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)
       end
@@ -1270,7 +1277,7 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @reject_count.add(1, :relaxed)
+      reject_count_atomic_add!
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
@@ -1288,7 +1295,7 @@ module LavinMQ::AMQP
     def requeue(sp : SegmentPosition)
       return if @deleted || @closed
       @log.debug { "Requeuing #{sp}" }
-      @reject_count.add(1, :relaxed)
+      reject_count_atomic_add!
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       redeliver_message(sp, route_to_retry: false)
@@ -1420,7 +1427,7 @@ module LavinMQ::AMQP
       # Signal expire loop to recalculate wait time for next message, and
       # restart it if it had stopped while the (now purged) head message had no TTL
       if delete_count > 0
-        @message_ttl_change.try_send? nil
+        @message_ttl_change.try_send? nil if message_expire_fiber_active?
         ensure_expire_fiber
       end
       delete_count += purge_delayed(max_count - delete_count)
