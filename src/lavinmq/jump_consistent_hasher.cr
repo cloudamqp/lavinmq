@@ -19,6 +19,13 @@ class JumpConsistentHasher(T) < Hasher(T)
     @buckets = Array(T).new
   end
 
+  protected def initialize(@entries : Array(TargetEntry(T)), @buckets : Array(T))
+  end
+
+  def copy : JumpConsistentHasher(T)
+    JumpConsistentHasher(T).new(@entries.dup, @buckets.dup)
+  end
+
   def add(key : String, weight : UInt32, target : T)
     @entries << TargetEntry(T).new(key, weight, target)
     rebuild_buckets

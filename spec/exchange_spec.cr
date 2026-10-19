@@ -318,3 +318,214 @@ describe LavinMQ::Exchange do
     end
   end
 end
+
+describe LavinMQ::AMQP::BindingSet do
+  it "adds and deletes bindings without changing earlier versions" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_queue("bs-a", false, false)
+      vhost.declare_queue("bs-b", false, false)
+      a = vhost.queue("bs-a")
+      b = vhost.queue("bs-b")
+      key = LavinMQ::AMQP::BindingKey.new("rk")
+      empty = LavinMQ::AMQP::BindingSet.empty
+      one = empty.add(a, key).should_not(be_nil)
+      two = one.add(b, key).should_not(be_nil)
+      one.add(a, key).should be_nil # already bound
+      two.delete(a, LavinMQ::AMQP::BindingKey.new("other")).should be(two)
+      after = two.delete(a, key)
+      [empty.size, one.size, two.size, after.size].should eq [0, 1, 2, 1]
+      dests = [] of LavinMQ::AMQP::Destination
+      after.each_destination { |d| dests << d }
+      dests.should eq [b]
+    end
+  end
+
+  it "switches between an array and a persistent map by size" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      max = LavinMQ::AMQP::BindingSet::ARRAY_MAX
+      queues = Array(LavinMQ::AMQP::Queue).new(max + 1) do |i|
+        vhost.declare_queue("bs-q#{i}", false, false)
+        vhost.queue("bs-q#{i}")
+      end
+      key = LavinMQ::AMQP::BindingKey.new("")
+      set = LavinMQ::AMQP::BindingSet.empty
+      queues.each { |q| set = set.add(q, key).should_not(be_nil) }
+      set.should be_a LavinMQ::AMQP::MapBindingSet
+      set.size.should eq max + 1
+      set.add(queues.first, key).should be_nil
+      # Shrinks back to an array at half the limit
+      queues[0, max // 2 + 1].each { |q| set = set.delete(q, key) }
+      set.should be_a LavinMQ::AMQP::ArrayBindingSet
+      seen = Set(LavinMQ::AMQP::Destination).new
+      set.each_destination { |d| seen << d }
+      seen.should eq queues[max // 2 + 1..].to_set
+    end
+  end
+end
+
+# Whether the exchange's array of routes is built from its current bindings
+def routes_rebuilt?(exchange) : Bool
+  case exchange
+  when LavinMQ::AMQP::TopicExchange
+    exchange.@routes.get.version == exchange.@bindings_version.get
+  when LavinMQ::AMQP::HeadersExchange
+    exchange.@routes.get.version == exchange.@bindings_version.get
+  else
+    raise "not a topic or headers exchange"
+  end
+end
+
+# Topic and headers exchanges route through an array of their bindings, which
+# a fiber rebuilds from the map of them after changes; until then publishes
+# scan the map. Binds and unbinds of different bindings on several threads
+# must leave both the same.
+{"topic", "headers"}.each do |type|
+  it "rebuilds the #{type} routes after binds, without a publish" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("rebuild-#{type}", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "rebuild-#{type}" }
+      vhost.declare_queue("rebuild-#{type}", false, false)
+      queue = vhost.queue("rebuild-#{type}")
+      100.times do |i|
+        key = type == "topic" ? "k#{i}.*" : ""
+        args = type == "topic" ? nil : LavinMQ::AMQP::Table.new({"k" => i.to_i64})
+        exchange.bind(queue, key, args).should be_true
+      end
+      wait_for { routes_rebuilt?(exchange) }
+      101.times do |i|
+        queues = Set(LavinMQ::AMQP::Queue).new
+        exchanges = Set(LavinMQ::AMQP::Exchange).new
+        exchange.find_queues("k#{i}.x", LavinMQ::AMQP::Table.new({"k" => i.to_i64}), queues, exchanges)
+        queues.includes?(queue).should eq i < 100
+      end
+    end
+  end
+
+  it "routes by the bindings as they are right after each #{type} bind and unbind" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("step-#{type}", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "step-#{type}" }
+      vhost.declare_queue("step-#{type}", false, false)
+      queue = vhost.queue("step-#{type}")
+      key = ->(i : Int32) { type == "topic" ? "k#{i}.*" : "" }
+      args = ->(i : Int32) { type == "topic" ? nil : LavinMQ::AMQP::Table.new({"k" => i.to_i64}) }
+      routes = ->(i : Int32) do
+        queues = Set(LavinMQ::AMQP::Queue).new
+        exchanges = Set(LavinMQ::AMQP::Exchange).new
+        exchange.find_queues("k#{i}.x", LavinMQ::AMQP::Table.new({"k" => i.to_i64}), queues, exchanges)
+        queues.includes?(queue)
+      end
+      20.times do |i|
+        routes.call(i).should be_false
+        exchange.bind(queue, key.call(i), args.call(i)).should be_true
+        routes.call(i).should be_true
+        if i > 0
+          exchange.unbind(queue, key.call(i - 1), args.call(i - 1)).should be_true
+          routes.call(i - 1).should be_false
+        end
+      end
+      exchange.binding_count.should eq 1
+    end
+  end
+
+  it "keeps #{type} routes in step with concurrent binds and unbinds", tags: "slow" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.declare_exchange("concurrent-#{type}-keys", type, false, false)
+      exchange = vhost.exchanges.find! { |e| e.name == "concurrent-#{type}-keys" }
+      vhost.declare_queue("#{type}-keys", false, false)
+      queue = vhost.queue("#{type}-keys")
+      key = ->(t : Int32, i : Int32) { type == "topic" ? "t#{t}.k#{i}.*" : "" }
+      args = ->(t : Int32, i : Int32) do
+        type == "topic" ? nil : LavinMQ::AMQP::Table.new({"x-match" => "all", "t" => t.to_i64, "k" => i.to_i64})
+      end
+      ctx = Fiber::ExecutionContext::Parallel.new("#{type}-keys", 4)
+      wg = WaitGroup.new(8)
+      8.times do |t|
+        ctx.spawn do
+          50.times do |i|
+            exchange.bind(queue, key.call(t, i), args.call(t, i))
+            exchange.unbind(queue, key.call(t, i), args.call(t, i)) if i.odd?
+          end
+        ensure
+          wg.done
+        end
+      end
+      wg.wait
+      exchange.binding_count.should eq 8 * 25
+      check_routes = -> do
+        8.times do |t|
+          50.times do |i|
+            queues = Set(LavinMQ::AMQP::Queue).new
+            exchanges = Set(LavinMQ::AMQP::Exchange).new
+            headers = LavinMQ::AMQP::Table.new({"t" => t.to_i64, "k" => i.to_i64})
+            exchange.find_queues("t#{t}.k#{i}.x", headers, queues, exchanges)
+            queues.includes?(queue).should eq i.even?
+          end
+        end
+      end
+      check_routes.call
+      # A rebuild racing the last changes must not leave the routes stale
+      wait_for { routes_rebuilt?(exchange) }
+      check_routes.call
+    end
+  end
+end
+
+describe "Exchange bindings under concurrency" do
+  # Publishers route on several threads while binds and unbinds replace the
+  # binding sets; the routing reads must never see a half-changed set
+  {"direct", "topic", "fanout", "headers"}.each do |type|
+    it "routes #{type} exchanges while bindings change", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        x = "concurrent-#{type}"
+        vhost.declare_exchange(x, type, false, false)
+        args = type == "headers" ? LavinMQ::AMQP::Table.new({"x-match" => "all", "k" => "v"}) : LavinMQ::AMQP::Table.new
+        headers = LavinMQ::AMQP::Table.new({"k" => "v"})
+        rk = type == "topic" ? "stable.#" : "stable"
+        vhost.declare_queue("stable", false, false)
+        vhost.bind_queue("stable", x, rk, args)
+        # Enough to cross BindingSet::ARRAY_MAX back and forth
+        churn = Array(String).new(100) { |i| "churn-#{i}" }
+        churn.each { |q| vhost.declare_queue(q, false, false) }
+        exchange = vhost.exchanges.find! { |e| e.name == x }
+        stable = vhost.queue("stable")
+
+        stop = Atomic(Bool).new(false)
+        misses = Atomic(Int32).new(0)
+        ctx = Fiber::ExecutionContext::Parallel.new("bindings-#{type}", 4)
+        wg = WaitGroup.new(8)
+        8.times do
+          ctx.spawn do
+            queues = Set(LavinMQ::AMQP::Queue).new
+            exchanges = Set(LavinMQ::AMQP::Exchange).new
+            i = 0
+            until stop.get(:relaxed)
+              queues.clear
+              exchanges.clear
+              exchange.find_queues("stable.x", headers, queues, exchanges) if type == "topic"
+              exchange.find_queues("stable", headers, queues, exchanges) unless type == "topic"
+              misses.add(1) unless queues.includes?(stable)
+              Fiber.yield if (i += 1) % 64 == 0
+            end
+          ensure
+            wg.done
+          end
+        end
+        20.times do
+          churn.each { |q| vhost.bind_queue(q, x, rk, args) }
+          churn.each { |q| vhost.unbind_queue(q, x, rk, args) }
+        end
+        stop.set(true)
+        wg.wait
+        misses.get.should eq 0
+        exchange.binding_count.should eq 1
+      end
+    end
+  end
+end

@@ -14,12 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Exchange, queue and MQTT session lookups in a vhost read a persistent (copy-on-write) map without locking, so they stay safe while declares and deletes run on other threads [#2374](https://github.com/cloudamqp/lavinmq/pull/2374)
+- An exchange uses its alternate exchange only when none of its own bindings match the routing key or CC/BCC keys, as in RabbitMQ. Before, the alternate exchange was used only if no queue had been found anywhere in the routing so far, so the outcome depended on binding order, and an exchange-to-exchange binding whose exchange routed nowhere didn't count as a match [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- Publishers route through exchange bindings without locking, which keeps routing safe while bindings change on other threads [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 
 ### Fixed
 
 - An MQTT client that reconnected under the same client id while its previous connection was still closing could have its session detached again by that connection's cleanup, and was then disconnected on its next PUBACK [#2373](https://github.com/cloudamqp/lavinmq/pull/2373)
 - A consumer that caught up with the publisher of its queue issued `madvise(MADV_DONTNEED)` over the whole segment being written on every take, dropping the pages the publisher writes next. With consumers on other threads that was four syscalls per message and halved the throughput of a queue with many consumers [#2486](https://github.com/cloudamqp/lavinmq/pull/2486)
 - The publish confirm loop's thread is scheduled as a batch task on Linux, so waking it no longer preempts the worker that signalled it. When the loop shared a CPU with a worker thread it ran at once and spun on the channel lock the preempted worker still held, and confirms ran at 65k msg/s; they now run at 587k msg/s with the broker on one core [#2487](https://github.com/cloudamqp/lavinmq/pull/2487)
+- A consistent-hash exchange declared with `x-algorithm` stopped routing to all its bound queues when a policy was applied to it [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
+- A binding with arguments could become impossible to unbind, because a binding key compared unequal to an identical one once its hash had been computed [#2376](https://github.com/cloudamqp/lavinmq/pull/2376)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
