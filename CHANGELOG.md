@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `mqtt_messages_published_total` with a `qos` label (`0` or `1`)
+- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`)
 
 ### Changed
 
