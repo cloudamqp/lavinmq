@@ -730,6 +730,11 @@ describe LavinMQ::Federation::Upstream do
         # The propagation must stop by hop count, not run forever
         wait_for { vb.exchange("fe").bindings_details.size == 2 }
         wait_for { va.exchange("fe").bindings_details.size == 2 }
+        # Give a wrongly forwarded extra hop time to arrive, then check the
+        # counts stayed put
+        sleep 100.milliseconds
+        vb.exchange("fe").bindings_details.size.should eq 2
+        va.exchange("fe").bindings_details.size.should eq 2
       ensure
         up_a.try &.close
         up_b.try &.close
@@ -1187,7 +1192,10 @@ describe LavinMQ::Federation::Upstream do
               last_bound_from["vhost"].should eq "v10"
             end
 
-            # v5's max_hops of 1 stops the binding at v4; v1 to v3 stay empty
+            # v5's max_hops of 1 stops the binding at v4; v1 to v3 stay empty.
+            # Forwarding is asynchronous, so give a wrongly forwarded extra
+            # hop time to arrive before checking.
+            sleep 100.milliseconds
             1.to(3) do |i|
               fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 0
@@ -1232,7 +1240,10 @@ describe LavinMQ::Federation::Upstream do
               last_bound_from["vhost"].should eq "v10"
             end
 
-            # The hops value in the binding stops it at v7; v1 to v6 stay empty
+            # The hops value in the binding stops it at v7; v1 to v6 stay
+            # empty. Forwarding is asynchronous, so give a wrongly forwarded
+            # extra hop time to arrive before checking.
+            sleep 100.milliseconds
             1.to(6) do |i|
               fe = s.vhosts["v#{i}"].exchange("fe")
               fe.bindings_details.size.should eq 0
