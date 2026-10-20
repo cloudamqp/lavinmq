@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../mqtt/spec_helper"
 require "string_scanner"
 
 describe LavinMQ::HTTP::PrometheusController do
@@ -723,5 +724,54 @@ class PrometheusSpecHelper
       s.scan(/\s/)
     end
     attrs
+  end
+end
+
+# `extend MqttHelpers` gives with_server, with_client_io, connect and publish
+module PrometheusMqttSpecs
+  extend MqttHelpers
+
+  def self.metric_value(http, key, attrs = {} of String => String) : Float64
+    PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+      .find! { |m| m[:key] == key && m[:attrs] == attrs }[:value]
+  end
+
+  describe "LavinMQ::HTTP::PrometheusController MQTT metrics" do
+    it "counts open MQTT connections and leaves out AMQP ones" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+          amqp = AMQP::Client.new(port: port, name: "prometheus-spec").connect
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            metric_value(http, "lavinmq_connections").should eq 2
+            metric_value(http, "lavinmq_mqtt_connections").should eq 1
+            disconnect(io)
+          end
+          should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
+          amqp.close
+        end
+      end
+    end
+
+    it "counts MQTT publishes by QoS" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          key = "lavinmq_mqtt_messages_published_total"
+          # The counters are process-wide, so compare with the values before publishing
+          qos0_before = metric_value(http, key, {"qos" => "0"})
+          qos1_before = metric_value(http, key, {"qos" => "1"})
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            2.times { publish(io, topic: "a/b", qos: 0u8) }
+            # Waits for the PUBACK, so the QoS 0 publishes before it are counted too
+            publish(io, topic: "a/b", qos: 1u8)
+            disconnect(io)
+          end
+          metric_value(http, key, {"qos" => "0"}).should eq qos0_before + 2
+          metric_value(http, key, {"qos" => "1"}).should eq qos1_before + 1
+        end
+      end
+    end
   end
 end

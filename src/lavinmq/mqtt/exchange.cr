@@ -11,6 +11,21 @@ module LavinMQ
     class Exchange < AMQP::Exchange
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
+      # QoS levels counted in lavinmq_mqtt_messages_published_total
+      PUBLISHED_QOS_LEVELS = {0u8, 1u8}
+
+      # Process-wide so the counters stay monotonic when a vhost is deleted
+      @@published_qos0_count = Atomic(UInt64).new(0)
+      @@published_qos1_count = Atomic(UInt64).new(0)
+
+      def self.published_count(qos : UInt8) : UInt64
+        case qos
+        when 0 then @@published_qos0_count.get(:relaxed)
+        when 1 then @@published_qos1_count.get(:relaxed)
+        else        0_u64
+        end
+      end
+
       def type : String
         "mqtt"
       end
@@ -23,6 +38,7 @@ module LavinMQ
       def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
         ctx.reset
         @publish_in_count.add(1, :relaxed)
+        count_published(packet.qos)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
 
@@ -43,6 +59,13 @@ module LavinMQ
         @unroutable_count.add(1, :relaxed) if count.zero?
         @publish_out_count.add(count, :relaxed)
         count
+      end
+
+      private def count_published(qos : UInt8)
+        case qos
+        when 0 then @@published_qos0_count.add(1, :relaxed)
+        when 1 then @@published_qos1_count.add(1, :relaxed)
+        end
       end
 
       # The tree is shared with x-mqtt-topic exchanges, so only MQTT::Session

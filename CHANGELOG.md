@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `mqtt_messages_published_total` with a `qos` label (`0` or `1`)
+
+### Changed
+
+- MQTT `Read Loop error` log lines include the exception message, e.g. the type of an unexpected packet
+
 ### Fixed
 
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
