@@ -12,10 +12,13 @@ module LavinMQ
         end
       end
 
-      # Force release of lease (and leadership)
+      # Force release of lease (and leadership). The lease is revoked before
+      # anything waiting on it wakes, so writes fenced by the lease are already
+      # refused by then.
       def release
-        @expired.close
         @etcd.lease_revoke(@id)
+      ensure
+        @expired.close
       end
 
       # Wait until lease expires (if leader, leadership is lost)
