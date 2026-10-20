@@ -12,16 +12,18 @@ module LavinMQ
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
       # QoS levels counted in lavinmq_mqtt_messages_published_total
-      PUBLISHED_QOS_LEVELS = {0u8, 1u8}
+      PUBLISHED_QOS_LEVELS = {0u8, 1u8, 2u8}
 
       # Process-wide so the counters stay monotonic when a vhost is deleted
       @@published_qos0_count = Atomic(UInt64).new(0)
       @@published_qos1_count = Atomic(UInt64).new(0)
+      @@published_qos2_count = Atomic(UInt64).new(0)
 
       def self.published_count(qos : UInt8) : UInt64
         case qos
         when 0 then @@published_qos0_count.get(:relaxed)
         when 1 then @@published_qos1_count.get(:relaxed)
+        when 2 then @@published_qos2_count.get(:relaxed)
         else        0_u64
         end
       end
@@ -65,6 +67,7 @@ module LavinMQ
         case qos
         when 0 then @@published_qos0_count.add(1, :relaxed)
         when 1 then @@published_qos1_count.add(1, :relaxed)
+        when 2 then @@published_qos2_count.add(1, :relaxed)
         end
       end
 

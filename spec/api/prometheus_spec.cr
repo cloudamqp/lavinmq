@@ -761,15 +761,19 @@ module PrometheusMqttSpecs
           # The counters are process-wide, so compare with the values before publishing
           qos0_before = metric_value(http, key, {"qos" => "0"})
           qos1_before = metric_value(http, key, {"qos" => "1"})
+          qos2_before = metric_value(http, key, {"qos" => "2"})
           with_client_io(s) do |io|
             connect(io, client_id: "metrics")
             2.times { publish(io, topic: "a/b", qos: 0u8) }
-            # Waits for the PUBACK, so the QoS 0 publishes before it are counted too
+            # QoS 2 is answered with a PUBACK like QoS 1 (#2314)
+            publish(io, topic: "a/b", qos: 2u8)
+            # Waits for the PUBACK, so the publishes before it are counted too
             publish(io, topic: "a/b", qos: 1u8)
             disconnect(io)
           end
           metric_value(http, key, {"qos" => "0"}).should eq qos0_before + 2
           metric_value(http, key, {"qos" => "1"}).should eq qos1_before + 1
+          metric_value(http, key, {"qos" => "2"}).should eq qos2_before + 1
         end
       end
     end
