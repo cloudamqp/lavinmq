@@ -38,17 +38,13 @@ module LavinMQ
           when "local"
             local(users, current).try { |a| authenticators << a }
           when "oauth"
-            warn_unused_oauth_providers(config)
             if existing = current.find(&.is_a?(OAuthAuthenticator))
               existing.reload(config)
               authenticators << existing
-            elsif provider = config.oauth_provider
-              jwks_fetcher = Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
-              verifier = Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
-              verifier.fetcher.start_refresh_loop
-              authenticators << OAuthAuthenticator.new(verifier)
-            else
+            elsif (providers = config.oauth_providers).empty?
               Log.error { "oauth authenticator added but missing setting `issuer_url` cannot start" }
+            else
+              authenticators << OAuthAuthenticator.create(providers)
             end
           else
             raise "Unsupported authentication backend: #{backend}"
@@ -59,17 +55,6 @@ module LavinMQ
           local(users, current).try { |a| authenticators << a }
         end
         authenticators
-      end
-
-      # Tokens are only verified against the first provider until they're
-      # routed to a provider by their issuer
-      private def self.warn_unused_oauth_providers(config : Config) : Nil
-        providers = config.oauth_providers
-        return unless providers.size > 1
-        Log.warn do
-          "OAuth authentication only uses provider '#{providers.first.name}', " \
-          "ignoring #{providers[1..].join(", ", &.name)}"
-        end
       end
 
       private def self.local(users : UserStore?, current : Array(Authenticator)) : Authenticator?

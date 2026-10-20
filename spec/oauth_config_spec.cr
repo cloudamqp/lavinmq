@@ -53,9 +53,9 @@ describe LavinMQ::Config do
     end
   end
 
-  describe "#oauth_provider" do
-    it "is nil when no issuer is configured" do
-      LavinMQ::Config.new.oauth_provider.should be_nil
+  describe "#oauth_providers" do
+    it "is empty when no issuer is configured" do
+      LavinMQ::Config.new.oauth_providers.should be_empty
     end
 
     it "carries the [oauth] settings" do
@@ -75,7 +75,7 @@ describe LavinMQ::Config do
 
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       provider.issuer_url.should eq(URI.parse("https://auth.example.com"))
       provider.resource_server_id.should eq("my-service")
       provider.preferred_username_claims.should eq(["email"])
@@ -128,8 +128,6 @@ describe LavinMQ::Config do
         issuer = https://keycloak.example.com/realms/prod
         CONFIG
       config.oauth_providers.map(&.name).should eq ["default", "entra"]
-      config.oauth_provider.should_not be_nil
-      config.oauth_provider.try(&.name).should eq "default"
     end
 
     it "doesn't share provider objects between calls" do

@@ -58,18 +58,33 @@ module LavinMQ
           @state.fetcher
         end
 
+        # The issuer this verifier accepts tokens from, without a trailing "/"
+        def issuer : String
+          @state.expected_issuer
+        end
+
+        # The issuer a token claims, read without verifying the token, to pick
+        # the verifier for it. The picked verifier checks the issuer again after
+        # verifying the signature, so a forged claim only selects which
+        # provider's keys the token must be signed with.
+        def self.unverified_issuer(token : String) : String
+          raise JWT::PasswordFormatError.new unless token.starts_with?("ey")
+          parts = token.split('.', 4)
+          raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
+          payload = JWT::Payload.from_json(JWT::RS256Parser.base64url_decode(parts[1]))
+          issuer = payload.iss || raise JWT::DecodeError.new("Missing or invalid iss claim in token")
+          issuer.chomp("/")
+        rescue ex : JSON::ParseException | Base64::Error
+          raise JWT::DecodeError.new("Invalid JWT payload: #{ex.message}")
+        end
+
         # Applies reloaded provider settings. The issuer is bound to the
         # fetcher, so it's replaced when the issuer changes. A changed JWKS cache
         # TTL is applied to the current fetcher, keeping its keys, and takes
         # effect at the next refresh. The verifier itself is kept, as OAuthUsers
-        # hold it for UpdateSecret. Without a provider (the issuer was removed
-        # from the config) the current settings are kept.
-        def reload(provider : OAuthProviderConfig?) : Nil
+        # hold it for UpdateSecret.
+        def reload(provider : OAuthProviderConfig) : Nil
           state = @state
-          unless provider
-            Log.warn { "oauth issuer removed from the config, keeping the current OAuth settings" }
-            return
-          end
           if provider.issuer_url.to_s.chomp("/") == state.fetcher.issuer_url
             state.fetcher.default_cache_ttl = provider.jwks_cache_ttl
             @state = State.new(provider, state.fetcher)

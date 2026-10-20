@@ -34,22 +34,22 @@ private def authenticator_for_idp(addr) : {LavinMQ::Auth::OAuthAuthenticator, La
   config = create_test_config
   config.oauth_issuer_url = URI.parse("http://#{addr}")
   fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(URI.parse("http://#{addr}"), 1.hour)
-  provider = config.oauth_provider.should_not be_nil
+  provider = config.oauth_providers.first
   verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, fetcher)
   {LavinMQ::Auth::OAuthAuthenticator.new(verifier), fetcher}
 end
 
 # Passes prevalidation (RS256, three parts, future exp) but has a bogus signature.
-private def well_formed_jwt : String
+private def well_formed_jwt(issuer : String) : String
   header = Base64.urlsafe_encode(%({"alg":"RS256","typ":"JWT"}), padding: false)
-  payload = Base64.urlsafe_encode(%({"sub":"x","exp":9999999999}), padding: false)
+  payload = Base64.urlsafe_encode({sub: "x", exp: 9999999999, iss: issuer}.to_json, padding: false)
   "#{header}.#{payload}.c2lnbmF0dXJl"
 end
 
 def create_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_test_config
   # public_keys = LavinMQ::Auth::PublicKeys.new
-  provider = config.oauth_provider.should_not be_nil
+  provider = config.oauth_providers.first
   jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
   verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
   LavinMQ::Auth::OAuthAuthenticator.new(verifier)
@@ -62,6 +62,47 @@ def create_test_config
   config
 end
 
+# Skips signature verification and names the verifier's issuer as the user,
+# so specs can see which provider a token was routed to.
+private class IssuerEchoVerifier < LavinMQ::Auth::JWT::TokenVerifier
+  getter parsed = 0
+
+  def initialize(issuer : String)
+    provider = LavinMQ::OAuthProviderConfig.new(URI.parse(issuer), name: issuer)
+    super(provider, LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, 1.hour))
+  end
+
+  def parse_token(token : String) : LavinMQ::Auth::JWT::TokenClaim
+    @parsed += 1
+    LavinMQ::Auth::JWT::TokenClaim.new(issuer, [] of LavinMQ::Tag,
+      {} of String => LavinMQ::Auth::BaseUser::Permissions, RoughTime.utc + 1.hour)
+  end
+end
+
+private def multi_provider_authenticator(*issuers : String) : {LavinMQ::Auth::OAuthAuthenticator, Array(IssuerEchoVerifier)}
+  verifiers = issuers.map { |issuer| IssuerEchoVerifier.new(issuer) }.to_a
+  hash = verifiers.to_h { |v| {v.issuer, v.as(LavinMQ::Auth::JWT::TokenVerifier)} }
+  {LavinMQ::Auth::OAuthAuthenticator.new(hash), verifiers}
+end
+
+private def oauth_context(issuer : String?) : LavinMQ::Auth::Context
+  claims = {"sub" => "x", "exp" => 9999999999}
+  claims["iss"] = issuer if issuer
+  header = Base64.urlsafe_encode(%({"alg":"RS256","typ":"JWT"}), padding: false)
+  payload = Base64.urlsafe_encode(claims.to_json, padding: false)
+  LavinMQ::Auth::Context.new("", "#{header}.#{payload}.c2lnbmF0dXJl".to_slice, loopback: true)
+end
+
+private def parse_oauth_test_config(ini : String) : LavinMQ::Config
+  config_file = File.tempfile("lavinmq-config", ".ini", &.print(ini))
+  config = LavinMQ::Config.new(IO::Memory.new)
+  config.parse(["-c", config_file.path])
+  config
+ensure
+  config_file.try &.delete
+  Log.setup(:fatal)
+end
+
 describe LavinMQ::Auth::OAuthAuthenticator do
   # Note: These tests focus on the prevalidation checks and error handling paths in the
   # OAuth authenticator that can be tested without a real JWKS endpoint. Full JWT validation
@@ -72,7 +113,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     it "fetches keys on first authentication when the refresh loop hasn't populated them" do
       with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
-        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt("http://#{addr}").to_slice, loopback: true)
         authenticator.authenticate(ctx)
         fetcher.public_keys.empty?.should be_false
       end
@@ -81,7 +122,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     it "rate-limits fetch attempts when the provider is unreachable" do
       with_stub_idp_server(healthy: false) do |addr, request_count|
         authenticator, _ = authenticator_for_idp(addr)
-        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+        ctx = LavinMQ::Auth::Context.new("", well_formed_jwt("http://#{addr}").to_slice, loopback: true)
         2.times { authenticator.authenticate(ctx) }
         request_count.call.should eq 1
       end
@@ -111,7 +152,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
           config = create_test_config
           config.oauth_issuer_url = URI.parse("http://#{addr_b}")
           authenticator.reload(config)
-          ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+          ctx = LavinMQ::Auth::Context.new("", well_formed_jwt("http://#{addr_b}").to_slice, loopback: true)
           authenticator.authenticate(ctx)
           request_count_b.call.should be > 0
           authenticator.token_verifier.fetcher.should_not be old_fetcher
@@ -146,6 +187,70 @@ describe LavinMQ::Auth::OAuthAuthenticator do
         fetcher.default_cache_ttl.should eq 5.minutes
         fetcher.public_keys.empty?.should be_false
       end
+    end
+  end
+
+  describe "with several providers" do
+    it "verifies a token with the provider matching its issuer" do
+      authenticator, verifiers = multi_provider_authenticator("https://a.example.com", "https://b.example.com")
+      user = authenticator.authenticate(oauth_context("https://b.example.com/"))
+      user = user.should be_a(LavinMQ::Auth::OAuthUser)
+      user.name.should eq "https://b.example.com"
+      verifiers.map(&.parsed).should eq [0, 1]
+      # Token refreshes go to the same provider
+      user.@verifier.should be verifiers[1]
+    end
+
+    it "rejects a token from an issuer without a provider" do
+      authenticator, verifiers = multi_provider_authenticator("https://a.example.com", "https://b.example.com")
+      authenticator.authenticate(oauth_context("https://evil.example.com")).should be_nil
+      verifiers.map(&.parsed).should eq [0, 0]
+    end
+
+    it "rejects a token without an issuer" do
+      authenticator, verifiers = multi_provider_authenticator("https://a.example.com")
+      authenticator.authenticate(oauth_context(nil)).should be_nil
+      verifiers.first.parsed.should eq 0
+    end
+
+    it "doesn't fetch keys for a token from an unknown issuer" do
+      with_stub_idp_server do |addr, request_count|
+        authenticator, _ = authenticator_for_idp(addr)
+        authenticator.authenticate(oauth_context("https://evil.example.com"))
+        request_count.call.should eq 0
+      end
+    end
+  end
+
+  describe "#reload with several providers" do
+    it "reloads kept providers, starts new ones and disables removed ones" do
+      # Unreachable issuers: the refresh loops started for them fail fast
+      a = "http://127.0.0.1:1/a"
+      b = "http://127.0.0.1:1/b"
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.create(
+        [LavinMQ::OAuthProviderConfig.new(URI.parse(a), name: "a")])
+      verifier_a = authenticator.token_verifier
+      begin
+        authenticator.reload(parse_oauth_test_config("[oauth.a]\nissuer = #{a}\n[oauth.b]\nissuer = #{b}\n"))
+        authenticator.verifiers.size.should eq 2
+        authenticator.verifiers[0].should be verifier_a
+        verifier_b = authenticator.verifiers[1]
+        verifier_b.issuer.should eq b
+
+        authenticator.reload(parse_oauth_test_config("[oauth.b]\nissuer = #{b}\n"))
+        authenticator.verifiers.should eq [verifier_b]
+        expect_raises(LavinMQ::Auth::JWT::VerificationError, /disabled/) do
+          verifier_a.verify_token(String.new(oauth_context(a).password))
+        end
+      ensure
+        authenticator.cleanup
+      end
+    end
+
+    it "keeps the current providers when the config has none" do
+      authenticator, verifiers = multi_provider_authenticator("https://a.example.com", "https://b.example.com")
+      authenticator.reload(LavinMQ::Config.new)
+      authenticator.verifiers.should eq verifiers
     end
   end
 
@@ -258,7 +363,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
       config.oauth_preferred_username_claims = ["preferred_username"]
 
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
@@ -270,7 +375,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
       config.oauth_preferred_username_claims = ["email", "preferred_username", "sub"]
 
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
@@ -283,7 +388,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_verify_aud = false
 
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
@@ -296,7 +401,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_scope_prefix = "mq."
 
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
@@ -309,7 +414,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_resource_server_id = "lavinmq-api"
 
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)

@@ -83,6 +83,29 @@ Changes to these options take effect on a configuration reload (`SIGHUP`). When 
 
 Adding or removing `oauth` in `auth_backends` also takes effect on reload. When OAuth is disabled, new OAuth logins are refused, including management UI SSO. Connections already authenticated with OAuth stay open until their token expires, but can no longer refresh it.
 
+### Multiple Providers
+
+To accept tokens from more than one identity provider, configure each in an `[oauth.<name>]` section. The name may contain letters, digits, `-` and `_`. Each section takes the token validation options above: `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience` and `jwks_cache_ttl`.
+
+```ini
+[main]
+auth_backends = local,oauth
+
+[oauth.keycloak]
+issuer = https://keycloak.example.com/realms/prod
+resource_server_id = lavinmq
+
+[oauth.entra]
+issuer = https://login.microsoftonline.com/<tenant-id>/v2.0
+audience = api://lavinmq
+additional_scopes_keys = roles
+scope_prefix = lavinmq.
+```
+
+A token is validated by the provider whose `issuer` matches its `iss` claim, using only that provider's keys and settings; a token from any other issuer is rejected. Every provider needs its own issuer. An `[oauth]` section with an `issuer` is the provider named `default` and can be combined with named sections. Management UI SSO uses the `[oauth]` provider only.
+
+On a configuration reload, providers are matched by name: changed settings are applied, new sections start fetching keys, and connections authenticated by a removed provider can no longer refresh their token.
+
 ### Management UI SSO Login
 
 When `issuer`, `client_id`, and `mgmt_base_url` are all set (and `oauth` is included in `auth_backends`), the management UI login page shows a "Sign in with SSO" button. Clicking it runs an OpenID Connect Authorization Code flow with PKCE against the issuer; on success the user is logged into the management UI with the returned token, which is validated the same way as tokens used for AMQP clients (see below).

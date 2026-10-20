@@ -74,12 +74,6 @@ module LavinMQ
       providers
     end
 
-    # The provider OAuth authentication uses until tokens are routed to a
-    # provider by their issuer: the first of #oauth_providers.
-    def oauth_provider : OAuthProviderConfig?
-      oauth_providers.first?
-    end
-
     private def default_oauth_provider : OAuthProviderConfig?
       return unless issuer_url = @oauth_issuer_url
       OAuthProviderConfig.new(
