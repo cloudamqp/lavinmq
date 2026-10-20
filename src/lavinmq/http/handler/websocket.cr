@@ -212,8 +212,11 @@ module LavinMQ
         raise IO::Error.new("Closed stream") unless ok
         begin
           @ws.send(payload, opcode)
-        ensure
           @write_state.compare_and_set(WriteState::Writing, WriteState::Idle)
+        rescue ex
+          # Part of the frame may have been written, so nothing can follow it
+          @write_state.set(WriteState::Closed)
+          raise ex
         end
       end
     end

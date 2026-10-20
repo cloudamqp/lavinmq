@@ -210,6 +210,15 @@ describe "Websocket support" do
       end
     end
 
+    it "writes nothing more after a frame that failed mid-write" do
+      with_websocket_io do |io, _, _, socket|
+        socket.write_timeout = 50.milliseconds
+        # The peer doesn't read, so the frame is only partly written
+        expect_raises(IO::TimeoutError) { io.write(Bytes.new(8 * 1024 * 1024)) }
+        expect_raises(IO::Error, "Closed stream") { io.write(Bytes.new(8 * 1024 * 1024)) }
+      end
+    end
+
     it "doesn't raise when the connection is gone before the close frame is sent" do
       with_websocket_io do |io, _, _, socket|
         socket.shutdown_read_write
