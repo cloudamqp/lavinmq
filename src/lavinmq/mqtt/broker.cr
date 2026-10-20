@@ -104,13 +104,12 @@ module LavinMQ
       # or a queue. The client still gets its PUBACK, as for a topic denial:
       # MQTT 3.1.1 can only ack a PUBLISH or close the connection [MQTT-3.3.5-2],
       # and a closed connection makes the client resend the same publish.
-      def publish(packet : Protocol::Publish, ctx : PublishContext)
-        if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
-          Log.warn { "Dropping publish in vhost '#{@vhost.name}': topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
-          return
-        end
+      # Returns false for a dropped publish, which the client logs.
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
+        return false if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
         @retain_store.retain(packet) if packet.retain?
         @exchange.publish(packet, ctx)
+        true
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)

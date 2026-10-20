@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 module MqttSpecs
   extend MqttHelpers
@@ -33,6 +34,20 @@ module MqttSpecs
           pub.topic.should eq "a/b"
           puback(sub, pub.packet_id)
           server.vhosts["/"].session("mqtt.sub").closed?.should be_false
+        end
+      end
+    end
+
+    it "warns once per connection about publishes with a topic longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          Log.capture("lmq.mqtt.client", :warn) do |logs|
+            2.times { publish(io, topic: "a/#{"x" * 300}", qos: 1u8).should be_a(MQTT::Protocol::PubAck) }
+            logs.check(:warn, /Dropped publish: topic is 302 bytes/)
+            logs.empty
+          end
+          disconnect(io)
         end
       end
     end
