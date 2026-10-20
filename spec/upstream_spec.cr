@@ -866,9 +866,12 @@ describe LavinMQ::Federation::Upstream do
             queues << downstream_q
           end
 
-          wait_for(timeout: 10.milliseconds) { upstream_ex.bindings_details.size == queues.size }
+          # Binds are forwarded without waiting for the upstream's reply, so
+          # a client bind returns before the forward lands; use the default
+          # wait_for timeout
+          wait_for { upstream_ex.bindings_details.size == queues.size }
           queues.each &.delete
-          wait_for(timeout: 10.milliseconds) { upstream_ex.bindings_details.empty? }
+          wait_for { upstream_ex.bindings_details.empty? }
         end
       end
     end
