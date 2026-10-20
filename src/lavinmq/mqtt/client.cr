@@ -139,7 +139,7 @@ module LavinMQ
         @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
         publish_will
       rescue ex
-        @log.error(exception: ex) { "Read Loop error" }
+        @log.error(exception: ex) { "Read Loop error: #{ex.message}" }
         publish_will
       ensure
         case user = @user
