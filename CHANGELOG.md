@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- With `tcp_proxy_protocol` enabled, the AMQPS and MQTTS listeners read a PROXY header from trusted sources before the TLS handshake, so a load balancer that passes TLS through can report the client's address. A follower forwards a trusted load balancer's PROXY header to the leader instead of its own
+
 ### Fixed
+
+- PROXY protocol v2 headers are parsed as the spec says. TLVs other than SSL, e.g. AUTHORITY, UNIQUE_ID, NOOP or an AWS VPC endpoint ID, and unknown SSL sub-TLVs are skipped, and `LOCAL` headers, e.g. from health checks, are accepted with the connection's own address. Previously these closed the connection, as did an SSL TLV for a client with a certificate. The SSL TLV's client flags are now read, so a client that didn't use TLS is no longer reported as using it [#1646](https://github.com/cloudamqp/lavinmq/issues/1646)
 
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
 - Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)

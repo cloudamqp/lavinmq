@@ -12,13 +12,15 @@ module LavinMQ
 
     class InvalidFamily < Error; end
 
-    class UnsupportedTLVType < Error; end
+    class MalformedHeader < Error; end
 
     # Bound how long a pre-auth connection may keep the accept fiber (and its FD)
     # parked while we wait for the first bytes. Without this the initial peek
     # blocks forever on a peer that completes the handshake but sends nothing.
     HANDSHAKE_TIMEOUT = 15.seconds
 
+    # Returns nil if there's no PROXY header, or if it's a V2 LOCAL header,
+    # in both cases the connection's own addresses apply
     def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
       io.read_timeout = timeout
       # A single peek can return fewer bytes than the full signature on a TCP
@@ -32,6 +34,16 @@ module LavinMQ
       elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
         ProxyProtocol::V2.parse(io)
       end
+    ensure
+      io.read_timeout = nil
+    end
+
+    # True if *io* starts with a PROXY header, which is left unread
+    def self.header?(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : Bool
+      io.read_timeout = timeout
+      peeked = io.peek
+      header_prefix?(peeked, "PROXY".to_slice) ||
+        header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
     ensure
       io.read_timeout = nil
     end
@@ -123,7 +135,9 @@ module LavinMQ
         io.flush
       end
 
-      def self.parse(io)
+      # Returns nil for a LOCAL header: the proxy opened the connection itself,
+      # e.g. for a health check, so the connection's own addresses apply
+      def self.parse(io) : ConnectionInfo?
         io.read_timeout = HANDSHAKE_TIMEOUT
         buffer = uninitialized UInt8[16]
         # read_fully so a 16-byte header split across TCP segments isn't short-read (issue 2082)
@@ -133,74 +147,70 @@ module LavinMQ
           raise InvalidSignature.new(signature.to_s)
         end
         ver_cmd = buffer[12]
-        case ver_cmd
-        when 32
-          # LOCAL
-        when 33
-          # PROXY
-        else
+        unless ver_cmd.in?(LOCAL, PROXY)
           raise InvalidVersionCmd.new ver_cmd.to_s
         end
-        family = Family.from_value(buffer[13])
         length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[14, 2])
 
         bytes = Bytes.new(length)
         io.read_fully(bytes)
+        # The address block of a LOCAL header is discarded, family and TLVs included
+        return if ver_cmd == LOCAL
 
+        family = Family.from_value?(buffer[13]) || raise InvalidFamily.new(buffer[13].to_s)
         header, pos = extract_address(family, bytes)
-        bytes = bytes + pos
-        header = extract_tlv(header, bytes)
+        extract_tlvs(header, bytes + pos)
         header
       ensure
         io.read_timeout = nil
       end
 
-      private def self.extract_tlv(header : ConnectionInfo, bytes)
-        pos = 0
-        while pos < bytes.size
-          type = TLVType.from_value(bytes[pos]); pos += 1
-          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
-          value = bytes[pos, length]; pos += length
-          case type
-          when TLVType::SSL
-            header = extract_tlv_ssl(header, value)
-          else raise UnsupportedTLVType.new
+      # Only the SSL TLV is used. Other TLVs, e.g. AUTHORITY, UNIQUE_ID or
+      # an AWS VPC endpoint ID, are skipped, as are unknown types
+      private def self.extract_tlvs(header : ConnectionInfo, bytes : Bytes) : Nil
+        each_tlv(bytes) do |type, value|
+          case TLVType.from_value?(type)
+          when TLVType::SSL then extract_tlv_ssl(header, value)
           end
         end
-        header
       end
 
-      private def self.extract_tlv_ssl(header, bytes)
+      private def self.each_tlv(bytes : Bytes, &) : Nil
         pos = 0
-        _client = SSLCLIENT.from_value(bytes[pos]); pos += 1
-        verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
-        header.ssl = true
+        while pos < bytes.size
+          raise MalformedHeader.new("Truncated TLV") if bytes.size - pos < 3
+          type = bytes[pos]
+          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos + 1, 2])
+          pos += 3
+          raise MalformedHeader.new("TLV length #{length} exceeds the header") if bytes.size - pos < length
+          yield type, bytes[pos, length]
+          pos += length
+        end
+      end
+
+      private def self.extract_tlv_ssl(header : ConnectionInfo, bytes : Bytes) : Nil
+        raise MalformedHeader.new("Truncated SSL TLV") if bytes.size < 5
+        # The client field is a bit field, with a client certificate it's e.g. 0x07
+        client = bytes[0]
+        verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[1, 4])
+        header.ssl = client.bits_set?(SSLCLIENT::SSL.value)
         header.ssl_verify = verify.zero?
 
-        value = bytes + pos
-        extract_tlv_sub_ssl(header, value)
-      end
-
-      private def self.extract_tlv_sub_ssl(header, bytes)
-        pos = 0
-        while pos < bytes.size
-          ssl_type = SSLSubType.from_value(bytes[pos]); pos += 1
-          ssl_len = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
-          ssl_value = String.new(bytes[pos, ssl_len]); pos += ssl_len
-          case ssl_type
-          when SSLSubType::VERSION then header.ssl_version = ssl_value
-          when SSLSubType::CIPHER  then header.ssl_cipher = ssl_value
-          when SSLSubType::KEY_ALG then header.ssl_key_alg = ssl_value
-          when SSLSubType::SIG_ALG then header.ssl_sig_alg = ssl_value
-          when SSLSubType::CN      then header.ssl_cn = ssl_value
+        each_tlv(bytes + 5) do |type, value|
+          case SSLSubType.from_value?(type)
+          when SSLSubType::VERSION then header.ssl_version = String.new(value)
+          when SSLSubType::CIPHER  then header.ssl_cipher = String.new(value)
+          when SSLSubType::KEY_ALG then header.ssl_key_alg = String.new(value)
+          when SSLSubType::SIG_ALG then header.ssl_sig_alg = String.new(value)
+          when SSLSubType::CN      then header.ssl_cn = String.new(value)
           end
         end
-        header
       end
 
       private def self.extract_address(family, bytes) : Tuple(ConnectionInfo, Int32)
         case family
         when Family::TCPv4
+          raise MalformedHeader.new("Truncated TCPv4 address") if bytes.size < 12
           src_addr = bytes[0, 4].map(&.to_u8).join(".")
           dst_addr = bytes[4, 4].map(&.to_u8).join(".")
           src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[8, 2])
@@ -210,6 +220,7 @@ module LavinMQ
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
           {ConnectionInfo.new(src, dst, proxied: true), 12}
         when Family::TCPv6
+          raise MalformedHeader.new("Truncated TCPv6 address") if bytes.size < 36
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
             8.times do |i|
@@ -235,6 +246,10 @@ module LavinMQ
       end
 
       Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
+
+      # Version 2 and the command
+      private LOCAL = 0x20u8
+      private PROXY = 0x21u8
 
       private enum SSLCLIENT : UInt8
         SSL       = 0x01

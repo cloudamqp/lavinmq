@@ -77,7 +77,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `port` | `-p`, `--amqp-port` | `LAVINMQ_AMQP_PORT` | Int | `5672` | AMQP port |
 | `tls_port` | `--amqps-port` | `LAVINMQ_AMQPS_PORT` | Int | `5671` | AMQPS port |
 | `unix_path` | `--amqp-unix-path` | — | String | (empty) | AMQP Unix socket path |
-| `tcp_proxy_protocol` | — | — | Bool | `false` | Enable PROXY protocol on TCP (auto-detects v1/v2) |
+| `tcp_proxy_protocol` | — | — | Bool | `false` | Enable PROXY protocol on the TCP and TLS listeners (auto-detects v1/v2) |
 | `proxy_protocol_trusted_sources` | — | — | String | (empty) | Comma-separated IPs/CIDR blocks allowed to send PROXY headers |
 | `heartbeat` | — | — | UInt16 | `300` | Heartbeat interval (seconds) |
 | `frame_max` | — | — | UInt32 | `131072` | Maximum frame size (bytes) |

@@ -33,15 +33,11 @@ module LavinMQ
       end
 
       private def handle_client(client, target_host, target_port)
+        set_socket_opts(client) if client.is_a? TCPSocket
+        proxy_header = leader_proxy_header(client)
         target = TCPSocket.new(target_host, target_port)
         set_socket_opts(target)
-        if client.is_a? TCPSocket
-          set_socket_opts(client)
-          if @proxy_header
-            proxy_header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
-            target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
-          end
-        end
+        target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian if proxy_header
         spawn(name: "Proxy client copy loop") do
           IO.copy(target, client)
         rescue IO::Error
@@ -51,9 +47,33 @@ module LavinMQ
         end
         IO.copy(client, target)
       rescue IO::Error
+      rescue ex : ProxyProtocol::Error | ArgumentError
+        Log.warn { "Invalid PROXY header: #{ex.message}" }
       ensure
         target.try &.close rescue nil
         client.close rescue nil
+      end
+
+      # The PROXY header to put in front of the connection to the leader, if any
+      private def leader_proxy_header(client) : ProxyProtocol::V1?
+        return unless @proxy_header
+        return unless client.is_a? TCPSocket
+        return if forward_proxy_header?(client)
+        ProxyProtocol::V1.new(client.remote_address, client.local_address)
+      end
+
+      # A trusted load balancer's PROXY header is forwarded as is, instead of
+      # our own, so that the leader, which trusts followers, sees the client's
+      # address. A header from an untrusted source is dropped, like the leader
+      # would do.
+      private def forward_proxy_header?(client : TCPSocket) : Bool
+        config = Config.instance
+        return false unless config.tcp_proxy_protocol?
+        return false unless ProxyProtocol.header?(client)
+        return true if config.trusted_proxy_source?(client.remote_address.address)
+        Log.warn { "PROXY protocol from untrusted source #{client.remote_address}, ignoring header" }
+        ProxyProtocol.parse(client)
+        false
       end
 
       private def set_socket_opts(socket : TCPSocket)

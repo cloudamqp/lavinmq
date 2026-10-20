@@ -212,8 +212,8 @@ module LavinMQ
         remote_addr = client.remote_address
         set_socket_options(client)
         set_tls_tcp_read_buffer(client)
-        # Followers proxy TLS connections unterminated, with a PROXY header in front
-        conn_info = follower_proxy_conn_info(client) || ConnectionInfo.new(remote_addr, client.local_address)
+        # Followers and load balancers that pass TLS through unterminated put the PROXY header in front of it
+        conn_info = extract_conn_info(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{conn_info.remote_address} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, conn_info)
@@ -237,33 +237,26 @@ module LavinMQ
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
 
-      if @config.tcp_proxy_protocol?
+      # Followers put a PROXY header in front of connections they proxy to the leader,
+      # it's trusted whether or not tcp_proxy_protocol is enabled
+      if follower?(remote_address.address)
+        if parsed_proxy = ProxyProtocol.parse(client)
+          return parsed_proxy
+        end
+      elsif @config.tcp_proxy_protocol?
         parsed_proxy = ProxyProtocol.parse(client)
-        if trusted_proxy_source?(remote_address.address)
+        if @config.trusted_proxy_source?(remote_address.address)
           return parsed_proxy if parsed_proxy
         else
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
-        end
-      else
-        if parsed_proxy = follower_proxy_conn_info(client)
-          return parsed_proxy
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)
     end
 
-    # Parses the PROXY header a follower sends in front of connections it proxies to the leader
-    private def follower_proxy_conn_info(client) : ConnectionInfo?
-      return unless @config.clustering?
-      remote_address = client.remote_address
-      return unless @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
-      ProxyProtocol.parse(client)
-    end
-
-    private def trusted_proxy_source?(address : String) : Bool
-      # If no trusted sources are configured, accept from all sources for backward compatibility
-      return true if @config.proxy_protocol_trusted_sources.empty?
-      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
+    private def follower?(address : String) : Bool
+      return false unless @config.clustering?
+      @server.all_followers.any? { |f| f.remote_address.address == address }
     end
 
     private def set_socket_options(socket)
