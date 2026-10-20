@@ -20,6 +20,8 @@ module LavinMQ
 
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    # Providers from [oauth.<name>] sections, in file order
+    @oauth_named_providers = Array(OAuthProviderConfig).new
     @io : IO = STDERR
 
     def self.instance : LavinMQ::Config
@@ -61,9 +63,24 @@ module LavinMQ
       end
     end
 
-    # The OAuth provider configured in the [oauth] section, or nil if no
-    # issuer is set.
+    # All configured OAuth providers: the one in [oauth] (named "default"), if
+    # it has an issuer, followed by the [oauth.<name>] sections in file order.
+    # Each call returns new objects, so a caller can keep them across a reload.
+    def oauth_providers : Array(OAuthProviderConfig)
+      providers = @oauth_named_providers.map(&.dup)
+      if default = default_oauth_provider
+        providers.unshift(default)
+      end
+      providers
+    end
+
+    # The provider OAuth authentication uses until tokens are routed to a
+    # provider by their issuer: the first of #oauth_providers.
     def oauth_provider : OAuthProviderConfig?
+      oauth_providers.first?
+    end
+
+    private def default_oauth_provider : OAuthProviderConfig?
       return unless issuer_url = @oauth_issuer_url
       OAuthProviderConfig.new(
         issuer_url: issuer_url,
@@ -119,6 +136,23 @@ module LavinMQ
       # unsupported backend keeps the running config
       if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
         raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
+      end
+      validate_oauth_providers!
+    end
+
+    private def validate_oauth_providers!
+      names = Set(String).new
+      issuers = Hash(String, String).new
+      oauth_providers.each do |provider|
+        unless names.add?(provider.name)
+          raise Error.new("OAuth provider '#{provider.name}' is configured more than once, " \
+                          "[oauth] with an issuer is the provider named '#{OAuthProviderConfig::DEFAULT_NAME}'")
+        end
+        issuer = provider.issuer_url.to_s.chomp("/")
+        if other = issuers[issuer]?
+          raise Error.new("OAuth providers '#{other}' and '#{provider.name}' have the same issuer #{issuer}")
+        end
+        issuers[issuer] = provider.name
       end
     end
 
@@ -223,7 +257,8 @@ module LavinMQ
         when "http"
           @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
           parse_section("mgmt", settings)
-        when .starts_with?("sni:") then parse_sni(section[4..], settings)
+        when .starts_with?("sni:")   then parse_sni(section[4..], settings)
+        when .starts_with?("oauth.") then parse_oauth_provider(section[6..], settings)
         when "replication"
           raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -292,6 +327,34 @@ module LavinMQ
       else
         @sni_manager.add_host(host)
       end
+    end
+
+    OAUTH_PROVIDER_NAME = /\A[A-Za-z0-9_-]+\z/
+
+    private def parse_oauth_provider(name : String, settings)
+      section = "[oauth.#{name}]"
+      unless OAUTH_PROVIDER_NAME.matches?(name)
+        raise Error.new("Invalid OAuth provider name in #{section}, use letters, digits, '-' and '_'")
+      end
+      issuer = settings["issuer"]? || raise Error.new("Missing issuer in #{section}")
+      provider = OAuthProviderConfig.new(parse_value(issuer, URI), name: name)
+      settings.each do |key, v|
+        case key
+        when "issuer"                    then next
+        when "resource_server_id"        then provider.resource_server_id = v
+        when "preferred_username_claims" then provider.preferred_username_claims = parse_value(v, Array(String))
+        when "additional_scopes_keys"    then provider.additional_scopes_keys = parse_value(v, Array(String))
+        when "scope_prefix"              then provider.scope_prefix = v
+        when "verify_aud"                then provider.verify_aud = parse_value(v, Bool)
+        when "audience"                  then provider.audience = v
+        when "jwks_cache_ttl"            then provider.jwks_cache_ttl = parse_value(v, Time::Span)
+        else
+          @io.puts "WARNING: Unknown setting '#{key}' in section #{section}"
+        end
+      rescue ex
+        raise Error.new("Failed to handle value for '#{key}' in #{section}: #{ex.message}")
+      end
+      @oauth_named_providers << provider
     end
 
     private macro parse_section(section, settings)
@@ -383,6 +446,7 @@ module LavinMQ
     def reload
       new_config = dup
       new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.fresh_oauth_named_providers
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
@@ -402,6 +466,12 @@ module LavinMQ
 
     protected def fresh_sni_manager
       @sni_manager = SNIManager.new
+    end
+
+    # Named providers are only added while parsing, so start from none to drop
+    # the sections removed from the file
+    protected def fresh_oauth_named_providers
+      @oauth_named_providers = Array(OAuthProviderConfig).new
     end
 
     # Copy every instance variable from the parsed config in one non-yielding
