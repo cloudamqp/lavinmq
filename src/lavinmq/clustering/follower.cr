@@ -63,7 +63,11 @@ module LavinMQ
       def negotiate!(password) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
-        authenticate!(password)
+        if @protocol_version < 3
+          authenticate_password!(password)
+        else
+          authenticate_challenge!(password)
+        end
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
@@ -203,18 +207,32 @@ module LavinMQ
         slice = buf.to_slice
         @socket.read_fully(slice)
         case slice
+        when StartV3 then @protocol_version = 3
         when StartV2 then @protocol_version = 2
         when Start   then @protocol_version = 1
         else
-          @socket.write(StartV2)
+          @socket.write(StartV3)
           raise InvalidStartHeaderError.new(slice)
         end
       end
 
-      private def authenticate!(password) : Nil
+      # Versions 1 and 2 send the password
+      private def authenticate_password!(password) : Nil
         len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         client_password = @socket.read_string(len)
-        if Crypto::Subtle.constant_time_compare(password, client_password)
+        authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
+      end
+
+      private def authenticate_challenge!(password) : Nil
+        challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        @socket.write(StartV3 + challenge)
+        response = Bytes.new(32)
+        @socket.read_fully(response)
+        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge)))
+      end
+
+      private def authenticated!(ok : Bool) : Nil
+        if ok
           @socket.write_byte 0u8
         else
           @socket.write_byte 1u8

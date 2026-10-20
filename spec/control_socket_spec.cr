@@ -1,10 +1,15 @@
 require "./spec_helper"
-require "../src/lavinmq/clustering/client"
+require "../src/lavinmq/http/control_socket"
 
-class LavinMQ::Clustering::Client
-  def local_leader_host_for_spec?(host : String)
-    local_leader_host?(host)
-  end
+# Serves *http_server*'s API on a control socket at *path*, as the Launcher
+# does while the node serves
+private def with_control_api(http_server, path, &)
+  socket = LavinMQ::HTTP::ControlSocket.new(path)
+  socket.bind!
+  socket.api = http_server.handler
+  yield
+ensure
+  socket.try &.close
 end
 
 describe "control socket" do
@@ -18,19 +23,30 @@ describe "control socket" do
     config.control_unix_path = socket_path
     begin
       with_amqp_server do |s|
-        h = s.http_server
-        h.bind_internal_unix
-        spawn(name: "control socket listen") { h.listen }
-        Fiber.yield
-        client = HTTP::Client.new(UNIXSocket.new(socket_path))
-        response = client.get("/api/whoami")
-        response.status_code.should eq 200
-        response.body.should contain "__direct"
+        with_control_api(s.http_server, socket_path) do
+          client = HTTP::Client.new(UNIXSocket.new(socket_path))
+          response = client.get("/api/whoami")
+          response.status_code.should eq 200
+          response.body.should contain "__direct"
+          client.close
+        end
       end
     ensure
       config.control_unix_path = original_path
       File.delete?(socket_path)
     end
+  end
+
+  it "lets only the owner and its group connect" do
+    path = File.tempname("lavinmqctl-spec", ".sock")
+    socket = LavinMQ::HTTP::ControlSocket.new(path)
+    socket.bind.should be_true
+    File.info(path).permissions.value.should eq 0o660
+    socket.close
+    File.exists?(path).should be_false
+  ensure
+    socket.try &.close
+    File.delete?(path) if path
   end
 
   it "uses the socket bound at startup even after the config is reloaded" do
@@ -41,15 +57,15 @@ describe "control socket" do
     begin
       with_amqp_server do |s|
         h = s.http_server # captures socket_path
-        h.bind_internal_unix
-        spawn(name: "control socket listen") { h.listen }
-        Fiber.yield
-        # Simulate a SIGHUP reload that changes the configured path
-        config.control_unix_path = File.tempname("lavinmqctl-reloaded", ".sock")
-        client = HTTP::Client.new(UNIXSocket.new(socket_path))
-        response = client.get("/api/whoami")
-        response.status_code.should eq 200
-        response.body.should contain "__direct"
+        with_control_api(h, socket_path) do
+          # Simulate a SIGHUP reload that changes the configured path
+          config.control_unix_path = File.tempname("lavinmqctl-reloaded", ".sock")
+          client = HTTP::Client.new(UNIXSocket.new(socket_path))
+          response = client.get("/api/whoami")
+          response.status_code.should eq 200
+          response.body.should contain "__direct"
+          client.close
+        end
       end
     ensure
       config.control_unix_path = original_path
@@ -57,44 +73,10 @@ describe "control socket" do
     end
   end
 
-  it "removes the control socket it bound when closed" do
-    config = LavinMQ::Config.instance
-    original_path = config.control_unix_path
-    socket_path = File.tempname("lavinmqctl-spec", ".sock")
-    config.control_unix_path = socket_path
-    begin
-      with_amqp_server do |s|
-        s.http_server.bind_internal_unix
-        File.exists?(socket_path).should be_true
-        # Simulate a SIGHUP reload that changes the configured path
-        config.control_unix_path = File.tempname("lavinmqctl-reloaded", ".sock")
-      end
-      File.exists?(socket_path).should be_false
-    ensure
-      config.control_unix_path = original_path
-      File.delete?(socket_path)
-    end
-  end
-
-  it "leaves a control socket it didn't bind when closed" do
-    config = LavinMQ::Config.instance
-    original_path = config.control_unix_path
-    socket_path = File.tempname("lavinmqctl-spec", ".sock")
-    serving = UNIXServer.new(socket_path) # like another node's
-    config.control_unix_path = socket_path
-    begin
-      with_http_server { } # listens on TCP only
-      File.exists?(socket_path).should be_true
-    ensure
-      config.control_unix_path = original_path
-      serving.close
-    end
-  end
-
-  describe "prepare_control_socket" do
+  describe "ControlSocket.prepare" do
     it "does nothing if the path does not exist" do
       path = File.tempname("ctl", ".sock")
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::HTTP::ControlSocket.prepare(path)
       File.exists?(path).should be_false
     end
 
@@ -102,7 +84,7 @@ describe "control socket" do
       path = File.tempname("ctl", ".sock")
       File.touch(path)
       expect_raises(Exception, /not a socket/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+        LavinMQ::HTTP::ControlSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -115,7 +97,7 @@ describe "control socket" do
       sock.bind(Socket::UNIXAddress.new(path))
       sock.close
       File.info(path, follow_symlinks: false).type.socket?.should be_true
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::HTTP::ControlSocket.prepare(path)
       File.exists?(path).should be_false
     ensure
       File.delete?(path) if path
@@ -125,7 +107,7 @@ describe "control socket" do
       path = File.tempname("ctl", ".sock")
       server = UNIXServer.new(path)
       expect_raises(LavinMQ::HTTP::ControlSocketInUseError, /already in use/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+        LavinMQ::HTTP::ControlSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -134,79 +116,41 @@ describe "control socket" do
     end
   end
 
-  describe "follower_internal_socket_http_server" do
+  describe "ControlSocket#bind" do
     it "skips binding when another node serves the control socket" do
-      config = LavinMQ::Config.instance
-      original_path = config.control_unix_path
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      config.control_unix_path = socket_path
       leader = UNIXServer.new(socket_path)
-      LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
+      socket = LavinMQ::HTTP::ControlSocket.new(socket_path)
+      socket.bind.should be_false
+      expect_raises(LavinMQ::HTTP::ControlSocketInUseError) { socket.bind! }
+      socket.close
+      File.exists?(socket_path).should be_true # left to the node serving it
     ensure
       leader.try &.close
-      config.control_unix_path = original_path if config && original_path
       File.delete?(socket_path) if socket_path
     end
 
     it "skips binding instead of raising when the socket can not be prepared" do
-      config = LavinMQ::Config.instance
-      original_path = config.control_unix_path
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      config.control_unix_path = socket_path
-      File.touch(socket_path) # not a socket: prepare_control_socket raises a plain Exception
-      LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
+      File.touch(socket_path) # not a socket: ControlSocket.prepare raises
+      LavinMQ::HTTP::ControlSocket.new(socket_path).bind.should be_false
     ensure
-      config.control_unix_path = original_path if config && original_path
       File.delete?(socket_path) if socket_path
     end
 
-    it "binds when alone on the machine" do
-      config = LavinMQ::Config.instance
-      original_path = config.control_unix_path
+    it "answers GET /api/cluster with the given cluster status while there's no API" do
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      config.control_unix_path = socket_path
-      server = LavinMQ::HTTP::Server.follower_internal_socket_http_server
-      server.should_not be_nil
-      UNIXSocket.open(socket_path) { }
+      socket = LavinMQ::HTTP::ControlSocket.new(socket_path, -> { %({"leader":null}).as(String?) })
+      socket.bind.should be_true
+      client = HTTP::Client.new(UNIXSocket.new(socket_path))
+      response = client.get("/api/cluster")
+      response.status_code.should eq 200
+      response.body.should eq %({"leader":null})
+      client.get("/api/queues").status_code.should eq 503
     ensure
-      server.try &.close
-      config.control_unix_path = original_path if config && original_path
+      client.try &.close
+      socket.try &.close
       File.delete?(socket_path) if socket_path
-    end
-  end
-
-  describe "clustering follower control socket" do
-    it "does not bind before the leader host is known" do
-      original_config = LavinMQ::Config.instance
-      socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      config = LavinMQ::Config.new
-      config.control_unix_path = socket_path
-      config.metrics_http_port = -1
-
-      begin
-        LavinMQ::Config.instance = config
-        with_datadir do |data_dir|
-          config.data_dir = data_dir
-          begin
-            client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
-            File.exists?(socket_path).should be_false
-          ensure
-            client.try &.close
-          end
-        end
-      ensure
-        LavinMQ::Config.instance = original_config
-        File.delete?(socket_path)
-      end
-    end
-
-    it "recognizes loopback leader hosts as local" do
-      client = LavinMQ::Clustering::Client.allocate
-      {"localhost", "LOCALHOST", "127.0.0.1", "127.1", "::1", "[::1]", System.hostname}.each do |host|
-        client.local_leader_host_for_spec?(host).should be_true
-      end
-
-      client.local_leader_host_for_spec?("192.0.2.10").should be_false
     end
   end
 end

@@ -2,7 +2,6 @@ require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
 require "./checksums"
-require "./proxy"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -27,18 +26,22 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
-      @amqp_proxy : Proxy?
-      @http_proxy : Proxy?
-      @mqtt_proxy : Proxy?
-      @amqps_proxy : Proxy?
-      @https_proxy : Proxy?
-      @mqtts_proxy : Proxy?
-      @unix_amqp_proxy : Proxy?
-      @unix_http_proxy : Proxy?
-      @unix_mqtt_proxy : Proxy?
+      @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
       @socket : TCPSocket?
-      @internal_http_server : ::HTTP::Server?
       getter streamed_bytes = 0_u64
+
+      # To a HTTP::PrometheusWriter, see Runner#write_metrics
+      def write_metrics(writer) : Nil
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: @streamed_bytes,
+                      type:  "counter",
+                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
+      end
+
+      # Whether the leader's replication server has let this node in. A
+      # leader binds that listener after its client listeners, so it's
+      # serving then.
+      getter? connected = false
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -52,14 +55,15 @@ module LavinMQ
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
-      # Replication protocol version to connect with. Leaders that only speak
-      # version 1 don't send fsync requests, so we sync before every ack then.
-      @protocol_version = 2
+      # Replication protocol version to connect with, the latest unless the
+      # leader turned out to be older. Leaders that only speak version 1 don't
+      # send fsync requests, so we sync before every ack then.
+      @protocol_version = PROTOCOL_VERSION
       # Files this client created whose directory entry isn't fsynced yet,
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -75,22 +79,23 @@ module LavinMQ
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
-
-        if proxy
-          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
-          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
-          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
-          # TLS is passed through unterminated, the leader terminates it
-          if @config.tls_configured?
-            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
-            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
-            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
-          end
-          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
-          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
-          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
       end
+
+      @host : String?
+      @port : Int32?
+
+      # The leader's host while connected to it, client connections are
+      # forwarded there with a PROXY header the leader only accepts from the
+      # followers it has registered, see ClientListeners. So nil until it
+      # has registered this one, and while reconnecting.
+      def host : String?
+        @host if @connected
+      end
+
+      # Tells whether this node is part of the cluster, to explain why the
+      # leader keeps refusing the connection. Set by controllers that have
+      # a membership.
+      property member_check : Proc(Bool)? = nil
 
       def follow(uri : String)
         follow(URI.parse(uri))
@@ -102,12 +107,13 @@ module LavinMQ
         follow(host, port)
       end
 
+      PROTOCOL_VERSION = 3
+
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
+        @protocol_version = PROTOCOL_VERSION # a new leader may speak it
         @host = host
         @port = port
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        start_proxies(host)
         loop do
           hash_local_files
           return if @closed
@@ -119,43 +125,45 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
+          @connected = false
           lz4.try &.close
           socket.try &.close
           break if @closed
-          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
+          if (check = @member_check) && !check.call
+            # Refused by the leader, keep retrying: we may be added back, and
+            # exiting would only make a supervisor restart us in a loop.
+            Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
+            break if closed_while_not_member?(check)
+          else
+            Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+            break if closed_while_waiting?(1.second)
+          end
         end
       ensure
         @follower_done.send(nil)
       end
 
-      private def start_proxies(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+      # How long a node that isn't a member waits before it's refused again,
+      # and both it and the leader log it again
+      NOT_MEMBER_RETRY_INTERVAL = 1.minute
+
+      # Waits until this node is added back, or NOT_MEMBER_RETRY_INTERVAL in
+      # case it was and doesn't know it yet
+      private def closed_while_not_member?(member_check : Proc(Bool)) : Bool
+        deadline = Time.instant + NOT_MEMBER_RETRY_INTERVAL
+        while Time.instant < deadline
+          return true if closed_while_waiting?(1.second)
+          break if member_check.call
         end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if amqps_proxy = @amqps_proxy
-          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
-        end
-        if https_proxy = @https_proxy
-          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
-        end
-        if mqtts_proxy = @mqtts_proxy
-          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        false
+      end
+
+      private def closed_while_waiting?(span : Time::Span) : Bool
+        select
+        when @closing.receive?
+          true
+        when timeout(span)
+          false
         end
       end
 
@@ -175,16 +183,6 @@ module LavinMQ
 
       def follows?(host : String, port : Int32) : Bool
         @host == host && @port == port
-      end
-
-      private def local_leader_host?(host : String) : Bool
-        host = host.downcase
-        return true if host == System.hostname.downcase
-        host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
-
-        Socket::Addrinfo.tcp(host, 0).any?(&.ip_address.loopback?)
-      rescue Socket::Error
-        false
       end
 
       private def sync(socket, lz4)
@@ -264,6 +262,7 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
+        @connected = true # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
@@ -407,10 +406,9 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them
+            next if child.in?(NODE_LOCAL_FILES) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -711,9 +709,14 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write(@protocol_version < 2 ? Start : StartV2)
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        socket.write @password.to_slice
+        if @protocol_version < 3
+          socket.write(@protocol_version < 2 ? Start : StartV2)
+          socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+          socket.write @password.to_slice
+        else
+          socket.write StartV3
+          answer_challenge(socket)
+        end
         case byte = socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
@@ -723,31 +726,49 @@ module LavinMQ
           header = Bytes.new(Start.size)
           header[0] = byte
           socket.read_fully(header[1..])
-          if header == Start && @protocol_version > 1
-            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
-            @protocol_version = 1
-            raise IO::Error.new("Replication protocol version mismatch")
-          end
-          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
+          older_leader(header)
         else
           raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # A version 3 leader echoes the header followed by the challenge, an
+      # older one rejects it by replying with its own header.
+      private def answer_challenge(socket)
+        header = Bytes.new(StartV3.size)
+        socket.read_fully(header)
+        older_leader(header) unless header == StartV3
+        challenge = Bytes.new(CHALLENGE_SIZE)
+        socket.read_fully(challenge)
+        socket.write Clustering.challenge_response(@password, challenge)
+      end
+
+      # The leader replied with the header of an older version: reconnect
+      # with that version, which sends the password
+      private def older_leader(header : Bytes) : NoReturn
+        version =
+          case header
+          when StartV2 then 2
+          when Start   then 1
+          else              raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
+          end
+        raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}") if version >= @protocol_version
+        # Raft clusters have no older nodes, so an older "leader" would be
+        # someone trying to get the password in clear text
+        if @config.clustering_backend.raft?
+          Log.error { "Leader only supports replication protocol version #{version}, refusing to send it the password" }
+          raise IO::Error.new("Replication protocol version mismatch")
+        end
+        Log.warn { "Leader only supports replication protocol version #{version}, reconnecting with it" }
+        @protocol_version = version
+        raise IO::Error.new("Replication protocol version mismatch")
+      end
+
       def close
         return if @closed
         @closed = true
-        @internal_http_server.try &.close
-        @amqp_proxy.try &.close
-        @http_proxy.try &.close
-        @mqtt_proxy.try &.close
-        @amqps_proxy.try &.close
-        @https_proxy.try &.close
-        @mqtts_proxy.try &.close
-        @unix_amqp_proxy.try &.close
-        @unix_http_proxy.try &.close
-        @unix_mqtt_proxy.try &.close
+        @closing.close
         @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)

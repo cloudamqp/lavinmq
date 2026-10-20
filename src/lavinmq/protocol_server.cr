@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "./proxy_protocol"
 require "../stdlib/io_buffered"
 
 module LavinMQ
@@ -12,6 +13,8 @@ module LavinMQ
 
   abstract class ProtocolServer
     @listeners = Array(Socket::Server).new
+    # Listed, but owned by ClientListeners, which accepts on them
+    @adopted = Array(Socket::Server).new
     @tls_contexts = Hash(TCPServer, OpenSSL::SSL::Context::Server).new
     @closed = BoolChannel.new(false)
     @config : Config
@@ -66,6 +69,23 @@ module LavinMQ
       addr
     rescue ex : Socket::BindError
       abort "Error: #{ex.message}"
+    end
+
+    # A listener ClientListeners owns, listed by #listeners. It hands this
+    # server what it accepts, see #accept, and it's not closed with it.
+    def adopt(s : Socket::Server) : Nil
+      @adopted << s
+      @listeners << s
+    end
+
+    # A connection accepted on an adopted listener, over TLS with *tls*
+    def accept(client : Socket, tls : OpenSSL::SSL::Context::Server?) : Nil
+      return client.close if closed? || @server.closed?
+      case client
+      when TCPSocket  then tls ? accept_tls(client, tls) : accept_tcp(client)
+      when UNIXSocket then accept_unix(client)
+      else                 client.close
+      end
     end
 
     def listen : Nil
@@ -168,9 +188,11 @@ module LavinMQ
       return if @closed.swap(true)
       Log.debug { "Closing #{@protocol} listeners" }
       @listeners.each do |listener|
+        next if @adopted.includes?(listener)
         listener.close rescue nil
       end
       @listeners.clear
+      @adopted.clear
       @tls_contexts.clear
       @listening = false
     end
@@ -212,8 +234,9 @@ module LavinMQ
         remote_addr = client.remote_address
         set_socket_options(client)
         set_tls_tcp_read_buffer(client)
-        # Followers proxy TLS connections unterminated, with a PROXY header in front
-        conn_info = follower_proxy_conn_info(client) || ConnectionInfo.new(remote_addr, client.local_address)
+        # A PROXY header comes before TLS, e.g. from a follower forwarding
+        # the connection, see ClientListeners
+        conn_info = extract_conn_info(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{conn_info.remote_address} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, conn_info)
@@ -226,7 +249,7 @@ module LavinMQ
       end
     end
 
-    private def handle_tls_connection(ssl_client, conn_info)
+    private def handle_tls_connection(ssl_client, conn_info : ConnectionInfo)
       set_buffer_size(ssl_client)
       conn_info.ssl = true
       conn_info.ssl_version = ssl_client.tls_version
@@ -245,18 +268,17 @@ module LavinMQ
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
         end
       else
-        if parsed_proxy = follower_proxy_conn_info(client)
-          return parsed_proxy
-        end
+        from_follower(client).try { |parsed_proxy| return parsed_proxy }
       end
       ConnectionInfo.new(remote_address, client.local_address)
     end
 
-    # Parses the PROXY header a follower sends in front of connections it proxies to the leader
-    private def follower_proxy_conn_info(client) : ConnectionInfo?
+    # The client's addresses from the PROXY header of a follower forwarding
+    # its connection, see ClientListeners
+    private def from_follower(client : TCPSocket) : ConnectionInfo?
       return unless @config.clustering?
-      remote_address = client.remote_address
-      return unless @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+      address = client.remote_address.address
+      return unless @server.all_followers.any? { |f| f.remote_address.address == address }
       ProxyProtocol.parse(client)
     end
 

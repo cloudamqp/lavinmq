@@ -148,5 +148,40 @@ module ClientReconnectSpec
         client.close
       end
     end
+
+    # The leader refuses a node that isn't a member, and both log it, so a
+    # removed node mustn't reconnect every second, forever. It should once
+    # it's added back though.
+    it "reconnects to a leader that refuses it only when it's a member again" do
+      with_datadir do |data_dir|
+        client = make_client(data_dir, sync: false)
+        member = false
+        client.member_check = -> { member }
+        leader = TCPServer.new("127.0.0.1", 0)
+        connects = Channel(Nil).new(16)
+        spawn(name: "refusing leader") do
+          while socket = leader.accept?
+            socket.close
+            connects.send nil
+          end
+        end
+        spawn(name: "follow") { client.follow("127.0.0.1", leader.local_address.port) }
+        connects.receive
+        select
+        when connects.receive
+          fail "reconnected while not a member"
+        when timeout(2.5.seconds)
+        end
+        member = true
+        select
+        when connects.receive
+        when timeout(3.seconds)
+          fail "didn't reconnect once a member again"
+        end
+      ensure
+        client.try &.close
+        leader.try &.close
+      end
+    end
   end
 end

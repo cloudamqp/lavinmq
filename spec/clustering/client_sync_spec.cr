@@ -695,6 +695,31 @@ module ClientSyncSpec
         end
       end
 
+      # Regression: the raft state (term + vote) is local-only. Deleting it on
+      # a full sync would let the node vote twice in the same term.
+      it "keeps the raft state across a sync" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, ".raft_state"), "state"
+          File.write File.join(data_dir, ".raft_state.tmp"), "tmp"
+          client = make_client(data_dir)
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {"definitions.amqp" => "defs"})
+            done.send nil
+          end
+          client.sync_files_public(client_io, lz4_reader)
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          File.read(File.join(data_dir, ".raft_state")).should eq "state"
+          File.exists?(File.join(data_dir, ".raft_state.tmp")).should be_true
+        end
+      end
+
       # Regression: checksums.sha1 is local-only and the leader never sends it,
       # so the "delete files not on leader" sweep must not wipe it — otherwise
       # the second sync pass (sync runs sync_files twice) deletes hashes the
@@ -1098,14 +1123,14 @@ module ClientSyncSpec
         end
       end
 
-      it "falls back to protocol version 1 when the leader rejects version 2" do
+      it "falls back to protocol version 1 when the leader rejects version 3" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
           client_socket, leader_io = UNIXSocket.pair
           spawn(name: "version 1 leader") do
             header = Bytes.new(8)
             leader_io.read_fully(header)
-            header.should eq LavinMQ::Clustering::StartV2
+            header.should eq LavinMQ::Clustering::StartV3
             leader_io.write LavinMQ::Clustering::Start
           end
           expect_raises(IO::Error, /version mismatch/) do
@@ -1113,6 +1138,89 @@ module ClientSyncSpec
           end
           client.protocol_version.should eq 1
           client_socket.close
+        end
+      end
+
+      # A 2.11.0-rc.1 leader speaks version 2, where followers send the password
+      it "falls back to protocol version 2, sending the password, when the leader rejects version 3" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = UNIXSocket.pair
+          spawn(name: "version 2 leader") do
+            header = Bytes.new(8)
+            leader_io.read_fully(header)
+            header.should eq LavinMQ::Clustering::StartV3
+            leader_io.write LavinMQ::Clustering::StartV2
+          end
+          expect_raises(IO::Error, /version mismatch/) do
+            client.authenticate_public(client_socket)
+          end
+          client.protocol_version.should eq 2
+          client_socket.close
+          leader_io.close
+
+          # Reconnecting, with the password
+          retry_socket, retry_leader = UNIXSocket.pair
+          received = Bytes.new(8 + 1 + "password".bytesize)
+          spawn(name: "version 2 leader, again") do
+            retry_leader.read_fully(received)
+            retry_leader.write_byte 0u8
+          end
+          client.authenticate_public(retry_socket)
+          retry_leader.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 1
+          received[0, 8].should eq LavinMQ::Clustering::StartV2
+          String.new(received[9..]).should eq "password"
+        ensure
+          client_socket.try &.close
+          leader_io.try &.close
+          retry_socket.try &.close
+          retry_leader.try &.close
+        end
+      end
+
+      it "answers the leader's challenge without sending the password" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = UNIXSocket.pair
+          challenge = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+          received = Bytes.new(8 + 32)
+          spawn(name: "version 3 leader") do
+            leader_io.write LavinMQ::Clustering::StartV3
+            leader_io.write challenge
+            leader_io.read_fully(received)
+            leader_io.write_byte 0u8
+          end
+          client.authenticate_public(client_socket)
+          leader_io.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 1
+          received[0, 8].should eq LavinMQ::Clustering::StartV3
+          received[8, 32].should eq LavinMQ::Clustering.challenge_response("password", challenge)
+          client.protocol_version.should eq 3
+        ensure
+          client_socket.try &.close
+          leader_io.try &.close
+        end
+      end
+
+      {LavinMQ::Clustering::Start, LavinMQ::Clustering::StartV2}.each do |older|
+        it "doesn't fall back to protocol version #{older[5]} with the raft backend" do
+          with_datadir do |data_dir|
+            client = make_client(data_dir, backend: LavinMQ::ClusteringBackend::Raft)
+            client_socket, leader_io = UNIXSocket.pair
+            leader_io.write older
+            expect_raises(IO::Error, /version mismatch/) do
+              client.authenticate_public(client_socket)
+            end
+            client.protocol_version.should eq 3
+            client_socket.close
+            leader_io.read_timeout = 1.second
+            header = Bytes.new(8)
+            leader_io.read_fully(header)
+            header.should eq LavinMQ::Clustering::StartV3
+            leader_io.gets_to_end.should be_empty
+          ensure
+            client_socket.try &.close
+            leader_io.try &.close
+          end
         end
       end
 

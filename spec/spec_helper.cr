@@ -422,7 +422,7 @@ def with_follower_metrics_server(&)
 end
 
 def serve_follower_metrics(clustering_client, &)
-  h = LavinMQ::HTTP::MetricsServer.new(clustering_client: clustering_client)
+  h = LavinMQ::HTTP::MetricsServer.new(metrics: ->clustering_client.write_metrics(LavinMQ::HTTP::PrometheusWriter))
   begin
     addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
     spawn(name: "follower metrics listen") { h.listen }
