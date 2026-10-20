@@ -85,7 +85,7 @@ Adding or removing `oauth` in `auth_backends` also takes effect on reload. When 
 
 ### Multiple Providers
 
-To accept tokens from more than one identity provider, configure each in an `[oauth.<name>]` section. The name may contain letters, digits, `-` and `_`. Each section takes the token validation options above: `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience` and `jwks_cache_ttl`.
+To accept tokens from more than one identity provider, configure each in an `[oauth.<name>]` section. The name may contain letters, digits, `-` and `_`. Each section takes the token validation options above: `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience` and `jwks_cache_ttl`, and the management UI SSO options `client_id`, `mgmt_base_url` and `mgmt_scopes`.
 
 ```ini
 [main]
@@ -102,13 +102,13 @@ additional_scopes_keys = roles
 scope_prefix = lavinmq.
 ```
 
-A token is validated by the provider whose `issuer` matches its `iss` claim, using only that provider's keys and settings; a token from any other issuer is rejected. Every provider needs its own issuer. An `[oauth]` section with an `issuer` is the provider named `default` and can be combined with named sections. Management UI SSO uses the `[oauth]` provider only.
+A token is validated by the provider whose `issuer` matches its `iss` claim, using only that provider's keys and settings; a token from any other issuer is rejected. Every provider needs its own issuer. An `[oauth]` section with an `issuer` is the provider named `default` and can be combined with named sections. Management UI SSO uses one provider, see below.
 
 On a configuration reload, providers are matched by name: changed settings are applied, new sections start fetching keys, and connections authenticated by a removed provider can no longer refresh their token.
 
 ### Management UI SSO Login
 
-When `issuer`, `client_id`, and `mgmt_base_url` are all set (and `oauth` is included in `auth_backends`), the management UI login page shows a "Sign in with SSO" button. Clicking it runs an OpenID Connect Authorization Code flow with PKCE against the issuer; on success the user is logged into the management UI with the returned token, which is validated the same way as tokens used for AMQP clients (see below).
+When a provider has `issuer`, `client_id`, and `mgmt_base_url` set (and `oauth` is included in `auth_backends`), the management UI login page shows a "Sign in with SSO" button. Clicking it runs an OpenID Connect Authorization Code flow with PKCE against the issuer; on success the user is logged into the management UI with the returned token, which is validated the same way as tokens used for AMQP clients (see below).
 
 `mgmt_base_url` is the public URL the browser uses to reach the management UI. It is used to build the OAuth `redirect_uri` (`<mgmt_base_url>/oauth/callback`), which must be registered as an allowed redirect URI on the OAuth client. For security it must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host.
 
@@ -130,7 +130,19 @@ set it is also included in the authorization request, which some identity
 providers (e.g. Auth0) require to issue a JWT access token instead of an
 opaque one.
 
-If any of the three keys is missing, the SSO button is hidden and only username/password login is available.
+The SSO options can be set in `[oauth]` or in an `[oauth.<name>]` section, so SSO works without an `[oauth]` section:
+
+```ini
+[oauth.entra]
+issuer = https://login.microsoftonline.com/<tenant-id>/v2.0
+client_id = lavinmq-mgmt
+mgmt_base_url = https://lavinmq.example.com
+audience = api://lavinmq
+```
+
+SSO uses the first provider that sets `client_id` or `mgmt_base_url`, `[oauth]` first and then the named sections in file order; the SSO options of any later provider are ignored, with a warning in the log. In `[oauth]` they only take effect together with `issuer`.
+
+If the provider used for SSO is missing any of the three keys, the SSO button is hidden and only username/password login is available.
 
 ### How It Works
 

@@ -45,9 +45,10 @@ module LavinMQ
       parse_cli(argv)
       validate!
       setup_logger
-      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
-        Log.warn { oauth_mgmt_ui_disabled_reason }
+      if reason = oauth_mgmt_ui_disabled_reason
+        Log.warn { "OAuth management UI SSO not enabled: #{reason}" }
       end
+      warn_unused_oauth_sso_settings
     end
 
     private def parse_info_option(argv)
@@ -84,12 +85,26 @@ module LavinMQ
         scope_prefix: @oauth_scope_prefix,
         verify_aud: @oauth_verify_aud,
         audience: @oauth_audience,
-        jwks_cache_ttl: @oauth_jwks_cache_ttl)
+        jwks_cache_ttl: @oauth_jwks_cache_ttl,
+        client_id: @oauth_client_id,
+        mgmt_base_url: @oauth_mgmt_base_url,
+        mgmt_scopes: @oauth_mgmt_scopes)
+    end
+
+    # The provider management UI SSO logs in with: the first provider that
+    # sets client_id or mgmt_base_url, when it sets both and the URL is allowed
+    def oauth_sso_provider : OAuthProviderConfig?
+      provider = oauth_sso_candidate || return
+      return unless provider.client_id && (base_url = provider.mgmt_base_url)
+      provider if oauth_mgmt_base_url_allowed?(base_url)
     end
 
     def oauth_mgmt_ui_enabled? : Bool
-      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
-      oauth_mgmt_base_url_allowed?(base_url)
+      !oauth_sso_provider.nil?
+    end
+
+    private def oauth_sso_candidate : OAuthProviderConfig?
+      oauth_providers.find { |p| p.client_id || p.mgmt_base_url }
     end
 
     private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
@@ -99,15 +114,30 @@ module LavinMQ
       {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
     end
 
-    private def oauth_mgmt_ui_disabled_reason : String
-      missing = [] of String
-      missing << "oauth.client_id" unless @oauth_client_id
-      missing << "oauth.issuer" unless @oauth_issuer_url
-      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
-      unless missing.empty?
-        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+    # Why SSO is off although some of its settings are configured, nil if it's
+    # on or not configured at all
+    private def oauth_mgmt_ui_disabled_reason : String?
+      if provider = oauth_sso_candidate
+        return if oauth_sso_provider
+        return "missing client_id in OAuth provider '#{provider.name}'" unless provider.client_id
+        return "missing mgmt_base_url in OAuth provider '#{provider.name}'" unless provider.mgmt_base_url
+        return "mgmt_base_url in OAuth provider '#{provider.name}' must use https:// or http://{localhost,127.0.0.1,[::1]}"
       end
-      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
+      "missing issuer in [oauth]" if @oauth_client_id || @oauth_mgmt_base_url
+    end
+
+    private def warn_unused_oauth_sso_settings : Nil
+      candidate = oauth_sso_candidate || return
+      unused = oauth_providers.compact_map do |p|
+        p.name if p.name != candidate.name && (p.client_id || p.mgmt_base_url)
+      end
+      # Without an issuer [oauth] is no provider, so its SSO settings belong to none
+      unused << "[oauth] (no issuer)" if !@oauth_issuer_url && (@oauth_client_id || @oauth_mgmt_base_url)
+      return if unused.empty?
+      Log.warn do
+        "OAuth management UI SSO uses provider '#{candidate.name}', " \
+        "ignoring the SSO settings of #{unused.join(", ")}"
+      end
     end
 
     AUTH_BACKENDS = {"local", "oauth"}
@@ -325,7 +355,7 @@ module LavinMQ
 
     OAUTH_PROVIDER_NAME = /\A[A-Za-z0-9_-]+\z/
 
-    private def parse_oauth_provider(name : String, settings)
+    private def parse_oauth_provider(name : String, settings) # ameba:disable Metrics/CyclomaticComplexity
       section = "[oauth.#{name}]"
       unless OAUTH_PROVIDER_NAME.matches?(name)
         raise Error.new("Invalid OAuth provider name in #{section}, use letters, digits, '-' and '_'")
@@ -342,6 +372,9 @@ module LavinMQ
         when "verify_aud"                then provider.verify_aud = parse_value(v, Bool)
         when "audience"                  then provider.audience = v
         when "jwks_cache_ttl"            then provider.jwks_cache_ttl = parse_value(v, Time::Span)
+        when "client_id"                 then provider.client_id = v
+        when "mgmt_base_url"             then provider.mgmt_base_url = parse_value(v, URI)
+        when "mgmt_scopes"               then provider.mgmt_scopes = v
         else
           @io.puts "WARNING: Unknown setting '#{key}' in section #{section}"
         end

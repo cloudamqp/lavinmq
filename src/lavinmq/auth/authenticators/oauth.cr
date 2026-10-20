@@ -35,10 +35,14 @@ module LavinMQ
         verifier
       end
 
-      # The first provider's verifier. With an issuer in [oauth] that's the
-      # "default" provider, the one management UI SSO uses.
+      # The first provider's verifier
       def token_verifier : JWT::TokenVerifier
         @verifiers.first_value
+      end
+
+      # The verifier of the provider with this name, e.g. the one management UI SSO uses
+      def verifier(name : String) : JWT::TokenVerifier?
+        @verifiers[name]?
       end
 
       def verifiers : Array(JWT::TokenVerifier)

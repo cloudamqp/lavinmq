@@ -371,5 +371,98 @@ describe LavinMQ::Config do
       config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
       config.oauth_mgmt_ui_enabled?.should be_false
     end
+
+    it "returns true for SSO configured in an [oauth.<name>] section only" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_mgmt_ui_enabled?.should be_true
+    end
+
+    it "returns false when the SSO provider has no client_id" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_mgmt_ui_enabled?.should be_false
+    end
+  end
+
+  describe "#oauth_sso_provider" do
+    it "takes the SSO settings of an [oauth.<name>] section" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.keycloak]
+        issuer = https://keycloak.example.com/realms/prod
+
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com/lavinmq
+        mgmt_scopes = openid email
+        CONFIG
+      provider = config.oauth_sso_provider.should_not be_nil
+      provider.name.should eq "entra"
+      provider.client_id.should eq "lavinmq-ui"
+      provider.mgmt_base_url.should eq URI.parse("https://mq.example.com/lavinmq")
+      provider.mgmt_scopes.should eq "openid email"
+    end
+
+    it "takes the SSO settings of [oauth] for the default provider" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth]
+        issuer = https://keycloak.example.com/realms/prod
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      provider = config.oauth_sso_provider.should_not be_nil
+      provider.name.should eq "default"
+      provider.client_id.should eq "lavinmq-ui"
+      provider.mgmt_scopes.should eq "openid profile"
+    end
+
+    it "uses the first provider with SSO settings" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.a]
+        issuer = https://a.example.com
+        client_id = ui-a
+        mgmt_base_url = https://mq.example.com
+
+        [oauth.b]
+        issuer = https://b.example.com
+        client_id = ui-b
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_sso_provider.try(&.name).should eq "a"
+    end
+
+    it "doesn't fall back to a later provider when the first one's SSO settings are incomplete" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.a]
+        issuer = https://a.example.com
+        client_id = ui-a
+
+        [oauth.b]
+        issuer = https://b.example.com
+        client_id = ui-b
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_sso_provider.should be_nil
+    end
+
+    it "ignores SSO settings in [oauth] without an issuer" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth]
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com
+
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        CONFIG
+      config.oauth_sso_provider.should be_nil
+    end
   end
 end

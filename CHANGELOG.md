@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- OAuth authentication against several identity providers, each configured in an `[oauth.<name>]` section. A token is validated by the provider matching its `iss` claim [#2501](https://github.com/cloudamqp/lavinmq/pull/2501)
+- OAuth authentication against several identity providers, each configured in an `[oauth.<name>]` section. A token is validated by the provider matching its `iss` claim. Management UI SSO can be configured in one of these sections, without an `[oauth]` section [#2501](https://github.com/cloudamqp/lavinmq/pull/2501)
 
 ### Changed
 

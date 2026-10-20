@@ -142,7 +142,7 @@ Not every setting takes effect on reload. The log level, TLS certificates, `auth
 
 ## [oauth.name] Sections
 
-Each `[oauth.<name>]` section configures an additional OAuth provider, see [Multiple Providers](authentication.md#multiple-providers). It takes `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience` and `jwks_cache_ttl`, with the same types and defaults as in `[oauth]`.
+Each `[oauth.<name>]` section configures an additional OAuth provider, see [Multiple Providers](authentication.md#multiple-providers). It takes `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience`, `jwks_cache_ttl`, `client_id`, `mgmt_base_url` and `mgmt_scopes`, with the same types and defaults as in `[oauth]`. Management UI SSO uses the first provider that sets `client_id` or `mgmt_base_url`, see [Management UI SSO Login](authentication.md#management-ui-sso-login).
 
 ## [experimental] Section
 

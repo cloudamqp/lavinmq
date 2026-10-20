@@ -69,6 +69,13 @@ def build_stub_oauth_chain(user : LavinMQ::Auth::BaseUser,
   LavinMQ::Auth::Chain.new([oauth_auth] of LavinMQ::Auth::Authenticator)
 end
 
+class LavinMQ::Config
+  # Specs configure [oauth.<name>] providers without parsing an INI file
+  def add_oauth_provider_for_spec(provider : LavinMQ::OAuthProviderConfig) : Nil
+    @oauth_named_providers << provider
+  end
+end
+
 def default_oidc : LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration
   LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
     issuer: "https://idp.example.com",
@@ -678,6 +685,41 @@ describe "OAuth2" do
         identity_cleared = set_cookies.any? { |c| c.starts_with?("m=;") && c.downcase.includes?("max-age=0") }
         token_cleared.should be_true
         identity_cleared.should be_true
+      end
+    end
+  end
+
+  describe "OAuthController with SSO configured in an [oauth.<name>] section" do
+    it "logs in with that provider's endpoints and settings" do
+      provider = LavinMQ::OAuthProviderConfig.new(URI.parse("https://entra.example.com"), name: "entra",
+        audience: "api://lavinmq", client_id: "entra-ui",
+        mgmt_base_url: URI.parse("https://localhost:15672/mq"), mgmt_scopes: "openid email")
+      LavinMQ::Config.instance.add_oauth_provider_for_spec(provider)
+      oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
+        issuer: "https://entra.example.com",
+        jwks_uri: "https://entra.example.com/jwks",
+        authorization_endpoint: "https://entra.example.com/authorize",
+        token_endpoint: "https://entra.example.com/token")
+      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, SeedableJWKSFetcher.new(oidc))
+      oauth = LavinMQ::Auth::OAuthAuthenticator.new({"entra" => verifier})
+      chain = LavinMQ::Auth::Chain.new([oauth] of LavinMQ::Auth::Authenticator)
+
+      with_http_server(authenticator: chain) do |http, _|
+        enabled = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
+        JSON.parse(enabled.body)["enabled"].as_bool.should be_true
+
+        response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
+        response.status_code.should eq 200
+        authorize_url = URI.parse(JSON.parse(response.body)["authorize_url"].as_s)
+        authorize_url.host.should eq "entra.example.com"
+        authorize_url.path.should eq "/authorize"
+        params = authorize_url.query_params
+        params["client_id"].should eq "entra-ui"
+        params["scope"].should eq "openid email"
+        params["audience"].should eq "api://lavinmq"
+        params["redirect_uri"].should eq "https://localhost:15672/mq/oauth/callback"
+        state_cookie = response.cookies["oauth_state"].should_not be_nil
+        state_cookie.path.should eq "/mq"
       end
     end
   end

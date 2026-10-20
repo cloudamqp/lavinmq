@@ -50,8 +50,10 @@ module LavinMQ
         end
 
         # No JWKS keys yet means verification couldn't run; keep the session
-        # cookies, the token may still be valid.
-        return if oauth.token_verifier.fetcher.public_keys.empty?
+        # cookies, the token may still be valid. SSO sets the cookie, so it's
+        # the SSO provider's keys that matter.
+        verifier = sso_verifier(oauth) || oauth.token_verifier
+        return if verifier.fetcher.public_keys.empty?
 
         expire_cookie(context, "oauth_token", cookie_path)
         expire_cookie(context, "m", cookie_path)
@@ -73,17 +75,17 @@ module LavinMQ
 
       private def handle_enabled(context) : ::HTTP::Server::Context
         context.response.content_type = "application/json"
-        {enabled: Config.instance.oauth_mgmt_ui_enabled? && !oauth_authenticator.nil?}.to_json(context.response)
+        enabled = !!oauth_authenticator.try { |oauth| sso_verifier(oauth) }
+        {enabled: enabled}.to_json(context.response)
         context
       end
 
       private def handle_authorize(context) : ::HTTP::Server::Context
-        config = Config.instance
         oauth = oauth_authenticator || oauth_error(context, 503, "OAuth not configured")
-        oauth_error(context, 503, "OAuth not configured") unless config.oauth_mgmt_ui_enabled?
-        client_id = config.oauth_client_id || oauth_error(context, 503, "OAuth not configured")
+        provider, token_verifier = sso(oauth) || oauth_error(context, 503, "OAuth not configured")
+        client_id = provider.client_id || oauth_error(context, 503, "OAuth not configured")
 
-        auth_ep = oidc_config(oauth).authorization_endpoint || raise "OIDC missing authorization_endpoint"
+        auth_ep = oidc_config(token_verifier).authorization_endpoint || raise "OIDC missing authorization_endpoint"
         verifier, challenge = OAuth2::PKCE.generate
         state = Random::Secure.urlsafe_base64(32)
 
@@ -92,14 +94,14 @@ module LavinMQ
 
         params = ::URI::Params.build do |p|
           p.add "client_id", client_id
-          p.add "redirect_uri", build_redirect_uri
+          p.add "redirect_uri", build_redirect_uri(provider)
           p.add "response_type", "code"
-          p.add "scope", config.oauth_mgmt_scopes
+          p.add "scope", provider.mgmt_scopes
           p.add "code_challenge", challenge
           p.add "code_challenge_method", "S256"
           p.add "state", state
           # Some IdPs (e.g. Auth0) only issue JWT access tokens when an audience is requested
-          if audience = config.oauth_audience
+          if audience = provider.audience
             p.add "audience", audience
           end
         end
@@ -119,11 +121,12 @@ module LavinMQ
 
       private def handle_callback(context) : ::HTTP::Server::Context
         oauth = oauth_authenticator || oauth_redirect_error(context, "OAuth not configured")
-        code, code_verifier, client_id = validate_callback(context)
+        provider, token_verifier = sso(oauth) || oauth_redirect_error(context, "OAuth not configured")
+        code, code_verifier, client_id = validate_callback(context, provider)
 
-        token_ep = oidc_config(oauth).token_endpoint || raise "OIDC missing token_endpoint"
+        token_ep = oidc_config(token_verifier).token_endpoint || raise "OIDC missing token_endpoint"
         token_response = OAuth2::TokenExchange.new(token_ep, client_id)
-          .exchange(code, build_redirect_uri, code_verifier)
+          .exchange(code, build_redirect_uri(provider), code_verifier)
 
         user = authenticate_token(oauth, token_response.access_token, context.request.remote_address)
         oauth_redirect_error(context, "Token validation failed") if user.nil?
@@ -157,10 +160,8 @@ module LavinMQ
         context
       end
 
-      private def validate_callback(context) : {String, String, String}
-        config = Config.instance
-        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_mgmt_ui_enabled?
-        client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
+      private def validate_callback(context, provider : OAuthProviderConfig) : {String, String, String}
+        client_id = provider.client_id || oauth_redirect_error(context, "OAuth not configured")
 
         if error = context.request.query_params["error"]?
           description = context.request.query_params["error_description"]? || error
@@ -191,7 +192,7 @@ module LavinMQ
       # HTTP (only allowed for localhost), where Secure cookies are dropped by
       # some browsers and would break the login flow.
       private def cookies_secure? : Bool
-        base_url = Config.instance.oauth_mgmt_base_url
+        base_url = mgmt_base_url
         return true unless base_url
         base_url.scheme != "http"
       end
@@ -201,9 +202,9 @@ module LavinMQ
       end
 
       # Scope auth cookies to the path the UI is served under (the path of
-      # oauth_mgmt_base_url, e.g. "/lavinmq" behind a proxy), defaulting to "/".
+      # mgmt_base_url, e.g. "/lavinmq" behind a proxy), defaulting to "/".
       private def cookie_path : String
-        path = Config.instance.oauth_mgmt_base_url.try(&.path).to_s.chomp("/")
+        path = mgmt_base_url.try(&.path).to_s.chomp("/")
         path.empty? ? "/" : path
       end
 
@@ -220,13 +221,28 @@ module LavinMQ
         raise OAuthError.new
       end
 
-      private def oidc_config(oauth : Auth::OAuthAuthenticator) : Auth::JWT::JWKSFetcher::OIDCConfiguration
-        fetcher = oauth.token_verifier.fetcher
+      private def oidc_config(verifier : Auth::JWT::TokenVerifier) : Auth::JWT::JWKSFetcher::OIDCConfiguration
+        fetcher = verifier.fetcher
         fetcher.oidc_config || fetcher.fetch_oidc_config
       end
 
-      private def build_redirect_uri : String
-        base_url = Config.instance.oauth_mgmt_base_url || raise "oauth_mgmt_base_url must be configured when OAuth is enabled"
+      # The provider management UI SSO logs in with and its verifier, nil when SSO is off
+      private def sso(oauth : Auth::OAuthAuthenticator) : {OAuthProviderConfig, Auth::JWT::TokenVerifier}?
+        provider = Config.instance.oauth_sso_provider || return
+        verifier = oauth.verifier(provider.name) || return
+        {provider, verifier}
+      end
+
+      private def sso_verifier(oauth : Auth::OAuthAuthenticator) : Auth::JWT::TokenVerifier?
+        sso(oauth).try &.[1]
+      end
+
+      private def mgmt_base_url : URI?
+        Config.instance.oauth_sso_provider.try &.mgmt_base_url
+      end
+
+      private def build_redirect_uri(provider : OAuthProviderConfig) : String
+        base_url = provider.mgmt_base_url || raise "mgmt_base_url must be configured when OAuth is enabled"
         "#{base_url.to_s.chomp("/")}/oauth/callback"
       end
 
