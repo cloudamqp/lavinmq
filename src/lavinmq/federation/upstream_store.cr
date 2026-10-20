@@ -21,7 +21,6 @@ module LavinMQ
       end
 
       def create_upstream(name, config)
-        close_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -34,6 +33,12 @@ module LavinMQ
         consumer_tag = config["consumer-tag"]?.try(&.as_s?) || "federation-link-#{name}"
         # trust_user_id
         queue = config["queue"]?.try(&.as_s)
+        old = @upstreams[name]?
+        if old && same_resources?(old, uri, exchange, queue, expires, msg_ttl, max_hops)
+          close_upstream(name)
+        else
+          do_delete_upstream(name)
+        end
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
         @log.info { "Upstream '#{name}' created" }
@@ -59,6 +64,14 @@ module LavinMQ
             true
           end
         end
+      end
+
+      # Whether the resources on the upstream broker can be reused: the
+      # settings that name them, plus the declare arguments that a passive
+      # re-declare would silently ignore
+      private def same_resources?(old : Upstream, uri, exchange, queue, expires, msg_ttl, max_hops) : Bool
+        old.uri == URI.parse(uri) && old.exchange == exchange && old.queue == queue &&
+          old.expires == expires && old.msg_ttl == msg_ttl && old.max_hops == max_hops
       end
 
       # Remove the upstream like do_delete_upstream, but keep the resources it

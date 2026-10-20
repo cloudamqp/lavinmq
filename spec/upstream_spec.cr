@@ -1384,6 +1384,64 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "deletes the old upstream resources when a re-created parameter changes the exchange" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.cleanup_vhosts(s)
+        upstream_vhost = s.vhosts.create("upstream")
+        downstream_vhost = s.vhosts.create("downstream")
+        store = downstream_vhost.upstreams
+        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        upstream = store.create_upstream("a", config)
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        link = upstream.link(ex)
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # The new links declare resources named after the new exchange, so a
+        # kept queue would stay bound to upstream_ex, filling up with nothing
+        # consuming it
+        config2 = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex2"}))
+        store.create_upstream("a", config2)
+
+        wait_for { link.state.terminated? }
+        upstream_vhost.queue_exists?(federation_name).should be_false
+        upstream_vhost.exchange_exists?(federation_name).should be_false
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "applies a changed expires when an upstream parameter is re-created" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.cleanup_vhosts(s)
+        upstream_vhost = s.vhosts.create("upstream")
+        downstream_vhost = s.vhosts.create("downstream")
+        store = downstream_vhost.upstreams
+        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        upstream = store.create_upstream("a", config)
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        link = upstream.link(ex)
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # The link declares the upstream queue passively when it exists, so a
+        # changed x-expires only lands when the old queue is removed first
+        config2 = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex", "expires": 60000}))
+        upstream2 = store.create_upstream("a", config2)
+        link2 = upstream2.link(ex)
+        wait_for { link2.state.running? }
+
+        q = upstream_vhost.queue?(federation_name).should_not be_nil
+        q.details_tuple[:arguments]["x-expires"]?.should eq 60_000
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "stops the links of a set member with overrides when the set is replaced or deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
