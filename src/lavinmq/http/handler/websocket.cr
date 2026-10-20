@@ -135,6 +135,8 @@ module LavinMQ
     @write_lock = Mutex.new
     @write_state = Atomic(WriteState).new(WriteState::Idle)
     @eof = false
+    @read_timeout : Time::Span?
+    @data_deadline : Time::Instant?
 
     # *socket* is the connection the WebSocket runs over
     def initialize(@socket : IO)
@@ -148,11 +150,15 @@ module LavinMQ
         info = @ws.receive(slice)
         case info.opcode
         in .binary?, .continuation?
-          return info.size unless info.size.zero?
+          next if info.size.zero?
+          refresh_data_deadline
+          return info.size
         in .ping?
+          check_data_deadline
           write_frame(slice[0, info.size], :pong) if info.final
         in .pong?
           # An unsolicited pong isn't answered
+          check_data_deadline
         in .close?
           @eof = true
           code = ::HTTP::WebSocket::CloseCode.new(IO::ByteFormat::NetworkEndian.decode(UInt16, slice)) if info.size >= 2
@@ -188,9 +194,23 @@ module LavinMQ
       send_close_frame
     end
 
+    # Pings and pongs don't count as activity, the timeout is for data, like
+    # the MQTT keepalive. The socket's own timeout covers a silent connection.
     def read_timeout=(timeout : Time::Span?)
+      @read_timeout = timeout
+      refresh_data_deadline
       socket = @socket
       socket.read_timeout = timeout if socket.responds_to?(:read_timeout=)
+    end
+
+    private def refresh_data_deadline : Nil
+      @data_deadline = @read_timeout.try { |timeout| Time.instant + timeout }
+    end
+
+    private def check_data_deadline : Nil
+      if (deadline = @data_deadline) && Time.instant > deadline
+        raise IO::TimeoutError.new("Read timed out")
+      end
     end
 
     # Shuts down the underlying connection, see `Socket#shutdown_read_write`.

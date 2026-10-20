@@ -210,6 +210,47 @@ describe "Websocket support" do
       end
     end
 
+    {"pings", "pongs"}.each do |frames|
+      it "times out a read when only #{frames} arrive" do
+        with_websocket_io do |io, client|
+          io.read_timeout = 300.milliseconds
+          result = Channel(Exception?).new(1)
+          spawn do
+            io.read(Bytes.new(16))
+            result.send nil
+          rescue ex
+            result.send ex
+          end
+          timed_out = false
+          10.times do
+            select
+            when ex = result.receive
+              ex.should be_a IO::TimeoutError
+              timed_out = true
+              break
+            when timeout(100.milliseconds)
+            end
+            frames == "pings" ? client.ping : client.send(Bytes.empty, :pong)
+          end
+          timed_out.should be_true
+        end
+      end
+    end
+
+    it "doesn't time out a read while data arrives" do
+      with_websocket_io do |io, client|
+        io.read_timeout = 300.milliseconds
+        buffer = Bytes.new(1)
+        5.times do
+          sleep 200.milliseconds
+          client.ping
+          client.send("x".to_slice, :binary)
+          io.read(buffer).should eq 1
+          client.receive(Bytes.new(16)).opcode.should eq HTTP::WebSocket::Protocol::Opcode::PONG
+        end
+      end
+    end
+
     it "writes nothing more after a frame that failed mid-write" do
       with_websocket_io do |io, _, _, socket|
         socket.write_timeout = 50.milliseconds
