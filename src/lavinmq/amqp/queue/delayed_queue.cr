@@ -18,6 +18,7 @@ module LavinMQ::AMQP
     # Simplified expire loop: no consumers and no per-message TTL to consider,
     # only the delays ordered by the delayed store.
     private def message_expire_loop
+      wait_for_vhost_loaded
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -47,6 +48,17 @@ module LavinMQ::AMQP
       @message_expire_fiber_active.set(false, :release)
       ensure_expire_fiber # restart if a message arrived during teardown
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Messages restored from disk can be overdue already, but must not be
+    # released before the vhost has loaded the bindings they route through
+    private def wait_for_vhost_loaded
+      while @vhost.closed?
+        select
+        when @vhost.closed.when_false.receive
+        when @message_ttl_change.receive
+        end
+      end
     end
 
     # The expire fiber must always run, otherwise delayed messages are never released
