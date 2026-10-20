@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The clustering `advertised_uri` defaults to `tcp://<bind>:<port>` when `bind` is a specific address, and to the hostname only when bound to all interfaces (`::` or `0.0.0.0`). It was always the hostname. With the raft backend, `raft_advertised_address` defaults to the host of `advertised_uri` with `raft_port`, so it rarely needs to be set [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - Followers authenticate to the leader's replication port with an HMAC-SHA256 challenge-response instead of sending the clustering password in clear text (replication protocol v3; v1 and v2 peers, such as 2.11.0-rc.1 nodes, still connect the old way, except with the raft backend) [#2321](https://github.com/cloudamqp/lavinmq/pull/2321)
 
+### Fixed
+
+- A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
+- Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)
+
 ## [2.11.0-rc.1] - 2026-10-16
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker.
