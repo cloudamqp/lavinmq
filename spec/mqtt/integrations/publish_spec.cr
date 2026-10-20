@@ -16,6 +16,27 @@ module MqttSpecs
       end
     end
 
+    it "keeps delivering to a session after a publish with a topic longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub", clean_session: false)
+          subscribe(sub, topic_filters: [subtopic("#", 1u8)])
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub")
+            publish(io, topic: "a/#{"x" * 300}", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+            publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+            disconnect(io)
+          end
+
+          pub = read_publish(sub)
+          pub.topic.should eq "a/b"
+          puback(sub, pub.packet_id)
+          server.vhosts["/"].session("mqtt.sub").closed?.should be_false
+        end
+      end
+    end
+
     it "shouldn't return anything for QoS=0" do
       with_server do |server|
         with_client_io(server) do |io|
