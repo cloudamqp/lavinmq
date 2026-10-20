@@ -108,6 +108,29 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "does not mix up non-ASCII topics" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store.retain(publish_packet(topic: "é/1", payload: "one".to_slice, retain: true))
+        store.retain(publish_packet(topic: "é/2", payload: "two".to_slice, retain: true))
+        store.retain(publish_packet(topic: "é/3", payload: "three".to_slice, retain: true))
+
+        index.size.should eq(3)
+
+        called = Array(Tuple(String, String)).new
+        {"é/1", "é/2", "é/3"}.each do |topic_filter|
+          store.each(topic_filter) do |topic, body_io, body_bytesize|
+            body = Bytes.new(body_bytesize)
+            body_io.read(body)
+            called << {topic, String.new(body)}
+          end
+        end
+
+        called.should eq [{"é/1", "one"}, {"é/2", "two"}, {"é/3", "three"}]
+      ensure
+        store.try &.close
+      end
+
       it "handles multiple subscriptions" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
