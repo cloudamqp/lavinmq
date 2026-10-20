@@ -96,7 +96,7 @@ The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtt
 
 TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
 
-For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
+For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. With `tcp_proxy_protocol` enabled, a PROXY header from a trusted load balancer is forwarded to the leader instead, so the leader sees the load balancer's client. The leader trusts PROXY headers from followers whether or not `tcp_proxy_protocol` is enabled. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 
 ## Security
 

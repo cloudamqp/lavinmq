@@ -480,6 +480,12 @@ module LavinMQ
       end
     end
 
+    # If no trusted sources are configured, accept from all sources for backward compatibility
+    def trusted_proxy_source?(address : String) : Bool
+      @proxy_protocol_trusted_sources.empty? ||
+        @proxy_protocol_trusted_sources.any?(&.matches?(address))
+    end
+
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
       return if false?(str)
       if keepalive = str.try &.split(":")

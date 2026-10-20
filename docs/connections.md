@@ -26,12 +26,16 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on TCP, applies to AMQP and MQTT. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
+| `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on the TCP and TLS listeners, applies to AMQP and MQTT. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
 | `proxy_protocol_trusted_sources` | `[amqp]` | (empty) | Comma-separated list of IPs and CIDR blocks (IPv4/IPv6) allowed to send PROXY headers, e.g. `10.0.0.1, 192.168.0.0/24, 2001:db8::/32`. |
 
 PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
 
-The address in a PROXY header is used for logging and for the connection listing. It never counts as loopback for the `default_user_only_loopback` check, not even from a listed source or a cluster follower. The address describes the client as seen by the proxy, not a connection on the broker host. A `PROXY UNKNOWN` header is rejected and the connection is closed, because the client address is not known. This also applies to an untrusted source, because the header is parsed before the source is checked.
+On the TLS listeners (`amqps_port` and `mqtts_port`) the header comes before the TLS handshake, as a load balancer that passes TLS through unterminated sends it. The HTTP listeners don't read PROXY headers.
+
+Of the v2 TLVs, only SSL is used: the TLS version, cipher and client certificate CN reported by a proxy that terminates TLS. Other TLVs, such as AUTHORITY, UNIQUE_ID or an AWS VPC endpoint ID, are ignored, as are unknown ones. A v2 `LOCAL` header, which a proxy sends on connections it opens itself, such as health checks, is accepted and the connection's own address is used.
+
+The address in a PROXY header is used for logging and for the connection listing. It never counts as loopback for the `default_user_only_loopback` check, not even from a listed source or a cluster follower. The address describes the client as seen by the proxy, not a connection on the broker host. A `PROXY UNKNOWN` header, or a v2 `PROXY` header with an unspecified address family, is rejected and the connection is closed, because the client address is not known. This also applies to an untrusted source, because the header is parsed before the source is checked.
 
 ## Low Disk Space
 
