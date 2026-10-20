@@ -584,6 +584,7 @@ module LavinMQ
           select
           when sent.receive
           when timeout(timeout)
+            @log.info { "Close frame not sent within #{timeout.total_seconds}s, shutting the connection down" }
             close_socket
           end
         end

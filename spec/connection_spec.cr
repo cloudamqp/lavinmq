@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 # AMQP::Client is too good at handling errors, so we need to make it unsafe
 class AMQP::Client::UnsafeConnection < AMQP::Client::Connection
@@ -420,18 +421,21 @@ describe LavinMQ::Server do
       LavinMQ::Config.instance.tcp_send_timeout = 30
       with_amqp_server do |s|
         with_stuck_consumer(s, "tcp_send_timeout_close") do |client|
-          closed = Channel(Nil).new
-          spawn do
-            # As the HTTP API closes a connection
-            client.close("Closed via management plugin", timeout: 1.second)
-            closed.send nil
+          Log.capture("lmq.amqp.client", :info) do |logs|
+            closed = Channel(Nil).new
+            spawn do
+              # As the HTTP API closes a connection
+              client.close("Closed via management plugin", timeout: 1.second)
+              closed.send nil
+            end
+            select
+            when closed.receive
+            when timeout(5.seconds)
+              fail "close didn't complete within its timeout"
+            end
+            client.closed?.should be_true
+            logs.check(:info, /Close frame not sent within 1.0s/)
           end
-          select
-          when closed.receive
-          when timeout(5.seconds)
-            fail "close didn't complete within its timeout"
-          end
-          client.closed?.should be_true
         end
       end
     end
