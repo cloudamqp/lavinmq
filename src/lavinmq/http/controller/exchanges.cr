@@ -112,6 +112,9 @@ module LavinMQ
             if e.internal?
               bad_request(context, "Not allowed to publish to internal exchange")
             end
+            unless vhost.flow?
+              precondition_failed(context, "Server low on disk space")
+            end
             body = parse_body(context)
             properties = body["properties"]?
             routing_key = body["routing_key"]?.try(&.as_s)
