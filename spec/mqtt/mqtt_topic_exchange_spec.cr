@@ -548,5 +548,28 @@ module MqttSpecs
         end.should be_true
       end
     end
+
+    it "keeps a bound queue open after a publish with a topic longer than 255 bytes" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        vhost.bind_queue("q1", "xmqtt", "#")
+
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "a/#{"x" * 300}", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+          publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+          disconnect(io)
+        end
+
+        queue = vhost.queue("q1")
+        queue.closed?.should be_false
+        queue.message_count.should eq 1
+        queue.basic_get(no_ack: true) do |env|
+          env.message.routing_key.should eq "a/b"
+        end.should be_true
+      end
+    end
   end
 end
