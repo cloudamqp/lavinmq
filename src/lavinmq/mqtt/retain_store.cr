@@ -1,4 +1,5 @@
 require "../filesystem"
+require "./consts"
 require "./topic_tree"
 require "./protocol"
 require "../persister"
@@ -50,6 +51,10 @@ module LavinMQ
         )
 
         while topic = index_file.gets
+          if topic.bytesize > MAX_TOPIC_LENGTH
+            Log.warn { "dropping retained message, topic is #{topic.bytesize} bytes, longer than the supported #{MAX_TOPIC_LENGTH}" }
+            next
+          end
           msg_file_name = make_file_name(topic)
           unless msg_file_segments.delete(msg_file_name)
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }

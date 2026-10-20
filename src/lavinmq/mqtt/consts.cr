@@ -8,6 +8,10 @@ module LavinMQ
 
     SESSION_PREFIX = "mqtt."
 
+    # MQTT allows topics up to 65535 bytes, but a topic becomes an AMQP routing
+    # key, which the protocol caps at 255 bytes
+    MAX_TOPIC_LENGTH = 255
+
     RETAIN_HEADERS = AMQP::Table.new({RETAIN_HEADER => true})
 
     QOS0_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 0u8})

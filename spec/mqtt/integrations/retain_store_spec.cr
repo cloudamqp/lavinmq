@@ -150,6 +150,27 @@ module MqttSpecs
         new_index.size.should eq(1)
         new_index.@leafs.has_key?("a").should be_true
       end
+
+      it "drops topics longer than 255 bytes and their msg files on restore" do
+        dir = "tmp/retain_store"
+        Dir.mkdir_p dir
+        long_topic = "a/" + "b" * 300
+        long_file = Digest::MD5.hexdigest(long_topic) + ".msg"
+        File.write(File.join(dir, "index"), "#{long_topic}\nok/topic\n")
+        File.write(File.join(dir, long_file), "poison")
+        File.write(File.join(dir, Digest::MD5.hexdigest("ok/topic") + ".msg"), "body")
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil, index)
+
+        index.size.should eq(1)
+        topics = Array(String).new
+        store.each("#") { |topic, _io, _size| topics << topic }
+        topics.should eq ["ok/topic"]
+        File.exists?(File.join(dir, long_file)).should be_false
+      ensure
+        store.try &.close
+      end
     end
 
     it "survives a restart" do
@@ -167,6 +188,50 @@ module MqttSpecs
         body_io.read(body)
         body.should eq "body".to_slice
         topic.should eq "topic"
+      end
+    end
+
+    it "a retained publish with a topic longer than 255 bytes cannot poison '#' subscribers" do
+      with_server do |server|
+        long_topic = "a/" + "b" * 300
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: long_topic, payload: "x".to_slice, qos: 0u8, retain: true)
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          suback = begin
+            subscribe(io, topic_filters: mk_topic_filters({"#", 0}))
+          rescue IO::Error
+            nil
+          end
+          suback.should be_a(MQTT::Protocol::SubAck)
+          disconnect(io)
+        end
+      end
+    end
+
+    it "a will with a topic longer than 255 bytes is not retained" do
+      with_server do |server|
+        long_topic = "a/" + "b" * 300
+        with_client_io(server) do |io|
+          will = MQTT::Protocol::Will.new(topic: long_topic, payload: "x".to_slice, qos: 0u8, retain: true)
+          connect(io, client_id: "will_client", will: will)
+          # The block closes the socket without a DISCONNECT, so the will fires
+        end
+        sleep 100.milliseconds # let the server publish the will
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          suback = begin
+            subscribe(io, topic_filters: mk_topic_filters({"#", 0}))
+          rescue IO::Error
+            nil
+          end
+          suback.should be_a(MQTT::Protocol::SubAck)
+          disconnect(io)
+        end
       end
     end
 

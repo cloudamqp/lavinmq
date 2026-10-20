@@ -201,6 +201,11 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
+        if packet.topic.bytesize > MAX_TOPIC_LENGTH
+          @log.warn { "Closing connection: PUBLISH topic is #{packet.topic.bytesize} bytes, longer than the supported #{MAX_TOPIC_LENGTH}" }
+          close_socket
+          return
+        end
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
@@ -330,6 +335,10 @@ module LavinMQ
 
       private def publish_will
         if will = @will
+          if will.topic.bytesize > MAX_TOPIC_LENGTH
+            @log.warn { "Will not published: topic is #{will.topic.bytesize} bytes, longer than the supported #{MAX_TOPIC_LENGTH}" }
+            return
+          end
           if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
