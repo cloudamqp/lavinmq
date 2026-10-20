@@ -176,7 +176,7 @@ module MqttSpecs
             publish(pub, topic: "t", payload: "m".to_slice, qos: 1u8, expect_response: false)
             pub.should be_closed
           end
-          server.vhosts["/"].session("mqtt.sub").message_count.should eq 0
+          sub.should be_drained
         end
       end
     ensure
