@@ -575,8 +575,24 @@ module LavinMQ
           socket.read_timeout = timeout
         end
 
-        code = ConnectionReplyCode::CONNECTION_FORCED
-        send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        # A write already in progress, e.g. a delivery to a client that doesn't
+        # read, keeps the tcp_send_timeout it started with and holds the write
+        # lock the Close frame needs. If the frame isn't sent within the timeout,
+        # shut the connection down, which aborts that write.
+        sent = ::Channel(Nil).new(1)
+        spawn(name: "AMQP::Client#close timeout") do
+          select
+          when sent.receive
+          when timeout(timeout)
+            close_socket
+          end
+        end
+        begin
+          code = ConnectionReplyCode::CONNECTION_FORCED
+          send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        ensure
+          sent.send(nil)
+        end
       ensure
         @running = false
       end

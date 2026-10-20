@@ -416,6 +416,26 @@ describe LavinMQ::Server do
       end
     end
 
+    it "closes a connection within the close timeout while a delivery to it is blocked" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_close") do |client|
+          closed = Channel(Nil).new
+          spawn do
+            # As the HTTP API closes a connection
+            client.close("Closed via management plugin", timeout: 1.second)
+            closed.send nil
+          end
+          select
+          when closed.receive
+          when timeout(5.seconds)
+            fail "close didn't complete within its timeout"
+          end
+          client.closed?.should be_true
+        end
+      end
+    end
+
     it "can force close a connection while a large message is delivered to a slow reader" do
       LavinMQ::Config.instance.tcp_send_timeout = 30
       with_amqp_server do |s|
