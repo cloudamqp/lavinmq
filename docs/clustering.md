@@ -88,11 +88,11 @@ When a node is a follower, it automatically proxies client traffic to the curren
 
 The proxy is transparent and runs on every follower for:
 
-- AMQP (TCP and Unix socket) and AMQPS (TCP)
-- MQTT (TCP and Unix socket) and MQTTS (TCP)
-- HTTP/management (TCP and Unix socket) and HTTPS (TCP)
+- AMQP and AMQPS
+- MQTT and MQTTS
+- HTTP/management and HTTPS
 
-The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node.
+The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
 
 TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
 
