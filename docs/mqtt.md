@@ -270,4 +270,6 @@ Note that connecting with a client_id already in use takes over that session, so
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
-- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).
+- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding). Topics and topic filters can be at most 255 bytes, while MQTT allows 65535:
+  - A PUBLISH to a longer topic is acknowledged as usual and dropped, since MQTT 3.1.1 can only acknowledge a PUBLISH or close the connection, and a closed connection makes the client resend it. The first drop on a connection is logged as a warning, later ones at debug. A will message with a longer topic is dropped with a warning.
+  - A SUBSCRIBE with a longer topic filter gets return code `0x80` (failure) for that filter.
