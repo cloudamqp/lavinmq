@@ -692,6 +692,28 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "keeps the link and upstream resources when vhost policies are re-applied" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef policy reapply", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        UpstreamSpecHelpers.start_link(upstream)
+        link = wait_for { upstream.links.first? }
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+        us_q = upstream_vhost.queue(federation_name)
+
+        # Any policy or parameter change in the vhost re-applies all policies.
+        # The unchanged federation policy must not restart the link, and must
+        # not delete the upstream queue with its buffered messages.
+        downstream_vhost.apply_policies
+
+        upstream.links.first?.should be link
+        link.state.running?.should be_true
+        upstream_vhost.queue?(federation_name).should be us_q
+      end
+    end
+
     {% for descr, v in {nil: nil, empty: ""} %}
     describe "when @exchange is {{ descr }}" do
       it "should use downstream exchange name as upstream exchange" do
@@ -1329,6 +1351,34 @@ describe LavinMQ::Federation::Upstream do
 
         member.links.should be_empty
         wait_for { link.state.terminated? }
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "keeps upstream resources when an upstream parameter is re-created" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.cleanup_vhosts(s)
+        upstream_vhost = s.vhosts.create("upstream")
+        downstream_vhost = s.vhosts.create("downstream")
+        store = downstream_vhost.upstreams
+        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        upstream = store.create_upstream("a", config)
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        link = upstream.link(ex)
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # A re-PUT of the parameter replaces the upstream and restarts its
+        # links. The resources on the upstream broker hold buffered messages
+        # and must survive for the new links to reuse.
+        store.create_upstream("a", config)
+
+        wait_for { link.state.terminated? }
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
       ensure
         store.try &.stop_all
       end

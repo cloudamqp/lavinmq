@@ -98,6 +98,9 @@ module LavinMQ::AMQP
     # Built by clear_policy_arguments/apply_policy_argument, published by
     # commit_policy_arguments
     @staged_settings = Settings.new
+    @staged_federation_upstream : String?
+    @staged_federation_upstream_set : String?
+    @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
@@ -557,10 +560,10 @@ module LavinMQ::AMQP
           return true
         end
       when "federation-upstream"
-        @vhost.upstreams.try &.link(value.as_s, self)
+        @staged_federation_upstream = value.as_s
         return true
       when "federation-upstream-set"
-        @vhost.upstreams.try &.link_set(value.as_s, self)
+        @staged_federation_upstream_set = value.as_s
         return true
       when "consumer-timeout"
         unless settings.consumer_timeout.try &.< value.as_i64
@@ -574,7 +577,9 @@ module LavinMQ::AMQP
 
     private def clear_policy_arguments
       @staged_settings = settings_from_arguments
-      @vhost.upstreams.try &.stop_link(self)
+      @staged_federation_upstream = nil
+      @staged_federation_upstream_set = nil
+      @federation_staged = true
     end
 
     private def handle_arguments
@@ -594,6 +599,10 @@ module LavinMQ::AMQP
       @message_ttl_change.try_send? nil
       ensure_expire_fiber if settings.message_ttl
       schedule_policy_limits if settings.enforce_limits?
+      if @federation_staged
+        @federation_staged = false
+        @vhost.upstreams.try &.reconcile_link(self, @staged_federation_upstream, @staged_federation_upstream_set)
+      end
     end
 
     private def settings_from_arguments : Settings # ameba:disable Metrics/CyclomaticComplexity

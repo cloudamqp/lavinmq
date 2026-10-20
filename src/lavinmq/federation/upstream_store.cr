@@ -21,7 +21,7 @@ module LavinMQ
       end
 
       def create_upstream(name, config)
-        do_delete_upstream(name)
+        close_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -61,8 +61,44 @@ module LavinMQ
         end
       end
 
-      def link(name, resource : AMQP::Queue | Exchange)
-        @upstreams[name]?.try &.link(resource)
+      # Remove the upstream like do_delete_upstream, but keep the resources it
+      # created on the upstream broker: a replacement upstream's links reuse
+      # them, so their buffered messages survive a parameter re-PUT
+      private def close_upstream(name)
+        @upstreams.delete(name).try(&.close)
+        @upstream_sets.each do |_, set|
+          set.reject! do |upstream|
+            next false unless upstream.name == name
+            upstream.close
+            true
+          end
+        end
+      end
+
+      # Make the resource's links match its policy after a policy (re)apply.
+      # A link whose upstream the policy still names is kept untouched: that
+      # keeps the upstream queue, and its buffered messages, alive. The other
+      # links are stopped and their upstream resources removed.
+      def reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
+        desired = Array(Upstream).new
+        if name = upstream_name
+          if upstream = @upstreams[name]?
+            desired << upstream
+          else
+            @log.warn { "Federation upstream '#{name}' not found" }
+          end
+        end
+        if name = set_name
+          if set = get_set?(name)
+            desired.concat set
+          else
+            @log.warn { "Federation upstream set '#{name}' not found" }
+          end
+        end
+        each_linked_upstream do |linked|
+          linked.stop_link(resource) unless desired.any? &.same?(linked)
+        end
+        desired.each &.link(resource)
       end
 
       def stop_link(resource : AMQP::Queue | Exchange)
@@ -130,19 +166,16 @@ module LavinMQ
         @log.info { "Upstream set '#{name}' deleted" }
       end
 
-      def link_set(name, resource : Exchange | Queue)
-        set = get_set(name)
-        set.each do |upstream|
-          upstream.link(resource)
-        end
+      def get_set(name)
+        get_set?(name) || raise KeyError.new("Upstream set '#{name}' not found")
       end
 
-      def get_set(name)
+      def get_set?(name)
         case name
         when "all"
           @upstreams.values
         else
-          @upstream_sets[name]
+          @upstream_sets[name]?
         end
       end
 
