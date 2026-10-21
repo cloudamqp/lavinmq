@@ -1472,6 +1472,23 @@ describe LavinMQ::AcceptLoop do
       server_side.try &.close
     end
   end
+
+  it "keeps accepting after an error that isn't listed" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 2, client: server_side, errno: Errno::ECONNRESET)
+    accepted = nil
+    started = Time.instant
+    LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+      accepted = socket
+      listener.close
+    end
+    accepted.should be server_side
+    # 10 and 20ms, as it's not known to pass right away
+    (Time.instant - started).should be >= 30.milliseconds
+  ensure
+    client.try &.close
+    server_side.try &.close
+  end
 end
 
 describe "Running out of file descriptors" do

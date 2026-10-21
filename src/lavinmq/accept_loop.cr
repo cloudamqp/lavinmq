@@ -28,23 +28,24 @@ module LavinMQ
     RETRY_DELAY_MAX = 1.second
 
     # Yields each client accepted on *server*, a `TCPServer` or `UNIXServer`,
-    # until it's closed. Other errors than those above are raised.
+    # until it's closed. After a connection error it accepts again right
+    # away. After any other error, like the resource errors above or one
+    # that isn't listed, it retries with a growing delay.
     def self.each(server, name : String, &)
       delay = RETRY_DELAY
       loop do
         client = begin
           server.accept?
         rescue ex : Socket::Error
-          if ex.os_error.in?(RESOURCE_ERRORS)
+          break if server.closed?
+          if ex.os_error.in?(CONNECTION_ERRORS)
+            Log.debug { "#{name} failed to accept a connection: #{ex.message}" }
+          else
             Log.error { "#{name} can't accept connections, retrying in #{delay.total_milliseconds.to_i}ms: #{ex.message}" }
             sleep delay
             delay = {delay * 2, RETRY_DELAY_MAX}.min
-            next
-          elsif ex.os_error.in?(CONNECTION_ERRORS)
-            Log.debug { "#{name} failed to accept a connection: #{ex.message}" }
-            next
           end
-          raise ex
+          next
         end
         break unless client
         delay = RETRY_DELAY
