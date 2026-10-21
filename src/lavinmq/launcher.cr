@@ -17,11 +17,13 @@ require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
-    Log = LavinMQ::Log.for "launcher"
+    Log              = LavinMQ::Log.for "launcher"
+    SHUTDOWN_TIMEOUT = 10.seconds
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
+    @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
@@ -90,6 +92,8 @@ module LavinMQ
       end
       @replicator.try &.close
       @data_dir_lock.try &.release
+    ensure
+      @run_done.close
     end
 
     def stop
@@ -292,12 +296,26 @@ module LavinMQ
         stop
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        # A started node closes the replicator when #run returns, then the main
+        # fiber exits. Exiting from here before that closes the log backend
+        # while it may still be logging. A follower has nothing to close.
+        return if @server && run_finished?
         Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 1
+      end
+    end
+
+    private def run_finished? : Bool
+      select
+      when @run_done.receive?
+        true
+      when timeout(SHUTDOWN_TIMEOUT)
+        Log.warn { "Shutdown didn't finish in #{SHUTDOWN_TIMEOUT.total_seconds}s, exiting" }
+        false
       end
     end
 
