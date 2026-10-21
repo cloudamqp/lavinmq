@@ -45,9 +45,8 @@ describe LavinMQ::AMQP::StreamReader do
 
         count = 0
         stream.each do |env|
-          headers = env.message.properties.headers
-          headers.should_not be_nil
-          headers.not_nil!["x-stream-offset"].should eq (count + 1).to_i64
+          headers = env.message.properties.headers.should_not be_nil
+          headers["x-stream-offset"].should eq (count + 1).to_i64
           count += 1
         end
         count.should eq 3
@@ -99,7 +98,8 @@ describe LavinMQ::AMQP::StreamReader do
         offsets = [] of Int64
         dropped = false
         iq.reader("first").each do |env|
-          offsets << env.message.properties.headers.not_nil!["x-stream-offset"].as(Int64)
+          headers = env.message.properties.headers.should_not be_nil
+          offsets << headers["x-stream-offset"].as(Int64)
           unless dropped
             20.times do
               break unless store.@segments.has_key?(first_seg)

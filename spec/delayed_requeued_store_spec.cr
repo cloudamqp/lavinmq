@@ -108,9 +108,8 @@ describe LavinMQ::AMQP::DelayedQueue::DelayedMessageStore::DelayedRequeuedStore 
       sp = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32, delay: 1000u32)
       timestamp = RoughTime.unix_ms
       store.insert(sp, timestamp)
-      time_to_expiration = store.time_to_next_expiration?
-      time_to_expiration.should_not be_nil
-      time_to_expiration.not_nil!.should be_close(1000.milliseconds, 100.milliseconds)
+      time_to_expiration = store.time_to_next_expiration?.should_not be_nil
+      time_to_expiration.should be_close(1000.milliseconds, 100.milliseconds)
     end
   end
 

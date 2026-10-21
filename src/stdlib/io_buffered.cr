@@ -148,8 +148,8 @@ module IO::Buffered
   # These overrides copy parts of the stdlib's IO::Buffered, re-verify them,
   # and bump the version here, when upgrading Crystal. IOs without a buffer
   # pool use the stdlib's implementation (previous_def).
-  {% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.22.0") < 0 %}
-    {% warning "IO::Buffered buffer pool overrides are only tested with Crystal 1.21, not #{Crystal::VERSION.id}" %}
+  {% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.23.0") < 0 %}
+    {% warning "IO::Buffered buffer pool overrides are only tested with Crystal 1.21 and 1.22, not #{Crystal::VERSION.id}" %}
   {% end %}
 
   @buffer_pool : IO::BufferPool? = nil

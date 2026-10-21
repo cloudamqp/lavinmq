@@ -208,20 +208,6 @@ module LavinMQ
       end
     end
 
-    # Like `#[]`, but the returned message owns all its memory: the record is
-    # copied out of the segment's mmap, so the message stays valid after the
-    # segment is deleted and unmapped. For messages that outlive the caller's
-    # @msg_store_lock hold, e.g. dead-lettering (see AMQP::Queue#expire_msg).
-    def copy(sp : SegmentPosition) : BytesMessage
-      raise ClosedError.new if @closed
-      segment = @segments[sp.segment]
-      begin
-        BytesMessage.from_bytes(segment.to_slice(sp.position.to_i64, sp.bytesize.to_i64).dup)
-      rescue ex
-        raise Error.new(segment, cause: ex)
-      end
-    end
-
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
@@ -423,7 +409,8 @@ module LavinMQ
     # written to or read, which with many queues adds up to gigabytes. It also
     # keeps the page cache in page sized folios, so an msync only writes the
     # pages that changed. Writing faults once per page with or without
-    # readahead. Fast readers get readahead back, see #read_fast?.
+    # readahead. Fast readers get readahead back, see #read_fast?, and so
+    # does loading at startup, see #load_stats_from_segments.
     private def open_segment(path : String, capacity : Int? = nil) : MFile
       mfile = MFile.new(path, capacity)
       mfile.advise(MFile::Advice::Random)
@@ -618,6 +605,10 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
+        # Counting a segment's messages reads it through, as does skipping
+        # its acked messages, in order. Without readahead (see #open_segment)
+        # that would fault it in a page at a time.
+        mfile.advise(MFile::Advice::Sequential)
         begin
           read_metadata_file(seg, mfile)
         rescue File::NotFoundError | MetadataError
@@ -625,6 +616,7 @@ module LavinMQ
           break if @closed
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
+        mfile.advise(MFile::Advice::Random)
 
         counter &+= 1
         if is_long_queue

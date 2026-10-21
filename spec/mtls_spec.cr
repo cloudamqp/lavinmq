@@ -120,9 +120,8 @@ describe "mTLS (Mutual TLS)" do
 
         q.publish("test message over mTLS")
 
-        msg = q.get
-        msg.should_not be_nil
-        msg.not_nil!.body_io.gets_to_end.should eq("test message over mTLS")
+        msg = q.get.should_not be_nil
+        msg.body_io.gets_to_end.should eq("test message over mTLS")
 
         q.delete
         conn.close

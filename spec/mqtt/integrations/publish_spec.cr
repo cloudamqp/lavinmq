@@ -28,6 +28,37 @@ module MqttSpecs
       end
     end
 
+    it "reads a PUBLISH that arrives in parts" do
+      with_server do |server|
+        payload = Bytes.new(1000) { |i| (i % 251).to_u8 }
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            packet = publish_packet(topic: "a/b", payload: payload, qos: 1u8)
+            buf = IO::Memory.new
+            packet.to_io(MQTT::Protocol::IO.new(buf))
+            bytes = buf.to_slice
+            # Split after the type byte, in the remaining length, in the topic
+            # and in the payload, with a pause so the server reads each part
+            # before the next arrives. Without Nagle, so the kernel sends each
+            # part when it's written.
+            pub.io.as(TCPSocket).tcp_nodelay = true
+            {0, 1, 2, 6, 500, bytes.size}.each_cons_pair do |from, to|
+              pub.io.write bytes[from, to - from]
+              sleep 10.milliseconds
+            end
+            ack = read_packet(pub).should be_a(MQTT::Protocol::PubAck)
+            ack.packet_id.should eq packet.packet_id
+          end
+          msg = read_publish(sub)
+          msg.topic.should eq "a/b"
+          msg.payload.should eq payload
+        end
+      end
+    end
+
     it "sends the whole payload when the session is closed during the send" do
       with_server do |server|
         # Larger than the socket buffers, so the send blocks mid-payload

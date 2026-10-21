@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js'
+import * as helpers from './helpers.js'
 
 function setTabHidden (page, hidden) {
   return page.evaluate(hidden => {
@@ -16,11 +17,12 @@ function countRequests (page, path) {
   return counter
 }
 
-async function advance (page, ms) {
+async function advance (page, ms, { hung = 0 } = {}) {
   for (let elapsed = 0; elapsed < ms; elapsed += 5000) {
+    await helpers.pollerSettled(page, { hung })
     await page.clock.runFor(5000)
-    await page.waitForTimeout(100)
   }
+  await helpers.pollerSettled(page, { hung })
 }
 
 test.describe('poller', _ => {
@@ -57,7 +59,7 @@ test.describe('poller', _ => {
     await page.goto('/')
     await expect.poll(() => overview.count).toBe(1)
 
-    await advance(page, 20000)
+    await advance(page, 20000, { hung: 1 })
     expect(overview.count).toBe(1)
 
     const settled = page.waitForResponse(response => new URL(response.url()).pathname === '/api/overview')
@@ -91,6 +93,7 @@ test.describe('refresh control', _ => {
     const loaded = page.waitForResponse(response => new URL(response.url()).pathname === '/api/overview')
     await page.goto('/')
     await loaded
+    await helpers.pollerSettled(page)
   }
 
   test('pause stops refreshing and resume refreshes at once', async ({ page }) => {
@@ -203,7 +206,7 @@ test.describe('refresh control', _ => {
     await page.clock.install()
     await loadOverview(page)
     await page.route('**/api/overview', () => {})
-    await advance(page, 10000)
+    await advance(page, 10000, { hung: 1 })
     const control = page.locator('#refresh-control')
     await expect(page.locator('html')).toHaveAttribute('data-reachability', 'slow')
     await expect(control).toHaveAttribute('title', /^Waiting for a slow response/)
@@ -215,12 +218,12 @@ test.describe('refresh control', _ => {
     await page.route('**/api/overview', () => {})
     const overview = countRequests(page, '/api/overview')
     const failed = page.waitForEvent('requestfailed', request => new URL(request.url()).pathname === '/api/overview')
-    await advance(page, 35000)
+    await advance(page, 35000, { hung: 1 })
     await failed
     const control = page.locator('#refresh-control')
     await expect(page.locator('html')).toHaveAttribute('data-reachability', 'reconnecting')
     await expect(control).toHaveAttribute('title', /Last error: No response after 30s/)
-    await advance(page, 5000)
+    await advance(page, 5000, { hung: 1 })
     expect(overview.count).toBe(2)
   })
 
@@ -247,9 +250,11 @@ test.describe('refresh control', _ => {
     const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
     await page.goto('/exchange#vhost=%2F&name=amq.topic')
     await loaded
+    await helpers.pollerSettled(page)
     await page.route(`**${exchangePath}`, () => {})
     const states = []
     for (let i = 0; i < 10; i++) {
+      await helpers.pollerSettled(page, { hung: 1 })
       const bindings = responseFor(bindingsPath)
       await page.clock.runFor(5000)
       await bindings
@@ -269,10 +274,12 @@ test.describe('refresh control', _ => {
     const loaded = Promise.all([responseFor(exchangePath), responseFor(bindingsPath)])
     await page.goto('/exchange#vhost=%2F&name=amq.topic')
     await loaded
+    await helpers.pollerSettled(page)
     let release
     const gate = new Promise(resolve => { release = resolve })
     await page.route(`**${exchangePath}`, async route => { await gate; await route.fallback() })
     for (let i = 0; i < 2; i++) {
+      await helpers.pollerSettled(page, { hung: 1 })
       const bindings = responseFor(bindingsPath)
       await page.clock.runFor(5000)
       await bindings

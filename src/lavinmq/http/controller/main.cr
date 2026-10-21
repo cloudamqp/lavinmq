@@ -15,6 +15,7 @@ module LavinMQ
         {name: "headers", human: "Headers"},
         {name: "x-federation-upstream", human: "Federation Upstream"},
         {name: "x-consistent-hash", human: "Consistent Hash"},
+        {name: "x-mqtt-topic", human: "MQTT Topic"},
       }
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
@@ -167,7 +168,7 @@ module LavinMQ
 
         get "/api/federation-links" do |context, _params|
           arr = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
+            vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
           end
@@ -176,7 +177,7 @@ module LavinMQ
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+            arr = vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
             page(context, arr)

@@ -46,6 +46,10 @@ function schedule (delay = rate) {
   events.dispatchEvent(new window.CustomEvent('schedule', { detail: timer === null ? null : { rate, delay } }))
 }
 
+function inFlightCount () {
+  return inFlight.size
+}
+
 function pendingFor () {
   return inFlight.size === 0 ? 0 : Date.now() - Math.min(...inFlight.values())
 }
@@ -133,4 +137,4 @@ document.addEventListener('visibilitychange', () => {
   else tick()
 })
 
-export { RATES, start, stream, isActive, isStalled, isStreaming, isPaused, pause, resume, getRate, setRate, events }
+export { RATES, start, stream, isActive, isStalled, isStreaming, isPaused, pause, resume, getRate, setRate, inFlightCount, events }

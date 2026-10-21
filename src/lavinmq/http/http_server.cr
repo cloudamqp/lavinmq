@@ -16,7 +16,10 @@ module LavinMQ
   module HTTP
     Log = LavinMQ::Log.for "http"
 
-    class ControlSocketInUseError < Exception; end
+    # The control socket can't be bound, so the broker can't start as leader
+    class ControlSocketError < Exception; end
+
+    class ControlSocketInUseError < ControlSocketError; end
 
     class Server
       Log = LavinMQ::Log.for "http.server"
@@ -101,7 +104,6 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(@internal_unix_socket_path)
       end
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
@@ -147,7 +149,7 @@ module LavinMQ
         return unless info = File.info?(path, follow_symlinks: false)
 
         unless info.type.socket?
-          raise "Control socket #{path} exists and is not a socket"
+          raise ControlSocketError.new("Control socket #{path} exists and is not a socket")
         end
 
         begin
@@ -158,7 +160,7 @@ module LavinMQ
           File.delete(path)
         rescue ex : Socket::Error
           # EACCES or anything ambiguous: fail closed, don't delete.
-          raise "Cannot verify stale control socket #{path}: #{ex.message}"
+          raise ControlSocketError.new("Cannot verify stale control socket #{path}: #{ex.message}")
         end
       end
     end
