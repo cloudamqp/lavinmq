@@ -97,8 +97,3 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
     })
     .catch(() => {})
 })
-
-document.getElementById('add-upstream-dialog').addEventListener('close', () => {
-  const form = document.getElementById('createUpstream')
-  if (form.classList.contains('edit-mode')) form.reset()
-})

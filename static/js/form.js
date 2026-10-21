@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', function () {
         evt.formData.set(pkfield.name, pkfield.value)
       }
     })
+    const dialog = form.closest('dialog')
     form.addEventListener('reset', _ => {
       if (form.classList.contains('edit-mode')) {
         form.classList.remove('edit-mode')
@@ -37,8 +38,13 @@ document.addEventListener('DOMContentLoaded', function () {
       // A reset <button> inside a <form> only runs its native reset behavior —
       // commandfor is never invoked for submit/reset buttons, so Cancel (type=reset)
       // can't close its dialog declaratively. Do it here instead.
-      const dialog = form.closest('dialog')
       if (dialog?.open) dialog.close()
+    })
+    // However the dialog closes (Cancel, Escape, backdrop click, or a successful
+    // save), leave it ready for "Add" next time rather than stuck showing stale
+    // "Edit" data.
+    dialog?.addEventListener('close', () => {
+      if (form.classList.contains('edit-mode')) form.reset()
     })
   })
 })

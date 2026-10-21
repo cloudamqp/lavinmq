@@ -76,9 +76,4 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
     .catch(() => {})
 })
 
-document.getElementById('add-policy-dialog').addEventListener('close', () => {
-  const form = document.getElementById('createPolicy')
-  if (form.classList.contains('edit-mode')) form.reset()
-})
-
 Helpers.addVhostOptions('createPolicy')

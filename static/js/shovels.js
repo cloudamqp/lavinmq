@@ -231,11 +231,6 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
     .catch(() => {})
 })
 
-document.getElementById('add-shovel-dialog').addEventListener('close', () => {
-  const form = document.getElementById('createShovel')
-  if (form.classList.contains('edit-mode')) form.reset()
-})
-
 // function updateAutocomplete (e, id) {
 //   const type = e === 'queue' ? 'queues' : 'exchanges'
 //   Helpers.autoCompleteDatalist(id, type)
