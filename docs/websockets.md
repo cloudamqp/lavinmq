@@ -34,9 +34,9 @@ WebSocket connections are proxied to the internal AMQP or MQTT server. The WebSo
 
 1. Upgrades the HTTP connection to a WebSocket
 2. Detects the protocol from the sub-protocol header or URL path
-3. Creates a bidirectional IO bridge between the WebSocket and the protocol handler
+3. Exposes the WebSocket as a byte stream to the protocol handler
 
-From the protocol handler's perspective, the connection behaves identically to a direct TCP connection.
+From the protocol handler's perspective, the connection behaves identically to a direct TCP connection. Only binary frames carry protocol data. The broker answers a close frame with the same status code, and sends status `1000` when it closes the connection itself.
 
 ## Client IP
 
