@@ -271,5 +271,6 @@ Note that connecting with a client_id already in use takes over that session, so
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding). Topics and topic filters can be at most 255 bytes, while MQTT allows 65535:
-  - A PUBLISH to a longer topic is acknowledged as usual and dropped, since MQTT 3.1.1 can only acknowledge a PUBLISH or close the connection, and a closed connection makes the client resend it. The first drop on a connection is logged as a warning, later ones at debug. A will message with a longer topic is dropped with a warning.
+  - A PUBLISH to a longer topic closes the connection, with a warning in the broker log. Such a publish can never succeed, and MQTT 3.1.1 has no way to reject a single PUBLISH, so the disconnect is the only signal the client can get.
+  - A CONNECT with a will topic longer than 255 bytes is refused: the connection is closed, with a warning in the broker log.
   - A SUBSCRIBE with a longer topic filter gets return code `0x80` (failure) for that filter.

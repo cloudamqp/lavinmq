@@ -46,7 +46,6 @@ module LavinMQ
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       @publish_context = PublishContext.new
-      @long_topic_logged = false
       @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
@@ -216,15 +215,17 @@ module LavinMQ
           end
           return
         end
-        if @broker.publish(packet, @publish_context)
-          vhost.event_tick(EventType::ClientPublish)
-        else
-          log_long_topic(packet.topic)
-        end
+        @broker.publish(packet, @publish_context)
+        vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           enqueue_puback(packet_id)
         end
+      rescue ex : TopicTooLong
+        # Unlike a topic denial this can never succeed, so it is a violation:
+        # close, as MQTT 3.1.1 has no error reply for a PUBLISH
+        @log.warn { "Closing connection: #{ex.message}" }
+        close_socket
       end
 
       # QoS 1 publishes are acked like publish confirms, once durable. The
@@ -346,7 +347,7 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
-          published = @broker.publish(Protocol::Publish.new(
+          @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -354,21 +355,9 @@ module LavinMQ
             retain: will.retain?,
             dup: false,
           ), @publish_context)
-          @log.warn { "Dropped will: topic is #{will.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" } unless published
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
-      end
-
-      # Warns once per connection, as a client publishing to a long topic in a
-      # loop would otherwise flood the log, and logs later drops at debug.
-      private def log_long_topic(topic : String) : Nil
-        if @long_topic_logged
-          @log.debug { "Dropped publish: topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
-        else
-          @long_topic_logged = true
-          @log.warn { "Dropped publish: topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}. Further drops on this connection are logged at debug" }
-        end
       end
 
       # should only be used when server needs to froce close client

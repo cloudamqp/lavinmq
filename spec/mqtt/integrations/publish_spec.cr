@@ -17,7 +17,7 @@ module MqttSpecs
       end
     end
 
-    it "keeps delivering to a session after a publish with a topic longer than 255 bytes" do
+    it "closes the connection on a publish with a topic longer than 255 bytes" do
       with_server do |server|
         with_client_io(server) do |sub|
           connect(sub, client_id: "sub", clean_session: false)
@@ -25,7 +25,13 @@ module MqttSpecs
 
           with_client_io(server) do |io|
             connect(io, client_id: "pub")
-            publish(io, topic: "a/#{"x" * 300}", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+            expect_raises(IO::Error) do
+              publish(io, topic: "a/#{"x" * 300}", qos: 1u8)
+            end
+          end
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub")
             publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
             disconnect(io)
           end
@@ -38,16 +44,16 @@ module MqttSpecs
       end
     end
 
-    it "warns once per connection about publishes with a topic longer than 255 bytes" do
+    it "logs a warning when closing a connection over a too long topic" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
           Log.capture("lmq.mqtt.client", :warn) do |logs|
-            2.times { publish(io, topic: "a/#{"x" * 300}", qos: 1u8).should be_a(MQTT::Protocol::PubAck) }
-            logs.check(:warn, /Dropped publish: topic is 302 bytes/)
-            logs.empty
+            expect_raises(IO::Error) do
+              publish(io, topic: "a/#{"x" * 300}", qos: 1u8)
+            end
+            logs.check(:warn, /topic is 302 bytes/)
           end
-          disconnect(io)
         end
       end
     end

@@ -9,6 +9,10 @@ require "../vhost"
 
 module LavinMQ
   module MQTT
+    # Raised for a topic that cannot become an AMQP routing key, so the
+    # publish can never succeed
+    class TopicTooLong < ::MQTT::Protocol::Error; end
+
     class Broker
       getter vhost, sessions
       Log = LavinMQ::Log.for "mqtt.broker"
@@ -100,13 +104,12 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      # Drops a topic too long to store but still sends PUBACK, as for a topic
-      # denial: MQTT 3.1.1 can only ack or close. Returns false for a drop.
-      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
-        return false if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Nil
+        if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
+          raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
+        end
         @retain_store.retain(packet) if packet.retain?
         @exchange.publish(packet, ctx)
-        true
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
