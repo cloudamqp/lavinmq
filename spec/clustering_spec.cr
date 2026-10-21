@@ -549,25 +549,29 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       config.clustering = true
       config.clustering_etcd_endpoints = "localhost:12379"
       config.clustering_advertised_uri = "tcp://localhost:5681"
+      config.metrics_http_port = 0
       launcher = LavinMQ::Launcher.new(config)
+      begin
+        run_done = Channel(Nil).new
+        spawn do
+          launcher.run
+          run_done.close
+        rescue SpecExit
+        end
+        # The metrics server is pointed at the leader at the end of startup
+        wait_for { launcher.@metrics_server.try { |metrics| metrics.@role.leader } }
 
-      run_done = Channel(Nil).new
-      spawn do
-        launcher.run
-        run_done.close
-      rescue SpecExit
-      end
-      # The metrics server is pointed at the leader at the end of startup
-      wait_for { launcher.@metrics_server.try { |metrics| metrics.@role.leader } }
+        # Exiting from the signal handler while #run still closed the replicator
+        # closed the log backend under it, and the leader exited with code 1
+        launcher.shutdown_for_spec
 
-      # Exiting from the signal handler while #run still closed the replicator
-      # closed the log backend under it, and the leader exited with code 1
-      launcher.shutdown_for_spec
-
-      select
-      when run_done.receive?
-      when timeout(1.second)
-        fail("Launcher#run didn't return after shutdown")
+        select
+        when run_done.receive?
+        when timeout(1.second)
+          fail("Launcher#run didn't return after shutdown")
+        end
+      ensure
+        launcher.stop
       end
     end
   end
