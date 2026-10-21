@@ -146,6 +146,65 @@ describe "Retry Queue" do
       end
     end
 
+    it "should dead-letter a delayed message when its TTL runs out before the backoff ends" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq = ch.queue("retry-ttl-early-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 10_000,
+            "x-message-ttl"             => 300,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-ttl-early-dlq",
+          })
+          q = ch.queue("retry-ttl-early", args: args)
+          q.publish_confirm "expire me"
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+
+          start = Time.instant
+          dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
+          (Time.instant - start).should be < 2.seconds
+          dlq_msg.body_io.to_s.should eq "expire me"
+          headers = dlq_msg.properties.headers.should_not be_nil
+          headers["x-first-death-reason"].should eq "expired"
+          headers["x-first-death-queue"].should eq "retry-ttl-early"
+          headers.has_key?("x-delay").should be_false
+          s.vhosts["/"].queue("amq.retry-retry-ttl-early").message_count.should eq 0
+        end
+      end
+    end
+
+    it "should dead-letter an expired delayed message instead of delaying it again when the primary queue is full" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq = ch.queue("retry-overflow-expired-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 100,
+            "x-max-length"              => 1,
+            "x-overflow"                => "reject-publish",
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-overflow-expired-dlq",
+          })
+          q = ch.queue("retry-overflow-expired", args: args)
+          q.publish_confirm "retry me", props: AMQP::Client::Properties.new(expiration: "400")
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          q.publish_confirm "block"
+
+          dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
+          dlq_msg.body_io.to_s.should eq "retry me"
+          headers = dlq_msg.properties.headers.should_not be_nil
+          headers["x-first-death-reason"].should eq "expired"
+          s.vhosts["/"].queue("amq.retry-retry-overflow-expired").message_count.should eq 0
+          wait_for { q.get(no_ack: true) }.body_io.to_s.should eq "block"
+        end
+      end
+    end
+
     it "should delay a retried message again when the primary queue is full" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -407,6 +466,52 @@ describe "Retry Queue" do
           msg2.properties.correlation_id.should eq "abc-123"
           headers = msg2.properties.headers.should_not be_nil
           headers["x-custom"].should eq "value"
+        end
+      end
+    end
+
+    it "should flag a retried message as redelivered" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1,
+          })
+          q = ch.queue("retry-redelivered", args: args)
+          q.publish_confirm "retry me"
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.redelivered.should be_false
+          msg.reject(requeue: true)
+
+          msg2 = wait_for { q.get(no_ack: false) }
+          msg2.redelivered.should be_true
+          msg2.reject(requeue: true)
+
+          msg3 = wait_for { q.get(no_ack: true) }
+          msg3.redelivered.should be_true
+        end
+      end
+    end
+
+    it "should flag a retried message as redelivered to a consumer" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1,
+          })
+          q = ch.queue("retry-redelivered-consume", args: args)
+          q.publish_confirm "retry me"
+
+          msgs = ::Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false) { |m| msgs.send m }
+          msg = msgs.receive
+          msg.redelivered.should be_false
+          msg.reject(requeue: true)
+          msg2 = msgs.receive
+          msg2.redelivered.should be_true
+          msg2.ack
         end
       end
     end
