@@ -61,6 +61,25 @@ describe "Delayed Message Exchange" do
       end
     end
 
+    it "should route messages that are overdue at startup" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "topic", args: x_args)
+          q = ch.queue("overdue_q", durable: true)
+          q.bind(x.name, "#")
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+          100.times do
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+        end
+        s.stop
+        sleep 1.5.seconds # the messages are overdue when the server starts again
+        restart_server(s)
+        wait_for { s.vhosts["/"].queue("overdue_q").message_count == 100 }
+        s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
+      end
+    end
+
     it "should rebuild index on restart with truncated segment and acked messages" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

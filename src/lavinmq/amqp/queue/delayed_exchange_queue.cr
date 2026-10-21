@@ -64,6 +64,9 @@ module LavinMQ::AMQP
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
+      # Messages restored from disk can be overdue already, but must not be
+      # released before the vhost has loaded the bindings they route through
+      @vhost.closed.when_false.receive?
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
