@@ -1,6 +1,19 @@
 require "./spec_helper"
 require "log/spec"
 
+# Parks dead-lettering inside #publish_internal until released. In the AMQP
+# namespace because AMQP::Exchange#bind refuses destinations outside it.
+class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
+  getter entered = ::Channel(Nil).new(1)
+  getter release = ::Channel(Nil).new
+
+  protected def publish_internal(msg : LavinMQ::Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    @entered.send(nil)
+    @release.receive
+    super
+  end
+end
+
 describe "Retry Queue" do
   describe "Scaffold" do
     it "should create internal retry queue when x-delayed-retry-min is set" do
@@ -172,6 +185,46 @@ describe "Retry Queue" do
           headers["x-first-death-queue"].should eq "retry-ttl-early"
           headers.has_key?("x-delay").should be_false
           s.vhosts["/"].queue("amq.retry-retry-ttl-early").message_count.should eq 0
+        end
+      end
+    end
+
+    it "should accept rejects while a delayed message is being dead-lettered" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("retry-dlx", "direct", false, false)
+        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "retry-dlx-blocking")
+        vhost.exchange("retry-dlx").bind(blocking, "blocked", nil)
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 10_000,
+            "x-dead-letter-exchange"    => "retry-dlx",
+            "x-dead-letter-routing-key" => "blocked",
+          })
+          q = ch.queue("retry-dlx-concurrent", args: args)
+          q.publish_confirm "expire me", props: AMQP::Client::Properties.new(expiration: "300")
+          q.publish_confirm "reject me"
+          retry_q = vhost.queue("amq.retry-retry-dlx-concurrent")
+
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          msg = wait_for { q.get(no_ack: false) }
+          select
+          when blocking.entered.receive
+          when timeout(5.seconds)
+            fail "message was never dead-lettered"
+          end
+
+          begin
+            msg.reject(requeue: true)
+            wait_for { retry_q.message_count == 1 }
+          ensure
+            select
+            when blocking.release.send(nil)
+            when timeout(1.second)
+            end
+          end
+          wait_for { blocking.message_count == 1 }
         end
       end
     end

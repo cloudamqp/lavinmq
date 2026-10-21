@@ -57,16 +57,20 @@ module LavinMQ::AMQP
       true
     end
 
+    # Routing a released message can fan out to many queues, so it runs
+    # outside the lock, on a lease that keeps the message's segment mapped
     def expire_messages
-      @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
+      loop do
+        env = @msg_store_lock.synchronize do
+          if (next_env = delayed_msg_store.first_delayed?) && has_expired?(next_env)
+            delayed_msg_store.shift_delayed?.try &.lease
           end
+        end
+        break unless env
+        begin
+          expire_msg(env, :expired)
+        ensure
+          env.release
         end
       end
     end
