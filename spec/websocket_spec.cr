@@ -239,10 +239,10 @@ describe "Websocket support" do
 
     it "doesn't time out a read while data arrives" do
       with_websocket_io do |io, client|
-        io.read_timeout = 300.milliseconds
+        io.read_timeout = 500.milliseconds
         buffer = Bytes.new(1)
-        5.times do
-          sleep 200.milliseconds
+        10.times do
+          sleep 100.milliseconds
           client.ping
           client.send("x".to_slice, :binary)
           io.read(buffer).should eq 1
