@@ -1369,20 +1369,33 @@ describe LavinMQ::AMQP::Queue do
     end
 
     # Without a consumer the expire fiber computes the deadline. Before the
-    # fix it crashed and restarted in a loop, which stalls this spec.
+    # fix it raised, died and was started again from its ensure, in a loop.
+    # A restart is a new Fiber, so the fiber found right after the publish
+    # must be the one still running later.
     {Int64::MAX, 10_000_000_000_000_i64}.each do |ttl|
-      it "keeps the message without a consumer (x-message-ttl #{ttl})" do
+      it "keeps the message and its expire fiber without a consumer (x-message-ttl #{ttl})" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
             q = ch.queue("ttl_overflow_idle", args: AMQP::Client::Arguments.new({"x-message-ttl" => ttl}))
             q.publish_confirm "m"
-            queue = s.vhosts["/"].queue("ttl_overflow_idle")
+            expire_fiber = -> do
+              found = nil
+              Fiber.list { |f| found = f if f.name == "Queue#message_expire_loop //ttl_overflow_idle" }
+              found
+            end
+            fiber = wait_for { expire_fiber.call }
             sleep 100.milliseconds # the expire fiber computes the deadline
-            queue.message_count.should eq 1
-            queue.message_expire_fiber_active?.should be_true
+            expire_fiber.call.should be fiber
+            s.vhosts["/"].queue("ttl_overflow_idle").message_count.should eq 1
           end
         end
       end
+    end
+
+    it "computes the wake-up for a deadline 10^13 ms away" do
+      ttl = 10_000_000_000_000_i64
+      wakeup = LavinMQ::AMQP::Queue.time_to_expiration_wakeup(RoughTime.unix_ms + ttl)
+      wakeup.should be > (ttl - 1_000).milliseconds
     end
   end
 
