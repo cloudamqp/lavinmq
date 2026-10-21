@@ -9,6 +9,11 @@ require "../vhost"
 
 module LavinMQ
   module MQTT
+    # Raised for a topic that cannot become an AMQP routing key, so the
+    # packet can never be processed, which the client read loop and the
+    # connection factory handle like a packet that can't be decoded
+    class TopicTooLong < ::MQTT::Protocol::Error::PacketDecode; end
+
     class Broker
       getter vhost, sessions
       Log = LavinMQ::Log.for "mqtt.broker"
@@ -100,7 +105,10 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish, ctx : PublishContext)
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Nil
+        if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
+          raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
+        end
         @retain_store.retain(packet) if packet.retain?
         @exchange.publish(packet, ctx)
       end
@@ -116,6 +124,7 @@ module LavinMQ
 
       def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
         qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+        return Protocol::SubAck::ReturnCode::Failure if tf.topic.bytesize > MAX_TOPIC_BYTESIZE
         return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
         ts = RoughTime.unix_ms
         @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
