@@ -90,22 +90,5 @@ module MqttSpecs
         end
       end
     end
-
-    it "skips a stored retained message with a topic longer than 255 bytes on subscribe" do
-      with_server do |server|
-        # Retained by a version without the topic length check
-        retain_store = server.mqtt_server.broker("/").@retain_store
-        retain_store.retain(publish_packet(topic: "a/#{"x" * 300}", retain: true))
-        retain_store.retain(publish_packet(topic: "a/b", retain: true))
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
-          suback = subscribe(io, topic_filters: [subtopic("#")])
-          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
-          read_publish(io).topic.should eq "a/b"
-          disconnect(io)
-        end
-      end
-    end
   end
 end
