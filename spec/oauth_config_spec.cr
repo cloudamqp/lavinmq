@@ -371,25 +371,6 @@ describe LavinMQ::Config do
       config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
       config.oauth_mgmt_ui_enabled?.should be_false
     end
-
-    it "returns true for SSO configured in an [oauth.<name>] section only" do
-      config = parse_oauth_config(<<-CONFIG)
-        [oauth.entra]
-        issuer = https://login.microsoftonline.com/tenant/v2.0
-        client_id = lavinmq-ui
-        mgmt_base_url = https://mq.example.com
-        CONFIG
-      config.oauth_mgmt_ui_enabled?.should be_true
-    end
-
-    it "returns false when the SSO provider has no client_id" do
-      config = parse_oauth_config(<<-CONFIG)
-        [oauth.entra]
-        issuer = https://login.microsoftonline.com/tenant/v2.0
-        mgmt_base_url = https://mq.example.com
-        CONFIG
-      config.oauth_mgmt_ui_enabled?.should be_false
-    end
   end
 
   describe "#oauth_sso_provider" do

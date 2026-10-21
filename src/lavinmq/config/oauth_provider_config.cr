@@ -18,7 +18,7 @@ module LavinMQ
     property? verify_aud : Bool
     property audience : String?
     property jwks_cache_ttl : Time::Span
-    # Management UI SSO, used by the first provider that sets client_id or mgmt_base_url
+    # Management UI SSO, used by the first provider where it's #sso_configured?
     property client_id : String?
     property mgmt_base_url : URI?
     property mgmt_scopes : String
@@ -35,6 +35,34 @@ module LavinMQ
                    @client_id : String? = nil,
                    @mgmt_base_url : URI? = nil,
                    @mgmt_scopes : String = "openid profile")
+    end
+
+    # Whether any management UI SSO setting is set
+    def sso_configured? : Bool
+      !(@client_id.nil? && @mgmt_base_url.nil?)
+    end
+
+    # Whether management UI SSO is configured and its settings are valid
+    def sso_enabled? : Bool
+      sso_configured? && sso_disabled_reason.nil?
+    end
+
+    # Why SSO is off although it's configured, nil if it's on or not configured
+    def sso_disabled_reason : String?
+      return unless sso_configured?
+      return "missing client_id in OAuth provider '#{@name}'" unless @client_id
+      base_url = @mgmt_base_url
+      return "missing mgmt_base_url in OAuth provider '#{@name}'" unless base_url
+      unless mgmt_base_url_allowed?(base_url)
+        "mgmt_base_url in OAuth provider '#{@name}' must use https:// or http://{localhost,127.0.0.1,[::1]}"
+      end
+    end
+
+    private def mgmt_base_url_allowed?(uri : URI) : Bool
+      return true if uri.scheme == "https"
+      return false unless uri.scheme == "http"
+      host = uri.host.try(&.downcase)
+      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
     end
   end
 end

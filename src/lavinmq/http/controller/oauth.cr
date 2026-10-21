@@ -52,7 +52,7 @@ module LavinMQ
         # No JWKS keys yet means verification couldn't run; keep the session
         # cookies, the token may still be valid. SSO sets the cookie, so it's
         # the SSO provider's keys that matter.
-        verifier = sso_verifier(oauth) || oauth.token_verifier
+        verifier = oauth.sso_verifier || oauth.token_verifier
         return if verifier.fetcher.public_keys.empty?
 
         expire_cookie(context, "oauth_token", cookie_path)
@@ -75,14 +75,15 @@ module LavinMQ
 
       private def handle_enabled(context) : ::HTTP::Server::Context
         context.response.content_type = "application/json"
-        enabled = !!oauth_authenticator.try { |oauth| sso_verifier(oauth) }
+        enabled = !!oauth_authenticator.try &.sso_verifier
         {enabled: enabled}.to_json(context.response)
         context
       end
 
       private def handle_authorize(context) : ::HTTP::Server::Context
         oauth = oauth_authenticator || oauth_error(context, 503, "OAuth not configured")
-        provider, token_verifier = sso(oauth) || oauth_error(context, 503, "OAuth not configured")
+        token_verifier = oauth.sso_verifier || oauth_error(context, 503, "OAuth not configured")
+        provider = token_verifier.provider
         client_id = provider.client_id || oauth_error(context, 503, "OAuth not configured")
 
         auth_ep = oidc_config(token_verifier).authorization_endpoint || raise "OIDC missing authorization_endpoint"
@@ -121,7 +122,8 @@ module LavinMQ
 
       private def handle_callback(context) : ::HTTP::Server::Context
         oauth = oauth_authenticator || oauth_redirect_error(context, "OAuth not configured")
-        provider, token_verifier = sso(oauth) || oauth_redirect_error(context, "OAuth not configured")
+        token_verifier = oauth.sso_verifier || oauth_redirect_error(context, "OAuth not configured")
+        provider = token_verifier.provider
         code, code_verifier, client_id = validate_callback(context, provider)
 
         token_ep = oidc_config(token_verifier).token_endpoint || raise "OIDC missing token_endpoint"
@@ -226,19 +228,8 @@ module LavinMQ
         fetcher.oidc_config || fetcher.fetch_oidc_config
       end
 
-      # The provider management UI SSO logs in with and its verifier, nil when SSO is off
-      private def sso(oauth : Auth::OAuthAuthenticator) : {OAuthProviderConfig, Auth::JWT::TokenVerifier}?
-        provider = Config.instance.oauth_sso_provider || return
-        verifier = oauth.verifier(provider.name) || return
-        {provider, verifier}
-      end
-
-      private def sso_verifier(oauth : Auth::OAuthAuthenticator) : Auth::JWT::TokenVerifier?
-        sso(oauth).try &.[1]
-      end
-
       private def mgmt_base_url : URI?
-        Config.instance.oauth_sso_provider.try &.mgmt_base_url
+        oauth_authenticator.try(&.sso_verifier).try(&.provider.mgmt_base_url)
       end
 
       private def build_redirect_uri(provider : OAuthProviderConfig) : String

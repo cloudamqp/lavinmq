@@ -40,9 +40,14 @@ module LavinMQ
         @verifiers.first_value
       end
 
-      # The verifier of the provider with this name, e.g. the one management UI SSO uses
-      def verifier(name : String) : JWT::TokenVerifier?
-        @verifiers[name]?
+      # The verifier of the provider management UI SSO logs in with: the first
+      # provider where SSO is configured, nil if its SSO settings are invalid
+      def sso_verifier : JWT::TokenVerifier?
+        @verifiers.each_value do |verifier|
+          next unless verifier.provider.sso_configured?
+          return verifier if verifier.provider.sso_enabled?
+          return
+        end
       end
 
       def verifiers : Array(JWT::TokenVerifier)
@@ -81,10 +86,11 @@ module LavinMQ
         raise JWT::VerificationError.new("No OAuth provider is configured for the token issuer")
       end
 
-      # Applies the reloaded providers by name: existing providers are
-      # reloaded, new ones started and removed ones disabled, which also
-      # rejects token refreshes from connections they authenticated. Without
-      # any provider in the config (no issuer) the current ones are kept.
+      # Applies the reloaded providers by name: existing providers with an
+      # unchanged issuer are reloaded, others started, and the verifiers no
+      # longer used disabled, which also rejects token refreshes from the
+      # connections they authenticated. Without any provider in the config (no
+      # issuer) the current ones are kept.
       def reload(config : Config) : Nil
         providers = config.oauth_providers
         if providers.empty?
@@ -93,18 +99,19 @@ module LavinMQ
         end
         current = @verifiers
         verifiers = providers.to_h do |provider|
-          if verifier = current[provider.name]?
+          verifier = current[provider.name]?
+          if verifier && verifier.issuer == provider.issuer_url.to_s.chomp("/")
             verifier.reload(provider)
           else
-            Log.info { "Starting OAuth provider '#{provider.name}'" }
+            Log.info { "Starting OAuth provider '#{provider.name}' with issuer #{provider.issuer_url}" }
             verifier = self.class.start_verifier(provider)
           end
           {provider.name, verifier}
         end
         @verifiers = verifiers
         current.each do |name, verifier|
-          next if verifiers.has_key?(name)
-          Log.info { "Stopping OAuth provider '#{name}'" }
+          next if verifiers[name]?.try &.same?(verifier)
+          Log.info { "Stopping OAuth provider '#{name}' with issuer #{verifier.issuer}" }
           verifier.disable
         end
       end

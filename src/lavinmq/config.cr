@@ -91,12 +91,11 @@ module LavinMQ
         mgmt_scopes: @oauth_mgmt_scopes)
     end
 
-    # The provider management UI SSO logs in with: the first provider that
-    # sets client_id or mgmt_base_url, when it sets both and the URL is allowed
+    # The provider management UI SSO logs in with: the first provider where
+    # it's configured, if its SSO settings are valid
     def oauth_sso_provider : OAuthProviderConfig?
       provider = oauth_sso_candidate || return
-      return unless provider.client_id && (base_url = provider.mgmt_base_url)
-      provider if oauth_mgmt_base_url_allowed?(base_url)
+      provider if provider.sso_enabled?
     end
 
     def oauth_mgmt_ui_enabled? : Bool
@@ -104,24 +103,14 @@ module LavinMQ
     end
 
     private def oauth_sso_candidate : OAuthProviderConfig?
-      oauth_providers.find { |p| p.client_id || p.mgmt_base_url }
-    end
-
-    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
-      return true if uri.scheme == "https"
-      return false unless uri.scheme == "http"
-      host = uri.host.try(&.downcase)
-      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+      oauth_providers.find &.sso_configured?
     end
 
     # Why SSO is off although some of its settings are configured, nil if it's
     # on or not configured at all
     private def oauth_mgmt_ui_disabled_reason : String?
       if provider = oauth_sso_candidate
-        return if oauth_sso_provider
-        return "missing client_id in OAuth provider '#{provider.name}'" unless provider.client_id
-        return "missing mgmt_base_url in OAuth provider '#{provider.name}'" unless provider.mgmt_base_url
-        return "mgmt_base_url in OAuth provider '#{provider.name}' must use https:// or http://{localhost,127.0.0.1,[::1]}"
+        return provider.sso_disabled_reason
       end
       "missing issuer in [oauth]" if @oauth_client_id || @oauth_mgmt_base_url
     end
@@ -129,7 +118,7 @@ module LavinMQ
     private def warn_unused_oauth_sso_settings : Nil
       candidate = oauth_sso_candidate || return
       unused = oauth_providers.compact_map do |p|
-        p.name if p.name != candidate.name && (p.client_id || p.mgmt_base_url)
+        p.name if p.name != candidate.name && p.sso_configured?
       end
       # Without an issuer [oauth] is no provider, so its SSO settings belong to none
       unused << "[oauth] (no issuer)" if !@oauth_issuer_url && (@oauth_client_id || @oauth_mgmt_base_url)

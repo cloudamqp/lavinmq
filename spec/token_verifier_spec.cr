@@ -129,7 +129,7 @@ class TestableTokenVerifier < LavinMQ::Auth::JWT::TokenVerifier
   end
 
   def test_parse(token : LavinMQ::Auth::JWT::Token) : LavinMQ::Auth::JWT::TokenClaim
-    @state.parser.parse(token)
+    LavinMQ::Auth::JWT::TokenParser.new(provider).parse(token)
   end
 end
 
@@ -273,17 +273,12 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       end
     end
 
-    it "validates against the new issuer after a reload" do
+    it "can't be reloaded with another issuer" do
       verifier = JWTTestHelper.create_testable_verifier
-      verifier.reload(LavinMQ::OAuthProviderConfig.new(URI.parse("http://127.0.0.1:1")))
-      payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com", exp: RoughTime.utc.to_unix + 3600)
-      expect_raises(LavinMQ::Auth::JWT::VerificationError, /Token issuer does not match/) do
-        verifier.test_validate_issuer(payload)
+      expect_raises(ArgumentError) do
+        verifier.reload(LavinMQ::OAuthProviderConfig.new(URI.parse("https://other.example.com")))
       end
-      payload = LavinMQ::Auth::JWT::Payload.new(iss: "http://127.0.0.1:1", exp: RoughTime.utc.to_unix + 3600)
-      verifier.test_validate_issuer(payload)
-    ensure
-      verifier.try &.fetcher.cleanup
+      verifier.issuer.should eq "https://auth.example.com"
     end
   end
 
@@ -359,44 +354,13 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       verifier.test_validate_audience(payload)
       verifier.test_parse(token).username.should eq "testuser"
 
-      # The state created by #reload is detached too
+      # The provider passed to #reload is detached too
       verifier.reload(config.oauth_providers.first)
       verifier.fetcher.should be fetcher
       config.oauth_audience = "my-api"
       expect_raises(LavinMQ::Auth::JWT::VerificationError, /audience does not match/) do
         verifier.test_validate_audience(payload)
       end
-    end
-  end
-
-  describe "reload without an issuer" do
-    it "keeps all current settings when the issuer is removed" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = URI.parse("https://auth.example.com")
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      config.oauth_audience = "my-api"
-      # Never started and the spec never fetches keys, so it makes no requests
-      fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(URI.parse("https://auth.example.com"), 1.hour)
-      verifier = TestableTokenVerifier.new(config.oauth_providers.first, fetcher)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
-
-      config.oauth_issuer_url = nil
-      config.oauth_audience = "other-api"
-      config.oauth_preferred_username_claims = ["sub"]
-      config.oauth_scope_prefix = "mq."
-      config.oauth_jwks_cache_ttl = 5.minutes
-      authenticator.reload(config)
-
-      verifier.fetcher.should be fetcher
-      fetcher.default_cache_ttl.should eq 1.hour
-      payload = LavinMQ::Auth::JWT::Payload.new(iss: "https://auth.example.com",
-        exp: RoughTime.utc.to_unix + 3600, aud: "my-api", sub: "other-user", scope: "tag:administrator")
-      payload["preferred_username"] = JSON::Any.new("testuser")
-      verifier.test_validate_issuer(payload)
-      verifier.test_validate_audience(payload)
-      claims = verifier.test_parse(JWTTestHelper.create_mock_token(payload))
-      claims.username.should eq "testuser"
-      claims.tags.should eq [LavinMQ::Tag::Administrator]
     end
   end
 

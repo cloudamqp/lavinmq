@@ -149,41 +149,39 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       with_stub_idp_server do |addr_a, _request_count_a|
         with_stub_idp_server do |addr_b, request_count_b|
           authenticator, old_fetcher = authenticator_for_idp(addr_a)
+          old_verifier = authenticator.token_verifier
           config = create_test_config
           config.oauth_issuer_url = URI.parse("http://#{addr_b}")
           authenticator.reload(config)
           ctx = LavinMQ::Auth::Context.new("", well_formed_jwt("http://#{addr_b}").to_slice, loopback: true)
           authenticator.authenticate(ctx)
           request_count_b.call.should be > 0
-          authenticator.token_verifier.fetcher.should_not be old_fetcher
+          authenticator.token_verifier.should_not be old_verifier
           authenticator.token_verifier.fetcher.public_keys.empty?.should be_false
           old_fetcher.@stopped.value.should be_true
+          # Token refreshes from connections authenticated with the old issuer are rejected
+          expect_raises(LavinMQ::Auth::JWT::VerificationError, /disabled/) do
+            old_verifier.verify_token(well_formed_jwt("http://#{addr_a}"))
+          end
         ensure
           authenticator.try &.cleanup
         end
       end
     end
 
-    it "keeps the current keys when the issuer and jwks_cache_ttl are unchanged" do
-      with_stub_idp_server do |addr, _request_count|
-        authenticator, fetcher = authenticator_for_idp(addr)
-        config = create_test_config
-        config.oauth_issuer_url = URI.parse("http://#{addr}/")
-        config.oauth_scope_prefix = "mq."
-        authenticator.reload(config)
-        authenticator.token_verifier.fetcher.should be fetcher
-      end
-    end
-
-    it "keeps the fetcher and its keys when only jwks_cache_ttl changes" do
+    it "reloads the verifier, keeping its fetcher and keys, when the issuer is unchanged" do
       with_stub_idp_server do |addr, _request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
         fetcher.ensure_keys
+        verifier = authenticator.token_verifier
         config = create_test_config
-        config.oauth_issuer_url = URI.parse("http://#{addr}")
+        config.oauth_issuer_url = URI.parse("http://#{addr}/")
+        config.oauth_scope_prefix = "mq."
         config.oauth_jwks_cache_ttl = 5.minutes
         authenticator.reload(config)
-        authenticator.token_verifier.fetcher.should be fetcher
+        authenticator.token_verifier.should be verifier
+        verifier.fetcher.should be fetcher
+        verifier.provider.scope_prefix.should eq "mq."
         fetcher.default_cache_ttl.should eq 5.minutes
         fetcher.public_keys.empty?.should be_false
       end
@@ -222,6 +220,35 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
   end
 
+  describe "#sso_verifier" do
+    sso_authenticator = ->(providers : Array(LavinMQ::OAuthProviderConfig)) {
+      LavinMQ::Auth::OAuthAuthenticator.new(providers.to_h do |p|
+        {p.name, LavinMQ::Auth::JWT::TokenVerifier.new(p, LavinMQ::Auth::JWT::JWKSFetcher.new(p.issuer_url, 1.hour))}
+      end)
+    }
+
+    it "is the verifier of the first provider with SSO configured" do
+      authenticator = sso_authenticator.call([
+        LavinMQ::OAuthProviderConfig.new(URI.parse("https://a.example.com"), name: "a"),
+        LavinMQ::OAuthProviderConfig.new(URI.parse("https://b.example.com"), name: "b",
+          client_id: "ui-b", mgmt_base_url: URI.parse("https://mq.example.com")),
+        LavinMQ::OAuthProviderConfig.new(URI.parse("https://c.example.com"), name: "c",
+          client_id: "ui-c", mgmt_base_url: URI.parse("https://mq.example.com")),
+      ])
+      authenticator.sso_verifier.try(&.provider.name).should eq "b"
+    end
+
+    it "is nil when the first provider with SSO configured has invalid settings" do
+      authenticator = sso_authenticator.call([
+        LavinMQ::OAuthProviderConfig.new(URI.parse("https://a.example.com"), name: "a",
+          client_id: "ui-a", mgmt_base_url: URI.parse("http://mq.example.com")),
+        LavinMQ::OAuthProviderConfig.new(URI.parse("https://b.example.com"), name: "b",
+          client_id: "ui-b", mgmt_base_url: URI.parse("https://mq.example.com")),
+      ])
+      authenticator.sso_verifier.should be_nil
+    end
+  end
+
   describe "#reload with several providers" do
     it "reloads kept providers, starts new ones and disables removed ones" do
       # Unreachable issuers: the refresh loops started for them fail fast
@@ -249,8 +276,10 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
     it "keeps the current providers when the config has none" do
       authenticator, verifiers = multi_provider_authenticator("https://a.example.com", "https://b.example.com")
+      providers = verifiers.map &.provider
       authenticator.reload(LavinMQ::Config.new)
       authenticator.verifiers.should eq verifiers
+      authenticator.verifiers.map(&.provider).should eq providers
     end
   end
 
