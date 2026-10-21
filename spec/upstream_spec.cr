@@ -692,6 +692,55 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "does not deadlock two-way federation with max-hops 3 or more" do
+      with_amqp_server do |s|
+        va = s.vhosts.create("fed_a")
+        vb = s.vhosts.create("fed_b")
+        va.declare_exchange("fe", "topic", true, false)
+        vb.declare_exchange("fe", "topic", true, false)
+        url_a = URI.parse(s.amqp_server.url)
+        url_a.path = va.name
+        url_b = URI.parse(s.amqp_server.url)
+        url_b.path = vb.name
+        up_a = LavinMQ::Federation::Upstream.new(va, "ef two-way from b", url_b.to_s,
+          exchange: "fe", queue: nil, max_hops: 3_i64)
+        va.upstreams.add(up_a)
+        up_b = LavinMQ::Federation::Upstream.new(vb, "ef two-way from a", url_a.to_s,
+          exchange: "fe", queue: nil, max_hops: 3_i64)
+        vb.upstreams.add(up_b)
+        link_a = up_a.link(va.exchange("fe").as(LavinMQ::AMQP::Exchange))
+        link_b = up_b.link(vb.exchange("fe").as(LavinMQ::AMQP::Exchange))
+        wait_for { link_a.state.running? && link_b.state.running? }
+
+        va.declare_queue("q", true, false)
+        q = va.queue("q")
+        bound = Channel(Nil).new
+        spawn do
+          va.exchange("fe").bind(q, "rk")
+          bound.close
+        end
+        # The links propagate the binding a -> b -> a -> b. Each hop used to
+        # wait for its bind-ok inside the fiber that processes the previous
+        # bind, so the chain deadlocked once it revisited a busy connection.
+        select
+        when bound.receive?
+        when timeout 5.seconds
+          fail "two-way binding propagation deadlocked"
+        end
+        # The propagation must stop by hop count, not run forever
+        wait_for { vb.exchange("fe").bindings_details.size == 2 }
+        wait_for { va.exchange("fe").bindings_details.size == 2 }
+        # Give a wrongly forwarded extra hop time to arrive, then check the
+        # counts stayed put
+        sleep 100.milliseconds
+        vb.exchange("fe").bindings_details.size.should eq 2
+        va.exchange("fe").bindings_details.size.should eq 2
+      ensure
+        up_a.try &.close
+        up_b.try &.close
+      end
+    end
+
     {% for descr, v in {nil: nil, empty: ""} %}
     describe "when @exchange is {{ descr }}" do
       it "should use downstream exchange name as upstream exchange" do
@@ -817,9 +866,12 @@ describe LavinMQ::Federation::Upstream do
             queues << downstream_q
           end
 
-          wait_for(timeout: 10.milliseconds) { upstream_ex.bindings_details.size == queues.size }
+          # Binds are forwarded without waiting for the upstream's reply, so
+          # a client bind returns before the forward lands; use the default
+          # wait_for timeout
+          wait_for { upstream_ex.bindings_details.size == queues.size }
           queues.each &.delete
-          wait_for(timeout: 10.milliseconds) { upstream_ex.bindings_details.empty? }
+          wait_for { upstream_ex.bindings_details.empty? }
         end
       end
     end
@@ -1082,10 +1134,11 @@ describe LavinMQ::Federation::Upstream do
             downstream_ex.bind(q, "spec.routing.key")
 
             # Verify bindings on exchange "fe" from vhost v1 to
-            # vhost v9.
+            # vhost v9. The links forward bindings without waiting for the
+            # upstream's reply, so wait for each binding to arrive.
             1.to(9) do |i|
               fe = s.vhosts["v#{i}"].exchange("fe")
-              fe.bindings_details.size.should eq 1
+              wait_for { fe.bindings_details.size == 1 }
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
               x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
@@ -1122,18 +1175,12 @@ describe LavinMQ::Federation::Upstream do
             # max_hops on v5 is 1.
             downstream_ex.bind(q, "spec.routing.key")
 
-            # Verify bindings on exchange "fe" from vhost v1 to
-            # vhost v4.
-            1.to(3) do |i|
-              fe = s.vhosts["v#{i}"].exchange("fe")
-              fe.bindings_details.size.should eq 0
-            end
-
             # Verify bindings on exchange "fe" from vhost v4 to
-            # vhost v9.
+            # vhost v9. Binding forwarding is asynchronous, so wait for the
+            # bindings to arrive before checking where they must not reach.
             4.to(9) do |i|
               fe = s.vhosts["v#{i}"].exchange("fe")
-              fe.bindings_details.size.should eq 1
+              wait_for { fe.bindings_details.size == 1 }
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
               x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
@@ -1146,6 +1193,15 @@ describe LavinMQ::Federation::Upstream do
               # The first (last appended) x-bound-from should always be the downstream (v10)
               last_bound_from = x_bound_from.last.should be_a(AMQ::Protocol::Table)
               last_bound_from["vhost"].should eq "v10"
+            end
+
+            # v5's max_hops of 1 stops the binding at v4; v1 to v3 stay empty.
+            # Forwarding is asynchronous, so give a wrongly forwarded extra
+            # hop time to arrive before checking.
+            sleep 100.milliseconds
+            1.to(3) do |i|
+              fe = s.vhosts["v#{i}"].exchange("fe")
+              fe.bindings_details.size.should eq 0
             end
           end
         end
@@ -1169,18 +1225,12 @@ describe LavinMQ::Federation::Upstream do
             # max_hops on v5 is 1.
             downstream_ex.bind(q, "spec.routing.key")
 
-            # Verify bindings on exchange "fe" from vhost v1 to
-            # vhost v6.
-            1.to(6) do |i|
-              fe = s.vhosts["v#{i}"].exchange("fe")
-              fe.bindings_details.size.should eq 0
-            end
-
             # Verify bindings on exchange "fe" from vhost v7 to
-            # vhost v9.
+            # vhost v9. Binding forwarding is asynchronous, so wait for the
+            # bindings to arrive before checking where they must not reach.
             7.to(9) do |i|
               fe = s.vhosts["v#{i}"].exchange("fe")
-              fe.bindings_details.size.should eq(1), "FE in vhost v#{i} should have one binding"
+              wait_for { fe.bindings_details.size == 1 }
               fe_bk = fe.bindings_details.first.binding_key
               args = fe_bk.arguments.should_not be_nil
               x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
@@ -1191,6 +1241,15 @@ describe LavinMQ::Federation::Upstream do
               # The first (last appended) x-bound-from should always be the downstream (v10)
               last_bound_from = x_bound_from.last.should be_a(AMQ::Protocol::Table)
               last_bound_from["vhost"].should eq "v10"
+            end
+
+            # The hops value in the binding stops it at v7; v1 to v6 stay
+            # empty. Forwarding is asynchronous, so give a wrongly forwarded
+            # extra hop time to arrive before checking.
+            sleep 100.milliseconds
+            1.to(6) do |i|
+              fe = s.vhosts["v#{i}"].exchange("fe")
+              fe.bindings_details.size.should eq 0
             end
           end
         end

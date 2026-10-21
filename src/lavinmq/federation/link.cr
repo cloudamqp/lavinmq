@@ -346,14 +346,17 @@ module LavinMQ
           x_received_from.size < @upstream.max_hops
         end
 
-        # Called when a binding is added to the federated exchange
+        # Called when a binding is added to the federated exchange.
+        # no_wait: this runs in the frame-processing fiber, so waiting for the
+        # upstream's bind-ok deadlocks two-way or ring federation. Errors
+        # close the channel and the reconnect replays all bindings.
         def bound(b : AMQP::BindingDetails)
           return if @state.terminated? || @state.terminating?
           @log.debug { "bound routing_key=#{b.routing_key}" }
           updated, args = update_bound_from?(b.arguments)
           if updated
             with_consumer_ex do |ex|
-              ex.bind(@upstream_exchange, b.routing_key, args: args)
+              ex.bind(@upstream_exchange, b.routing_key, no_wait: true, args: args)
             end
           end
         rescue e
@@ -367,7 +370,8 @@ module LavinMQ
           updated, args = update_bound_from?(b.arguments)
           if updated
             with_consumer_ex do |ex|
-              ex.unbind(@upstream_exchange, b.routing_key, args: args)
+              # no_wait for the same reason as in #bound
+              ex.unbind(@upstream_exchange, b.routing_key, no_wait: true, args: args)
             end
           end
         rescue e
