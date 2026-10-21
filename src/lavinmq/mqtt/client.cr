@@ -253,7 +253,11 @@ module LavinMQ
             send(Protocol::PubAck.new(pending.packet_id))
           end
         end
-      rescue ::IO::Error
+      rescue ex : ::IO::TimeoutError
+        @log.info { "Timeout while sending PUBACK (#{ex.inspect})" }
+        close_socket
+      rescue ::IO::Error | OpenSSL::SSL::Error
+        close_socket
       end
 
       private def next_puback(seq : UInt64) : PendingPubAck?
