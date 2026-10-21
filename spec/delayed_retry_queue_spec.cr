@@ -192,8 +192,8 @@ describe "Retry Queue" do
           q.publish_confirm "retry me", props: AMQP::Client::Properties.new(expiration: "400")
 
           msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
           q.publish_confirm "block"
+          msg.reject(requeue: true)
 
           dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
           dlq_msg.body_io.to_s.should eq "retry me"
@@ -218,8 +218,8 @@ describe "Retry Queue" do
           q.publish_confirm "retry me"
 
           msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
           q.publish_confirm "block"
+          msg.reject(requeue: true)
 
           sleep 350.milliseconds
           s.vhosts["/"].queue("amq.retry-retry-overflow-redelay").message_count.should eq 1
