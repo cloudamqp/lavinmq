@@ -100,11 +100,8 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      # A topic too long to store is dropped before it reaches the retain store
-      # or a queue. The client still gets its PUBACK, as for a topic denial:
-      # MQTT 3.1.1 can only ack a PUBLISH or close the connection [MQTT-3.3.5-2],
-      # and a closed connection makes the client resend the same publish.
-      # Returns false for a dropped publish, which the client logs.
+      # Drops a topic too long to store but still sends PUBACK, as for a topic
+      # denial: MQTT 3.1.1 can only ack or close. Returns false for a drop.
       def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
         return false if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
         @retain_store.retain(packet) if packet.retain?
@@ -127,8 +124,6 @@ module LavinMQ
         return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
         ts = RoughTime.unix_ms
         @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-          # Retained before topics had a length limit
-          next if topic.bytesize > MAX_TOPIC_BYTESIZE
           props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
           msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
           session.publish(msg)
