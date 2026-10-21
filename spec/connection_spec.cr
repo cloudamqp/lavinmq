@@ -417,24 +417,59 @@ describe LavinMQ::Server do
       end
     end
 
-    it "closes a connection within the close timeout while a delivery to it is blocked" do
+    it "closes a connection within force_close_timeout while a delivery to it is blocked" do
       LavinMQ::Config.instance.tcp_send_timeout = 30
       with_amqp_server do |s|
         with_stuck_consumer(s, "tcp_send_timeout_close") do |client|
           Log.capture("lmq.amqp.client", :info) do |logs|
             closed = Channel(Nil).new
             spawn do
-              # As the HTTP API closes a connection
-              client.close("Closed via management plugin", timeout: 1.second)
+              client.close("Closed via management plugin", force_close_timeout: 1.second)
               closed.send nil
             end
             select
             when closed.receive
             when timeout(5.seconds)
-              fail "close didn't complete within its timeout"
+              fail "close didn't complete within force_close_timeout"
             end
             client.closed?.should be_true
-            logs.check(:info, /Close frame not sent within 1.0s/)
+            logs.check(:info, /Close frame not confirmed within 1.0s/)
+          end
+        end
+      end
+    end
+
+    it "closes a connection through the HTTP API while a delivery to it is blocked" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_http_server do |http, s|
+        with_stuck_consumer(s, "tcp_send_timeout_api_close") do |client|
+          name = URI.encode_path(client.name)
+          deleted = Channel(Int32).new
+          spawn { deleted.send http.delete("/api/connections/#{name}").status_code }
+          select
+          when status = deleted.receive
+            status.should eq 204
+          when timeout(7.seconds)
+            fail "DELETE /api/connections didn't complete within force_close_timeout"
+          end
+          client.closed?.should be_true
+        end
+      end
+    end
+
+    it "lets a slowly reading client get the Close frame when closed without force_close_timeout" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_close_slow_reader", body_size: 2 * 1024 * 1024, count: 2) do |client, io|
+          # Like ConnectionStore#close_all, without force_close_timeout
+          spawn { client.close("Server shutdown", timeout: 500.milliseconds) }
+          io.read_timeout = 30.seconds
+          stream = AMQ::Protocol::Stream.new(io, frame_max: LavinMQ::Config.instance.frame_max)
+          # Reads slowly, so the delivery holds the write lock past the close timeout
+          loop do
+            frame = stream.next_frame
+            break if frame.is_a?(AMQ::Protocol::Frame::Connection::Close)
+            sleep 100.milliseconds
           end
         end
       end

@@ -565,7 +565,10 @@ module LavinMQ
         @log.debug { "#{ex.inspect} when closing socket" }
       end
 
-      def close(reason = nil, timeout : Time::Span = 5.seconds)
+      # *timeout* applies to new socket writes, not to one already blocked on a
+      # client that doesn't read. *force_close_timeout* shuts the socket down if
+      # the Close frame isn't confirmed by then, which aborts such a write.
+      def close(reason = nil, timeout : Time::Span = 5.seconds, force_close_timeout : Time::Span? = nil)
         reason ||= "Connection closed"
         @log.info { "Closing: #{reason}" }
 
@@ -575,27 +578,28 @@ module LavinMQ
           socket.read_timeout = timeout
         end
 
-        # A write already in progress, e.g. a delivery to a client that doesn't
-        # read, keeps the tcp_send_timeout it started with and holds the write
-        # lock the Close frame needs. If the frame isn't sent within the timeout,
-        # shut the connection down, which aborts that write.
-        sent = ::Channel(Nil).new(1)
-        spawn(name: "AMQP::Client#close timeout") do
-          select
-          when sent.receive
-          when timeout(timeout)
-            @log.info { "Close frame not sent within #{timeout.total_seconds}s, shutting the connection down" }
-            close_socket
-          end
-        end
+        send_done = start_force_close_timer(force_close_timeout) if force_close_timeout
         begin
           code = ConnectionReplyCode::CONNECTION_FORCED
           send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
         ensure
-          sent.send(nil)
+          send_done.try &.send(nil)
         end
       ensure
         @running = false
+      end
+
+      private def start_force_close_timer(force_close_timeout : Time::Span) : ::Channel(Nil)
+        send_done = ::Channel(Nil).new(1)
+        spawn(name: "AMQP::Client#close force close timer") do
+          select
+          when send_done.receive
+          when timeout(force_close_timeout)
+            @log.info { "Close frame not confirmed within #{force_close_timeout.total_seconds}s, shutting the connection down" }
+            close_socket
+          end
+        end
+        send_done
       end
 
       def force_close
