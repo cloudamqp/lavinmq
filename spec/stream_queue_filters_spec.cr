@@ -243,3 +243,21 @@ module PublishHelper
     q
   end
 end
+
+private def consumer_filter(args = NamedTuple.new)
+  LavinMQ::AMQP::ConsumerFilter.from_arguments(AMQ::Protocol::Table.new(args))
+end
+
+describe LavinMQ::AMQP::ConsumerFilter do
+  it "rejects invalid arguments" do
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-filter-match-type/) do
+      consumer_filter({"x-filter-match-type": "some"})
+    end
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-match-unfiltered/) do
+      consumer_filter({"x-stream-match-unfiltered": "yes"})
+    end
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-filter/) do
+      consumer_filter({"x-stream-filter": 1})
+    end
+  end
+end

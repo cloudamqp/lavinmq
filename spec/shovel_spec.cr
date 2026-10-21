@@ -552,6 +552,32 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "releases its stream segment when cancelled" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_stream_pin", true, false, AMQ::Protocol::Table.new({"x-queue-type" => "stream"}))
+        ShovelSpecHelpers.publish(vhost, "ls_stream_pin", "m0")
+        store = vhost.queue("ls_stream_pin").as(LavinMQ::AMQP::Stream).stream_msg_store
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10_u16
+        delivered = Channel(Nil).new(1)
+        args = AMQ::Protocol::Table.new({"x-stream-offset" => "first"})
+        spawn do
+          session.consume("ls_stream_pin", "spec", false, false, args) do |d|
+            session.ack(d.tag)
+            delivered.send nil
+          end
+        rescue LavinMQ::Endpoint::ClosedError
+        end
+        delivered.receive
+        store.@segment_readers.should eq({store.@segments.first_key => 1u32})
+        session.cancel("spec")
+        wait_for { store.@segment_readers.empty? }
+        session.close
+      end
+    end
+
     it "waits without spinning at its prefetch limit on a stream's tail" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
