@@ -1,5 +1,6 @@
 require "../../filesystem"
 require "digest/sha1"
+require "sync/exclusive"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
@@ -58,51 +59,90 @@ module LavinMQ::AMQP
       new vhost, name, exclusive, auto_delete, arguments
     end
 
-    @message_ttl : Int64?
-    @max_length : Int64?
-    @max_length_bytes : Int64?
-    @expires : Int64?
-    @delivery_limit : Int64?
-    @reject_on_overflow = false
-    @delayed_retry_min : Int64?
-    @delayed_retry_max : Int64?
-    @delayed_retry_multiplier : Int32?
+    # Settings derived from the queue's arguments and its policies. A new
+    # instance is built off to the side every time they are (re)applied and
+    # published with a single reference store, so readers never see a policy
+    # half-applied, limits missing while a policy is re-applied, or a torn
+    # value. A published instance is never mutated.
+    class Settings
+      property max_length : Int64?
+      property max_length_bytes : Int64?
+      property message_ttl : Int64?
+      property expires : Int64?
+      property delivery_limit : Int64?
+      property? reject_on_overflow = false
+      property consumer_timeout : UInt64?
+      property dlx : String?
+      property dlrk : String?
+      property max_age : (Time::Span | Time::MonthSpan)?
+      property delayed_retry_min : Int64?
+      property delayed_retry_max : Int64?
+      property delayed_retry_multiplier : Int32?
+      # Set when the policy tightened limits that existing messages must be
+      # checked against
+      property? enforce_limits = false
+      getter effective_args = Array(String).new
+
+      def initialize(@consumer_timeout = nil)
+      end
+
+      # Deliveries are counted for x-delivery-limit and x-delayed-retry-min
+      def counts_deliveries? : Bool
+        !!(@delivery_limit || @delayed_retry_min)
+      end
+    end
+
+    # Published with release and read with acquire ordering, so that a reader
+    # on another thread sees the fields as they were when it was published
+    @settings = Atomic(Settings).new(Settings.new(Config.instance.consumer_timeout))
+    # Built by clear_policy_arguments/apply_policy_argument, published by
+    # commit_policy_arguments
+    @staged_settings = Settings.new
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
+    # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
+    # @consumers.size, readable without the lock (e.g. on the delivery path)
+    @consumer_count = Atomic(Int32).new(0)
+    # Set under @consumers_lock when the queue is going away (closed,
+    # auto-deleted or expired), so no consumer can be added after that decision
+    @consumers_closed = false
     @message_ttl_change = ::Channel(Nil).new
 
-    @basic_get_unacked = Deque(UnackedMessage).new
+    # Leaf lock: basic.get, acks/closes of any channel and stats all touch
+    # the list, and Channel#close holds its @unack_lock meanwhile. The Deque
+    # is only reachable through the lock.
+    @basic_get_unacked = Sync::Exclusive(Deque(UnackedMessage)).new(Deque(UnackedMessage).new, :unchecked)
 
     # Consumer accessors
 
     def consumers : Array(Client::Channel::Consumer)
-      @consumers.dup
+      @consumers_lock.synchronize { @consumers.dup }
     end
 
     def consumers_size : Int32
-      @consumers.size
+      @consumer_count.get(:relaxed)
     end
 
     def consumers_empty? : Bool
-      @consumers.empty?
+      consumers_size.zero?
     end
 
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil
-      @basic_get_unacked << msg
+      @basic_get_unacked.lock(&.push(msg))
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
-      @basic_get_unacked.reject! { |u| yield u }
+      @basic_get_unacked.lock(&.reject! { |u| yield u })
     end
 
     def basic_get_unacked_size : Int32
-      @basic_get_unacked.size
+      @basic_get_unacked.lock(&.size)
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -111,11 +151,16 @@ module LavinMQ::AMQP
 
     getter paused = BoolChannel.new(false)
 
-    getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
+    def settings : Settings
+      @settings.get(:acquire)
+    end
+
+    def consumer_timeout : UInt64?
+      settings.consumer_timeout
+    end
 
     getter consumers_empty = BoolChannel.new(true)
     @queue_expiration_ttl_change = ::Channel(Nil).new
-    @effective_args = Array(String).new
 
     # Idle fiber management
     @message_expire_fiber_active = Atomic(Bool).new(false)
@@ -149,19 +194,20 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break if @closed || !@expires
+        break if @closed || !settings.expires
         select
         when @consumers_empty.when_true.receive
         when @queue_expiration_ttl_change.receive
           next
         end
-        break unless ttl = @expires
+        break unless ttl = settings.expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
+          # A consumer added as the TTL fired keeps the queue alive
+          next unless expire_queue
           close
           break
         end
@@ -174,7 +220,7 @@ module LavinMQ::AMQP
       loop do
         break unless wait_for_consumers_empty
         break unless wait_for_messages
-        next unless @consumers.empty?
+        next unless consumers_empty?
         break unless wait_for_message_expiration
       end
     rescue ex : MessageStore::Error
@@ -317,7 +363,7 @@ module LavinMQ::AMQP
     end
 
     private def ensure_queue_expire_fiber
-      return if @closed || !@expires
+      return if @closed || !settings.expires
       return if @queue_expire_fiber_active.swap(true)
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         queue_expire_loop
@@ -376,9 +422,9 @@ module LavinMQ::AMQP
 
     # Check if we need the expire fiber running
     private def should_start_expire_fiber? : Bool
-      return false if @msg_store.size == 0  # No messages to expire
-      return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
-      return true if @message_ttl           # Queue-level TTL means all messages need expiring
+      return false if @msg_store.size == 0 # No messages to expire
+      return false unless consumers_empty? # Expire loop can't run with consumers present; rm_consumer will restart it
+      return true if settings.message_ttl  # Queue-level TTL means all messages need expiring
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
@@ -388,6 +434,7 @@ module LavinMQ::AMQP
 
     private def reset_queue_state
       @closed = false
+      @consumers_closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
 
@@ -449,67 +496,64 @@ module LavinMQ::AMQP
 
     # A queue with an exclusive consumer refuses all other consumers, and an
     # exclusive consumer is refused while the queue has any consumers
-    def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
+    private def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
       @exclusive_consumer || (new_consumer_exclusive && !@consumers.empty?)
     end
 
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool # ameba:disable Metrics/CyclomaticComplexity
       @log.debug { "Applying policy #{key}: #{value}" }
+      settings = @staged_settings
       case key
       when "max-length"
-        unless @max_length.try &.< value.as_i64
-          @max_length = value.as_i64
-          @effective_args.delete("x-max-length")
-          schedule_policy_limits
+        unless settings.max_length.try &.< value.as_i64
+          settings.max_length = value.as_i64
+          settings.effective_args.delete("x-max-length")
+          settings.enforce_limits = true
           return true
         end
       when "max-length-bytes"
-        unless @max_length_bytes.try &.< value.as_i64
-          @max_length_bytes = value.as_i64
-          @effective_args.delete("x-max-length-bytes")
-          schedule_policy_limits
+        unless settings.max_length_bytes.try &.< value.as_i64
+          settings.max_length_bytes = value.as_i64
+          settings.effective_args.delete("x-max-length-bytes")
+          settings.enforce_limits = true
           return true
         end
       when "message-ttl"
-        unless @message_ttl.try &.< value.as_i64
-          @message_ttl = value.as_i64
-          @message_ttl_change.try_send? nil
-          ensure_expire_fiber
-          @effective_args.delete("x-message-ttl")
+        unless settings.message_ttl.try &.< value.as_i64
+          settings.message_ttl = value.as_i64
+          settings.effective_args.delete("x-message-ttl")
           return true
         end
       when "expires"
-        unless @expires.try &.< value.as_i64
-          @expires = value.as_i64
-          ensure_queue_expire_fiber
-          @queue_expiration_ttl_change.try_send? nil
-          @effective_args.delete("x-expires")
+        unless settings.expires.try &.< value.as_i64
+          settings.expires = value.as_i64
+          settings.effective_args.delete("x-expires")
           return true
         end
       when "overflow"
         overflow = value.as_s
         if overflow.in?("reject-publish", "drop-head")
-          @reject_on_overflow = overflow == "reject-publish"
-          @effective_args.delete("x-overflow")
+          settings.reject_on_overflow = overflow == "reject-publish"
+          settings.effective_args.delete("x-overflow")
           return true
         end
       when "dead-letter-exchange"
-        if @dead_letter.dlx.nil?
-          @dead_letter.dlx ||= value.as_s
-          @effective_args.delete("x-dead-letter-exchange")
+        if settings.dlx.nil?
+          settings.dlx = value.as_s
+          settings.effective_args.delete("x-dead-letter-exchange")
           return true
         end
       when "dead-letter-routing-key"
-        if @dead_letter.dlrk.nil?
-          @dead_letter.dlrk ||= value.as_s
-          @effective_args.delete("x-dead-letter-routing-key")
+        if settings.dlrk.nil?
+          settings.dlrk = value.as_s
+          settings.effective_args.delete("x-dead-letter-routing-key")
           return true
         end
       when "delivery-limit"
-        unless @delivery_limit.try &.< value.as_i64
-          @delivery_limit = value.as_i64
-          @effective_args.delete("x-delivery-limit")
-          schedule_policy_limits
+        unless settings.delivery_limit.try &.< value.as_i64
+          settings.delivery_limit = value.as_i64
+          settings.effective_args.delete("x-delivery-limit")
+          settings.enforce_limits = true
           return true
         end
       when "federation-upstream"
@@ -519,9 +563,9 @@ module LavinMQ::AMQP
         @vhost.upstreams.try &.link_set(value.as_s, self)
         return true
       when "consumer-timeout"
-        unless @consumer_timeout.try &.< value.as_i64
-          @consumer_timeout = value.as_i64.to_u64
-          @effective_args.delete("x-consumer-timeout")
+        unless settings.consumer_timeout.try &.< value.as_i64
+          settings.consumer_timeout = value.as_i64.to_u64
+          settings.effective_args.delete("x-consumer-timeout")
           return true
         end
       end
@@ -529,63 +573,81 @@ module LavinMQ::AMQP
     end
 
     private def clear_policy_arguments
-      handle_arguments
+      @staged_settings = settings_from_arguments
       @vhost.upstreams.try &.stop_link(self)
     end
 
-    private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
-      @effective_args = Array(String).new
-      @dead_letter.dlx = parse_header("x-dead-letter-exchange", String)
-      @effective_args << "x-dead-letter-exchange" if @dead_letter.dlx
-      @dead_letter.dlrk = parse_header("x-dead-letter-routing-key", String)
-      @effective_args << "x-dead-letter-routing-key" if @dead_letter.dlrk
-      @expires = parse_header("x-expires", Int).try &.to_i64
-      @effective_args << "x-expires" if @expires
+    private def handle_arguments
+      @policy_lock.synchronize do
+        @staged_settings = settings_from_arguments
+        commit_policy_arguments
+      end
+    end
+
+    # Publish the staged settings, then act on them
+    private def commit_policy_arguments
+      settings = @staged_settings
+      @dead_letter.set_target(settings.dlx, settings.dlrk)
+      @settings.set(settings, :release)
       @queue_expiration_ttl_change.try_send? nil
-      @max_length = parse_header("x-max-length", Int).try &.to_i64
-      @effective_args << "x-max-length" if @max_length
-      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      @effective_args << "x-max-length-bytes" if @max_length_bytes
-      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      @effective_args << "x-message-ttl" if @message_ttl
+      ensure_queue_expire_fiber
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber if @message_ttl
-      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      @effective_args << "x-delivery-limit" if @delivery_limit
+      ensure_expire_fiber if settings.message_ttl
+      schedule_policy_limits if settings.enforce_limits?
+    end
+
+    private def settings_from_arguments : Settings # ameba:disable Metrics/CyclomaticComplexity
+      settings = Settings.new
+      effective_args = settings.effective_args
+      settings.dlx = parse_header("x-dead-letter-exchange", String)
+      effective_args << "x-dead-letter-exchange" if settings.dlx
+      settings.dlrk = parse_header("x-dead-letter-routing-key", String)
+      effective_args << "x-dead-letter-routing-key" if settings.dlrk
+      settings.expires = parse_header("x-expires", Int).try &.to_i64
+      effective_args << "x-expires" if settings.expires
+      settings.max_length = parse_header("x-max-length", Int).try &.to_i64
+      effective_args << "x-max-length" if settings.max_length
+      settings.max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
+      effective_args << "x-max-length-bytes" if settings.max_length_bytes
+      settings.message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
+      effective_args << "x-message-ttl" if settings.message_ttl
+      settings.delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
+      effective_args << "x-delivery-limit" if settings.delivery_limit
       overflow = parse_header("x-overflow", String)
-      @reject_on_overflow = overflow == "reject-publish"
-      @effective_args << "x-overflow" if @reject_on_overflow || overflow == "drop-head"
+      settings.reject_on_overflow = overflow == "reject-publish"
+      effective_args << "x-overflow" if settings.reject_on_overflow? || overflow == "drop-head"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
-      @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
-      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      @effective_args << "x-consumer-timeout" if @consumer_timeout
+      effective_args << "x-single-active-consumer" if @single_active_consumer_queue
+      settings.consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      effective_args << "x-consumer-timeout" if settings.consumer_timeout
       if parse_header("x-message-deduplication", Bool)
-        @effective_args << "x-message-deduplication"
+        effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
-        @effective_args << "x-cache-size" if size
+        effective_args << "x-cache-size" if size
         ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
-        @effective_args << "x-cache-ttl" if ttl
+        effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
-        @effective_args << "x-deduplication-header" if header_key
+        effective_args << "x-deduplication-header" if header_key
         @deduper ||= begin
           cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
-      @delayed_retry_min = parse_header("x-delayed-retry-min", Int).try(&.to_i64)
-      if @delayed_retry_min
+      settings.delayed_retry_min = parse_header("x-delayed-retry-min", Int).try(&.to_i64)
+      if settings.delayed_retry_min
         if @deduper
           raise LavinMQ::Error::PreconditionFailed.new(
             "x-delayed-retry-min cannot be combined with x-message-deduplication")
         end
-        @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
-        @effective_args << "x-delayed-retry-min"
-        @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
-        @effective_args << "x-delayed-retry-multiplier" if @delayed_retry_multiplier
-        @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
-        @effective_args << "x-delayed-retry-max" if @delayed_retry_max
+        settings.delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        effective_args << "x-delayed-retry-min"
+        settings.delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
+        effective_args << "x-delayed-retry-multiplier" if settings.delayed_retry_multiplier
+        settings.delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
+        effective_args << "x-delayed-retry-max" if settings.delayed_retry_max
         init_retry_queue
       end
+      settings
     end
 
     private macro parse_header(header, type)
@@ -650,16 +712,17 @@ module LavinMQ::AMQP
     end
 
     protected def retry_delay_for(delivery_count : Int32) : Int64
-      calculate_retry_delay(@delayed_retry_min || 1_i64, delivery_count)
+      calculate_retry_delay(settings.delayed_retry_min || 1_i64, delivery_count)
     end
 
     # Delay for attempt n: base × n, or base × multiplier^(n-1) with a multiplier,
     # clamped at x-delayed-retry-max and the UInt32 range of x-delay. The cap
     # never ends retries; termination is governed by x-delivery-limit only.
     private def calculate_retry_delay(base_delay : Int64, delivery_count : Int32) : Int64
-      cap = Math.min(@delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
+      settings = self.settings
+      cap = Math.min(settings.delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
       delay = Math.min(base_delay, cap)
-      if mult = @delayed_retry_multiplier
+      if mult = settings.delayed_retry_multiplier
         (delivery_count - 1).times do
           if delay > cap // mult
             delay = cap
@@ -724,8 +787,10 @@ module LavinMQ::AMQP
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
+        @consumers_closed = true
         @consumers.each &.cancel
         @consumers.clear
+        @consumer_count.set(0, :relaxed)
         @exclusive_consumer = false
         @has_priority_consumers = false
       end
@@ -735,7 +800,7 @@ module LavinMQ::AMQP
         @msg_store.close
         @deliveries.clear
       end
-      @basic_get_unacked.clear
+      @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -779,7 +844,7 @@ module LavinMQ::AMQP
         exclusive:                    @exclusive,
         auto_delete:                  @auto_delete,
         arguments:                    @arguments,
-        consumers:                    @consumers.size,
+        consumers:                    consumers_size,
         vhost:                        @vhost.name,
         messages:                     @msg_store.size + stats[:messages_unacknowledged],
         total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
@@ -796,15 +861,20 @@ module LavinMQ::AMQP
         unacked_avg_bytes:            stats[:unacked_avg_bytes],
         operator_policy:              operator_policy.try &.name,
         policy:                       policy.try &.name,
-        exclusive_consumer_tag:       @exclusive_consumer ? @consumers.find(&.exclusive?).try(&.tag) : nil,
+        exclusive_consumer_tag:       exclusive_consumer_tag,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
         state:                        @state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
-        effective_arguments:          @effective_args,
+        effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
       }
+    end
+
+    private def exclusive_consumer_tag : String?
+      return unless @exclusive_consumer
+      @consumers_lock.synchronize { @consumers.find(&.exclusive?).try(&.tag) }
     end
 
     enum PublishResult
@@ -827,7 +897,7 @@ module LavinMQ::AMQP
     # queue's dead-lettering. The retry queue itself bypasses this by
     # republishing through #publish_internal.
     protected def strip_delivery_count(msg : Message) : Nil
-      return unless @delayed_retry_min
+      return unless settings.delayed_retry_min
       if (headers = msg.properties.headers) && headers.has_key?("x-delivery-count")
         headers.delete("x-delivery-count")
         msg.properties.headers = headers
@@ -856,7 +926,7 @@ module LavinMQ::AMQP
       ensure_consumers_deliver_loops if was_empty
 
       # Record activity if message has TTL (needs expiration)
-      if @message_ttl || msg.properties.expiration
+      if settings.message_ttl || msg.properties.expiration
         ensure_expire_fiber
       end
 
@@ -873,15 +943,16 @@ module LavinMQ::AMQP
     end
 
     private def reject_on_overflow?(msg) : Bool
-      return false unless @reject_on_overflow
-      if ml = @max_length
+      settings = self.settings
+      return false unless settings.reject_on_overflow?
+      if ml = settings.max_length
         if @msg_store.size >= ml
           @log.debug { "Overflow reject message msg=#{msg}" }
           return true
         end
       end
 
-      if mlb = @max_length_bytes
+      if mlb = settings.max_length_bytes
         if @msg_store.bytesize + msg.bytesize >= mlb
           @log.debug { " Overflow reject message msg=#{msg}" }
           return true
@@ -900,13 +971,16 @@ module LavinMQ::AMQP
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
-      return unless (ml = @max_length) || (mlb = @max_length_bytes)
+      settings = self.settings
+      ml = settings.max_length
+      mlb = settings.max_length_bytes
+      return unless ml || mlb
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
       return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
 
       counter = 0
-      if ml = @max_length
+      if ml
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
@@ -921,7 +995,7 @@ module LavinMQ::AMQP
         end
       end
 
-      if mlb = @max_length_bytes
+      if mlb
         @msg_store_lock.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
@@ -939,7 +1013,7 @@ module LavinMQ::AMQP
 
     private def drop_redelivered : Nil
       counter = 0
-      if limit = @delivery_limit
+      if limit = settings.delivery_limit
         @msg_store_lock.synchronize do
           loop do
             env = @msg_store.first? || break
@@ -959,15 +1033,20 @@ module LavinMQ::AMQP
     end
 
     private def time_to_message_expiration : Time::Span?
-      env = @msg_store_lock.synchronize { @msg_store.first? } || return
-      @log.debug { "Checking if message #{env.message} has to be expired" }
-      if expire_at = expire_at(env.message)
+      # The message is a view into its segment, which a purge or delete on
+      # another thread can unmap as soon as the lock is released
+      expire_at = @msg_store_lock.synchronize do
+        env = @msg_store.first? || return
+        @log.debug { "Checking if message #{env.message} has to be expired" }
+        expire_at(env.message)
+      end
+      if expire_at
         Queue.time_to_expiration_wakeup(expire_at)
       end
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
+      return false if zero_ttl?(msg) && !requeue && !consumers_empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
@@ -976,11 +1055,11 @@ module LavinMQ::AMQP
     end
 
     private def zero_ttl?(msg) : Bool
-      msg.ttl == 0 || @message_ttl == 0
+      msg.ttl == 0 || settings.message_ttl == 0
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
-      if ttl = @message_ttl
+      if ttl = settings.message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
         msg.timestamp + ttl
       elsif ttl = msg.ttl
@@ -1013,22 +1092,35 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      if sp.has_dlx? || @dead_letter.dlx
+      dlx = sp.has_dlx? || !@dead_letter.dlx.nil?
+      @vhost.count_dead_lettered(reason, dlx: dlx)
+      if dlx
         @log.debug { "Expiring #{sp} now due to #{reason}" }
-        # Dead-lettering escapes @msg_store_lock — the message is published
-        # into other queues after this method's lock hold — while a concurrent
-        # purge or queue/vhost delete can unmap the segment it lives in, so a
-        # zero-copy view (`@msg_store[sp]`) would be read after munmap. Route
-        # a copy that owns its memory instead.
-        msg = begin
-          @msg_store_lock.synchronize { @msg_store.copy(sp) }
+        # The message is published into other queues outside @msg_store_lock,
+        # while a concurrent purge or queue/vhost delete can delete or close
+        # its segment, so the segment is leased until the routed callback has
+        # run. That can be after #route returns, when an outer dead-lettering
+        # chain publishes the queued copies (see DeadLetterer#route).
+        env = begin
+          @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
         rescue KeyError | MessageStore::ClosedError
           # The segment (or whole store) is already gone: a racing purge or
           # delete removed the message, so there is nothing left to route.
           return
         end
-        @dead_letter.route(msg, reason, dlx_tasks) do
-          delete_message sp
+        routed = false
+        begin
+          @dead_letter.route(env.message, reason, dlx_tasks) do
+            routed = true
+            begin
+              delete_message sp
+            ensure
+              env.release
+            end
+          end
+        rescue ex
+          env.release unless routed
+          raise ex
         end
       else
         delete_message sp
@@ -1037,7 +1129,10 @@ module LavinMQ::AMQP
 
     private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
+      @consumers_lock.synchronize do
+        return false unless @consumers.empty?
+        @consumers_closed = true
+      end
       @log.debug { "Queue expired" }
       @vhost.delete_queue(@name)
       true
@@ -1076,6 +1171,7 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
+      settings = self.settings
       loop do # retry if msg expired or deliver limit hit
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
@@ -1084,8 +1180,8 @@ module LavinMQ::AMQP
             expire_msg(env, :expired)
             next
           end
-          if (@delivery_limit || @delayed_retry_min) && !no_ack
-            env = with_delivery_count_header(env) || next
+          if settings.counts_deliveries? && !no_ack
+            env = with_delivery_count_header(env, settings)
           end
           sp = env.segment_position
           if no_ack
@@ -1123,28 +1219,26 @@ module LavinMQ::AMQP
           end
         end
       end
-      result.concat(@basic_get_unacked.to_a)
+      @basic_get_unacked.lock { |unacked| result.concat(unacked) }
     end
 
-    private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit || @delayed_retry_min
-        sp = env.segment_position
-        headers = env.message.properties.headers || AMQP::Table.new
-        # Acks and rejects on other threads update @deliveries too
-        delivery_count = @msg_store_lock.synchronize do
-          count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
-          @deliveries[sp] = count + 1
-          count
-        end
-        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        env.message.properties.headers = headers
+    private def with_delivery_count_header(env, settings : Settings) : Envelope
+      sp = env.segment_position
+      headers = env.message.properties.headers || AMQP::Table.new
+      # Acks and rejects on other threads update @deliveries too
+      delivery_count = @msg_store_lock.synchronize do
+        count = @deliveries[sp]? || delivery_count_from_header(headers, settings) || 0
+        @deliveries[sp] = count + 1
+        count
       end
+      headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+      env.message.properties.headers = headers
       env
     end
 
     # See #strip_delivery_count for why the header can be trusted here
-    private def delivery_count_from_header(headers) : Int32?
-      return unless @delayed_retry_min
+    private def delivery_count_from_header(headers, settings : Settings) : Int32?
+      return unless settings.delayed_retry_min
       headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
 
@@ -1167,7 +1261,7 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
-        @deliveries.delete(sp) if @delivery_limit || @delayed_retry_min
+        @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)
       end
     end
@@ -1205,19 +1299,27 @@ module LavinMQ::AMQP
     end
 
     private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
-      if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
+      # The message is a view into its segment, only valid while the lock is held
+      expired = @msg_store_lock.synchronize { has_expired?(@msg_store[sp], requeue: true) }
+      if expired # guarantee to not deliver expired messages
         return expire_msg(sp, :expired)
       end
-      if delivery_limit = @delivery_limit
+      settings = self.settings
+      if delivery_limit = settings.delivery_limit
         if @msg_store_lock.synchronize { @deliveries.fetch(sp, 0) } > delivery_limit
           return expire_msg(sp, :delivery_limit)
         end
       end
-      if route_to_retry && (delayed_retry_min = @delayed_retry_min)
+      if route_to_retry && (delayed_retry_min = settings.delayed_retry_min)
         if retry_queue = active_retry_queue
-          retry_msg = @msg_store_lock.synchronize { @msg_store.copy(sp) }
-          return if route_to_retry_queue(sp, retry_msg, retry_queue, delayed_retry_min)
+          # DelayedRetryQueue#delay writes the message to its own store before
+          # returning, so the lease only has to cover the call
+          env = @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
+          begin
+            return if route_to_retry_queue(sp, env.message, retry_queue, delayed_retry_min)
+          ensure
+            env.release
+          end
         end
       end
       was_empty = false
@@ -1230,29 +1332,39 @@ module LavinMQ::AMQP
       ensure_expire_fiber
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
-      @consumers_lock.synchronize do
+    # Adds the consumer unless the queue is in exclusive use, checked atomically
+    # with the add. Returns false if the consumer was refused for that reason,
+    # raises ClosedError if the queue is closed or about to be deleted.
+    def add_consumer(consumer : Client::Channel::Consumer) : Bool
+      raise ClosedError.new if @closed
+      consumers_size = @consumers_lock.synchronize do
+        raise ClosedError.new if @consumers_closed
+        return false if in_exclusive_use?(consumer.exclusive?)
         was_empty = @consumers.empty?
         @consumers << consumer
+        @consumer_count.set(@consumers.size, :relaxed)
+        @exclusive_consumer = true if consumer.exclusive?
+        @has_priority_consumers = true unless consumer.priority.zero?
         if was_empty
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
         end
+        @consumers.size
       end
       consumer.ensure_deliver_loop unless @msg_store.empty?
-      @exclusive_consumer = true if consumer.exclusive?
-      @has_priority_consumers = true unless consumer.priority.zero?
-      @log.debug { "Adding consumer (now #{@consumers.size})" }
+      @log.debug { "Adding consumer (now #{consumers_size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
+      true
     end
 
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       return if @closed
+      now_empty = delete_queue = false
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
+        @consumer_count.set(@consumers.size, :relaxed)
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
         if deleted
           @exclusive_consumer = false if consumer.exclusive?
@@ -1266,15 +1378,23 @@ module LavinMQ::AMQP
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
         end
-      end
-      if @consumers.empty?
-        if @auto_delete
-          delete
-        else
-          notify_consumers_empty(true)
-          # Check if fiber needs to restart for message expiration
-          ensure_expire_fiber
+        # Decide while holding the lock, so that a consumer added concurrently
+        # either keeps the queue or is refused because it's being deleted
+        if @consumers.empty?
+          if @auto_delete
+            delete_queue = !@consumers_closed
+            @consumers_closed = true
+          else
+            now_empty = true
+            notify_consumers_empty(true)
+          end
         end
+      end
+      if delete_queue
+        delete
+      elsif now_empty
+        # Check if fiber needs to restart for message expiration
+        ensure_expire_fiber
       end
     end
 
@@ -1284,12 +1404,17 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if @closed
-      if unacked_count == 0 && max_count >= message_count
-        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-        delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
-      else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store_lock.synchronize do
+        # Checked under the lock, so that a message published or shifted for
+        # delivery between the check and the purge isn't purged uncounted
+        if unacked_count == 0 && max_count >= @msg_store.size
+          # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+          count = @msg_store.size
+          @msg_store.purge_all
+          count
+        else
+          @msg_store.purge(max_count)
+        end
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and
@@ -1332,7 +1457,7 @@ module LavinMQ::AMQP
     end
 
     def in_use?
-      !(empty? && @consumers.empty?)
+      !(empty? && consumers_empty?)
     end
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)

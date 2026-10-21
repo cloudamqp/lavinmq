@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory high watermark in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
@@ -55,6 +55,12 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
 | `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
+| `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue (labeled by `dead_letter_strategy`) |
+
+The `dead_letter_strategy` label is `at_most_once` when the message was published to a dead letter exchange, and `disabled` when there was no dead letter exchange and the message was discarded.
 
 #### Runtime and clustering
 
@@ -181,6 +187,8 @@ LavinMQ collects rate statistics at a configurable interval:
 |-----------|---------|---------|-------------|
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
 | `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
+
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
 
 ## Logging
 

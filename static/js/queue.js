@@ -409,7 +409,3 @@ restartQueueForm.addEventListener('submit', function (evt) {
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
 Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})

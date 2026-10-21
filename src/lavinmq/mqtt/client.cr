@@ -9,6 +9,7 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "./publish_context"
 require "../stats"
 require "../persister"
 require "sync/exclusive"
@@ -44,6 +45,7 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
+      @publish_context = PublishContext.new
       @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
@@ -213,7 +215,7 @@ module LavinMQ
           end
           return
         end
-        @broker.publish(packet)
+        @broker.publish(packet, @publish_context)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -343,7 +345,7 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ))
+          ), @publish_context)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }

@@ -24,6 +24,7 @@ async function request (method, path, options = {}) {
     throw err
   }
   updateVersionFromResponse(response)
+  updateStatsIntervalFromResponse(response)
   if (response.ok) {
     Reachability.recordSuccess()
     return response.json().catch(() => null)
@@ -57,6 +58,17 @@ function updateVersionFromResponse (response) {
       window.location.reload() // if new version then html/js might have changed too
     }
   }
+}
+
+let statsIntervalMs = 5000
+
+function updateStatsIntervalFromResponse (response) {
+  const ms = Number(response.headers.get('LavinMQ-Stats-Interval'))
+  if (ms > 0) statsIntervalMs = ms
+}
+
+function statsInterval () {
+  return statsIntervalMs
 }
 
 function alertErrorHandler (e) {
@@ -104,5 +116,6 @@ function noencode (v) {
 export {
   request,
   url,
-  noencode
+  noencode,
+  statsInterval
 }

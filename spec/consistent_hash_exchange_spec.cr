@@ -417,8 +417,8 @@ describe JumpConsistentHasher do
       # With jump consistent hash, distribution should be more even
       results = Hash(String, Int32).new(0)
       1000.times do |i|
-        target = jch.get("key#{i}")
-        results[target.not_nil!] += 1
+        target = jch.get("key#{i}").should_not be_nil
+        results[target] += 1
       end
 
       # Each target should get roughly 1/3 of keys (allowing 15% variance)
@@ -450,7 +450,7 @@ describe JumpConsistentHasher do
       initial_mappings = Hash(String, String).new
       100.times do |i|
         key = "key#{i}"
-        initial_mappings[key] = jch.get(key).not_nil!
+        initial_mappings[key] = jch.get(key).should_not be_nil
       end
 
       # Add a third target
@@ -460,7 +460,7 @@ describe JumpConsistentHasher do
       moved_to_third = 0
       stayed_same = 0
       initial_mappings.each do |key, original_target|
-        new_target = jch.get(key).not_nil!
+        new_target = jch.get(key).should_not be_nil
         if new_target == "third"
           moved_to_third += 1
         elsif new_target == original_target
@@ -508,7 +508,7 @@ describe JumpConsistentHasher do
       initial_mappings = Hash(String, String).new
       1000.times do |i|
         key = "key#{i}"
-        initial_mappings[key] = jch.get(key).not_nil!
+        initial_mappings[key] = jch.get(key).should_not be_nil
       end
 
       jch.add("3", 1, "third")
@@ -539,8 +539,8 @@ describe JumpConsistentHasher do
 
       results = Hash(String, Int32).new(0)
       1000.times do |i|
-        target = jch.get("key#{i}")
-        results[target.not_nil!] += 1
+        target = jch.get("key#{i}").should_not be_nil
+        results[target] += 1
       end
 
       # "first" should get roughly 3x as many as "second"

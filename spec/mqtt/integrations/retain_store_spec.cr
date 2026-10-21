@@ -183,10 +183,13 @@ module MqttSpecs
         end
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
-          subscribe(io, topic_filters: [subtopic("test/retain")])
+          subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
-          # Should receive the retained message without crashing
-          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          # Should receive the retained message without crashing. The broker
+          # may send it before the SubAck (MQTT 3.1.1, 3.8.4)
+          packets = Array.new(2) { read_packet(io) }
+          packets.count(&.is_a?(MQTT::Protocol::SubAck)).should eq 1
+          pub = packets.find!(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
           pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")
@@ -207,10 +210,13 @@ module MqttSpecs
         end
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
-          subscribe(io, topic_filters: [subtopic("test/retain")])
+          subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
-          # Should receive the retained message without crashing
-          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          # Should receive the retained message without crashing. The broker
+          # may send it before the SubAck (MQTT 3.1.1, 3.8.4)
+          packets = Array.new(2) { read_packet(io) }
+          packets.count(&.is_a?(MQTT::Protocol::SubAck)).should eq 1
+          pub = packets.find!(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
           pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")

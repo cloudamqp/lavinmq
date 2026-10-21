@@ -12,6 +12,20 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Adds a consumer when the queue's TTL fires, just before expire_queue checks
+# for consumers, like a consume racing the expiry on another thread
+class ConsumerAtExpiryQueue < LavinMQ::AMQP::Queue
+  property late_consumer : LavinMQ::AMQP::Consumer? = nil
+
+  private def expire_queue : Bool
+    if consumer = @late_consumer
+      @late_consumer = nil
+      add_consumer(consumer)
+    end
+    super
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -106,7 +120,7 @@ describe LavinMQ::AMQP::Queue do
         x = ch.default_exchange
         x.publish_confirm("ttl", q.name)
         msg = wait_for { dlq.get }
-        msg.not_nil!.body_io.to_s.should eq "ttl"
+        msg.body_io.to_s.should eq "ttl"
         q.get.should be_nil
       end
     end
@@ -186,7 +200,7 @@ describe LavinMQ::AMQP::Queue do
           {"x-dead-letter-exchange" => ""}
         ))
         ch.default_exchange.publish_confirm("", queue_name)
-        msg = q1.get(no_ack: false).not_nil!
+        msg = q1.get(no_ack: false).should_not be_nil
         msg.reject(requeue: false)
         q1.get(no_ack: false).should_not be_nil
       end
@@ -217,7 +231,7 @@ describe LavinMQ::AMQP::Queue do
     it "should be able to declare queue as paused" do
       with_amqp_server do |s|
         s.vhosts.create("/")
-        v = s.vhosts["/"].not_nil!
+        v = s.vhosts["/"]
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queue("q").pause!
@@ -232,7 +246,7 @@ describe LavinMQ::AMQP::Queue do
     it "should handle '.paused' files and rename to 'paused'" do
       with_amqp_server do |s|
         s.vhosts.create("/")
-        v = s.vhosts["/"].not_nil!
+        v = s.vhosts["/"]
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         File.touch(File.join(data_dir, ".paused"))
@@ -355,9 +369,8 @@ describe LavinMQ::AMQP::Queue do
           queue.restart!.should be_true
           queue.closed?.should be_false
           queue.message_count.should eq 1
-          msg = q.get(no_ack: true)
-          msg.should_not be_nil
-          msg.not_nil!.body_io.to_s.should eq "test message"
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.body_io.to_s.should eq "test message"
         end
       end
     end
@@ -548,13 +561,67 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue
         q.publish_confirm "a"
 
-        msg = q.get(no_ack: false)
-        msg.should_not be_nil
+        msg = q.get(no_ack: false).should_not be_nil
         sq = s.vhosts["/"].queue(q.name)
         sq.unacked_count.should eq 1
-        msg.not_nil!.ack
+        msg.ack
         sleep 10.milliseconds
         sq.unacked_count.should eq 0
+      end
+    end
+  end
+
+  it "should untrack basic_get messages on reject but not on consumer acks" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        3.times { q.publish_confirm "a" }
+        sq = s.vhosts["/"].queue(q.name)
+
+        get1 = q.get(no_ack: false).should_not be_nil
+        get2 = q.get(no_ack: false).should_not be_nil
+        sq.basic_get_unacked_size.should eq 2
+
+        consumed = ::Channel(AMQP::Client::DeliverMessage).new(3)
+        q.subscribe(no_ack: false) { |m| consumed.send m }
+        consumed.receive.ack
+        wait_for { sq.unacked_count == 2 }
+        sq.basic_get_unacked_size.should eq 2
+
+        get1.reject
+        wait_for { sq.basic_get_unacked_size == 1 }
+        get2.nack(requeue: true)
+        wait_for { sq.basic_get_unacked_size == 0 }
+      end
+    end
+  end
+
+  # Regression: the basic.get unacked list was pushed to by one client's
+  # basic.get, filtered by another channel's ack/close and read by stats and
+  # the HTTP API without any lock, so concurrent access corrupted the Deque
+  it "should keep track of unacked basic_get messages accessed in parallel", tags: "slow" do
+    with_amqp_server do |s|
+      with_channel(s) do |_ch|
+        ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first
+        s.vhosts["/"].declare_queue("bgu", durable: false, auto_delete: false)
+        q = s.vhosts["/"].queue("bgu").as(LavinMQ::AMQP::Queue)
+        ctx = Fiber::ExecutionContext::Parallel.new("basic-get-unacked", 4)
+        per_fiber = 2_000
+        20.times do
+          in_parallel(ctx, 4) do |i|
+            per_fiber.times do |j|
+              q.basic_get_unacked_push(LavinMQ::UnackedMessage.new(ch, (i * per_fiber + j).to_u64, RoughTime.instant))
+              q.basic_get_unacked_size
+            end
+          end
+          q.basic_get_unacked_size.should eq 4 * per_fiber
+          q.unacked_messages.map(&.delivery_tag).sort!.should eq (0_u64...4_u64 * per_fiber).to_a
+          in_parallel(ctx, 4) do |i|
+            q.unacked_messages
+            q.basic_get_unacked_reject! { |u| u.delivery_tag // per_fiber == i }
+          end
+          q.basic_get_unacked_size.should eq 0
+        end
       end
     end
   end
@@ -633,6 +700,91 @@ describe LavinMQ::AMQP::Queue do
         q.unsubscribe(sub)
         sleep 0.1.seconds
         Dir.exists?(data_dir).should be_false
+      end
+    end
+  end
+
+  describe "message store read concurrently with a purge" do
+    # The expire loop logs the head message, read through a zero-copy view
+    # into its segment. That must happen while @msg_store_lock is held, else a
+    # purge on another thread can unmap the segment in the meantime (segfault).
+    it "doesn't read the head message after releasing the lock", tags: "slow" do
+      log = LavinMQ::AMQP::Queue::Log
+      level, backend = log.level, log.backend
+      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      log.level = :debug
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ttl-purge", false, false,
+          LavinMQ::AMQP::Table.new({"x-message-ttl" => 3_600_000}))
+        q = vhost.queue("ttl-purge")
+        # Messages larger than a segment get a segment of their own, so purging
+        # the head message deletes (and unmaps) its segment. Each purge also
+        # makes the expire loop look at (and log) the next head message.
+        body = "x" * (LavinMQ::Config.instance.segment_size + 1)
+        ctx = Fiber::ExecutionContext::Parallel.new("ttl-purge", 1)
+        done = Atomic(Bool).new(false)
+        wg = WaitGroup.new(1)
+        ctx.spawn do
+          until done.get(:acquire)
+            q.purge(1)
+            # spin for a while, so the next purge lands at varying points of
+            # the expire loop looking at the new head message
+            until_t = Time.instant + rand(1..100).microseconds
+            while Time.instant < until_t
+            end
+          end
+        ensure
+          wg.done
+        end
+        20.times do
+          50.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+          until q.empty?
+            sleep 1.millisecond
+          end
+        end
+        done.set(true, :release)
+        wg.wait
+      end
+    ensure
+      if log
+        log.level = level if level
+        log.backend = backend
+      end
+    end
+
+    it "purges exactly the messages it reports while messages are published", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("purge-publish", true, false)
+        q = vhost.queue("purge-publish")
+        ctx = Fiber::ExecutionContext::Parallel.new("purge-publish", 4)
+        done = Atomic(Bool).new(false)
+        published = Atomic(Int32).new(0)
+        purged = Atomic(Int64).new(0)
+        wg = WaitGroup.new(4)
+        3.times do
+          ctx.spawn do
+            msg = LavinMQ::Message.new("", q.name, "body")
+            until done.get(:acquire)
+              q.publish(msg)
+              published.add(1)
+            end
+          ensure
+            wg.done
+          end
+        end
+        ctx.spawn do
+          until done.get(:acquire)
+            purged.add(q.purge.to_i64)
+          end
+        ensure
+          wg.done
+        end
+        sleep 2.seconds
+        done.set(true, :release)
+        wg.wait
+        (purged.get + q.message_count).should eq published.get
       end
     end
   end
@@ -716,7 +868,7 @@ describe LavinMQ::AMQP::Queue do
           store.@wfile.path.should eq path
           store.push(LavinMQ::Message.new("", q.name, body))
         end.should be_true
-        store = reopened.not_nil!
+        store = reopened.not_nil!("basic_get did not yield")
         File.size(path).should be >= store.@wfile.size
         store.close
       end
@@ -937,7 +1089,8 @@ describe LavinMQ::AMQP::Queue do
           }))
           ch.default_exchange.publish_confirm("body", queue_name, props: props)
           ch.default_exchange.publish_confirm("body", queue_name, props: props)
-          q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
+          msg = q1.get(no_ack: false).should_not be_nil
+          msg.body_io.to_s.should eq "body"
           q1.get(no_ack: false).should be_nil
         end
       end
@@ -1297,8 +1450,136 @@ describe LavinMQ::AMQP::Queue do
 
           msg = wait_for { dlq.get(no_ack: true) }
           msg.should_not be_nil
-          msg.not_nil!.body_io.to_s.should eq "short ttl"
+          msg.body_io.to_s.should eq "short ttl"
           q.get(no_ack: true).should be_nil
+        end
+      end
+    end
+  end
+
+  describe "Consumers concurrency" do
+    it "admits at most one exclusive consumer when added concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("exclusive-consumers", 4)
+          100.times do |i|
+            name = "exclusive-race-#{i}"
+            vhost.declare_queue(name, false, false)
+            q = vhost.queue(name)
+            consumers = Array.new(4) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, true, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+            end
+            added = Atomic(Int32).new(0)
+            wg = WaitGroup.new(consumers.size)
+            consumers.each do |c|
+              ctx.spawn do
+                added.add(1) if q.add_consumer(c)
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            added.get.should eq 1
+            q.consumers.size.should eq 1
+            vhost.delete_queue(name)
+          end
+        end
+      end
+    end
+
+    it "doesn't expire a queue a consumer was added to as its TTL fired" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          q = ConsumerAtExpiryQueue.create(vhost, "expiry-consumer-race",
+            arguments: LavinMQ::AMQP::Table.new({"x-expires" => 50}))
+          frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, q.name, "c",
+            false, false, false, false, AMQ::Protocol::Table.new)
+          consumer = LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+          q.late_consumer = consumer
+          vhost.register_queue(q)
+          should_eventually(be_nil) { q.late_consumer }
+          sleep 100.milliseconds
+          q.closed?.should be_false
+          q.consumers.should eq [consumer]
+        ensure
+          q.try &.delete
+        end
+      end
+    end
+
+    it "doesn't auto-delete a queue a consumer was concurrently added to", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("auto-delete-consumers", 4)
+          refused = 0
+          200.times do |i|
+            name = "auto-delete-race-#{i}"
+            vhost.declare_queue(name, false, true)
+            q = vhost.queue(name)
+            first, second = Array.new(2) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, false, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
+            end
+            q.add_consumer(first)
+            ready = Atomic(Int32).new(0)
+            added = Atomic(Bool).new(false)
+            remove = -> do
+              ready.add(1)
+              while ready.get < 2
+                Fiber.yield
+              end
+              # Stagger the sides, so that each wins some of the rounds on any
+              # number of threads
+              (i % 4).times { Fiber.yield }
+              q.rm_consumer(first)
+              nil
+            end
+            add = -> do
+              ready.add(1)
+              while ready.get < 2
+                Fiber.yield
+              end
+              begin
+                q.add_consumer(second)
+                added.set(true)
+              rescue LavinMQ::AMQP::Queue::ClosedError
+                # the last consumer left first, the queue is being auto-deleted
+              end
+              nil
+            end
+            wg = WaitGroup.new(2)
+            (i.even? ? {remove, add} : {add, remove}).each do |side|
+              ctx.spawn do
+                side.call
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            if added.get
+              # The consumer was accepted, so the queue must still be serving it
+              q.closed?.should be_false
+              vhost.queue?(name).should be q
+              q.consumers.should eq [second]
+              q.delete
+            else
+              refused += 1
+              should_eventually(be_nil) { vhost.queue?(name) }
+            end
+          end
+          refused.should be < 200
         end
       end
     end

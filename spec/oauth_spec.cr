@@ -459,9 +459,8 @@ describe LavinMQ::Auth::OAuthUser do
       user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
       # Exact match should be returned first
-      perm = user.find_permission("production")
-      perm.should_not be_nil
-      perm.not_nil![:config].should eq(/^$/)
+      perm = user.find_permission("production").should_not be_nil
+      perm[:config].should eq(/^$/)
     end
 
     it "handles consecutive wildcards" do

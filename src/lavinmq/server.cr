@@ -316,15 +316,29 @@ module LavinMQ
           flow(false)
         end
       elsif !flow?
-        Log.info { "Not low on disk space, starting flow" }
-        flow(true)
+        # Don't resume until there is a margin above the alarm threshold, so the
+        # burst of writes when publishing resumes doesn't run out of blocks for
+        # mmap'd pages (SIGBUS) and the alarm doesn't flap
+        if disk_recovered?
+          Log.info { "Not low on disk space, starting flow" }
+          flow(true)
+        end
       elsif disk_usage_over_warning_level?
         Log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 
     def disk_full?
-      @disk_free < 3_i64 * @config.segment_size || @disk_free < @config.free_disk_min
+      @disk_free < disk_alarm_threshold
+    end
+
+    # Free disk space required before publishing is resumed after a disk alarm
+    def disk_recovered?
+      @disk_free - 3_i64 * @config.segment_size >= disk_alarm_threshold
+    end
+
+    private def disk_alarm_threshold : Int64
+      Math.max(3_i64 * @config.segment_size, @config.free_disk_min)
     end
 
     def disk_usage_over_warning_level?
