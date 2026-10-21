@@ -13,11 +13,16 @@ module LavinMQ
     RESOURCE_ERRORS = {Errno::EMFILE, Errno::ENFILE, Errno::ENOBUFS, Errno::ENOMEM}
 
     # The connection being accepted failed, for example it was reset before
-    # it was accepted. The next one can be accepted right away.
-    CONNECTION_ERRORS = {
-      Errno::ECONNABORTED, Errno::EPERM, Errno::EPROTO, Errno::ETIMEDOUT, Errno::ENOPROTOOPT,
-      Errno::EOPNOTSUPP, Errno::ENETDOWN, Errno::ENETUNREACH, Errno::EHOSTUNREACH,
-    }
+    # it was accepted. The next one can be accepted right away. On Linux it
+    # can also be EHOSTDOWN (112) or ENONET (64), which Errno has no members
+    # for there.
+    {% begin %}
+      CONNECTION_ERRORS = {
+        Errno::ECONNABORTED, Errno::EPERM, Errno::EPROTO, Errno::ETIMEDOUT, Errno::ENOPROTOOPT,
+        Errno::EOPNOTSUPP, Errno::ENETDOWN, Errno::ENETUNREACH, Errno::EHOSTUNREACH,
+        {% if flag?(:linux) %} Errno.new(112), Errno.new(64), {% end %}
+      }
+    {% end %}
 
     RETRY_DELAY     = 10.milliseconds
     RETRY_DELAY_MAX = 1.second

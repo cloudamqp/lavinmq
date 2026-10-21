@@ -1424,19 +1424,19 @@ describe LavinMQ::Server do
   end
 end
 
-# Fails to accept with EMFILE *failures* times, then returns *client* once
-private class OutOfFilesListener
+# Fails to accept with *errno* *failures* times, then returns *client* once
+private class FailingListener
   include Socket::Server
   getter? closed = false
 
-  def initialize(@failures : Int32, @client : IO)
+  def initialize(@failures : Int32, @client : IO, @errno = Errno::EMFILE)
   end
 
   def accept? : IO?
     return if @closed
     if @failures > 0
       @failures -= 1
-      raise Socket::Error.from_os_error("accept", Errno::EMFILE)
+      raise Socket::Error.from_os_error("accept", @errno)
     end
     client, @client = @client, nil
     client
@@ -1448,6 +1448,29 @@ private class OutOfFilesListener
 
   def close
     @closed = true
+  end
+end
+
+describe LavinMQ::AcceptLoop do
+  it "accepts the next connection when the one being accepted failed" do
+    # Network errors that accept(2) passes on from the connection
+    errors = [Errno::ECONNABORTED]
+    {% if flag?(:linux) %}
+      errors << Errno.new(112) << Errno.new(64) # EHOSTDOWN, ENONET
+    {% end %}
+    errors.each do |errno|
+      client, server_side = UNIXSocket.pair
+      listener = FailingListener.new(failures: 1, client: server_side, errno: errno)
+      accepted = nil
+      LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+        accepted = socket
+        listener.close
+      end
+      accepted.should be server_side
+    ensure
+      client.try &.close
+      server_side.try &.close
+    end
   end
 end
 
@@ -1474,7 +1497,7 @@ describe "Running out of file descriptors" do
 
   it "pauses the HTTP listener before accepting again" do
     client, server_side = UNIXSocket.pair
-    listener = OutOfFilesListener.new(failures: 4, client: server_side)
+    listener = FailingListener.new(failures: 4, client: server_side)
     http = LavinMQ::HTTP::RetryingServer.new(&.response.print("ok"))
     http.bind(listener)
     started = Time.instant
