@@ -354,7 +354,7 @@ private TUI_RESPONSES = {
 # Yields a client and the requested resources (path and query)
 # Requests other than GET are answered with *action_status* and recorded
 # with their method
-private def with_tui_api(status = 200, responses = TUI_RESPONSES, action_status = 204, &)
+private def with_tui_api(status = 200, responses = TUI_RESPONSES, action_status = 204, stats_interval : Int64? = nil, &)
   requests = [] of String
   server = HTTP::Server.new do |context|
     unless context.request.method == "GET"
@@ -364,6 +364,7 @@ private def with_tui_api(status = 200, responses = TUI_RESPONSES, action_status 
       next
     end
     requests << context.request.resource
+    context.response.headers["LavinMQ-Stats-Interval"] = stats_interval.to_s if stats_interval
     if body = responses[context.request.path]?
       context.response.status_code = status
       context.response.content_type = "application/json"
@@ -383,10 +384,10 @@ ensure
   server.try &.close
 end
 
-private def run_tui(*keys, responses = TUI_RESPONSES, width = 140, height = 36, manage = false, action_status = 204) : {FakeTUIScreen, Array(String)}
+private def run_tui(*keys, responses = TUI_RESPONSES, width = 140, height = 36, manage = false, action_status = 204, stats_interval : Int64? = nil) : {FakeTUIScreen, Array(String)}
   screen = FakeTUIScreen.new(width, height, keys.map { |k| tui_key(k).as(TUI::Event) }.to_a + [tui_key('q').as(TUI::Event)])
   requests = [] of String
-  with_tui_api(responses: responses, action_status: action_status) do |client, reqs|
+  with_tui_api(responses: responses, action_status: action_status, stats_interval: stats_interval) do |client, reqs|
     TUI.new(client, 60.0, screen, manage: manage).start
     requests = reqs
   end
@@ -490,14 +491,12 @@ describe LavinMQCtl::TUI do
   end
 
   it "labels the graphs with how far back they go" do
-    # Six samples, 5s apart by default
+    # Six samples, 5s apart without a LavinMQ-Stats-Interval header
     screen, _ = run_tui
     screen.text.should contain("Message rates  last 25 s")
     screen.text.should contain("Queued messages  last 25 s")
 
-    overview = JSON.parse(TUI_RESPONSES["/api/overview"]).as_h
-    overview["stats_interval"] = JSON::Any.new(60_000_i64)
-    screen, _ = run_tui(responses: with_response("/api/overview", overview))
+    screen, _ = run_tui(stats_interval: 60_000_i64)
     screen.text.should contain("Message rates  last 5 min")
   end
 

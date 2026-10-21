@@ -138,6 +138,8 @@ class LavinMQCtl
       @page = :overview
       @last_error = nil.as(String?)
       @overview = nil.as(JSON::Any?)
+      # Milliseconds between the samples in the stats logs, 0 until a response says
+      @stats_interval_ms = 0_i64
       @items = [] of JSON::Any
       # The row number of the first of @items, and the page they're for
       @items_first = 0
@@ -501,6 +503,9 @@ class LavinMQCtl
       unless response.status_code == 200
         record_error("#{label}: HTTP #{response.status_code} #{response.status}")
         return
+      end
+      if ms = response.headers["LavinMQ-Stats-Interval"]?.try(&.to_i64?)
+        @stats_interval_ms = ms
       end
       response.body
     rescue ex
@@ -1001,10 +1006,11 @@ class LavinMQCtl
       minutes < 120 ? "last #{minutes} min" : "last #{minutes // 60} h"
     end
 
-    # How often the broker samples the logs the graphs start from. Brokers
-    # before it was in the overview sample every 5s by default.
+    # How often the broker samples the logs the graphs start from, from the
+    # LavinMQ-Stats-Interval header. Brokers without it sample every 5s by
+    # default.
     private def stats_interval : Time::Span
-      ms = Fields.int(@overview, "stats_interval")
+      ms = @stats_interval_ms
       (ms > 0 ? ms.clamp(1, 86_400_000) : 5000).milliseconds
     end
 
