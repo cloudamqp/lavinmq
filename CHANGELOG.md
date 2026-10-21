@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
 - Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)
 - An MQTT QoS 1 publisher that stopped reading PUBACKs is now disconnected when the PUBACK write times out. Previously the PUBACK writer swallowed the error and the connection stayed open without ever getting another PUBACK [#2504](https://github.com/cloudamqp/lavinmq/pull/2504)
+- Messages redelivered after a retry delay are flagged `redelivered`, and a message whose TTL runs out while it waits in the retry queue is dead-lettered when the TTL expires instead of when the backoff ends [#2503](https://github.com/cloudamqp/lavinmq/pull/2503)
 
 ## [2.11.0-rc.1] - 2026-10-16
 
@@ -59,7 +60,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 ### Fixed
 
 - The broker no longer exits when it runs out of file descriptors while accepting a connection. All listeners, including the HTTP API, metrics, clustering and proxy listeners, pause and keep accepting once connections close, and the stats loop, which also stops publishers when the disk is about to fill up, keeps running through errors [#2422](https://github.com/cloudamqp/lavinmq/pull/2422)
-- Messages redelivered after a retry delay are flagged `redelivered`, and a message whose TTL runs out while it waits in the retry queue is dead-lettered when the TTL expires instead of when the backoff ends [#2503](https://github.com/cloudamqp/lavinmq/pull/2503)
 - The management UI showed the wrong theme after the browser Back button restored a page from the back/forward cache [#2420](https://github.com/cloudamqp/lavinmq/pull/2420)
 - Overlapping policy changes could leave a queue or exchange with an outdated policy, for example a policy that had just been deleted [#2398](https://github.com/cloudamqp/lavinmq/pull/2398)
 - Races between adding, removing and listing a queue's consumers: two exclusive consumers could both be accepted, and a consumer could be added to a queue that was being auto-deleted [#2404](https://github.com/cloudamqp/lavinmq/pull/2404)
