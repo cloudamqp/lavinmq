@@ -221,11 +221,6 @@ module LavinMQ
         if packet.qos > 0 && (packet_id = packet.packet_id)
           enqueue_puback(packet_id)
         end
-      rescue ex : TopicTooLong
-        # Unlike a topic denial this can never succeed, so it is a violation:
-        # close, as MQTT 3.1.1 has no error reply for a PUBLISH
-        @log.warn { "Closing connection: #{ex.message}" }
-        close_socket
       end
 
       # QoS 1 publishes are acked like publish confirms, once durable. The

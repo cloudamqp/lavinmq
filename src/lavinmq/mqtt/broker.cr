@@ -10,8 +10,9 @@ require "../vhost"
 module LavinMQ
   module MQTT
     # Raised for a topic that cannot become an AMQP routing key, so the
-    # publish can never succeed
-    class TopicTooLong < ::MQTT::Protocol::Error; end
+    # packet can never be processed, which the client read loop and the
+    # connection factory handle like a packet that can't be decoded
+    class TopicTooLong < ::MQTT::Protocol::Error::PacketDecode; end
 
     class Broker
       getter vhost, sessions

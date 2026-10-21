@@ -26,9 +26,7 @@ module LavinMQ
             logger.trace { "recv #{packet.inspect}" }
             if (will = packet.will) && will.topic.bytesize > MAX_TOPIC_BYTESIZE
               # No CONNACK return code fits in MQTT 3.1.1, so refuse without one
-              logger.warn { "Rejecting connection: will topic is #{will.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
-              socket.close
-              return
+              raise TopicTooLong.new("will topic is #{will.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
             end
             user, broker = authenticate(packet, connection_info)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?

@@ -52,7 +52,11 @@ module MqttSpecs
             expect_raises(IO::Error) do
               publish(io, topic: "a/#{"x" * 300}", qos: 1u8)
             end
-            logs.check(:warn, /topic is 302 bytes/)
+            logs.check("a warning carrying the topic length") do |entry|
+              ex = entry.exception
+              entry.severity.warn? && ex.is_a?(LavinMQ::MQTT::TopicTooLong) &&
+                ex.message == "topic is 302 bytes, max 255"
+            end
           end
         end
       end
