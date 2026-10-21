@@ -1367,6 +1367,23 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    # Without a consumer the expire fiber computes the deadline. Before the
+    # fix it crashed and restarted in a loop, which stalls this spec.
+    {Int64::MAX, 10_000_000_000_000_i64}.each do |ttl|
+      it "keeps the message without a consumer (x-message-ttl #{ttl})" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("ttl_overflow_idle", args: AMQP::Client::Arguments.new({"x-message-ttl" => ttl}))
+            q.publish_confirm "m"
+            queue = s.vhosts["/"].queue("ttl_overflow_idle")
+            sleep 100.milliseconds # the expire fiber computes the deadline
+            queue.message_count.should eq 1
+            queue.message_expire_fiber_active?.should be_true
+          end
+        end
+      end
+    end
   end
 
   describe "Idle fiber management" do
