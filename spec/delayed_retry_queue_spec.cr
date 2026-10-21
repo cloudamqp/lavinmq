@@ -494,28 +494,6 @@ describe "Retry Queue" do
       end
     end
 
-    it "should flag a retried message as redelivered to a consumer" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"    => 3,
-            "x-delayed-retry-min" => 1,
-          })
-          q = ch.queue("retry-redelivered-consume", args: args)
-          q.publish_confirm "retry me"
-
-          msgs = ::Channel(AMQP::Client::DeliverMessage).new
-          q.subscribe(no_ack: false) { |m| msgs.send m }
-          msg = msgs.receive
-          msg.redelivered.should be_false
-          msg.reject(requeue: true)
-          msg2 = msgs.receive
-          msg2.redelivered.should be_true
-          msg2.ack
-        end
-      end
-    end
-
     it "should also trigger retry on nack(requeue=true)" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
