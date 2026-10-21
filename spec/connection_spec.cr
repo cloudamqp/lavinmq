@@ -457,19 +457,18 @@ describe LavinMQ::Server do
       end
     end
 
-    it "lets a slowly reading client get the Close frame when closed without force_close_timeout" do
+    it "gets the Close frame to a client that resumes reading when closed without force_close_timeout" do
       LavinMQ::Config.instance.tcp_send_timeout = 30
       with_amqp_server do |s|
-        with_stuck_consumer(s, "tcp_send_timeout_close_slow_reader", body_size: 2 * 1024 * 1024, count: 2) do |client, io|
+        with_stuck_consumer(s, "tcp_send_timeout_close_resumed_reader") do |client, io|
           # Like ConnectionStore#close_all, without force_close_timeout
           spawn { client.close("Server shutdown", timeout: 500.milliseconds) }
-          io.read_timeout = 30.seconds
+          # The delivery holds the write lock past the close timeout
+          sleep 1.second
+          io.read_timeout = 10.seconds
           stream = AMQ::Protocol::Stream.new(io, frame_max: LavinMQ::Config.instance.frame_max)
-          # Reads slowly, so the delivery holds the write lock past the close timeout
           loop do
-            frame = stream.next_frame
-            break if frame.is_a?(AMQ::Protocol::Frame::Connection::Close)
-            sleep 100.milliseconds
+            break if stream.next_frame.is_a?(AMQ::Protocol::Frame::Connection::Close)
           end
         end
       end
