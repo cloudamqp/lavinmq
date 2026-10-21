@@ -433,7 +433,7 @@ describe LavinMQ::Server do
               fail "close didn't complete within force_close_timeout"
             end
             client.closed?.should be_true
-            logs.check(:info, /Close frame not confirmed within 1.0s/)
+            logs.check(:info, /Sending the Close frame didn't complete within 1.0s/)
           end
         end
       end
