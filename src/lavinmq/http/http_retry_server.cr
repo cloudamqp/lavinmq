@@ -8,7 +8,7 @@ module LavinMQ
     # spins without letting other fibers run, so no connection is closed to
     # free a descriptor, and every attempt is logged. This server pauses
     # before trying again, like `AcceptLoop`.
-    class RetryingServer < ::HTTP::Server
+    class HTTPRetryServer < ::HTTP::Server
       @accept_retry_delay = AcceptLoop::RETRY_DELAY
 
       # Called by the stdlib with what accepting a connection raised

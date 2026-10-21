@@ -1515,7 +1515,7 @@ describe "Running out of file descriptors" do
   it "pauses the HTTP listener before accepting again" do
     client, server_side = UNIXSocket.pair
     listener = FailingListener.new(failures: 4, client: server_side)
-    http = LavinMQ::HTTP::RetryingServer.new(&.response.print("ok"))
+    http = LavinMQ::HTTP::HTTPRetryServer.new(&.response.print("ok"))
     http.bind(listener)
     started = Time.instant
     spawn { http.listen }
