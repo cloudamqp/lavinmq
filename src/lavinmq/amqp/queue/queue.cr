@@ -1200,7 +1200,7 @@ module LavinMQ::AMQP
           end
           if settings.counts_deliveries? && !no_ack
             env = with_delivery_count_header(env, settings)
-          elsif settings.delayed_retry_min && delivery_count_from_header(env.message.properties.headers, settings)
+          elsif delivery_count_from_header(env.message.properties.headers, settings)
             env = env.as_redelivered
           end
           sp = env.segment_position
