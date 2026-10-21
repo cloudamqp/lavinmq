@@ -1020,6 +1020,45 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "TTL that ends past the largest unix ms timestamp" do
+    # The deadline (timestamp + TTL) doesn't fit in an Int64, so the
+    # message never expires. A consumer keeps the expire fiber idle, so
+    # this checks the expiry decision on delivery.
+    it "delivers the message to a consumer" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_overflow", args: AMQP::Client::Arguments.new({"x-message-ttl" => Int64::MAX}))
+          received = ::Channel(String).new(1)
+          q.subscribe(no_ack: true) { |msg| received.send msg.body_io.to_s }
+          q.publish_confirm "m"
+          select
+          when body = received.receive
+            body.should eq "m"
+          when timeout 5.seconds
+            fail "message not delivered"
+          end
+        end
+      end
+    end
+
+    # Without a consumer the expire fiber computes the deadline. Before the
+    # fix it crashed and restarted in a loop, which stalls this spec.
+    {Int64::MAX, 10_000_000_000_000_i64}.each do |ttl|
+      it "keeps the message without a consumer (x-message-ttl #{ttl})" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("ttl_overflow_idle", args: AMQP::Client::Arguments.new({"x-message-ttl" => ttl}))
+            q.publish_confirm "m"
+            queue = s.vhosts["/"].queue("ttl_overflow_idle")
+            sleep 100.milliseconds # the expire fiber computes the deadline
+            queue.message_count.should eq 1
+            queue.message_expire_fiber_active?.should be_true
+          end
+        end
+      end
+    end
+  end
+
   describe "Idle fiber management" do
     it "should not start message_expire_loop for empty queue" do
       with_amqp_server do |s|

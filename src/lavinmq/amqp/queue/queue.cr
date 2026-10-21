@@ -828,10 +828,12 @@ module LavinMQ::AMQP
     private def expire_at(msg : BytesMessage) : Int64?
       if ttl = @message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
-        (msg.timestamp + ttl) // 100 * 100
-      elsif ttl = msg.ttl
-        (msg.timestamp + ttl) // 100 * 100
+      else
+        ttl = msg.ttl || return
       end
+      # A deadline past the largest unix ms timestamp is never reached
+      return if ttl > Int64::MAX - msg.timestamp
+      (msg.timestamp + ttl) // 100 * 100
     end
 
     private def expire_messages : Nil
