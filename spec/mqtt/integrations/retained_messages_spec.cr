@@ -76,7 +76,13 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          publish(io, topic: "a/#{"x" * 300}", qos: 1u8, retain: true).should be_a(MQTT::Protocol::PubAck)
+          expect_raises(IO::Error) do
+            publish(io, topic: "a/#{"x" * 300}", qos: 1u8, retain: true)
+          end
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
           publish(io, topic: "a/b", qos: 1u8, retain: true).should be_a(MQTT::Protocol::PubAck)
           disconnect(io)
         end
