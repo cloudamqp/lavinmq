@@ -1,5 +1,21 @@
 require "../spec_helper"
 
+# Counts this process's open file descriptors that point at a *.msg file in dir
+def open_msg_fds(dir : String) : Int32
+  path = File.realpath(dir)
+  {% if flag?(:linux) %}
+    Dir.children("/proc/self/fd").count do |fd|
+      target = File.readlink(File.join("/proc/self/fd", fd)) rescue nil
+      !target.nil? && target.starts_with?(path) && target.ends_with?(".msg")
+    end
+  {% else %}
+    output = `lsof -nP -p #{Process.pid}`
+    output.lines.count do |line|
+      line.includes?(path) && line.ends_with?(".msg")
+    end
+  {% end %}
+end
+
 module MqttSpecs
   extend MqttHelpers
   alias IndexTree = LavinMQ::MQTT::TopicTree(String)
@@ -154,6 +170,24 @@ module MqttSpecs
         String.new(called[0][1]).should eq("body")
         called[1][0].should eq("b")
         String.new(called[1][1]).should eq("body")
+      ensure
+        store.try &.close
+      end
+    end
+
+    describe "file descriptors" do
+      it "does not keep an open file per retained topic" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        50.times do |i|
+          store.retain(publish_packet(topic: "t/#{i}", payload: "body".to_slice, retain: true))
+        end
+        read = 0
+        store.each("t/#") do |_topic, _io, _size|
+          read += 1
+        end
+        read.should eq 50
+        open_msg_fds("tmp/retain_store").should eq 0
       ensure
         store.try &.close
       end
