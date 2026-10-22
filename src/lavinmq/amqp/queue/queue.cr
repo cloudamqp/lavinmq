@@ -81,6 +81,9 @@ module LavinMQ::AMQP
       # Set when the policy tightened limits that existing messages must be
       # checked against
       property? enforce_limits = false
+      # Only set by policies; federation has no queue argument
+      property federation_upstream : String?
+      property federation_upstream_set : String?
       getter effective_args = Array(String).new
 
       def initialize(@consumer_timeout = nil)
@@ -98,8 +101,8 @@ module LavinMQ::AMQP
     # Built by clear_policy_arguments/apply_policy_argument, published by
     # commit_policy_arguments
     @staged_settings = Settings.new
-    @staged_federation_upstream : String?
-    @staged_federation_upstream_set : String?
+    # Set by clear_policy_arguments so that only policy passes reconcile
+    # federation links, not handle_arguments commits on queue start
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
@@ -564,10 +567,10 @@ module LavinMQ::AMQP
           return true
         end
       when "federation-upstream"
-        @staged_federation_upstream = value.as_s
+        settings.federation_upstream = value.as_s
         return true
       when "federation-upstream-set"
-        @staged_federation_upstream_set = value.as_s
+        settings.federation_upstream_set = value.as_s
         return true
       when "consumer-timeout"
         unless settings.consumer_timeout.try &.< value.as_i64
@@ -581,8 +584,6 @@ module LavinMQ::AMQP
 
     private def clear_policy_arguments
       @staged_settings = settings_from_arguments
-      @staged_federation_upstream = nil
-      @staged_federation_upstream_set = nil
       @federation_staged = true
     end
 
@@ -605,7 +606,7 @@ module LavinMQ::AMQP
       schedule_policy_limits if settings.enforce_limits?
       if @federation_staged
         @federation_staged = false
-        @vhost.upstreams.try &.reconcile_link(self, @staged_federation_upstream, @staged_federation_upstream_set)
+        @vhost.upstreams.try &.reconcile_link(self, settings.federation_upstream, settings.federation_upstream_set)
       end
     end
 

@@ -32,6 +32,8 @@ module LavinMQ
       @staged_alternate_exchange : String?
       @staged_federation_upstream : String?
       @staged_federation_upstream_set : String?
+      # Set by clear_policy_arguments so that only policy passes reconcile
+      # federation links, not the handle_arguments commit in initialize
       @federation_staged = false
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
