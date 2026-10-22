@@ -95,9 +95,17 @@ module LavinMQ
       end
 
       # Credentials and query options don't change which resources the links
-      # declare, only the broker and its vhost (the path) do
+      # declare, only the broker and its vhost (the path) do. The client
+      # defaults a missing port from the scheme and reads an empty path as the
+      # default vhost, so compare the effective values.
       private def same_broker?(a : URI, b : URI) : Bool
-        a.scheme == b.scheme && a.host == b.host && a.port == b.port && a.path == b.path
+        a.scheme == b.scheme && a.host == b.host &&
+          effective_port(a) == effective_port(b) &&
+          (a.path.presence || "/") == (b.path.presence || "/")
+      end
+
+      private def effective_port(uri : URI) : Int32
+        uri.port || (uri.scheme == "amqps" ? 5671 : 5672)
       end
 
       private def close_upstream(name)
@@ -204,19 +212,28 @@ module LavinMQ
       # run in their own fiber: the caller applies a parameter and must not
       # block on an unreachable upstream.
       private def cleanup_replaced_copies(old_set : Array(Upstream), upstreams : Array(Upstream))
-        delete_links = Array(Upstream::Link).new
+        async_deletes = Array(Upstream::Link).new
+        sync_deletes = Array(Upstream::Link).new
         old_set.each do |old|
           next unless set_copy?(old)
           old.links.each do |link|
-            if link.is_a?(Upstream::ExchangeLink) && !resources_reused?(link, old, upstreams)
-              delete_links << link
+            next unless link.is_a?(Upstream::ExchangeLink)
+            next if resources_reused?(link, old, upstreams)
+            # An entry that keeps the queue name but changes its declare
+            # arguments redeclares the queue as soon as the policies re-apply;
+            # that delete must finish first or it races the new link's setup
+            if name_reused?(link, old, upstreams)
+              sync_deletes << link
+            else
+              async_deletes << link
             end
           end
           old.close
         end
-        return if delete_links.empty?
+        sync_deletes.each(&.delete)
+        return if async_deletes.empty?
         spawn(name: "Federation set cleanup #{@vhost.name}") do
-          delete_links.each(&.delete)
+          async_deletes.each(&.delete)
         end
       end
 
@@ -225,10 +242,17 @@ module LavinMQ
       # passive re-declare would silently ignore (see #same_resources?)
       private def resources_reused?(link : Upstream::ExchangeLink, old : Upstream, upstreams : Array(Upstream)) : Bool
         upstreams.any? do |u|
-          same_broker?(u.uri, old.uri) &&
-            u.upstream_queue_name(link.federated_ex) == link.upstream_q &&
+          name_reused_by?(u, link, old) &&
             u.expires == old.expires && u.msg_ttl == old.msg_ttl && u.max_hops == old.max_hops
         end
+      end
+
+      private def name_reused?(link : Upstream::ExchangeLink, old : Upstream, upstreams : Array(Upstream)) : Bool
+        upstreams.any? { |u| name_reused_by?(u, link, old) }
+      end
+
+      private def name_reused_by?(u : Upstream, link : Upstream::ExchangeLink, old : Upstream) : Bool
+        same_broker?(u.uri, old.uri) && u.upstream_queue_name(link.federated_ex) == link.upstream_q
       end
 
       def delete_upstream_set(name)

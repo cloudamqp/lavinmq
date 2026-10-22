@@ -1757,6 +1757,59 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "keeps the upstream resources when the uri changes only by a trailing slash" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        vhost.queue_exists?(federation_name).should be_true
+
+        # An empty path and "/" both mean the default vhost
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/"}])))
+
+        25.times { Fiber.yield; sleep 2.milliseconds }
+        vhost.queue_exists?(federation_name).should be_true
+        vhost.exchange_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "deletes before returning when a new entry reuses the queue name with new arguments" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "expires": 60000}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # The new entry redeclares the same queue with the new x-expires; an
+        # asynchronous delete would race the new link's setup
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "expires": 120000}])))
+
+        upstream_vhost.queue_exists?(federation_name).should be_false
+        upstream_vhost.exchange_exists?(federation_name).should be_false
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "leaves the old set and its links untouched when the new set config is malformed" do
       with_amqp_server do |s|
         s.vhosts.create("upstream")
