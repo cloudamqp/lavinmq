@@ -7,11 +7,6 @@ module LavinMQ
   module AcceptLoop
     Log = LavinMQ::Log.for "accept"
 
-    # The process is out of file descriptors or memory. These pass once
-    # connections close, but retrying right away would only spin, so the
-    # retries are spaced out.
-    RESOURCE_ERRORS = {Errno::EMFILE, Errno::ENFILE, Errno::ENOBUFS, Errno::ENOMEM}
-
     # The connection being accepted failed, for example it was reset before
     # it was accepted. The next one can be accepted right away. On Linux it
     # can also be EHOSTDOWN (112) or ENONET (64), which Errno has no members
@@ -29,8 +24,9 @@ module LavinMQ
 
     # Yields each client accepted on *server*, a `TCPServer` or `UNIXServer`,
     # until it's closed. After a connection error it accepts again right
-    # away. After any other error, like the resource errors above or one
-    # that isn't listed, it retries with a growing delay.
+    # away. After any other error, like when out of file descriptors
+    # (`EMFILE`), retrying right away would only spin, so it retries with a
+    # growing delay.
     def self.each(server, name : String, &)
       delay = RETRY_DELAY
       loop do

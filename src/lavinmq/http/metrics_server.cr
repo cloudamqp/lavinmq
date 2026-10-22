@@ -1,5 +1,5 @@
 require "http/server"
-require "./http_retry_server"
+require "../../stdlib/http_server"
 require "json"
 require "./constants"
 require "./handler/*"
@@ -44,7 +44,7 @@ module LavinMQ
           role,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
-        @http = HTTPRetryServer.new(handlers)
+        @http = ::HTTP::Server.new(handlers)
         self.leader = amqp_server if amqp_server
       end
 
