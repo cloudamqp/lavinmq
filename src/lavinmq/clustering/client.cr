@@ -27,7 +27,6 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
-      # Closed when #close has finished
       @close_done = Channel(Nil).new
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
