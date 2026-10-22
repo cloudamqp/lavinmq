@@ -87,9 +87,9 @@ module LavinMQ
       end
     end
 
-    # An empty protocol override means unset, like a nil one
+    # An empty override is kept: an empty key means the key is in the cert file
     private def pick(override : String?, base : String) : String
-      override.try(&.presence) || base
+      override || base
     end
 
     private def create_tls_context(cert_path, key_path, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server

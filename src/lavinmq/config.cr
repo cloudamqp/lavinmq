@@ -106,6 +106,7 @@ module LavinMQ
     # later. The contexts are memoized on the hosts, so the servername
     # callback reuses what is built here.
     private def validate_sni_tls!
+      return unless tls_configured? # without a TLS listener no SNI host is used
       @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
       @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
     end
