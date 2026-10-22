@@ -27,6 +27,8 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
+      # Closed when #close has finished
+      @close_done = Channel(Nil).new
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -735,8 +737,14 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # On promotion both the leader watcher and the controller close the
+      # client, and the controller binds the listeners as soon as its call
+      # returns, so a call made while another is closing waits for it to finish.
       def close
-        return if @closed
+        if @closed
+          @close_done.receive?
+          return
+        end
         @closed = true
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
@@ -768,6 +776,8 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+      ensure
+        @close_done.close
       end
 
       class Error < Exception; end
