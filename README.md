@@ -139,7 +139,7 @@ All AMQP client libraries work with LavinMQ, and there are AMQP client libraries
 - [Go](https://lavinmq.com/documentation/go-sample-code)
 - [.NET](https://lavinmq.com/documentation/dot-net-sample-code)
 
-Java applications that use the Jakarta Messaging (JMS) API can use the [LavinMQ JMS client](clients/jms/README.md) in this repository.
+Java applications that use the Jakarta Messaging (JMS) API can use the [LavinMQ JMS client](https://github.com/cloudamqp/lavinmq-jms-client).
 
 ## Performance
 

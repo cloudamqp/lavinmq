@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A JMS (Jakarta Messaging 3.1) client for Java in `clients/jms`, with its own AMQP 0-9-1 implementation, queues, topics with durable and shared subscriptions, temporary destinations, local transactions, delivery delay, queue browsing, the `JMSContext` simplified API and automatic connection recovery [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
+- A JMS (Jakarta Messaging 3.1) client for Java, published as [cloudamqp/lavinmq-jms-client](https://github.com/cloudamqp/lavinmq-jms-client), with its own AMQP 0-9-1 implementation, queues, topics with durable and shared subscriptions, temporary destinations, local transactions, delivery delay, queue browsing, the `JMSContext` simplified API and automatic connection recovery [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
 
 ### Fixed
 
