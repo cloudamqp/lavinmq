@@ -166,10 +166,8 @@ module LavinMQ
       end
 
       def create_upstream_set(name, config)
-        # Re-applied policies link the new set; keep the upstream resources
-        # for those links to reuse
-        @upstream_sets.delete(name).try &.each { |u| u.close if set_copy?(u) }
-        @upstream_set_configs.delete(name)
+        # Built before the store is touched: a malformed entry must leave the
+        # old set and its running links in place
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           unless upstream = @upstreams[cfg["upstream"].as_s]?
@@ -191,15 +189,51 @@ module LavinMQ
           end
           upstreams << upstream
         end
+        old_set = @upstream_sets.delete(name)
         # Stored only once the whole config built, so a rejected config can't
         # break the set rebuilds of later upstream parameter PUTs
         @upstream_set_configs[name] = config
         @upstream_sets[name] = upstreams
+        old_set.try { |set| cleanup_replaced_copies(set, upstreams) }
+      end
+
+      # Re-applied policies link the new set. An old copy's exchange link is
+      # only stopped when an entry in the new set will reuse the resources it
+      # created on the upstream broker; the resources of a link whose entry
+      # left the set are deleted. The deletes connect to the upstream, so they
+      # run in their own fiber: the caller applies a parameter and must not
+      # block on an unreachable upstream.
+      private def cleanup_replaced_copies(old_set : Array(Upstream), upstreams : Array(Upstream))
+        delete_links = Array(Upstream::Link).new
+        old_set.each do |old|
+          next unless set_copy?(old)
+          old.links.each do |link|
+            if link.is_a?(Upstream::ExchangeLink) && !resources_reused?(link, old, upstreams)
+              delete_links << link
+            end
+          end
+          old.close
+        end
+        return if delete_links.empty?
+        spawn(name: "Federation set cleanup #{@vhost.name}") do
+          delete_links.each(&.delete)
+        end
+      end
+
+      # An entry reuses the link's upstream resources when it names the same
+      # upstream queue on the same broker and keeps the declare arguments a
+      # passive re-declare would silently ignore (see #same_resources?)
+      private def resources_reused?(link : Upstream::ExchangeLink, old : Upstream, upstreams : Array(Upstream)) : Bool
+        upstreams.any? do |u|
+          same_broker?(u.uri, old.uri) &&
+            u.upstream_queue_name(link.federated_ex) == link.upstream_q &&
+            u.expires == old.expires && u.msg_ttl == old.msg_ttl && u.max_hops == old.max_hops
+        end
       end
 
       def delete_upstream_set(name)
         @upstream_set_configs.delete(name)
-        @upstream_sets.delete(name).try &.each { |u| u.delete if set_copy?(u) }
+        @upstream_sets.delete(name).try { |set| cleanup_replaced_copies(set, Array(Upstream).new) }
         @log.info { "Upstream set '#{name}' deleted" }
       end
 

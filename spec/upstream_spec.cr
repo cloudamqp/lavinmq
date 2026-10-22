@@ -1603,6 +1603,184 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "deletes the upstream resources of an override entry that is removed from the set" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
+
+        store.create_upstream_set("set1", JSON.parse("[]"))
+
+        wait_for { !upstream_vhost.queue_exists?(federation_name) }
+        wait_for { !upstream_vhost.exchange_exists?(federation_name) }
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "deletes the upstream resources of override entries when the set is deleted" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        store.delete_upstream_set("set1")
+
+        wait_for { !upstream_vhost.queue_exists?(federation_name) }
+        wait_for { !upstream_vhost.exchange_exists?(federation_name) }
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "keeps the upstream resources of an override entry that stays in the set" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        set_config = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
+        store.create_upstream_set("set1", set_config)
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # A re-applied set with the same entry reuses the upstream resources,
+        # so buffered messages survive the update
+        store.create_upstream_set("set1", set_config)
+
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "keeps the upstream resources when an entry's implicit exchange is made explicit" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: downstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # The entry used the federated exchange's name implicitly; spelling the
+        # same name out must not delete the resources
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "downstream_ex"}])))
+
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "keeps the upstream resources when only the uri query of an entry changes" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/upstream"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/upstream?heartbeat=10"}])))
+
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "keeps the exchange federation resources when only the queue override changes" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "queue": "q1"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # Queue links never create resources on the upstream, so a queue
+        # override change must not delete the exchange link's resources
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "queue": "q2"}])))
+
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        upstream_vhost.exchange_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "leaves the old set and its links untouched when the new set config is malformed" do
+      with_amqp_server do |s|
+        s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+
+        expect_raises(KeyError) do
+          store.create_upstream_set("set1", JSON.parse(%([{"exchange": "upstream_ex"}])))
+        end
+
+        store.get_set?("set1").should_not(be_nil).first.should be member
+        link.state.running?.should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "stops the links of a set member with overrides when the set is replaced or deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

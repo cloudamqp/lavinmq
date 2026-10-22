@@ -81,11 +81,8 @@ module LavinMQ
         if link = @ex_links[federated_exchange.name]?
           return link
         end
-        upstream_exchange = @exchange
-        if upstream_exchange.nil? || upstream_exchange.empty?
-          upstream_exchange = federated_exchange.name
-        end
-        upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
+        upstream_exchange = upstream_exchange_name(federated_exchange)
+        upstream_q = upstream_queue_name(federated_exchange)
         link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
         @ex_links[federated_exchange.name] = link
         link.run
@@ -107,6 +104,18 @@ module LavinMQ
         @q_links[federated_q.name] = link
         link.run
         link
+      end
+
+      def upstream_exchange_name(federated_exchange : AMQP::Exchange) : String
+        exchange = @exchange
+        return federated_exchange.name if exchange.nil? || exchange.empty?
+        exchange
+      end
+
+      # Names the queue and x-federation-upstream exchange an ExchangeLink
+      # creates on the upstream broker
+      def upstream_queue_name(federated_exchange : AMQP::Exchange) : String
+        "federation: #{upstream_exchange_name(federated_exchange)} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
       end
 
       # Stop all links without touching upstream resources. Use on broker shutdown.

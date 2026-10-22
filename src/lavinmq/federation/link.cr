@@ -327,7 +327,7 @@ module LavinMQ
 
       class ExchangeLink < Link
         @consumer_ex : ::AMQP::Client::Exchange?
-        getter federated_ex
+        getter federated_ex, upstream_q
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
