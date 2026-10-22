@@ -228,8 +228,12 @@ module LavinMQ
         fetcher.oidc_config || fetcher.fetch_oidc_config
       end
 
+      # Falls back to the config when SSO is off, e.g. after a reload removed
+      # its client_id or the oauth auth backend, so a logout still expires the
+      # cookies at the path a login set them
       private def mgmt_base_url : URI?
-        oauth_authenticator.try(&.sso_verifier).try(&.provider.mgmt_base_url)
+        oauth_authenticator.try(&.sso_verifier).try(&.provider.mgmt_base_url) ||
+          Config.instance.oauth_sso_mgmt_base_url
       end
 
       private def build_redirect_uri(provider : OAuthProviderConfig) : String

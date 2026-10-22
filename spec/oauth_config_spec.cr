@@ -193,6 +193,40 @@ describe LavinMQ::Config do
         Log.setup(:fatal)
       end
     end
+
+    it "drops the [oauth] issuer removed from the file on reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[oauth]\nissuer = https://a.example.com\n[oauth.b]\nissuer = https://b.example.com\n")
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", config_file.path])
+        config.oauth_providers.map(&.name).should eq ["default", "b"]
+
+        File.write(config_file.path, "[oauth.b]\nissuer = https://b.example.com\n")
+        config.reload
+        config.oauth_providers.map(&.name).should eq ["b"]
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "accepts the [oauth] issuer moved to a named section on reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[oauth]\nissuer = https://a.example.com\n")
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", config_file.path])
+        config.oauth_providers.map(&.name).should eq ["default"]
+
+        File.write(config_file.path, "[oauth.a]\nissuer = https://a.example.com\n")
+        config.reload
+        config.oauth_providers.map(&.name).should eq ["a"]
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
   end
 
   describe "OAuth configuration parsing" do

@@ -106,6 +106,11 @@ module LavinMQ
       oauth_providers.find &.sso_configured?
     end
 
+    # mgmt_base_url of the provider SSO is configured in, also when SSO is off
+    def oauth_sso_mgmt_base_url : URI?
+      oauth_sso_candidate.try &.mgmt_base_url
+    end
+
     # Why SSO is off although some of its settings are configured, nil if it's
     # on or not configured at all
     private def oauth_mgmt_ui_disabled_reason : String?
@@ -462,7 +467,7 @@ module LavinMQ
     def reload
       new_config = dup
       new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
-      new_config.fresh_oauth_named_providers
+      new_config.fresh_oauth_providers
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
@@ -484,10 +489,11 @@ module LavinMQ
       @sni_manager = SNIManager.new
     end
 
-    # Named providers are only added while parsing, so start from none to drop
-    # the sections removed from the file
-    protected def fresh_oauth_named_providers
+    # Providers only come from the file, so start from none to drop the
+    # sections, and the [oauth] issuer, removed from it
+    protected def fresh_oauth_providers
       @oauth_named_providers = Array(OAuthProviderConfig).new
+      @oauth_issuer_url = nil
     end
 
     # Copy every instance variable from the parsed config in one non-yielding

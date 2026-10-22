@@ -618,6 +618,32 @@ describe "OAuth2" do
         identity_cleared.should be_true
       end
     end
+
+    it "clears the cookies at the SSO path after a reload turned SSO off" do
+      with_http_server do |http, s|
+        cookie_paths = -> {
+          response = ::HTTP::Client.get(http.test_uri("/oauth/logout"), headers: ::HTTP::Headers.new)
+          set_cookies = response.headers.get?("Set-Cookie") || [] of String
+          set_cookies.select(&.starts_with?("oauth_token=;")).map { |c| c[/path=[^;]*/]? }
+        }
+        config = LavinMQ::Config.instance
+        config.oauth_client_id = "test-client"
+        config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+        config.oauth_mgmt_base_url = URI.parse("https://localhost:15672/mq")
+        config.auth_backends = ["local", "oauth"]
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+
+        config.oauth_client_id = nil
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+
+        config.oauth_client_id = "test-client"
+        config.auth_backends = ["local"]
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+      end
+    end
   end
 
   describe "OAuthController with SSO configured in an [oauth.<name>] section" do
