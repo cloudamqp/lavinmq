@@ -7,8 +7,12 @@ module LavinMQ::AMQP
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
 
+    def self.queue_name(primary_queue_name : String) : String
+      "amq.retry-#{primary_queue_name}"
+    end
+
     def self.create(vhost : VHost, primary_queue : Queue)
-      q_name = "amq.retry-#{primary_queue.name}"
+      q_name = queue_name(primary_queue.name)
       raise LavinMQ::Error::PreconditionFailed.new("Retry queue name too long") if q_name.bytesize > MAX_NAME_LENGTH
       if primary_queue.durable?
         DurableDelayedRetryQueue.new(vhost, q_name, primary_queue)
@@ -36,6 +40,10 @@ module LavinMQ::AMQP
 
     private def purge_failed(ex : MessageStore::Error) : Nil
       @log.error(ex) { "Purge failed due to error" }
+    end
+
+    def primary_queue_name : String?
+      @primary_queue.name
     end
 
     def delay(msg : Message) : Bool
