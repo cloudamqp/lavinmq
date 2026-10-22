@@ -1004,7 +1004,7 @@ module LavinMQ::AMQP
 
     def publish(msg : Message) : PublishResult
       strip_delivery_count(msg)
-      publish_internal(msg, nil, delivery_count: nil)
+      publish_internal(msg, dlx_tasks: nil, delivery_count: nil)
     end
 
     # On retry-enabled queues the x-delivery-count header carries the retry
@@ -1020,7 +1020,7 @@ module LavinMQ::AMQP
       end
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?, *, delivery_count : Int32?) : PublishResult
+    protected def publish_internal(msg : Message, *, dlx_tasks : Argument::DeadLettering::Tasks?, delivery_count : Int32?) : PublishResult
       return PublishResult::Closed if @closed
       if d = @deduper
         if d.duplicate?(msg)

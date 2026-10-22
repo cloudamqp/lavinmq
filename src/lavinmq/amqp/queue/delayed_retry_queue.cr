@@ -89,8 +89,9 @@ module LavinMQ::AMQP
         return notify_if_drained
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)), nil, delivery_count: delivery_count)
+      released = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      result = @primary_queue.publish_internal(released, dlx_tasks: nil, delivery_count: delivery_count)
       return redelay(env) unless result.ok?
       delete_message sp
       notify_if_drained
