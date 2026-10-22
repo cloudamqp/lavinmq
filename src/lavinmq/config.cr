@@ -97,6 +97,25 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      validate_sni_tls!
+    end
+
+    # Builds every SNI host's TLS contexts, so an unreadable certificate or
+    # key fails startup with a clear error, and is refused on reload with the
+    # running configuration kept, instead of failing that host's handshakes
+    # later. The contexts are memoized on the hosts, so the servername
+    # callback reuses what is built here.
+    private def validate_sni_tls!
+      @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
+      @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
+    end
+
+    private def validate_sni_host!(host : SNIHost) : Nil
+      host.amqp_tls_context
+      host.mqtt_tls_context
+      host.http_tls_context
+    rescue ex
+      raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}")
     end
 
     private def parse_config_from_cli(argv)
@@ -221,45 +240,35 @@ module LavinMQ
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"                  then host.tls_cert = v
-        when "tls_key"                   then host.tls_key = v
-        when "tls_min_version"           then host.tls_min_version = v
-        when "tls_ciphers"               then host.tls_ciphers = v
-        when "tls_ciphersuites"          then host.tls_ciphersuites = v
-        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
-        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"               then host.tls_ca_cert = v
-        when "tls_keylog_file"           then host.tls_keylog_file = v
+        when "tls_cert"        then host.tls_cert = v
+        when "tls_key"         then host.tls_key = v
+        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"     then host.tls_ca_cert = v
+        when "tls_keylog_file" then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
-        when "amqp_tls_key"                   then host.amqp_tls_key = v
-        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
-        when "amqp_tls_ciphersuites"          then host.amqp_tls_ciphersuites = v
-        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
-        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"        then host.amqp_tls_cert = v
+        when "amqp_tls_key"         then host.amqp_tls_key = v
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_ciphersuites"          then host.mqtt_tls_ciphersuites = v
-        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
-        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"         then host.mqtt_tls_key = v
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"                  then host.http_tls_cert = v
-        when "http_tls_key"                   then host.http_tls_key = v
-        when "http_tls_min_version"           then host.http_tls_min_version = v
-        when "http_tls_ciphers"               then host.http_tls_ciphers = v
-        when "http_tls_ciphersuites"          then host.http_tls_ciphersuites = v
-        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
-        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
+        when "http_tls_cert"        then host.http_tls_cert = v
+        when "http_tls_key"         then host.http_tls_key = v
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
+             .ends_with?("tls_ciphersuites"), .ends_with?("tls_prefer_server_ciphers")
+          # OpenSSL selects the TLS version and cipher before the SNI switch,
+          # so these were silently ignored per host since 2.7.0
+          @io.puts "WARNING: 'sni:#{hostname}/#{config}' is not supported, " \
+                   "the listener's TLS version and cipher settings apply to all SNI hosts"
         else
           @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
