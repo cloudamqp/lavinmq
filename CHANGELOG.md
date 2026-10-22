@@ -58,6 +58,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Fixed
 
+- The broker no longer exits when it runs out of file descriptors while accepting a connection. All listeners, including the HTTP API, metrics, clustering and proxy listeners, pause and keep accepting once connections close, and the stats loop, which also stops publishers when the disk is about to fill up, keeps running through errors [#2422](https://github.com/cloudamqp/lavinmq/pull/2422)
 - The management UI showed the wrong theme after the browser Back button restored a page from the back/forward cache [#2420](https://github.com/cloudamqp/lavinmq/pull/2420)
 - Overlapping policy changes could leave a queue or exchange with an outdated policy, for example a policy that had just been deleted [#2398](https://github.com/cloudamqp/lavinmq/pull/2398)
 - Races between adding, removing and listing a queue's consumers: two exclusive consumers could both be accepted, and a consumer could be added to a queue that was being auto-deleted [#2404](https://github.com/cloudamqp/lavinmq/pull/2404)
