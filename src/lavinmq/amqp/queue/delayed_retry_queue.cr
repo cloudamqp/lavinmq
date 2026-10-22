@@ -85,7 +85,8 @@ module LavinMQ::AMQP
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        return notify_if_drained
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,

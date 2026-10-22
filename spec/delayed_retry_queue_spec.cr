@@ -1031,6 +1031,31 @@ describe "Retry Queue" do
       end
     end
 
+    it "should delete a draining retry queue when its last message expires by TTL" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-message-ttl" => 500})
+          q = ch.queue("retry-policy-drain-ttl", args: args)
+          vhost.add_policy("retry", "^retry-policy-drain-ttl$", "queues",
+            {"delayed-retry-min" => JSON::Any.new(10_000_i64)}, 0_i8)
+          wait_for { vhost.queue?("amq.retry-retry-policy-drain-ttl") }
+          q.publish_confirm "expire me"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          retry_q = vhost.queue("amq.retry-retry-policy-drain-ttl").as(LavinMQ::AMQP::DelayedRetryQueue)
+          wait_for { retry_q.message_count == 1 }
+
+          vhost.delete_policy("retry")
+          wait_for { vhost.queue("retry-policy-drain-ttl").policy.nil? }
+          retry_q.draining?.should be_true
+
+          wait_for(timeout: 5.seconds) { vhost.queue?("amq.retry-retry-policy-drain-ttl").nil? }
+          retry_q.@deleted.should be_true
+          vhost.queue("retry-policy-drain-ttl").message_count.should eq 0
+        end
+      end
+    end
+
     # A reject that read the settings before the policy was removed can still
     # reach the retry queue; it must not land in a queue about to be deleted
     it "should refuse delays once the retry queue is draining" do
