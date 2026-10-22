@@ -1810,6 +1810,38 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "finishes pending deletes before a re-created set reuses the queue names" do
+      with_amqp_server do |s|
+        upstream_vhost = s.vhosts.create("upstream")
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        set_config = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
+        store.create_upstream_set("set1", set_config)
+        vhost.declare_exchange("downstream_ex", "topic", false, false)
+        member = store.get_set?("set1").should_not(be_nil).first
+        link = member.link(vhost.exchange("downstream_ex"))
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
+        upstream_vhost.queue_exists?(federation_name).should be_true
+
+        # A deleted set's background delete must not outlive a re-created set
+        # that reuses the queue name, or it removes the new link's queue
+        store.delete_upstream_set("set1")
+        store.create_upstream_set("set1", set_config)
+
+        upstream_vhost.queue_exists?(federation_name).should be_false
+        member2 = store.get_set?("set1").should_not(be_nil).first
+        link2 = member2.link(vhost.exchange("downstream_ex"))
+        wait_for { link2.state.running? }
+        upstream_vhost.queue_exists?(federation_name).should be_true
+        25.times { Fiber.yield; sleep 2.milliseconds }
+        upstream_vhost.queue_exists?(federation_name).should be_true
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "leaves the old set and its links untouched when the new set config is malformed" do
       with_amqp_server do |s|
         s.vhosts.create("upstream")
