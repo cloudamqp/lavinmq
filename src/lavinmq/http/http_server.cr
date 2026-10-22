@@ -30,20 +30,13 @@ module LavinMQ
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
       def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
-        oauth_authenticator =
-          case auth = @server.authenticator
-          when Auth::Chain
-            auth.backends.select(Auth::OAuthAuthenticator).first?
-          when Auth::OAuthAuthenticator
-            auth
-          end
         handlers = [
           (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server, @mqtt_server),
           ViewsController.new,
           StaticController.new,
-          oauth_authenticator && OAuthController.new(oauth_authenticator),
+          OAuthController.new(@server.authenticator),
           AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,

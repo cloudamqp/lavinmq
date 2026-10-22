@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
+
 ### Fixed
 
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)
