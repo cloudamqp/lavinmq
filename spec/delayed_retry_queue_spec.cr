@@ -892,6 +892,27 @@ describe "Retry Queue" do
         end
       end
     end
+
+    it "should redeliver delayed messages after the queue is restarted" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 200})
+          q = ch.queue("retry-queue-restart", durable: true, args: args)
+          ch.default_exchange.publish_confirm("restart me", q.name)
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          vhost = s.vhosts["/"]
+          wait_for { vhost.queue("amq.retry-retry-queue-restart").message_count == 1 }
+
+          queue = vhost.queue("retry-queue-restart")
+          queue.close
+          queue.restart!.should be_true
+
+          vhost.queue("amq.retry-retry-queue-restart").closed?.should be_false
+          msg = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
+          msg.body_io.to_s.should eq "restart me"
+        end
+      end
+    end
   end
 
   describe "Policy" do
