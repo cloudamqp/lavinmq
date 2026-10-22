@@ -765,7 +765,7 @@ module LavinMQ::AMQP
           next retry_queue unless retry_queue.closed?
           @delayed_retry_queue = nil
         end
-        next if @deleted || @closed
+        next if @deleted || @closed || settings.delayed_retry_min.nil?
         @log.info { "Recreating retry queue" }
         create_retry_queue
       end
