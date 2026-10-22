@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A consumer that caught up with the publisher of its queue ran `madvise(MADV_DONTNEED)` over the segment being written each time it emptied the queue, so the publisher's next write faulted the page back in. A segment's pages are now only dropped once the consumer has moved on to the next segment [#2486](https://github.com/cloudamqp/lavinmq/pull/2486)
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)
 - A leader stopped gracefully usually exited with code 1 after an `Unhandled exception: Channel is closed`, leaving its systemd unit failed. It now finishes its shutdown before exiting [#2520](https://github.com/cloudamqp/lavinmq/pull/2520)
 - Exchange federation forwarded a binding to the upstream and waited for the reply inside the fiber that processes the downstream bind. In two-way or ring federation with `max-hops` 3 or more, the brokers deadlocked and the links stayed in `starting`. Bindings are now forwarded without waiting for a reply [#2508](https://github.com/cloudamqp/lavinmq/pull/2508)
