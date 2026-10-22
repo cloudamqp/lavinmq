@@ -52,6 +52,62 @@ test.describe('queue', _ => {
       await expect(page.locator('#pagename-label')).toHaveText(new RegExp(`${queueName} .* ${queueVhost}`))
       await expect(page.locator('#consumer-count')).toHaveText(queueResponse.consumers.toString())
     })
+
+    test('automatic retries section is hidden without retries', async ({ page }) => {
+      await expect(page.locator('#q-delayed-retry')).toBeHidden()
+      await expect(page.locator('#q-primary-queue-row')).toBeHidden()
+    })
+  })
+
+  test.describe('automatic retries', _ => {
+    const retryQueueUrl = name => `/queue#vhost=${encodeURIComponent(queueVhost)}&name=${encodeURIComponent(name)}&tab=overview`
+
+    async function loadRetryApi (apimap, page, name, overrides) {
+      const response = Object.assign({}, queueResponse, { name }, overrides)
+      const loaded = Promise.all([
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${name}`, response),
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${name}/bindings`, bindingResponse)
+      ])
+      await page.goto(retryQueueUrl(name))
+      await loaded
+    }
+
+    test('shows exponential backoff with an explicit delivery limit', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 500, multiplier: 2, max: 30000, delivery_limit: 5, delivery_limit_default: false, messages_delayed: 3, retry_queue: 'amq.retry-orders' }
+      })
+      await expect(page.locator('#q-delayed-retry')).toBeVisible()
+      await expect(page.locator('#q-retry-min')).toHaveText('500 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Exponential x2')
+      await expect(page.locator('#q-retry-max')).toHaveText('30,000 ms')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('5')
+      await expect(page.locator('#q-retry-messages-delayed')).toHaveText('3')
+      await expect(page.locator('#q-retry-queue a')).toHaveText('amq.retry-orders')
+      await expect(page.locator('#q-retry-queue a')).toHaveAttribute('href', /queue#vhost=%2F&name=amq.retry-orders$/)
+    })
+
+    test('shows linear backoff, no max delay and the default delivery limit', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 1000, multiplier: null, max: null, delivery_limit: 20, delivery_limit_default: true, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+      })
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Linear')
+      await expect(page.locator('#q-retry-max')).toHaveText('None')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('20 (default)')
+    })
+
+    test('shows constant backoff', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 1000, multiplier: 1, max: null, delivery_limit: 20, delivery_limit_default: true, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+      })
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Constant')
+    })
+
+    test('links a retry queue back to its primary queue', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
+      await expect(page.locator('#q-delayed-retry')).toBeHidden()
+      await expect(page.locator('#q-primary-queue-row')).toBeVisible()
+      await expect(page.locator('#q-primary-queue a')).toHaveAttribute('href', /queue#vhost=%2F&name=orders$/)
+    })
   })
 
   test('consumer count stays at the total while loading more and updates on refresh', async ({ apimap, page }) => {
