@@ -8,6 +8,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "federation.upstream_store"
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
+      @upstream_set_configs = Hash(String, JSON::Any).new
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
@@ -21,7 +22,6 @@ module LavinMQ
       end
 
       def create_upstream(name, config)
-        do_delete_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -34,10 +34,27 @@ module LavinMQ
         consumer_tag = config["consumer-tag"]?.try(&.as_s?) || "federation-link-#{name}"
         # trust_user_id
         queue = config["queue"]?.try(&.as_s)
+        old = @upstreams[name]?
+        if old && same_resources?(old, uri, exchange, queue, expires, msg_ttl, max_hops)
+          close_upstream(name)
+        else
+          do_delete_upstream(name)
+        end
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
+        rebuild_sets_with(name)
         @log.info { "Upstream '#{name}' created" }
         @upstreams[name]
+      end
+
+      # Replacing an upstream drops its entries from every set; rebuild the
+      # sets that name it so a policy re-apply can link through them again.
+      # The rebuild deletes and re-inserts each config, so iterate a snapshot
+      private def rebuild_sets_with(name)
+        rebuild = @upstream_set_configs.select do |_, config|
+          config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
+        end
+        rebuild.each { |set_name, config| create_upstream_set(set_name, config) }
       end
 
       def add(upstream : Upstream)
@@ -51,18 +68,66 @@ module LavinMQ
       end
 
       private def do_delete_upstream(name)
-        @upstreams.delete(name).try(&.delete)
+        remove_upstream(name, &.delete)
+      end
+
+      # Remove the upstream and its entries from every set. The block decides
+      # what happens to the resources its links created on the upstream
+      # broker: delete removes them, close keeps them for a replacement's
+      # links to reuse
+      private def remove_upstream(name, &)
+        @upstreams.delete(name).try { |u| yield u }
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
             next false unless upstream.name == name
-            upstream.delete
+            yield upstream
             true
           end
         end
       end
 
-      def link(name, resource : AMQP::Queue | Exchange)
-        @upstreams[name]?.try &.link(resource)
+      # Whether the resources on the upstream broker can be reused: the
+      # settings that name them, plus the declare arguments that a passive
+      # re-declare would silently ignore
+      private def same_resources?(old : Upstream, uri, exchange, queue, expires, msg_ttl, max_hops) : Bool
+        same_broker?(old.uri, URI.parse(uri)) && old.exchange == exchange && old.queue == queue &&
+          old.expires == expires && old.msg_ttl == msg_ttl && old.max_hops == max_hops
+      end
+
+      # Credentials and query options don't change which resources the links
+      # declare, only the broker and its vhost (the path) do
+      private def same_broker?(a : URI, b : URI) : Bool
+        a.scheme == b.scheme && a.host == b.host && a.port == b.port && a.path == b.path
+      end
+
+      private def close_upstream(name)
+        remove_upstream(name, &.close)
+      end
+
+      # Make the resource's links match its policy after a policy (re)apply.
+      # A link whose upstream the policy still names is kept untouched: that
+      # keeps the upstream queue, and its buffered messages, alive. The other
+      # links are stopped and their upstream resources removed.
+      def reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
+        desired = Array(Upstream).new
+        if name = upstream_name
+          if upstream = @upstreams[name]?
+            desired << upstream
+          else
+            @log.warn { "Federation upstream '#{name}' not found" }
+          end
+        end
+        if name = set_name
+          if set = get_set?(name)
+            desired.concat set
+          else
+            @log.warn { "Federation upstream set '#{name}' not found" }
+          end
+        end
+        each_linked_upstream do |linked|
+          linked.stop_link(resource) unless desired.any? &.same?(linked)
+        end
+        desired.each &.link(resource)
       end
 
       def stop_link(resource : AMQP::Queue | Exchange)
@@ -104,9 +169,13 @@ module LavinMQ
         # Re-applied policies link the new set; keep the upstream resources
         # for those links to reuse
         @upstream_sets.delete(name).try &.each { |u| u.close if set_copy?(u) }
+        @upstream_set_configs.delete(name)
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
-          upstream = @upstreams[cfg["upstream"].as_s]
+          unless upstream = @upstreams[cfg["upstream"].as_s]?
+            @log.warn { "Federation upstream '#{cfg["upstream"]}' not found for set '#{name}'" }
+            next
+          end
           if cfg.as_h.keys.size > 1
             upstream = upstream.dup
             cfg["uri"]?.try { |p| upstream.uri = URI.parse(p.as_s) }
@@ -122,27 +191,24 @@ module LavinMQ
           end
           upstreams << upstream
         end
+        # Stored only once the whole config built, so a rejected config can't
+        # break the set rebuilds of later upstream parameter PUTs
+        @upstream_set_configs[name] = config
         @upstream_sets[name] = upstreams
       end
 
       def delete_upstream_set(name)
+        @upstream_set_configs.delete(name)
         @upstream_sets.delete(name).try &.each { |u| u.delete if set_copy?(u) }
         @log.info { "Upstream set '#{name}' deleted" }
       end
 
-      def link_set(name, resource : Exchange | Queue)
-        set = get_set(name)
-        set.each do |upstream|
-          upstream.link(resource)
-        end
-      end
-
-      def get_set(name)
+      def get_set?(name)
         case name
         when "all"
           @upstreams.values
         else
-          @upstream_sets[name]
+          @upstream_sets[name]?
         end
       end
 
