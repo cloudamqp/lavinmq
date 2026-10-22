@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Automatic retries can be enabled on existing queues with the `delayed-retry-min`, `delayed-retry-multiplier` and `delayed-retry-max` policy keys. Removing the policy drains the delayed messages back to the queue on their schedule [#2415](https://github.com/cloudamqp/lavinmq/pull/2415)
+
 ### Fixed
 
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)
