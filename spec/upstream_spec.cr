@@ -1564,6 +1564,28 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "rebuilds every set that names a re-created upstream" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        config = JSON.parse(%({"uri": "#{s.amqp_server.url}"}))
+        store.create_upstream("a", config)
+        sets = ["s1", "s2", "s3"]
+        sets.each { |name| store.create_upstream_set(name, JSON.parse(%([{"upstream": "a"}]))) }
+
+        # create_upstream_set deletes and re-inserts the set's config, so the
+        # rebuild must iterate a snapshot: a mid-iteration hash compaction
+        # skips a set, leaving it empty and its policy without links
+        store.create_upstream("a", config)
+
+        sets.each do |name|
+          store.get_set?(name).should_not(be_nil).map(&.name).should eq ["a"]
+        end
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "keeps accepting upstream parameters after a malformed set is rejected" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

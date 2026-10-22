@@ -48,12 +48,13 @@ module LavinMQ
       end
 
       # Replacing an upstream drops its entries from every set; rebuild the
-      # sets that name it so a policy re-apply can link through them again
+      # sets that name it so a policy re-apply can link through them again.
+      # The rebuild deletes and re-inserts each config, so iterate a snapshot
       private def rebuild_sets_with(name)
-        @upstream_set_configs.each do |set_name, config|
-          next unless config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
-          create_upstream_set(set_name, config)
+        rebuild = @upstream_set_configs.select do |_, config|
+          config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
         end
+        rebuild.each { |set_name, config| create_upstream_set(set_name, config) }
       end
 
       def add(upstream : Upstream)
