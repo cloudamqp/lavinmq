@@ -179,6 +179,10 @@ module LavinMQ::AMQP
     # one wakeup per millisecond. Messages are never expired early.
     EXPIRE_WAKEUP_GRANULARITY_MS = 10_i64
 
+    # The latest deadline (unix ms) that can be rounded up to the granularity
+    # without overflowing. A message whose TTL ends later never expires.
+    MAX_EXPIRE_AT = Int64::MAX - EXPIRE_WAKEUP_GRANULARITY_MS
+
     # Time until the expire loop should wake up for a message expiring at
     # *expire_at* (unix ms)
     def self.time_to_expiration_wakeup(expire_at : Int64) : Time::Span
@@ -1061,10 +1065,14 @@ module LavinMQ::AMQP
     private def expire_at(msg : BytesMessage) : Int64?
       if ttl = settings.message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
-        msg.timestamp + ttl
-      elsif ttl = msg.ttl
-        msg.timestamp + ttl
+      else
+        ttl = msg.ttl || return
       end
+      # a deadline past MAX_EXPIRE_AT never expires; the expire fiber then sleeps,
+      # but messages behind it still expire on delivery via has_expired?
+      expire_at = msg.timestamp &+ ttl
+      return if expire_at > MAX_EXPIRE_AT || expire_at < 0
+      expire_at
     end
 
     private def expire_messages : Nil
