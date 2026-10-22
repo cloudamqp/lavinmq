@@ -33,8 +33,12 @@ public final class ShutdownSignal {
     }
 
     public static ShutdownSignal fromCause(Throwable cause) {
+        return fromCause(cause, true);
+    }
+
+    public static ShutdownSignal fromCause(Throwable cause, boolean hardError) {
         String text = cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
-        return new ShutdownSignal(true, false, 0, text, 0, 0, cause);
+        return new ShutdownSignal(hardError, false, 0, text, 0, 0, cause);
     }
 
     public static ShutdownSignal application(boolean hardError, int replyCode, String replyText) {
@@ -78,7 +82,7 @@ public final class ShutdownSignal {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(hardError ? "connection" : "channel");
-        sb.append(initiatedByApplication ? " closed by application" : " closed by server");
+        sb.append(initiatedByApplication ? " closed by application" : cause != null ? " closed" : " closed by server");
         if (replyCode != 0) sb.append(": ").append(replyCode).append(' ').append(replyText);
         else if (replyText != null) sb.append(": ").append(replyText);
         if (classId != 0) sb.append(" (class ").append(classId).append(", method ").append(methodId).append(')');
