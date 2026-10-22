@@ -691,6 +691,27 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 400
       end
     end
+
+    it "should validate every delayed retry key" do
+      with_http_server do |http, s|
+        {"\"0\"", "0", "-1"}.each do |value|
+          body = %({"pattern": ".*", "definition": {"delayed-retry-min": #{value}}})
+          response = http.put("/api/policies/%2f/name", body: body)
+          response.status_code.should eq 400
+        end
+        # The invalid key follows a valid one, so validation must not stop at the first key
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-max": 0}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 3000000000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 2, "delayed-retry-max": 1000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+        s.vhosts["/"].policies["name"].definition["delayed-retry-max"].as_i.should eq 1000
+      end
+    end
   end
 
   describe "PUT /api/operator-policies/vhost/name" do
@@ -704,6 +725,14 @@ describe LavinMQ::HTTP::ParametersController do
             "pattern": ".*"
           }
           JSON
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should validate every definition key" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"max-length": 10, "expires": "String"}})
         response = http.put("/api/operator-policies/%2f/name", body: body)
         response.status_code.should eq 400
       end

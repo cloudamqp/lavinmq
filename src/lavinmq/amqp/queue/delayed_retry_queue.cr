@@ -6,6 +6,7 @@ module LavinMQ::AMQP
   # Created and deleted together with the primary queue.
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
+    getter? draining = false
 
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
@@ -21,9 +22,39 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
+    # Set under @msg_store_lock, which #push_delayed holds across its check and
+    # push, so no delay can land after the drained check finds the queue empty
+    def drain : Nil
+      return if @draining
+      @msg_store_lock.synchronize { @draining = true }
+      @log.info { "Retries disabled, draining delayed messages back to #{@primary_queue.name}" }
+      notify_if_drained
+    end
+
+    def resume_retries : Nil
+      @draining = false
+    end
+
+    def purge(max_count : Int = UInt32::MAX) : UInt32
+      super.tap { notify_if_drained }
+    end
+
+    private def notify_if_drained : Nil
+      return if !@draining || @closed || !empty?
+      spawn(name: "DelayedRetryQueue#drained #{@vhost.name}/#{@name}") do
+        @primary_queue.retry_queue_drained(self)
+      end
+    end
+
+    # Refused while draining: a retry disabled by policy must not delay new
+    # messages, and the drained queue is about to be deleted
     def delay(msg : Message) : Bool
-      return false if @closed
+      push_delayed(msg, refuse_while_draining: true)
+    end
+
+    private def push_delayed(msg : Message, *, refuse_while_draining : Bool) : Bool
       @msg_store_lock.synchronize do
+        return false if @closed || (refuse_while_draining && @draining)
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
@@ -45,19 +76,25 @@ module LavinMQ::AMQP
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
+      delivery_count = nil
       if headers = msg.properties.headers
         headers.delete("x-delay")
+        delivery_count = headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
+        headers.delete("x-delivery-count") unless @primary_queue.counts_deliveries?
         msg.properties.headers = headers
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        return notify_if_drained
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+      released = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      result = @primary_queue.publish_internal(released, dlx_tasks: nil, delivery_count: delivery_count)
       return redelay(env) unless result.ok?
       delete_message sp
+      notify_if_drained
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
@@ -72,7 +109,7 @@ module LavinMQ::AMQP
       msg.properties.headers = h
       redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      if delay(redelayed)
+      if push_delayed(redelayed, refuse_while_draining: false)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
         delete_message sp
       else

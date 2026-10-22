@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Automatic retries can be enabled on existing queues with the `delayed-retry-min`, `delayed-retry-multiplier` and `delayed-retry-max` policy keys. Removing the policy drains the delayed messages back to the queue on their schedule [#2415](https://github.com/cloudamqp/lavinmq/pull/2415)
+
 ### Fixed
 
 - Any policy or parameter change in a vhost restarted every federation link in it, and for exchange federation the restart deleted the link's queue and exchange on the upstream broker, with the messages buffered there. A policy re-apply now keeps an unchanged link running, and replacing an upstream parameter keeps the resources on the upstream broker for the new links to reuse, as long as the new config names the same resources, where credentials and query options in the URI don't count. A re-created upstream also stays in the named upstream sets that reference it. Previously the sets lost the entry, and federation through them silently stopped until the set was re-PUT [#2509](https://github.com/cloudamqp/lavinmq/pull/2509)

@@ -136,11 +136,11 @@ module LavinMQ::AMQP
     end
 
     def publish(msg : Message) : PublishResult
-      publish_internal(msg, nil)
+      publish_internal(msg, dlx_tasks: nil, delivery_count: nil)
     end
 
     # save message id / segment position
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+    protected def publish_internal(msg : Message, *, dlx_tasks : Argument::DeadLettering::Tasks?, delivery_count : Int32?) : PublishResult
       return PublishResult::Closed if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
