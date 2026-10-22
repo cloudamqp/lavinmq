@@ -1842,6 +1842,32 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "keeps the previous parameter and the running set when a set update is rejected" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream", "a",
+          JSON.parse(%({"uri": "#{s.amqp_server.url}"}))))
+        good = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
+        vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream-set", "set1", good))
+        member = store.get_set?("set1").should_not(be_nil).first
+
+        # A rejected PUT must leave the store and the running set in the old,
+        # agreeing state: the API could otherwise neither see nor delete the
+        # set that is still federating
+        expect_raises(KeyError) do
+          vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream-set", "set1",
+            JSON.parse(%([{"exchange": "upstream_ex"}]))))
+        end
+
+        param = vhost.parameters[{"federation-upstream-set", "set1"}]?.should_not be_nil
+        param.value.should eq good
+        store.get_set?("set1").should_not(be_nil).first.should be member
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "leaves the old set and its links untouched when the new set config is malformed" do
       with_amqp_server do |s|
         s.vhosts.create("upstream")

@@ -495,8 +495,17 @@ module LavinMQ
 
     def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
+      previous = @parameters[p.name]?
       @parameters.create(p, save: save)
-      apply_parameters(p)
+      begin
+        apply_parameters(p)
+      rescue ex
+        # ParameterStore#apply deleted the rejected parameter, but the old
+        # config is still the one applied in memory, so put it back in the
+        # store too and the two agree again
+        previous.try { |prev| @parameters.create(prev, save: save) }
+        raise ex
+      end
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
