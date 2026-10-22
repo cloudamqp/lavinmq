@@ -7,7 +7,7 @@ class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
   getter entered = ::Channel(Nil).new(1)
   getter release = ::Channel(Nil).new
 
-  protected def publish_internal(msg : LavinMQ::Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+  protected def publish_internal(msg : LavinMQ::Message, dlx_tasks : Argument::DeadLettering::Tasks?, *, delivery_count : Int32?) : PublishResult
     @entered.send(nil)
     @release.receive
     super
