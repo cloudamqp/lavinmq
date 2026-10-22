@@ -112,6 +112,10 @@ module LavinMQ
             if e.internal?
               bad_request(context, "Not allowed to publish to internal exchange")
             end
+            # AMQP and MQTT publishers are blocked on a disk alarm, this would fill the disk
+            unless e.vhost.flow?
+              precondition_failed(context, "Server low on disk space, can not publish")
+            end
             body = parse_body(context)
             properties = body["properties"]?
             routing_key = body["routing_key"]?.try(&.as_s)

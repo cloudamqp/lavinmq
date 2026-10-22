@@ -277,6 +277,32 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    it "should not publish if disk is full" do
+      # Also for the stats loop, which otherwise starts flow again
+      free_disk_min = LavinMQ::Config.instance.free_disk_min
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q_full", false, false)
+        s.flow(false)
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "q_full",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
+        response = http.post("/api/exchanges/%2f/amq.default/publish", body: body)
+        response.status_code.should eq 412
+        JSON.parse(response.body)["reason"].as_s.should eq("Server low on disk space, can not publish")
+        s.vhosts["/"].queue("q_full").message_count.should eq 0
+      ensure
+        s.flow(true)
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = free_disk_min if free_disk_min
+    end
+
     it "should require expiration to be a number" do
       with_http_server do |http, _|
         body = <<-JSON
