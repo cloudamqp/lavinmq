@@ -67,11 +67,19 @@ module LavinMQ
       end
 
       private def do_delete_upstream(name)
-        @upstreams.delete(name).try(&.delete)
+        remove_upstream(name, &.delete)
+      end
+
+      # Remove the upstream and its entries from every set. The block decides
+      # what happens to the resources its links created on the upstream
+      # broker: delete removes them, close keeps them for a replacement's
+      # links to reuse
+      private def remove_upstream(name, &)
+        @upstreams.delete(name).try { |u| yield u }
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
             next false unless upstream.name == name
-            upstream.delete
+            yield upstream
             true
           end
         end
@@ -81,22 +89,18 @@ module LavinMQ
       # settings that name them, plus the declare arguments that a passive
       # re-declare would silently ignore
       private def same_resources?(old : Upstream, uri, exchange, queue, expires, msg_ttl, max_hops) : Bool
-        old.uri == URI.parse(uri) && old.exchange == exchange && old.queue == queue &&
+        same_broker?(old.uri, URI.parse(uri)) && old.exchange == exchange && old.queue == queue &&
           old.expires == expires && old.msg_ttl == msg_ttl && old.max_hops == max_hops
       end
 
-      # Remove the upstream like do_delete_upstream, but keep the resources it
-      # created on the upstream broker: a replacement upstream's links reuse
-      # them, so their buffered messages survive a parameter re-PUT
+      # Credentials and query options don't change which resources the links
+      # declare, only the broker and its vhost (the path) do
+      private def same_broker?(a : URI, b : URI) : Bool
+        a.scheme == b.scheme && a.host == b.host && a.port == b.port && a.path == b.path
+      end
+
       private def close_upstream(name)
-        @upstreams.delete(name).try(&.close)
-        @upstream_sets.each do |_, set|
-          set.reject! do |upstream|
-            next false unless upstream.name == name
-            upstream.close
-            true
-          end
-        end
+        remove_upstream(name, &.close)
       end
 
       # Make the resource's links match its policy after a policy (re)apply.
@@ -164,7 +168,7 @@ module LavinMQ
         # Re-applied policies link the new set; keep the upstream resources
         # for those links to reuse
         @upstream_sets.delete(name).try &.each { |u| u.close if set_copy?(u) }
-        @upstream_set_configs[name] = config
+        @upstream_set_configs.delete(name)
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           unless upstream = @upstreams[cfg["upstream"].as_s]?
@@ -186,6 +190,9 @@ module LavinMQ
           end
           upstreams << upstream
         end
+        # Stored only once the whole config built, so a rejected config can't
+        # break the set rebuilds of later upstream parameter PUTs
+        @upstream_set_configs[name] = config
         @upstream_sets[name] = upstreams
       end
 
@@ -193,10 +200,6 @@ module LavinMQ
         @upstream_set_configs.delete(name)
         @upstream_sets.delete(name).try &.each { |u| u.delete if set_copy?(u) }
         @log.info { "Upstream set '#{name}' deleted" }
-      end
-
-      def get_set(name)
-        get_set?(name) || raise KeyError.new("Upstream set '#{name}' not found")
       end
 
       def get_set?(name)
