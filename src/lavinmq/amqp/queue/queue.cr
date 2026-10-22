@@ -1068,8 +1068,11 @@ module LavinMQ::AMQP
       else
         ttl = msg.ttl || return
       end
-      return if ttl > MAX_EXPIRE_AT - msg.timestamp
-      msg.timestamp + ttl
+      # a deadline past MAX_EXPIRE_AT never expires; the expire fiber then sleeps,
+      # but messages behind it still expire on delivery via has_expired?
+      expire_at = msg.timestamp &+ ttl
+      return if expire_at > MAX_EXPIRE_AT || expire_at < 0
+      expire_at
     end
 
     private def expire_messages : Nil
