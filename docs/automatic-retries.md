@@ -36,7 +36,7 @@ Retry delays are 500 ms, 1 s, 2 s, 4 s, 8 s. When the 6th delivery is also rejec
 
 ## Policies
 
-Queue arguments cannot be changed after declaration, so a policy is the way to add retries to an existing queue. The policy keys mirror the arguments without the `x-` prefix:
+Queue arguments cannot be changed after declaration, so a policy is the way to add retries to an existing queue without recreating it. The policy keys mirror the arguments without the `x-` prefix:
 
 | Policy key | Argument |
 |------------|----------|
