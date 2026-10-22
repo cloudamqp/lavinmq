@@ -35,80 +35,72 @@ module LavinMQ
       class TokenVerifier
         Log = LavinMQ::Log.for "oauth2"
 
-        # Everything a verification depends on. A verification reads @state
-        # once, so each token is checked entirely against either the old or the
-        # new provider settings, even when ensure_keys blocks while a reload
-        # runs. State is a struct: swapping it is a multi-word write, which is
-        # safe only because it doesn't yield and auth runs on the
-        # single-threaded default context.
-        private record State, provider : OAuthProviderConfig, parser : TokenParser,
-          fetcher : JWKSFetcher, expected_issuer : String do
-          def self.new(provider : OAuthProviderConfig, fetcher : JWKSFetcher)
-            new(provider, TokenParser.new(provider), fetcher, provider.issuer_url.to_s.chomp("/"))
-          end
-        end
-
+        # Settings are read once per verification, so each token is checked
+        # entirely against either the old or the new provider settings, even
+        # when ensure_keys blocks while a reload runs.
+        getter provider : OAuthProviderConfig
+        getter fetcher : JWKSFetcher
+        # The issuer this verifier accepts tokens from, without a trailing "/"
+        getter issuer : String
         @disabled = false
 
-        def initialize(provider : OAuthProviderConfig, fetcher : JWKSFetcher)
-          @state = State.new(provider, fetcher)
+        def initialize(@provider : OAuthProviderConfig, @fetcher : JWKSFetcher)
+          @issuer = @provider.issuer_url.to_s.chomp("/")
         end
 
-        def fetcher : JWKSFetcher
-          @state.fetcher
+        # The issuer a token claims, read without verifying the token, to pick
+        # the verifier for it. The picked verifier checks the issuer again after
+        # verifying the signature, so a forged claim only selects which
+        # provider's keys the token must be signed with.
+        def self.unverified_issuer(token : String) : String
+          raise JWT::PasswordFormatError.new unless token.starts_with?("ey")
+          parts = token.split('.', 4)
+          raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
+          payload = JWT::Payload.from_json(JWT::RS256Parser.base64url_decode(parts[1]))
+          issuer = payload.iss || raise JWT::DecodeError.new("Missing or invalid iss claim in token")
+          issuer.chomp("/")
+        rescue ex : JSON::ParseException | Base64::Error
+          raise JWT::DecodeError.new("Invalid JWT payload: #{ex.message}")
         end
 
-        # Applies reloaded provider settings. The issuer is bound to the
-        # fetcher, so it's replaced when the issuer changes. A changed JWKS cache
-        # TTL is applied to the current fetcher, keeping its keys, and takes
-        # effect at the next refresh. The verifier itself is kept, as OAuthUsers
-        # hold it for UpdateSecret. Without a provider (the issuer was removed
-        # from the config) the current settings are kept.
-        def reload(provider : OAuthProviderConfig?) : Nil
-          state = @state
-          unless provider
-            Log.warn { "oauth issuer removed from the config, keeping the current OAuth settings" }
-            return
+        # Applies reloaded provider settings with the same issuer. A changed
+        # JWKS cache TTL takes effect at the fetcher's next refresh, keeping its
+        # keys. OAuthAuthenticator replaces the verifier when the issuer changes.
+        def reload(provider : OAuthProviderConfig) : Nil
+          unless provider.issuer_url.to_s.chomp("/") == @issuer
+            raise ArgumentError.new("Can't reload a verifier for #{@issuer} with issuer #{provider.issuer_url}")
           end
-          if provider.issuer_url.to_s.chomp("/") == state.fetcher.issuer_url
-            state.fetcher.default_cache_ttl = provider.jwks_cache_ttl
-            @state = State.new(provider, state.fetcher)
-            return
-          end
-          Log.info { "OAuth issuer changed, refetching JWKS from #{provider.issuer_url}" }
-          fetcher = JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
-          fetcher.start_refresh_loop
-          @state = State.new(provider, fetcher)
-          state.fetcher.cleanup
+          @fetcher.default_cache_ttl = provider.jwks_cache_ttl
+          @provider = provider
         end
 
         def parse_token(token : String) : TokenClaim
-          state = @state
-          state.parser.parse(verify_token(token, state))
+          provider = @provider
+          TokenParser.new(provider).parse(verify_token(token, provider))
         end
 
         # Stops the JWKS fetcher and rejects all tokens from now on, e.g. token
         # refreshes from connections authenticated before OAuth was disabled.
         def disable : Nil
           @disabled = true
-          @state.fetcher.cleanup
+          @fetcher.cleanup
         end
 
         def verify_token(token : String) : Token
-          verify_token(token, @state)
+          verify_token(token, @provider)
         end
 
-        private def verify_token(token : String, state : State) : Token
+        private def verify_token(token : String, provider : OAuthProviderConfig) : Token
           raise JWT::VerificationError.new("OAuth authentication is disabled") if @disabled
           prevalidate_token(token)
           # After prevalidation so malformed tokens can't trigger network fetches
-          state.fetcher.ensure_keys
+          @fetcher.ensure_keys
           # ensure_keys can block on a fetch, during which OAuth may be disabled
           raise JWT::VerificationError.new("OAuth authentication is disabled") if @disabled
-          verified_token = state.fetcher.public_keys.decode(token)
+          verified_token = @fetcher.public_keys.decode(token)
           payload = verified_token.payload
-          validate_issuer(payload, state.expected_issuer)
-          validate_audience(payload, state.provider) if state.provider.verify_aud?
+          validate_issuer(payload)
+          validate_audience(payload, provider) if provider.verify_aud?
           verified_token
         end
 
@@ -141,16 +133,16 @@ module LavinMQ
           end
         end
 
-        protected def validate_issuer(payload : JWT::Payload, expected_issuer = @state.expected_issuer)
+        protected def validate_issuer(payload : JWT::Payload)
           issuer = payload.iss
           raise JWT::DecodeError.new("Missing or invalid iss claim in token") unless issuer
 
-          if issuer.chomp("/") != expected_issuer
+          if issuer.chomp("/") != @issuer
             raise JWT::VerificationError.new("Token issuer does not match the expected issuer")
           end
         end
 
-        private def validate_audience(payload : JWT::Payload, provider = @state.provider)
+        private def validate_audience(payload : JWT::Payload, provider = @provider)
           aud = payload.aud
           raise JWT::VerificationError.new("Missing aud claim in token") unless aud
 

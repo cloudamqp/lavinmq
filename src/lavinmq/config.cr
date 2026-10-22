@@ -20,6 +20,8 @@ module LavinMQ
 
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    # Providers from [oauth.<name>] sections, in file order
+    @oauth_named_providers = Array(OAuthProviderConfig).new
     @io : IO = STDERR
 
     def self.instance : LavinMQ::Config
@@ -43,9 +45,10 @@ module LavinMQ
       parse_cli(argv)
       validate!
       setup_logger
-      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
-        Log.warn { oauth_mgmt_ui_disabled_reason }
+      if reason = oauth_mgmt_ui_disabled_reason
+        Log.warn { "OAuth management UI SSO not enabled: #{reason}" }
       end
+      warn_unused_oauth_sso_settings
     end
 
     private def parse_info_option(argv)
@@ -61,9 +64,18 @@ module LavinMQ
       end
     end
 
-    # The OAuth provider configured in the [oauth] section, or nil if no
-    # issuer is set.
-    def oauth_provider : OAuthProviderConfig?
+    # All configured OAuth providers: the one in [oauth] (named "default"), if
+    # it has an issuer, followed by the [oauth.<name>] sections in file order.
+    # Each call returns new objects, so a caller can keep them across a reload.
+    def oauth_providers : Array(OAuthProviderConfig)
+      providers = @oauth_named_providers.map(&.dup)
+      if default = default_oauth_provider
+        providers.unshift(default)
+      end
+      providers
+    end
+
+    private def default_oauth_provider : OAuthProviderConfig?
       return unless issuer_url = @oauth_issuer_url
       OAuthProviderConfig.new(
         issuer_url: issuer_url,
@@ -73,30 +85,53 @@ module LavinMQ
         scope_prefix: @oauth_scope_prefix,
         verify_aud: @oauth_verify_aud,
         audience: @oauth_audience,
-        jwks_cache_ttl: @oauth_jwks_cache_ttl)
+        jwks_cache_ttl: @oauth_jwks_cache_ttl,
+        client_id: @oauth_client_id,
+        mgmt_base_url: @oauth_mgmt_base_url,
+        mgmt_scopes: @oauth_mgmt_scopes)
+    end
+
+    # The provider management UI SSO logs in with: the first provider where
+    # it's configured, if its SSO settings are valid
+    def oauth_sso_provider : OAuthProviderConfig?
+      provider = oauth_sso_candidate || return
+      provider if provider.sso_enabled?
     end
 
     def oauth_mgmt_ui_enabled? : Bool
-      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
-      oauth_mgmt_base_url_allowed?(base_url)
+      !oauth_sso_provider.nil?
     end
 
-    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
-      return true if uri.scheme == "https"
-      return false unless uri.scheme == "http"
-      host = uri.host.try(&.downcase)
-      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+    private def oauth_sso_candidate : OAuthProviderConfig?
+      oauth_providers.find &.sso_configured?
     end
 
-    private def oauth_mgmt_ui_disabled_reason : String
-      missing = [] of String
-      missing << "oauth.client_id" unless @oauth_client_id
-      missing << "oauth.issuer" unless @oauth_issuer_url
-      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
-      unless missing.empty?
-        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+    # mgmt_base_url of the provider SSO is configured in, also when SSO is off
+    def oauth_sso_mgmt_base_url : URI?
+      oauth_sso_candidate.try &.mgmt_base_url
+    end
+
+    # Why SSO is off although some of its settings are configured, nil if it's
+    # on or not configured at all
+    private def oauth_mgmt_ui_disabled_reason : String?
+      if provider = oauth_sso_candidate
+        return provider.sso_disabled_reason
       end
-      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
+      "missing issuer in [oauth]" if @oauth_client_id || @oauth_mgmt_base_url
+    end
+
+    private def warn_unused_oauth_sso_settings : Nil
+      candidate = oauth_sso_candidate || return
+      unused = oauth_providers.compact_map do |p|
+        p.name if p.name != candidate.name && p.sso_configured?
+      end
+      # Without an issuer [oauth] is no provider, so its SSO settings belong to none
+      unused << "[oauth] (no issuer)" if !@oauth_issuer_url && (@oauth_client_id || @oauth_mgmt_base_url)
+      return if unused.empty?
+      Log.warn do
+        "OAuth management UI SSO uses provider '#{candidate.name}', " \
+        "ignoring the SSO settings of #{unused.join(", ")}"
+      end
     end
 
     AUTH_BACKENDS = {"local", "oauth"}
@@ -119,6 +154,23 @@ module LavinMQ
       # unsupported backend keeps the running config
       if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
         raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
+      end
+      validate_oauth_providers!
+    end
+
+    private def validate_oauth_providers!
+      names = Set(String).new
+      issuers = Hash(String, String).new
+      oauth_providers.each do |provider|
+        unless names.add?(provider.name)
+          raise Error.new("OAuth provider '#{provider.name}' is configured more than once, " \
+                          "[oauth] with an issuer is the provider named '#{OAuthProviderConfig::DEFAULT_NAME}'")
+        end
+        issuer = provider.issuer_url.to_s.chomp("/")
+        if other = issuers[issuer]?
+          raise Error.new("OAuth providers '#{other}' and '#{provider.name}' have the same issuer #{issuer}")
+        end
+        issuers[issuer] = provider.name
       end
     end
 
@@ -223,7 +275,8 @@ module LavinMQ
         when "http"
           @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
           parse_section("mgmt", settings)
-        when .starts_with?("sni:") then parse_sni(section[4..], settings)
+        when .starts_with?("sni:")   then parse_sni(section[4..], settings)
+        when .starts_with?("oauth.") then parse_oauth_provider(section[6..], settings)
         when "replication"
           raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -292,6 +345,37 @@ module LavinMQ
       else
         @sni_manager.add_host(host)
       end
+    end
+
+    OAUTH_PROVIDER_NAME = /\A[A-Za-z0-9_-]+\z/
+
+    private def parse_oauth_provider(name : String, settings) # ameba:disable Metrics/CyclomaticComplexity
+      section = "[oauth.#{name}]"
+      unless OAUTH_PROVIDER_NAME.matches?(name)
+        raise Error.new("Invalid OAuth provider name in #{section}, use letters, digits, '-' and '_'")
+      end
+      issuer = settings["issuer"]? || raise Error.new("Missing issuer in #{section}")
+      provider = OAuthProviderConfig.new(parse_value(issuer, URI), name: name)
+      settings.each do |key, v|
+        case key
+        when "issuer"                    then next
+        when "resource_server_id"        then provider.resource_server_id = v
+        when "preferred_username_claims" then provider.preferred_username_claims = parse_value(v, Array(String))
+        when "additional_scopes_keys"    then provider.additional_scopes_keys = parse_value(v, Array(String))
+        when "scope_prefix"              then provider.scope_prefix = v
+        when "verify_aud"                then provider.verify_aud = parse_value(v, Bool)
+        when "audience"                  then provider.audience = v
+        when "jwks_cache_ttl"            then provider.jwks_cache_ttl = parse_value(v, Time::Span)
+        when "client_id"                 then provider.client_id = v
+        when "mgmt_base_url"             then provider.mgmt_base_url = parse_value(v, URI)
+        when "mgmt_scopes"               then provider.mgmt_scopes = v
+        else
+          @io.puts "WARNING: Unknown setting '#{key}' in section #{section}"
+        end
+      rescue ex
+        raise Error.new("Failed to handle value for '#{key}' in #{section}: #{ex.message}")
+      end
+      @oauth_named_providers << provider
     end
 
     private macro parse_section(section, settings)
@@ -383,6 +467,7 @@ module LavinMQ
     def reload
       new_config = dup
       new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.fresh_oauth_providers
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
@@ -402,6 +487,13 @@ module LavinMQ
 
     protected def fresh_sni_manager
       @sni_manager = SNIManager.new
+    end
+
+    # Providers only come from the file, so start from none to drop the
+    # sections, and the [oauth] issuer, removed from it
+    protected def fresh_oauth_providers
+      @oauth_named_providers = Array(OAuthProviderConfig).new
+      @oauth_issuer_url = nil
     end
 
     # Copy every instance variable from the parsed config in one non-yielding

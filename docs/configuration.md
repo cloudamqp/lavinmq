@@ -21,7 +21,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
 
-Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` and `[oauth.<name>]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
 
 ## [main] Section
 
@@ -139,6 +139,10 @@ Not every setting takes effect on reload. The log level, TLS certificates, `auth
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
 | `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
+
+## [oauth.name] Sections
+
+Each `[oauth.<name>]` section configures an additional OAuth provider, see [Multiple Providers](authentication.md#multiple-providers). It takes `issuer` (required), `resource_server_id`, `preferred_username_claims`, `additional_scopes_keys`, `scope_prefix`, `verify_aud`, `audience`, `jwks_cache_ttl`, `client_id`, `mgmt_base_url` and `mgmt_scopes`, with the same types and defaults as in `[oauth]`. Management UI SSO uses the first provider that sets `client_id` or `mgmt_base_url`, see [Management UI SSO Login](authentication.md#management-ui-sso-login).
 
 ## [experimental] Section
 

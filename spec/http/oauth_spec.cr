@@ -41,8 +41,9 @@ end
 # OAuthAuthenticator subclass that returns a hard-coded user so specs can drive
 # the /oauth/callback success path without real JWT signing.
 class StubOAuthAuthenticator < LavinMQ::Auth::OAuthAuthenticator
-  def initialize(@user : LavinMQ::Auth::BaseUser, fetcher : LavinMQ::Auth::JWT::JWKSFetcher)
-    super(LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher))
+  def initialize(@user : LavinMQ::Auth::BaseUser, fetcher : LavinMQ::Auth::JWT::JWKSFetcher,
+                 provider = test_oauth_provider)
+    super(LavinMQ::Auth::JWT::TokenVerifier.new(provider, fetcher))
   end
 
   def authenticate(context : LavinMQ::Auth::Context) : LavinMQ::Auth::BaseUser?
@@ -54,18 +55,26 @@ def test_oauth_provider : LavinMQ::OAuthProviderConfig
   LavinMQ::OAuthProviderConfig.new(URI.parse("https://idp.example.com"))
 end
 
+# A provider with management UI SSO enabled
+def sso_test_provider(mgmt_base_url = "https://localhost:15672", issuer = "https://idp.example.com",
+                      **settings) : LavinMQ::OAuthProviderConfig
+  LavinMQ::OAuthProviderConfig.new(URI.parse(issuer), **settings,
+    client_id: "test-client", mgmt_base_url: URI.parse(mgmt_base_url))
+end
+
 def build_oauth_chain(oidc : LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration,
-                      keys = {} of String => String) : LavinMQ::Auth::Chain
+                      keys = {} of String => String, provider = test_oauth_provider) : LavinMQ::Auth::Chain
   fetcher = SeedableJWKSFetcher.new(oidc, keys)
-  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher)
+  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, fetcher)
   oauth_auth = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
   LavinMQ::Auth::Chain.new([oauth_auth] of LavinMQ::Auth::Authenticator)
 end
 
 def build_stub_oauth_chain(user : LavinMQ::Auth::BaseUser,
-                           oidc : LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration) : LavinMQ::Auth::Chain
+                           oidc : LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration,
+                           provider = test_oauth_provider) : LavinMQ::Auth::Chain
   fetcher = SeedableJWKSFetcher.new(oidc)
-  oauth_auth = StubOAuthAuthenticator.new(user, fetcher)
+  oauth_auth = StubOAuthAuthenticator.new(user, fetcher, provider)
   LavinMQ::Auth::Chain.new([oauth_auth] of LavinMQ::Auth::Authenticator)
 end
 
@@ -105,11 +114,7 @@ describe "OAuth2" do
 
   describe "OAuthController /oauth/callback error handling" do
     it "redirects to login when oauth_state cookie is missing" do
-      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
+      with_http_server(authenticator: build_oauth_chain(default_oidc, provider: sso_test_provider)) do |http, _|
         response = ::HTTP::Client.get(
           http.test_uri("/oauth/callback?state=abc123&code=authcode"),
           headers: ::HTTP::Headers.new
@@ -120,11 +125,7 @@ describe "OAuth2" do
     end
 
     it "redirects to login on state mismatch" do
-      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
+      with_http_server(authenticator: build_oauth_chain(default_oidc, provider: sso_test_provider)) do |http, _|
         headers = ::HTTP::Headers{
           "Cookie" => "oauth_state=correct_state:verifier123",
         }
@@ -138,11 +139,7 @@ describe "OAuth2" do
     end
 
     it "redirects to login when code query parameter is missing" do
-      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
+      with_http_server(authenticator: build_oauth_chain(default_oidc, provider: sso_test_provider)) do |http, _|
         headers = ::HTTP::Headers{
           "Cookie" => "oauth_state=mystate:verifier123",
         }
@@ -305,11 +302,7 @@ describe "OAuth2" do
     end
 
     it "returns enabled=true when OAuth is configured" do
-      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
+      with_http_server(authenticator: build_oauth_chain(default_oidc, provider: sso_test_provider)) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
         response.status_code.should eq 200
         JSON.parse(response.body)["enabled"].as_bool.should be_true
@@ -329,15 +322,11 @@ describe "OAuth2" do
         ctx.response.print %({"error":"internal"})
       end
       begin
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
         oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
           issuer: "https://idp.example.com",
           jwks_uri: "http://#{idp_addr}/jwks",
           token_endpoint: "http://#{idp_addr}/token")
-        chain = build_oauth_chain(oidc)
+        chain = build_oauth_chain(oidc, provider: sso_test_provider)
 
         with_http_server(authenticator: chain) do |http, _|
           headers = ::HTTP::Headers{
@@ -360,15 +349,11 @@ describe "OAuth2" do
         ctx.response.print %({"access_token":"not-a-valid-jwt","expires_in":3600})
       end
       begin
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
         oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
           issuer: "https://idp.example.com",
           jwks_uri: "http://#{idp_addr}/jwks",
           token_endpoint: "http://#{idp_addr}/token")
-        chain = build_oauth_chain(oidc)
+        chain = build_oauth_chain(oidc, provider: sso_test_provider)
 
         with_http_server(authenticator: chain) do |http, _|
           headers = ::HTTP::Headers{
@@ -393,15 +378,11 @@ describe "OAuth2" do
         ctx.response.print %({"access_token":"dummy","expires_in":3600})
       end
       begin
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
         oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
           issuer: "https://idp.example.com",
           jwks_uri: "http://#{idp_addr}/jwks",
           token_endpoint: "http://#{idp_addr}/token")
-        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc)
+        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc, sso_test_provider)
 
         with_http_server(authenticator: chain) do |http, _|
           headers = ::HTTP::Headers{
@@ -441,15 +422,11 @@ describe "OAuth2" do
         ctx.response.print %({"access_token":"dummy","expires_in":"3600"})
       end
       begin
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
         oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
           issuer: "https://idp.example.com",
           jwks_uri: "http://#{idp_addr}/jwks",
           token_endpoint: "http://#{idp_addr}/token")
-        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc)
+        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc, sso_test_provider)
 
         with_http_server(authenticator: chain) do |http, _|
           headers = ::HTTP::Headers{
@@ -476,15 +453,11 @@ describe "OAuth2" do
         ctx.response.print %({"access_token":"dummy","expires_in":3600})
       end
       begin
-        LavinMQ::Config.instance.oauth_client_id = "test-client"
-        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672/lavinmq")
-
         oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
           issuer: "https://idp.example.com",
           jwks_uri: "http://#{idp_addr}/jwks",
           token_endpoint: "http://#{idp_addr}/token")
-        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc)
+        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc, sso_test_provider("https://localhost:15672/lavinmq"))
 
         with_http_server(authenticator: chain) do |http, _|
           headers = ::HTTP::Headers{
@@ -509,17 +482,13 @@ describe "OAuth2" do
 
   describe "OAuthController /oauth/authorize cookie flags" do
     it "fetches OIDC discovery on demand when the background refresh has not populated it yet" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("http://seedable.invalid")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "http://seedable.invalid",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
       fetcher = OnDemandOIDCFetcher.new(oidc)
-      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher)
+      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(sso_test_provider(issuer: "http://seedable.invalid"), fetcher)
       chain = LavinMQ::Auth::Chain.new([LavinMQ::Auth::OAuthAuthenticator.new(verifier)] of LavinMQ::Auth::Authenticator)
 
       with_http_server(authenticator: chain) do |http, _|
@@ -530,16 +499,12 @@ describe "OAuth2" do
     end
 
     it "sets oauth_state with Secure, HttpOnly, SameSite=Lax" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider)
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -559,16 +524,12 @@ describe "OAuth2" do
     end
 
     it "requests the default \"openid profile\" scope when oauth_mgmt_scopes is not configured" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider)
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -579,17 +540,12 @@ describe "OAuth2" do
     end
 
     it "requests the configured scope when oauth_mgmt_scopes is set" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-      LavinMQ::Config.instance.oauth_mgmt_scopes = "openid email"
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider(mgmt_scopes: "openid email"))
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -597,22 +553,15 @@ describe "OAuth2" do
         authorize_url = JSON.parse(response.body)["authorize_url"].as_s
         URI.parse(authorize_url).query_params["scope"].should eq "openid email"
       end
-    ensure
-      LavinMQ::Config.instance.oauth_mgmt_scopes = "openid profile"
     end
 
     it "includes the audience parameter when oauth_audience is configured" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-      LavinMQ::Config.instance.oauth_audience = "lavinmq-api"
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider(audience: "lavinmq-api"))
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -620,22 +569,15 @@ describe "OAuth2" do
         authorize_url = JSON.parse(response.body)["authorize_url"].as_s
         URI.parse(authorize_url).query_params["audience"].should eq "lavinmq-api"
       end
-    ensure
-      LavinMQ::Config.instance.oauth_audience = nil
     end
 
     it "omits the audience parameter when oauth_audience is not configured" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
-      LavinMQ::Config.instance.oauth_audience = nil
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider)
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -646,16 +588,12 @@ describe "OAuth2" do
     end
 
     it "omits Secure when the management UI is served over http://localhost" do
-      LavinMQ::Config.instance.oauth_client_id = "test-client"
-      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
-      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("http://localhost:15672")
-
       oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
         issuer: "https://idp.example.com",
         jwks_uri: "https://idp.example.com/jwks",
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
-      chain = build_oauth_chain(oidc)
+      chain = build_oauth_chain(oidc, provider: sso_test_provider("http://localhost:15672"))
 
       with_http_server(authenticator: chain) do |http, _|
         response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
@@ -678,6 +616,66 @@ describe "OAuth2" do
         identity_cleared = set_cookies.any? { |c| c.starts_with?("m=;") && c.downcase.includes?("max-age=0") }
         token_cleared.should be_true
         identity_cleared.should be_true
+      end
+    end
+
+    it "clears the cookies at the SSO path after a reload turned SSO off" do
+      with_http_server do |http, s|
+        cookie_paths = -> {
+          response = ::HTTP::Client.get(http.test_uri("/oauth/logout"), headers: ::HTTP::Headers.new)
+          set_cookies = response.headers.get?("Set-Cookie") || [] of String
+          set_cookies.select(&.starts_with?("oauth_token=;")).map { |c| c[/path=[^;]*/]? }
+        }
+        config = LavinMQ::Config.instance
+        config.oauth_client_id = "test-client"
+        config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+        config.oauth_mgmt_base_url = URI.parse("https://localhost:15672/mq")
+        config.auth_backends = ["local", "oauth"]
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+
+        config.oauth_client_id = nil
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+
+        config.oauth_client_id = "test-client"
+        config.auth_backends = ["local"]
+        s.authenticator.reload(config)
+        cookie_paths.call.should eq ["path=/mq"]
+      end
+    end
+  end
+
+  describe "OAuthController with SSO configured in an [oauth.<name>] section" do
+    it "logs in with that provider's endpoints and settings" do
+      provider = LavinMQ::OAuthProviderConfig.new(URI.parse("https://entra.example.com"), name: "entra",
+        audience: "api://lavinmq", client_id: "entra-ui",
+        mgmt_base_url: URI.parse("https://localhost:15672/mq"), mgmt_scopes: "openid email")
+      oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
+        issuer: "https://entra.example.com",
+        jwks_uri: "https://entra.example.com/jwks",
+        authorization_endpoint: "https://entra.example.com/authorize",
+        token_endpoint: "https://entra.example.com/token")
+      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, SeedableJWKSFetcher.new(oidc))
+      oauth = LavinMQ::Auth::OAuthAuthenticator.new({"entra" => verifier})
+      chain = LavinMQ::Auth::Chain.new([oauth] of LavinMQ::Auth::Authenticator)
+
+      with_http_server(authenticator: chain) do |http, _|
+        enabled = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
+        JSON.parse(enabled.body)["enabled"].as_bool.should be_true
+
+        response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
+        response.status_code.should eq 200
+        authorize_url = URI.parse(JSON.parse(response.body)["authorize_url"].as_s)
+        authorize_url.host.should eq "entra.example.com"
+        authorize_url.path.should eq "/authorize"
+        params = authorize_url.query_params
+        params["client_id"].should eq "entra-ui"
+        params["scope"].should eq "openid email"
+        params["audience"].should eq "api://lavinmq"
+        params["redirect_uri"].should eq "https://localhost:15672/mq/oauth/callback"
+        state_cookie = response.cookies["oauth_state"].should_not be_nil
+        state_cookie.path.should eq "/mq"
       end
     end
   end

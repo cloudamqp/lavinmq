@@ -1,5 +1,15 @@
 require "./spec_helper"
 
+private def parse_oauth_config(ini : String) : LavinMQ::Config
+  config_file = File.tempfile("lavinmq-config", ".ini", &.print(ini))
+  config = LavinMQ::Config.new(IO::Memory.new)
+  config.parse(["-c", config_file.path])
+  config
+ensure
+  config_file.try &.delete
+  Log.setup(:fatal)
+end
+
 describe LavinMQ::Config do
   describe "OAuth configuration validation" do
     it "sets default oauth_verify_aud to true" do
@@ -43,9 +53,9 @@ describe LavinMQ::Config do
     end
   end
 
-  describe "#oauth_provider" do
-    it "is nil when no issuer is configured" do
-      LavinMQ::Config.new.oauth_provider.should be_nil
+  describe "#oauth_providers" do
+    it "is empty when no issuer is configured" do
+      LavinMQ::Config.new.oauth_providers.should be_empty
     end
 
     it "carries the [oauth] settings" do
@@ -65,7 +75,7 @@ describe LavinMQ::Config do
 
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
-      provider = config.oauth_provider.should_not be_nil
+      provider = config.oauth_providers.first
       provider.issuer_url.should eq(URI.parse("https://auth.example.com"))
       provider.resource_server_id.should eq("my-service")
       provider.preferred_username_claims.should eq(["email"])
@@ -74,6 +84,148 @@ describe LavinMQ::Config do
       provider.verify_aud?.should be_false
       provider.audience.should eq("my-audience")
       provider.jwks_cache_ttl.should eq(300.seconds)
+    end
+  end
+
+  describe "[oauth.<name>] sections" do
+    it "parses each section into a named provider" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.keycloak]
+        issuer = https://keycloak.example.com/realms/prod
+        resource_server_id = lavinmq
+
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        audience = api://lavinmq
+        additional_scopes_keys = roles
+        scope_prefix = lavinmq.
+        preferred_username_claims = preferred_username, sub
+        verify_aud = false
+        jwks_cache_ttl = 600
+        CONFIG
+      keycloak, entra = config.oauth_providers
+      keycloak.name.should eq "keycloak"
+      keycloak.issuer_url.should eq URI.parse("https://keycloak.example.com/realms/prod")
+      keycloak.resource_server_id.should eq "lavinmq"
+      keycloak.audience.should be_nil
+      keycloak.verify_aud?.should be_true
+      keycloak.jwks_cache_ttl.should eq 1.hour
+      entra.name.should eq "entra"
+      entra.audience.should eq "api://lavinmq"
+      entra.additional_scopes_keys.should eq ["roles"]
+      entra.scope_prefix.should eq "lavinmq."
+      entra.preferred_username_claims.should eq ["preferred_username", "sub"]
+      entra.verify_aud?.should be_false
+      entra.jwks_cache_ttl.should eq 600.seconds
+    end
+
+    it "lists the [oauth] provider first, named default" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+
+        [oauth]
+        issuer = https://keycloak.example.com/realms/prod
+        CONFIG
+      config.oauth_providers.map(&.name).should eq ["default", "entra"]
+    end
+
+    it "doesn't share provider objects between calls" do
+      config = parse_oauth_config("[oauth.a]\nissuer = https://a.example.com\n")
+      config.oauth_providers.first.audience = "changed"
+      config.oauth_providers.first.audience.should be_nil
+    end
+
+    it "rejects a section without an issuer" do
+      expect_raises(LavinMQ::Config::Error, /Missing issuer in \[oauth.entra\]/) do
+        parse_oauth_config("[oauth.entra]\naudience = api://lavinmq\n")
+      end
+    end
+
+    it "rejects an invalid provider name" do
+      expect_raises(LavinMQ::Config::Error, /Invalid OAuth provider name/) do
+        parse_oauth_config("[oauth.my idp]\nissuer = https://a.example.com\n")
+      end
+    end
+
+    it "rejects an invalid value" do
+      expect_raises(LavinMQ::Config::Error, /'jwks_cache_ttl' in \[oauth.a\]/) do
+        parse_oauth_config("[oauth.a]\nissuer = https://a.example.com\njwks_cache_ttl = soon\n")
+      end
+    end
+
+    it "rejects two providers with the same issuer" do
+      expect_raises(LavinMQ::Config::Error, /'a' and 'b' have the same issuer/) do
+        parse_oauth_config(<<-CONFIG)
+          [oauth.a]
+          issuer = https://idp.example.com
+          [oauth.b]
+          issuer = https://idp.example.com/
+          CONFIG
+      end
+    end
+
+    it "rejects [oauth.default] together with an [oauth] issuer" do
+      expect_raises(LavinMQ::Config::Error, /'default' is configured more than once/) do
+        parse_oauth_config(<<-CONFIG)
+          [oauth]
+          issuer = https://a.example.com
+          [oauth.default]
+          issuer = https://b.example.com
+          CONFIG
+      end
+    end
+
+    it "drops sections removed from the file on reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[oauth.a]\nissuer = https://a.example.com\n[oauth.b]\nissuer = https://b.example.com\n")
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", config_file.path])
+        config.oauth_providers.map(&.name).should eq ["a", "b"]
+
+        File.write(config_file.path, "[oauth.b]\nissuer = https://b.example.com\naudience = new-api\n")
+        config.reload
+        config.oauth_providers.map(&.name).should eq ["b"]
+        config.oauth_providers.first.audience.should eq "new-api"
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "drops the [oauth] issuer removed from the file on reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[oauth]\nissuer = https://a.example.com\n[oauth.b]\nissuer = https://b.example.com\n")
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", config_file.path])
+        config.oauth_providers.map(&.name).should eq ["default", "b"]
+
+        File.write(config_file.path, "[oauth.b]\nissuer = https://b.example.com\n")
+        config.reload
+        config.oauth_providers.map(&.name).should eq ["b"]
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "accepts the [oauth] issuer moved to a named section on reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[oauth]\nissuer = https://a.example.com\n")
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", config_file.path])
+        config.oauth_providers.map(&.name).should eq ["default"]
+
+        File.write(config_file.path, "[oauth.a]\nissuer = https://a.example.com\n")
+        config.reload
+        config.oauth_providers.map(&.name).should eq ["a"]
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
     end
   end
 
@@ -252,6 +404,80 @@ describe LavinMQ::Config do
       config.oauth_client_id = "test-client"
       config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
       config.oauth_mgmt_ui_enabled?.should be_false
+    end
+  end
+
+  describe "#oauth_sso_provider" do
+    it "takes the SSO settings of an [oauth.<name>] section" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.keycloak]
+        issuer = https://keycloak.example.com/realms/prod
+
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com/lavinmq
+        mgmt_scopes = openid email
+        CONFIG
+      provider = config.oauth_sso_provider.should_not be_nil
+      provider.name.should eq "entra"
+      provider.client_id.should eq "lavinmq-ui"
+      provider.mgmt_base_url.should eq URI.parse("https://mq.example.com/lavinmq")
+      provider.mgmt_scopes.should eq "openid email"
+    end
+
+    it "takes the SSO settings of [oauth] for the default provider" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth]
+        issuer = https://keycloak.example.com/realms/prod
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      provider = config.oauth_sso_provider.should_not be_nil
+      provider.name.should eq "default"
+      provider.client_id.should eq "lavinmq-ui"
+      provider.mgmt_scopes.should eq "openid profile"
+    end
+
+    it "uses the first provider with SSO settings" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.a]
+        issuer = https://a.example.com
+        client_id = ui-a
+        mgmt_base_url = https://mq.example.com
+
+        [oauth.b]
+        issuer = https://b.example.com
+        client_id = ui-b
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_sso_provider.try(&.name).should eq "a"
+    end
+
+    it "doesn't fall back to a later provider when the first one's SSO settings are incomplete" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth.a]
+        issuer = https://a.example.com
+        client_id = ui-a
+
+        [oauth.b]
+        issuer = https://b.example.com
+        client_id = ui-b
+        mgmt_base_url = https://mq.example.com
+        CONFIG
+      config.oauth_sso_provider.should be_nil
+    end
+
+    it "ignores SSO settings in [oauth] without an issuer" do
+      config = parse_oauth_config(<<-CONFIG)
+        [oauth]
+        client_id = lavinmq-ui
+        mgmt_base_url = https://mq.example.com
+
+        [oauth.entra]
+        issuer = https://login.microsoftonline.com/tenant/v2.0
+        CONFIG
+      config.oauth_sso_provider.should be_nil
     end
   end
 end

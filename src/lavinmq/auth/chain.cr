@@ -41,13 +41,10 @@ module LavinMQ
             if existing = current.find(&.is_a?(OAuthAuthenticator))
               existing.reload(config)
               authenticators << existing
-            elsif provider = config.oauth_provider
-              jwks_fetcher = Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
-              verifier = Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
-              verifier.fetcher.start_refresh_loop
-              authenticators << OAuthAuthenticator.new(verifier)
-            else
+            elsif (providers = config.oauth_providers).empty?
               Log.error { "oauth authenticator added but missing setting `issuer_url` cannot start" }
+            else
+              authenticators << OAuthAuthenticator.create(providers)
             end
           else
             raise "Unsupported authentication backend: #{backend}"
