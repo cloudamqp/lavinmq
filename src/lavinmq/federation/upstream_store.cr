@@ -8,6 +8,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "federation.upstream_store"
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
+      @upstream_set_configs = Hash(String, JSON::Any).new
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
@@ -41,8 +42,18 @@ module LavinMQ
         end
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
+        rebuild_sets_with(name)
         @log.info { "Upstream '#{name}' created" }
         @upstreams[name]
+      end
+
+      # Replacing an upstream drops its entries from every set; rebuild the
+      # sets that name it so a policy re-apply can link through them again
+      private def rebuild_sets_with(name)
+        @upstream_set_configs.each do |set_name, config|
+          next unless config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
+          create_upstream_set(set_name, config)
+        end
       end
 
       def add(upstream : Upstream)
@@ -153,9 +164,13 @@ module LavinMQ
         # Re-applied policies link the new set; keep the upstream resources
         # for those links to reuse
         @upstream_sets.delete(name).try &.each { |u| u.close if set_copy?(u) }
+        @upstream_set_configs[name] = config
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
-          upstream = @upstreams[cfg["upstream"].as_s]
+          unless upstream = @upstreams[cfg["upstream"].as_s]?
+            @log.warn { "Federation upstream '#{cfg["upstream"]}' not found for set '#{name}'" }
+            next
+          end
           if cfg.as_h.keys.size > 1
             upstream = upstream.dup
             cfg["uri"]?.try { |p| upstream.uri = URI.parse(p.as_s) }
@@ -175,6 +190,7 @@ module LavinMQ
       end
 
       def delete_upstream_set(name)
+        @upstream_set_configs.delete(name)
         @upstream_sets.delete(name).try &.each { |u| u.delete if set_copy?(u) }
         @log.info { "Upstream set '#{name}' deleted" }
       end

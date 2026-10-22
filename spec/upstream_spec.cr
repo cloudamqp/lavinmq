@@ -1442,6 +1442,40 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "relinks a named set and reuses its resources when an upstream parameter is re-created" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.cleanup_vhosts(s)
+        upstream_vhost = s.vhosts.create("upstream")
+        downstream_vhost = s.vhosts.create("downstream")
+        store = downstream_vhost.upstreams
+        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        store.create_upstream("a", config)
+        store.create_upstream_set("s1", JSON.parse(%([{"upstream": "a"}])))
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        store.reconcile_link(ex, nil, "s1")
+        link = store.get_set("s1").first.links.first
+        wait_for { link.state.running? }
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+        us_q = upstream_vhost.queue?(federation_name).should_not be_nil
+
+        # An identical re-PUT keeps the upstream resources for the new links
+        # to reuse, but it also drops the set entries named after the
+        # upstream. Without the replacement put back, the policy re-apply
+        # reconciles against an empty set and links nothing, orphaning the
+        # kept queue on the upstream broker.
+        store.create_upstream("a", config)
+        store.get_set("s1").map(&.name).should eq ["a"]
+        store.reconcile_link(ex, nil, "s1")
+
+        link2 = store.get_set("s1").first.links.first
+        wait_for { link2.state.running? }
+        upstream_vhost.queue?(federation_name).should be us_q
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "stops the links of a set member with overrides when the set is replaced or deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
