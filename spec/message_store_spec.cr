@@ -206,6 +206,25 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "ignores a delete for a segment purged after the message was shifted" do
+    with_store do |store, dir|
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      3.times { store.push(msg) }
+      # Shifting into the second segment moves the read segment past the first,
+      # so purge_all deletes the first
+      sp = store.shift?.should_not be_nil
+      store.shift?.should_not be_nil
+      store.purge_all
+      store.@segments.has_key?(sp.segment_position.segment).should be_false
+
+      # Like a release or dead-lettering that routed the message outside the lock
+      store.delete(sp.segment_position)
+      store.@acks.has_key?(sp.segment_position.segment).should be_false
+      File.exists?(File.join(dir, "acks.#{sp.segment_position.segment.to_s.rjust(10, '0')}")).should be_false
+    end
+  end
+
   # Verifies #1296
   it "deletes unused segments on startup when multiple 'empty' segments exist" do
     with_store do |store, dir|

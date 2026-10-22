@@ -128,5 +128,11 @@ module LavinMQ
     protected def release : Nil
       @segment.release_lease
     end
+
+    # The same message flagged as redelivered, for a message that left the
+    # queue and came back through another store, like the retry queue
+    def as_redelivered : self
+      Envelope.new(@segment_position, @message, segment: @segment, redelivered: true)
+    end
   end
 end
