@@ -162,5 +162,31 @@ module MqttSpecs
         end
       end
     end
+
+    it "disconnects a publisher and doesn't route its message when the server is low on disk space" do
+      # Keeps the stats loop from starting flow again
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"t", 1u8}))
+          server.flow(false)
+          Log.capture("lmq.*", :error) do |logs|
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "t", payload: "m".to_slice, qos: 1u8, expect_response: false)
+              pub.should be_closed
+            end
+            # The read loop has ended once the connection is removed
+            wait_for { server.vhosts["/"].connections_size == 1 }
+            # An intentional close, not "Client unexpectedly closed connection"
+            logs.empty
+          end
+          sub.should be_drained
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
+    end
   end
 end

@@ -370,6 +370,31 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    it "should refuse to publish when the server is low on disk space" do
+      # Keeps the stats loop from starting flow again
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("disk_q", false, false)
+        s.flow(false)
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "disk_q",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
+        response = http.post("/api/exchanges/%2f/amq.default/publish", body: body)
+        response.status_code.should eq 412
+        JSON.parse(response.body)["reason"].as_s.should eq "Server low on disk space"
+        s.vhosts["/"].queue("disk_q").message_count.should eq 0
+      ensure
+        s.flow(true)
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
+    end
+
     it "should return routed:false instead of 500 when queue rejects on overflow" do
       with_http_server do |http, s|
         args = LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64, "x-overflow" => "reject-publish"})
