@@ -217,12 +217,12 @@ module LavinMQ
         end
         # MQTT 3.1.1 has no negative PUBACK, so closing is the only way to
         # tell the client its publish wasn't accepted
-        unless vhost.flow?
+        unless @broker.publish(packet, @publish_context)
           @log.warn { "Publish refused, server low on disk space" }
+          @closed = true
           close_socket
           return
         end
-        @broker.publish(packet, @publish_context)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -349,11 +349,7 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
-          unless vhost.flow?
-            @log.warn { "Will publish refused, server low on disk space" }
-            return
-          end
-          @broker.publish(Protocol::Publish.new(
+          published = @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -361,6 +357,7 @@ module LavinMQ
             retain: will.retain?,
             dup: false,
           ), @publish_context)
+          @log.warn { "Will publish refused, server low on disk space" } unless published
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }

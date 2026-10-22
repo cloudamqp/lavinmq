@@ -171,10 +171,16 @@ module MqttSpecs
           connect(sub, client_id: "sub")
           subscribe(sub, topic_filters: mk_topic_filters({"t", 1u8}))
           server.flow(false)
-          with_client_io(server) do |pub|
-            connect(pub, client_id: "pub")
-            publish(pub, topic: "t", payload: "m".to_slice, qos: 1u8, expect_response: false)
-            pub.should be_closed
+          Log.capture("lmq.*", :error) do |logs|
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "t", payload: "m".to_slice, qos: 1u8, expect_response: false)
+              pub.should be_closed
+            end
+            # The read loop has ended once the connection is removed
+            wait_for { server.vhosts["/"].connections_size == 1 }
+            # An intentional close, not "Client unexpectedly closed connection"
+            logs.empty
           end
           sub.should be_drained
         end
