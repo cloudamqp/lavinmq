@@ -6,6 +6,13 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
+# Test-only seam: drive the SIGTERM shutdown path without raising the signal.
+class LavinMQ::Launcher
+  def shutdown_for_spec
+    shutdown_server
+  end
+end
+
 private def metric_value(body : String, name : String, labels : Hash(String, String)) : Float64?
   body.each_line do |line|
     next unless line.starts_with?("#{name}{")
@@ -130,6 +137,40 @@ describe LavinMQ::Clustering::Controller do
     end
   ensure
     blocker.try &.close
+  end
+end
+
+describe LavinMQ::Clustering::Client do
+  # On promotion both the leader watcher and the controller close the client.
+  # The controller binds the listeners right after its close returns, so that
+  # close must not return while the other one still holds the proxy ports.
+  it "waits for a concurrent close to release the proxy ports" do
+    free_port = -> { TCPServer.open("127.0.0.1", 0, &.local_address.port) }
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = free_port.call
+      config.http_port = free_port.call
+      config.mqtt_port = free_port.call
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      spawn client.follow("127.0.0.1", free_port.call) # no leader there, keeps retrying
+      Fiber.yield                                      # let the proxies start accepting
+      ports = {config.amqp_port, config.http_port, config.mqtt_port}
+      bind_errors = [] of String
+      wg = WaitGroup.new
+      wg.spawn { client.close } # suspends while closing a proxy
+      wg.spawn do
+        client.close
+        ports.each do |port|
+          TCPServer.new("127.0.0.1", port).close
+        rescue ex : Socket::BindError
+          bind_errors << ex.message.to_s
+        end
+      end
+      wg.wait
+      bind_errors.should be_empty
+    end
   end
 end
 
@@ -532,6 +573,40 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     when elected.receive?
     when timeout(1.seconds)
       fail("election campaign did not finish in time, leadership not released on launcher stop?")
+    end
+  end
+
+  it "leaves the exit to the main fiber when stopping a leader", tags: "slow" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering = true
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5681"
+      config.metrics_http_port = 0
+      launcher = LavinMQ::Launcher.new(config)
+      begin
+        run_done = Channel(Nil).new
+        spawn do
+          launcher.run
+          run_done.close
+        rescue SpecExit
+        end
+        # The metrics server is pointed at the leader at the end of startup
+        wait_for { launcher.@metrics_server.try { |metrics| metrics.@role.leader } }
+
+        # Exiting from the signal handler while #run still closed the replicator
+        # closed the log backend under it, and the leader exited with code 1
+        launcher.shutdown_for_spec
+
+        select
+        when run_done.receive?
+        when timeout(1.second)
+          fail("Launcher#run didn't return after shutdown")
+        end
+      ensure
+        launcher.stop
+      end
     end
   end
 

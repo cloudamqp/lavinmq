@@ -1,4 +1,5 @@
 require "../filesystem"
+require "./consts"
 require "./topic_tree"
 require "./protocol"
 require "../persister"
@@ -16,11 +17,6 @@ module LavinMQ
 
       def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new, @persister : Persister? = nil)
         FileSystem.mkdir_p @dir
-        @files = Hash(String, File).new do |files, file_name|
-          file = File.new(File.join(@dir, file_name))
-          file.read_buffering = false
-          files[file_name] = file
-        end
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
         @replicator.try &.register_file(@index_file)
@@ -35,7 +31,6 @@ module LavinMQ
         @lock.synchronize do
           write_index
           @index_file.close
-          @files.each_value &.close
         end
       end
 
@@ -50,6 +45,10 @@ module LavinMQ
         )
 
         while topic = index_file.gets
+          if topic.bytesize > MAX_TOPIC_BYTESIZE
+            Log.warn { "dropping retained message, topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
+            next
+          end
           msg_file_name = make_file_name(topic)
           unless msg_file_segments.delete(msg_file_name)
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }
@@ -105,8 +104,7 @@ module LavinMQ
             @persister.try &.mark_dirty(final_file_path)
             @persister.try &.mark_dirty(@dir)
           end
-          @files.delete(msg_file_name).try &.close
-          @files[msg_file_name] = file
+          file.close
         end
       end
 
@@ -136,20 +134,19 @@ module LavinMQ
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          if file = @files.delete(file_name)
-            file.close
-            file.delete
-          end
-          @replicator.try &.delete_file(File.join(@dir, file_name))
+          file_path = File.join(@dir, file_name)
+          File.delete? file_path
+          @replicator.try &.delete_file(file_path)
         end
       end
 
       def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
           @index.each(subscription) do |topic, file_name|
-            f = @files[file_name]
-            f.rewind
-            block.call(topic, f, f.size.to_u64)
+            File.open(File.join(@dir, file_name)) do |f|
+              f.read_buffering = false
+              block.call(topic, f, f.size.to_u64)
+            end
           end
         end
       end

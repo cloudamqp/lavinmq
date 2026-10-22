@@ -210,6 +210,9 @@ module LavinMQ
 
     def delete(sp) : Nil
       raise ClosedError.new if @closed
+      # A message routed outside the lock can have its segment purged meanwhile,
+      # and @acks would otherwise create an ack file for the deleted segment
+      return unless @segments.has_key?(sp.segment)
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
