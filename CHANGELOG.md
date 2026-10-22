@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An MQTT QoS 1 publisher that stopped reading PUBACKs is now disconnected when the PUBACK write times out. Previously the PUBACK writer swallowed the error and the connection stayed open without ever getting another PUBACK [#2504](https://github.com/cloudamqp/lavinmq/pull/2504)
 - Messages redelivered after a retry delay are flagged `redelivered`, and a message whose TTL runs out while it waits in the retry queue is dead-lettered when the TTL expires instead of when the backoff ends [#2503](https://github.com/cloudamqp/lavinmq/pull/2503)
 
+### Changed
+
+- Downgrading to 2.10.x after using new 2.11 features needs care. 2.10.x doesn't know the `x-mqtt-topic` exchange type: it logs "unknown exchange type", skips those exchanges and their bindings, and starts anyway; the next time 2.10.x compacts its definitions file they're removed for good. 2.10.x also doesn't create the retry queues of queues with `x-delayed-retry-min`, so messages waiting for a retry are neither shown nor delivered until the node runs 2.11 again [#2532](https://github.com/cloudamqp/lavinmq/pull/2532)
+
 ## [2.11.0-rc.1] - 2026-10-16
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker.
