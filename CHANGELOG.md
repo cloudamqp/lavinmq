@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Automatic retries can be enabled on existing queues with the `delayed-retry-min`, `delayed-retry-multiplier` and `delayed-retry-max` policy keys. Removing the policy drains the delayed messages back to the queue on their schedule [#2415](https://github.com/cloudamqp/lavinmq/pull/2415)
+- Management UI and HTTP API show automatic retry details: `delayed_retry` and `primary_queue` queue fields, a retry badge in the queue list and a retry section on the queue page [#2414](https://github.com/cloudamqp/lavinmq/pull/2414)
 
 ### Fixed
 

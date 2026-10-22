@@ -69,6 +69,38 @@ queue:
     internal:
       type: boolean
       description: If the queue is internal (meaning clients can't publish directly to it).
+    delayed_retry:
+      type: object
+      nullable: true
+      description: Effective automatic retry configuration. Null or absent when automatic retries are not enabled.
+      properties:
+        min:
+          type: integer
+          description: Initial retry delay in milliseconds (`x-delayed-retry-min`).
+        multiplier:
+          type: integer
+          nullable: true
+          description: Backoff multiplier (`x-delayed-retry-multiplier`). Null means linear backoff, 1 constant, 2 or more exponential.
+        max:
+          type: integer
+          nullable: true
+          description: Cap on a single retry delay in milliseconds (`x-delayed-retry-max`). Null means no cap.
+        delivery_limit:
+          type: integer
+          description: Effective delivery limit, from the argument, a policy or the implicit default.
+        delivery_limit_default:
+          type: boolean
+          description: True when the delivery limit is the implicit default of 20.
+        messages_delayed:
+          type: integer
+          description: Number of messages currently waiting in the retry queue.
+        retry_queue:
+          type: string
+          description: Name of the internal retry queue.
+    primary_queue:
+      type: string
+      nullable: true
+      description: For an internal retry queue, the name of the queue it retries messages for. Null or absent otherwise.
     first_message_timestamp:
       type: integer
       description: Epoch timestamp of the first message in the queue.
