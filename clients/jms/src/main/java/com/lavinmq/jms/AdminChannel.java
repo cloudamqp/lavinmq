@@ -23,8 +23,15 @@ final class AdminChannel {
         this.connection = connection;
     }
 
-    synchronized <T> T call(String context, Call<T> fn) throws JMSException {
+    <T> T call(String context, Call<T> fn) throws JMSException {
+        // Wait for a recovery in progress *before* taking the lock: the recovery thread itself needs this channel.
         AmqpConnection amqp = connection.usableTransport();
+        synchronized (this) {
+            return run(context, fn, amqp);
+        }
+    }
+
+    private <T> T run(String context, Call<T> fn, AmqpConnection amqp) throws JMSException {
         try {
             if (channel == null || !channel.isOpen() || channel.connection() != amqp) {
                 channel = amqp.openChannel();

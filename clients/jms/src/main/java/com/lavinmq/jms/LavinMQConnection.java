@@ -65,7 +65,8 @@ public final class LavinMQConnection implements Connection, QueueConnection, Top
     private final AtomicBoolean closed = new AtomicBoolean();
     private final List<LavinMQTemporaryQueue> temporaryQueues = new CopyOnWriteArrayList<>();
     private final AtomicLong tempSeq = new AtomicLong();
-    private final AtomicInteger addressCursor = new AtomicInteger();
+    /** Next address to try on recovery; starts at 1 so a dead primary is skipped on the first attempt. */
+    private final AtomicInteger addressCursor = new AtomicInteger(1);
     private volatile ExceptionListener exceptionListener;
     private volatile String clientId;
     private volatile boolean clientIdFrozen;

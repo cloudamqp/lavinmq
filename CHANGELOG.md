@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A JMS (Jakarta Messaging 3.1) client for Java in `clients/jms`, with its own AMQP 0-9-1 implementation, queues, topics with durable and shared subscriptions, temporary destinations, local transactions, delivery delay, queue browsing, the `JMSContext` simplified API and automatic connection recovery [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
+
 ### Fixed
 
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)

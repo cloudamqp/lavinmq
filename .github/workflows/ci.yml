@@ -11,6 +11,7 @@ on:
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
+      - 'clients/jms/**'
   push:
     branches:
       - main
@@ -25,6 +26,7 @@ on:
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
+      - 'clients/jms/**'
   workflow_dispatch:
 
 jobs:
@@ -318,6 +320,42 @@ jobs:
       - name: >-
           Test outcome: ${{ steps.test.outcome }}
         run: echo NOOP
+
+  jms-client-test:
+    name: JMS client test
+    runs-on: ubuntu-26.04
+    needs: compile
+
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - name: Build and test the JMS client
+        working-directory: clients/jms
+        env:
+          LAVINMQ_URL: amqp://guest:guest@localhost:5672/%2F
+          LAVINMQ_HTTP_URL: http://localhost:15672
+        run: mvn -B verify
 
   bunny-test:
     name: Bunny client test

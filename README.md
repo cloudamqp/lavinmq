@@ -139,6 +139,8 @@ All AMQP client libraries work with LavinMQ, and there are AMQP client libraries
 - [Go](https://lavinmq.com/documentation/go-sample-code)
 - [.NET](https://lavinmq.com/documentation/dot-net-sample-code)
 
+Java applications that use the Jakarta Messaging (JMS) API can use the [LavinMQ JMS client](clients/jms/README.md) in this repository.
+
 ## Performance
 
 LavinMQ delivers exceptional throughput performance on commodity hardware. On a single c8g.large EC2 instance with GP3 EBS storage (XFS formatted), LavinMQ achieves:
