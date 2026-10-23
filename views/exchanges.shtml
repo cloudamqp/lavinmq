@@ -18,11 +18,18 @@
         <div class="table-subheader">
           <span class="table-page-info"></span>
         </div>
+        <div id="multiselect-controls" class="popup-card hide">
+          <a class="popup-close" href="#">&#x2715</a>
+          <h4 class="popup-header">Exchange actions (<em><span id="multi-exchange-count">0</span> selected</em>)</h4>
+          <button data-action="delete" class="btn-danger">Delete</button>
+        </div>
+
         <div class="table-wrapper">
           <div id="table-error"></div>
           <table id="table" class="table">
             <thead>
               <tr>
+                <th><input type="checkbox" id="multi-check-all"></th>
                 <th data-sort-key="vhost" class="left">Virtual host<span></span></th>
                 <th data-sort-key="name" class="left">Name<span></span></th>
                 <th data-sort-key="type" class="left">Type<span></span></th>
