@@ -234,12 +234,12 @@ module LavinMQ
         parameters.as_a.each do |p|
           next unless v = fetch_vhost?(p)
           name = p["name"].as_s
-          value = p["value"].as_h
           case component = p["component"].as_s
           when "vhost-limits"
-            limits << {v, value}
+            limits << {v, p["value"].as_h}
           when "operator_policy"
             next if skip_existing && v.operator_policies[name]?
+            value = p["value"].as_h
             operator_policies << {v, name, value["pattern"].as_s, value["apply-to"].as_s,
                                   value["definition"].as_h, value["priority"].as_i.to_i8}
           else

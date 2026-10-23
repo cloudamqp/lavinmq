@@ -706,6 +706,31 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "imports a federation-upstream-set, whose value is an array" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "set_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            },
+            {
+              "name": "import_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "upstream": "set_upstream" }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].parameters[{"federation-upstream-set", "import_set"}]?.should_not be_nil
+        s.vhosts["/"].upstreams.get_set?("import_set").should_not be_nil
+      end
+    end
+
     it "applies no parameters when one entry is malformed (issue #2073)" do
       with_http_server do |http, s|
         # A valid shovel followed by an operator_policy with priority > 127, which
