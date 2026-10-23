@@ -1,7 +1,7 @@
 import * as helpers from './helpers.js'
-import { test, expect } from './fixtures.js';
+import { test, expect } from './fixtures.js'
 
-test.describe("vhosts", _ => {
+test.describe('vhosts', _ => {
   test('are loaded', async ({ page, vhosts }) => {
     const apiPermissionsRequests = vhosts.map(v => helpers.waitForPathRequest(page, `/api/vhosts/${v}/permissions`))
     await page.goto('/vhosts')
@@ -12,6 +12,7 @@ test.describe("vhosts", _ => {
     const vhostName = 'baz'
     const formRequest = helpers.waitForPathRequest(page, `/api/vhosts/${vhostName}`, { method: 'PUT' })
     await page.goto('/vhosts')
+    await helpers.openDialog(page, 'add-vhost-dialog')
     const form = await page.locator('#createVhost')
     await form.getByLabel('Name').fill(vhostName)
     await form.getByRole('button').click()
@@ -34,6 +35,7 @@ test.describe("vhosts", _ => {
     page.on('dialog', dialog => dialog.dismiss())
 
     await page.goto('/vhosts')
+    await helpers.openDialog(page, 'add-vhost-dialog')
     const form = page.locator('#createVhost')
     await form.getByLabel('Name').fill(vhostName)
     await form.getByRole('button').click()
