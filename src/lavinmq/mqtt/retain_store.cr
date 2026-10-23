@@ -26,15 +26,23 @@ module LavinMQ
         @dirty = false
         if @index.empty?
           restore_index
-          write_index if @dirty
+          compact_index if @dirty
         end
       end
 
       def close
         @lock.synchronize do
-          write_index if @dirty
+          compact_index if @dirty
           @index_file.close
         end
+      end
+
+      # The index works without being compacted, so a full disk mustn't keep the server from
+      # starting or stopping
+      private def compact_index
+        write_index
+      rescue ex : IO::Error
+        Log.warn { "Could not compact the index, keeping it as it is: #{ex.message}" }
       end
 
       # Marks the index file dirty when it needs compacting: lines it has that
@@ -124,12 +132,19 @@ module LavinMQ
       # renames the file back to the correct name and replaces it on followers,
       # sets @index_file to the new compacted index file
       private def write_index
-        @index_file.close
-        f = File.new("#{@index_file_name}.tmp", "w")
-        @index.each do |topic|
-          f.puts topic
+        tmp_file_name = "#{@index_file_name}.tmp"
+        f = File.new(tmp_file_name, "w")
+        begin
+          @index.each do |topic|
+            f.puts topic
+          end
+          FileSystem.durable_rename(f, @index_file_name)
+        rescue ex
+          f.close
+          File.delete?(tmp_file_name)
+          raise ex
         end
-        FileSystem.durable_rename(f, @index_file_name)
+        @index_file.close
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
         @dirty = false
