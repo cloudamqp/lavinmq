@@ -307,10 +307,18 @@ module LavinMQ
               @log.debug { "Downstream consumers are busy" }
               if federate(msg, EXCHANGE, @federated_q.name)
                 msg.ack if @upstream.ack_mode != AckMode::NoAck
+                wait_for_federated_queue_empty
+              elsif !@federated_q.empty?
+                msg.reject(requeue: true) # the queue is full, retried when it has drained
+                wait_for_federated_queue_empty
               else
-                msg.reject(requeue: true) # e.g. the queue is full, retried when it has drained
+                # Refused by the empty queue, e.g. larger than its
+                # x-max-length-bytes with x-overflow reject-publish, so waiting
+                # for it to drain wouldn't help
+                @log.info { "Federate failed, refused by the downstream queue" }
+                queue.unsubscribe(@upstream.consumer_tag)
+                msg.reject(requeue: true)
               end
-              wait_for_federated_queue_empty
             end
           end
         end

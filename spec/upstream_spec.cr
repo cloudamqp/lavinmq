@@ -410,6 +410,37 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should hand back a message the downstream queue refuses even when empty" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test refused", s.amqp_server.url, nil, "federation_q1")
+        msgs = [] of AMQP::Client::DeliverMessage
+
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("federation_q1")
+          q2 = ch.queue("federation_q2", args: AMQP::Client::Arguments.new({
+            "x-overflow" => "reject-publish", "x-max-length-bytes" => 1000,
+          }))
+          ch.prefetch(1)
+          q2.subscribe(no_ack: false) do |msg|
+            msgs << msg
+          end
+          upstream.link(vhost.queue("federation_q2"))
+          x.publish_confirm "m1", "federation_q1"
+          wait_for { msgs.size == 1 }
+          # Larger than federation_q2's x-max-length-bytes, and its consumer is
+          # at its prefetch limit. (Regression: the link put it back upstream,
+          # got it redelivered and tried again, in a busy loop.)
+          x.publish_confirm "x" * 2000, "federation_q1"
+          upstream_q = vhost.queue("federation_q1")
+          wait_for { upstream_q.consumers_empty? && upstream_q.message_count == 1 }
+        end
+      ensure
+        upstream.try &.close
+      end
+    end
+
     it "should keep message properties" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
