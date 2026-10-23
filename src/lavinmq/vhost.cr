@@ -500,9 +500,7 @@ module LavinMQ
       begin
         apply_parameters(p)
       rescue ex
-        # ParameterStore#apply deleted the rejected parameter, but the old
-        # config is still the one applied in memory, so put it back in the
-        # store too and the two agree again
+        # The old config still runs in memory, so put its parameter back
         previous.try { |prev| @parameters.create(prev, save: save) }
         raise ex
       end

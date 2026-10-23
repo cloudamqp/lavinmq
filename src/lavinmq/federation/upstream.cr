@@ -112,8 +112,7 @@ module LavinMQ
         exchange
       end
 
-      # Names the queue and x-federation-upstream exchange an ExchangeLink
-      # creates on the upstream broker
+      # Names the resources an ExchangeLink creates on the upstream broker
       def upstream_queue_name(federated_exchange : AMQP::Exchange) : String
         "federation: #{upstream_exchange_name(federated_exchange)} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
       end

@@ -9,11 +9,8 @@ module LavinMQ
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
       @upstream_set_configs = Hash(String, JSON::Any).new
-      # Serializes upstream and set changes with policy reconciles. Resource
-      # deletes wait on the upstream broker, and without the lock a change
-      # that lands in that window is silently overwritten when the parked one
-      # resumes, or a reconcile misses the set and stops its plain entries'
-      # links. Held across that network wait on purpose.
+      # Serializes upstream and set changes with policy reconciles, held
+      # across the resource deletes' wait on the upstream broker
       @change_lock = Mutex.new
 
       def initialize(@vhost : VHost)
@@ -105,9 +102,8 @@ module LavinMQ
       end
 
       # Credentials and query options don't change which resources the links
-      # declare, only the broker and its vhost (the path) do. The client
-      # defaults a missing port from the scheme and reads an empty path as the
-      # default vhost, so compare the effective values.
+      # declare, only the broker and its vhost (the path) do, compared as the
+      # client defaults them
       private def same_broker?(a : URI, b : URI) : Bool
         a.scheme == b.scheme && a.host == b.host &&
           effective_port(a) == effective_port(b) &&
@@ -192,8 +188,7 @@ module LavinMQ
       end
 
       private def do_create_upstream_set(name, config)
-        # Built before the store is touched: a malformed entry must leave the
-        # old set and its running links in place
+        # Built first: a malformed entry must leave the old set running
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           unless upstream = @upstreams[cfg["upstream"].as_s]?
@@ -216,8 +211,8 @@ module LavinMQ
           upstreams << upstream
         end
         old_set = @upstream_sets.delete(name)
-        # Retired before the new set is stored and a policy re-apply can link
-        # it, so no delete can race a new link's redeclare of the same queue
+        # Retired before the new set is stored, so a delete can't race a new
+        # link's redeclare of the same queue
         old_set.try { |set| retire_copies(set, upstreams) }
         # Stored only once the whole config built, so a rejected config can't
         # break the set rebuilds of later upstream parameter PUTs
@@ -225,10 +220,8 @@ module LavinMQ
         @upstream_sets[name] = upstreams
       end
 
-      # Stops every copy in the old set. An exchange link's upstream resources
-      # are kept when an entry in the new set reuses them, deleted otherwise.
-      # Deleting connects to the upstream broker, so a set change that removes
-      # entries blocks until those brokers answer or the connect times out.
+      # Stops every copy in the old set and deletes an exchange link's
+      # upstream resources unless an entry in the new set reuses them
       private def retire_copies(old_set : Array(Upstream), upstreams : Array(Upstream))
         old_set.each do |old|
           next unless set_copy?(old)
@@ -240,9 +233,8 @@ module LavinMQ
         end
       end
 
-      # An entry reuses the link's upstream resources when it names the same
-      # upstream queue on the same broker and keeps the declare arguments a
-      # passive re-declare would silently ignore (see #same_resources?)
+      # Same queue name on the same broker, with the declare arguments a
+      # passive re-declare would silently ignore
       private def resources_reused?(link : Upstream::ExchangeLink, old : Upstream, upstreams : Array(Upstream)) : Bool
         upstreams.any? do |u|
           same_broker?(u.uri, old.uri) &&

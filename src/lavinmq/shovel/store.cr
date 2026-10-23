@@ -144,8 +144,8 @@ module LavinMQ
           direct_user: @vhost.users.direct_user)
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
-        # Terminated only once the whole new config has parsed, so a rejected
-        # update leaves the old shovel running
+        # Terminated only after the new config parsed, so a rejected update
+        # leaves the old shovel running
         @shovels[name]?.try &.terminate
         @shovels[name] = shovel
         spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")

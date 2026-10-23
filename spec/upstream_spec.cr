@@ -1667,8 +1667,7 @@ describe LavinMQ::Federation::Upstream do
         federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
         upstream_vhost.queue_exists?(federation_name).should be_true
 
-        # A re-applied set with the same entry reuses the upstream resources,
-        # so buffered messages survive the update
+        # The same entry must reuse the resources, so buffered messages survive
         store.create_upstream_set("set1", set_config)
 
         upstream_vhost.queue_exists?(federation_name).should be_true
@@ -1693,8 +1692,7 @@ describe LavinMQ::Federation::Upstream do
         federation_name = "federation: downstream_ex -> #{System.hostname}:/:downstream_ex"
         upstream_vhost.queue_exists?(federation_name).should be_true
 
-        # The entry used the federated exchange's name implicitly; spelling the
-        # same name out must not delete the resources
+        # Spelling out the implicit exchange name must not delete the resources
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "downstream_ex"}])))
 
@@ -1745,8 +1743,8 @@ describe LavinMQ::Federation::Upstream do
         federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
         upstream_vhost.queue_exists?(federation_name).should be_true
 
-        # Queue links never create resources on the upstream, so a queue
-        # override change must not delete the exchange link's resources
+        # Queue links create nothing upstream, so this must not delete the
+        # exchange link's resources
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "queue": "q2"}])))
 
@@ -1798,8 +1796,7 @@ describe LavinMQ::Federation::Upstream do
         federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
         upstream_vhost.queue_exists?(federation_name).should be_true
 
-        # The new entry redeclares the same queue with the new x-expires; an
-        # asynchronous delete would race the new link's setup
+        # Deleted before returning, or it races the new link's redeclare
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "expires": 120000}])))
 
@@ -1825,8 +1822,7 @@ describe LavinMQ::Federation::Upstream do
         federation_name = "federation: upstream_ex -> #{System.hostname}:/:downstream_ex"
         upstream_vhost.queue_exists?(federation_name).should be_true
 
-        # A deleted set's background delete must not outlive a re-created set
-        # that reuses the queue name, or it removes the new link's queue
+        # The delete must not outlive a re-created set that reuses the name
         store.delete_upstream_set("set1")
         store.create_upstream_set("set1", set_config)
 
@@ -1856,9 +1852,7 @@ describe LavinMQ::Federation::Upstream do
           hung_member.link(vhost.exchange("downstream_ex"))
           accepted.receive # the hung member's link is parked in its connect
 
-          # Removing the hung entry parks this PUT in the resource delete; a
-          # PUT that lands in that window must not be silently overwritten
-          # once the parked one resumes, leaving links no store path can stop
+          # A PUT during the parked delete must not be overwritten on resume
           done1 = Channel(Nil).new
           spawn do
             store.create_upstream_set("set1", JSON.parse(%([{"upstream": "a", "exchange": "ex1"}])))
@@ -1894,9 +1888,7 @@ describe LavinMQ::Federation::Upstream do
         vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream-set", "set1", good))
         member = store.get_set?("set1").should_not(be_nil).first
 
-        # A rejected PUT must leave the store and the running set in the old,
-        # agreeing state: the API could otherwise neither see nor delete the
-        # set that is still federating
+        # The store and the running set must agree on the old config
         expect_raises(KeyError) do
           vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream-set", "set1",
             JSON.parse(%([{"exchange": "upstream_ex"}]))))

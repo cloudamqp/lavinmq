@@ -2469,9 +2469,7 @@ describe LavinMQ::Shovel do
         shovel = vhost.shovels["sr_shovel"]
         wait_for { shovel.running? }
 
-        # A reconnect-delay that passes validate_config! but fails to parse.
-        # The rejected update must be a no-op: the old parameter stays (the
-        # add_parameter rollback) and the old shovel keeps running.
+        # Passes validate_config! but fails to parse; the update must be a no-op
         bad = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2", "reconnect-delay": "5"}))
         expect_raises(TypeCastError) do
           vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", bad))
