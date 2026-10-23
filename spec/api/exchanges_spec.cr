@@ -303,6 +303,30 @@ describe LavinMQ::HTTP::ExchangesController do
       LavinMQ::Config.instance.free_disk_min = free_disk_min if free_disk_min
     end
 
+    it "should not publish a message larger than max_message_size" do
+      max_message_size = LavinMQ::Config.instance.max_message_size
+      LavinMQ::Config.instance.max_message_size = 1024
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q_big", false, false)
+        publish = ->(payload : String, encoding : String) do
+          body = {properties: {} of String => String, routing_key: "q_big", payload: payload,
+                  payload_encoding: encoding}.to_json
+          http.post("/api/exchanges/%2f/amq.default/publish", body: body)
+        end
+
+        publish.call("a" * 1024, "string").status_code.should eq 200
+        response = publish.call("a" * 1025, "string")
+        response.status_code.should eq 413
+        JSON.parse(response.body)["error"].as_s.should eq "payload_too_large"
+        publish.call(Base64.strict_encode("a" * 1025), "base64").status_code.should eq 413
+        # Refused before it's parsed
+        publish.call("a" * 100 * 1024, "string").status_code.should eq 413
+        s.vhosts["/"].queue("q_big").message_count.should eq 1
+      end
+    ensure
+      LavinMQ::Config.instance.max_message_size = max_message_size if max_message_size
+    end
+
     it "should require expiration to be a number" do
       with_http_server do |http, _|
         body = <<-JSON
