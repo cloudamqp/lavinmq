@@ -253,3 +253,11 @@ body {
   color: var(--color-text) !important;
   font-family: var(--font-prose);
 }
+
+/* The header above already shows the logo and title, so hide the copy Elements
+   puts at the top of its sidebar. Elements has no option for this, so the
+   selector follows its DOM (Elements 8.2.0): .sl-elements-api > resizable
+   wrapper > sidebar column > logo and title row */
+.sl-elements-api > :first-child > :first-child > :first-child {
+  display: none;
+}
