@@ -327,7 +327,7 @@ module LavinMQ
 
       class ExchangeLink < Link
         @consumer_ex : ::AMQP::Client::Exchange?
-        getter federated_ex
+        getter federated_ex, upstream_q
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -453,6 +453,7 @@ module LavinMQ
         end
 
         private def start_link
+          @upstream.vhost.upstreams.await_pending_deletes(@upstream.uri, @upstream_q)
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
             # A stop during setup must not be undone by going Running
