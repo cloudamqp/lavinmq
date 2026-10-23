@@ -199,6 +199,37 @@ describe LavinMQ::Server do
     end
   end
 
+  describe "connection close" do
+    it "cancels the consumers before confirming the close" do
+      with_amqp_server do |s|
+        with_channel(s, &.queue("q"))
+        q = s.vhosts["/"].queue("q")
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+          io.write_bytes AMQ::Protocol::Frame::Basic::Consume.new(1_u16, 0_u16, "q", "", false, true, false, false,
+            AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Basic::ConsumeOk)
+          q.consumers.size.should eq 1
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "bye", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+          # The socket is still open. (Regression: the consumers were only
+          # cancelled once it closed, so a message published in between was
+          # delivered to a client that had stopped reading, and lost as the
+          # consumer was no-ack.)
+          q.consumers.should be_empty
+          with_channel(s, &.basic_publish_confirm("msg", "", "q"))
+          q.message_count.should eq 1
+        end
+      end
+    end
+  end
+
   describe "unexpected frames" do
     it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
       with_amqp_server do |s|
