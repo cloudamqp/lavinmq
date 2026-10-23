@@ -8,6 +8,12 @@ module LavinMQ
   # renames and newly created directories fsync the directory they changed.
   # The fsyncs are skipped when `sync` is disabled.
   module FileSystem
+    # Whether `ex` is a failed syscall for lack of a free file descriptor,
+    # either in this process (EMFILE) or system wide (ENFILE)
+    def self.out_of_file_descriptors?(ex : Exception) : Bool
+      ex.is_a?(SystemError) && ex.os_error.in?(Errno::EMFILE, Errno::ENFILE)
+    end
+
     def self.syncfs(fd : Int32) : Nil
       {% if flag?(:linux) %}
         ret, errno = Fiber.syscall do
