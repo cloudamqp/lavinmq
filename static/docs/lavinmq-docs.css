@@ -91,6 +91,18 @@ body {
   text-decoration: underline;
 }
 
+/* Logo and title, linking to the Overview page */
+.lavinmq-docs-header a.home {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--lmq-header-text);
+}
+
+.lavinmq-docs-header a.home:hover {
+  text-decoration: none;
+}
+
 /* Theme switcher, as in static/main.css. Each button has an icon for the
    light and one for the dark theme; the active button is inverted. */
 #theme-switcher {
