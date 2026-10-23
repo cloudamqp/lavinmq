@@ -26,6 +26,10 @@ html.theme-light {
   --lmq-border: rgba(0, 0, 0, 0.1);
   --lmq-header-text: #111827;
   --lmq-link: #3c9368;
+  --lmq-text-primary: #141414;
+  --lmq-bg-hover: #F4F4F4;
+  --lmq-theme-switcher-bg: rgba(255, 255, 255, 0.95);
+  --lmq-theme-switcher-border: rgba(0, 0, 0, 0.12);
 }
 
 html.theme-dark {
@@ -34,6 +38,10 @@ html.theme-dark {
   --lmq-border: rgba(247, 245, 242, 0.1);
   --lmq-header-text: #FFFFFF;
   --lmq-link: #54BE7E;
+  --lmq-text-primary: #fafafa;
+  --lmq-bg-hover: #2d2c2c;
+  --lmq-theme-switcher-bg: rgba(255, 255, 255, 0.08);
+  --lmq-theme-switcher-border: rgba(255, 255, 255, 0.15);
 }
 
 html,
@@ -81,6 +89,70 @@ body {
 
 .lavinmq-docs-header a:hover {
   text-decoration: underline;
+}
+
+/* Theme switcher, as in static/main.css. Each button has an icon for the
+   light and one for the dark theme; the active button is inverted. */
+#theme-switcher {
+  display: flex;
+  background: var(--lmq-theme-switcher-bg);
+  border: 1px solid var(--lmq-theme-switcher-border);
+  border-radius: 14px;
+  padding: 2px;
+  gap: 1px;
+}
+
+#theme-switcher button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#theme-switcher button img {
+  width: 10px;
+  height: 10px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+#theme-switcher button:hover {
+  background: var(--lmq-bg-hover);
+  transform: scale(1.05);
+}
+
+#theme-switcher button:hover img {
+  opacity: 1;
+}
+
+#theme-switcher button.active {
+  background: var(--lmq-text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1);
+}
+
+#theme-switcher button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--lmq-border);
+}
+
+html.theme-light #theme-switcher .theme-icon.dark,
+html.theme-dark #theme-switcher .theme-icon.light,
+html.theme-light #theme-switcher button.active .theme-icon.light,
+html.theme-dark #theme-switcher button.active .theme-icon.dark {
+  display: none;
+}
+
+html.theme-light #theme-switcher button.active .theme-icon.dark,
+html.theme-dark #theme-switcher button.active .theme-icon.light {
+  display: block;
 }
 
 .lavinmq-docs-elements {
@@ -260,4 +332,58 @@ body {
    wrapper > sidebar column > logo and title row */
 .sl-elements-api > :first-child > :first-child > :first-child {
   display: none;
+}
+
+/* Elements' code viewer always picks its light syntax theme (Mosaic never
+   switches it for dark mode) and sets the colors as inline styles, which are
+   unreadable on the dark canvas. Use the colors of Elements' own dark syntax
+   theme instead. */
+[data-theme="dark"] .sl-code-viewer .token {
+  color: inherit !important;
+  background: none !important;
+  opacity: 1 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.function, .function-variable, .attr-name, .url, .inserted) {
+  color: #d2a8ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.string, .attr-value, .regex, .cdata) {
+  color: #a5d6ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.comment, .blockquote, .prolog) {
+  color: #8b949e !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.keyword, .operator, .important, .rule, .deleted) {
+  color: #ff7b72 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.number, .list) {
+  color: rgb(247, 140, 108) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.builtin, .char, .constant, .symbol, .entity, .command, .code) {
+  color: rgb(130, 170, 255) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.selector, .doctype, .value) {
+  color: rgb(199, 146, 234) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.class-name, .class, .id, .pseudo-class, .pseudo-element, .url-reference) {
+  color: #7ee787 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token.boolean {
+  color: #79c0ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.property, .atrule, .title) {
+  color: rgb(128, 203, 196) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.namespace, .option, .variable) {
+  color: rgb(178, 204, 214) !important;
 }
