@@ -4,6 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>LavinMQ HTTP API</title>
+    <script>
+      // Elements fetches the files openapi.yaml $refs with credentials: "omit",
+      // so behind a cookie-based auth proxy (e.g. Cloudflare Access) they're
+      // redirected to its login page and the docs show no endpoints.
+      // "same-origin" still never sends cookies to other origins.
+      (function () {
+        var fetch = window.fetch
+        window.fetch = function (input, init) {
+          if (init && init.credentials === 'omit') init = Object.assign({}, init, { credentials: 'same-origin' })
+          return fetch.call(this, input, init)
+        }
+      })()
+    </script>
     <script src="../js/lib/elements-8.2.0.js"></script>
     <link rel="stylesheet" href="../js/lib/elements-8.2.0.css">
   </head>
