@@ -42,7 +42,7 @@ module LavinMQ
         delete "/api/connections/:name" do |context, params|
           with_connection(context, params) do |c|
             reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
-            c.close(reason)
+            close_connection(c, reason)
             context.response.status_code = 204
           end
         end
@@ -62,10 +62,18 @@ module LavinMQ
           connections = get_connections_by_username(context, params["username"])
           reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
           connections.each do |c|
-            c.close(reason)
+            close_connection(c, reason)
           end
           context.response.status_code = 204
           context
+        end
+      end
+
+      # An AMQP close can wait behind a write to a client that doesn't read
+      private def close_connection(c : Client, reason : String) : Nil
+        case c
+        when AMQP::Client then c.close(reason, force_close_timeout: 5.seconds)
+        else                   c.close(reason)
         end
       end
 

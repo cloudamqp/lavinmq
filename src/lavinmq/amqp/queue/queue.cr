@@ -81,6 +81,9 @@ module LavinMQ::AMQP
       # Set when the policy tightened limits that existing messages must be
       # checked against
       property? enforce_limits = false
+      # Only set by policies; federation has no queue argument
+      property federation_upstream : String?
+      property federation_upstream_set : String?
       getter effective_args = Array(String).new
 
       def initialize(@consumer_timeout = nil)
@@ -98,6 +101,9 @@ module LavinMQ::AMQP
     # Built by clear_policy_arguments/apply_policy_argument, published by
     # commit_policy_arguments
     @staged_settings = Settings.new
+    # Set by clear_policy_arguments so that only policy passes reconcile
+    # federation links, not handle_arguments commits on queue start
+    @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
@@ -178,6 +184,10 @@ module LavinMQ::AMQP
     # messages published close together expire in one batch instead of
     # one wakeup per millisecond. Messages are never expired early.
     EXPIRE_WAKEUP_GRANULARITY_MS = 10_i64
+
+    # The latest deadline (unix ms) that can be rounded up to the granularity
+    # without overflowing. A message whose TTL ends later never expires.
+    MAX_EXPIRE_AT = Int64::MAX - EXPIRE_WAKEUP_GRANULARITY_MS
 
     # Time until the expire loop should wake up for a message expiring at
     # *expire_at* (unix ms)
@@ -557,10 +567,10 @@ module LavinMQ::AMQP
           return true
         end
       when "federation-upstream"
-        @vhost.upstreams.try &.link(value.as_s, self)
+        settings.federation_upstream = value.as_s
         return true
       when "federation-upstream-set"
-        @vhost.upstreams.try &.link_set(value.as_s, self)
+        settings.federation_upstream_set = value.as_s
         return true
       when "consumer-timeout"
         unless settings.consumer_timeout.try &.< value.as_i64
@@ -574,7 +584,7 @@ module LavinMQ::AMQP
 
     private def clear_policy_arguments
       @staged_settings = settings_from_arguments
-      @vhost.upstreams.try &.stop_link(self)
+      @federation_staged = true
     end
 
     private def handle_arguments
@@ -594,6 +604,10 @@ module LavinMQ::AMQP
       @message_ttl_change.try_send? nil
       ensure_expire_fiber if settings.message_ttl
       schedule_policy_limits if settings.enforce_limits?
+      if @federation_staged
+        @federation_staged = false
+        @vhost.upstreams.try &.reconcile_link(self, settings.federation_upstream, settings.federation_upstream_set)
+      end
     end
 
     private def settings_from_arguments : Settings # ameba:disable Metrics/CyclomaticComplexity
@@ -695,7 +709,7 @@ module LavinMQ::AMQP
       delay_ms = calculate_retry_delay(base_delay, delivery_count)
       props = msg.properties
       h = props.headers || AMQP::Table.new
-      h["x-delay"] = delay_from(msg.timestamp, delay_ms)
+      h["x-delay"] = delay_from(msg, delay_ms)
       h["x-delivery-count"] = delivery_count
       props.headers = h
       retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
@@ -705,10 +719,28 @@ module LavinMQ::AMQP
       true
     end
 
-    protected def delay_from(timestamp : Int64, backoff : Int64) : UInt32
-      age = RoughTime.unix_ms - timestamp
+    # The delay never extends past the message's TTL, so a message whose TTL
+    # runs out while delayed is released, and expired, at that time
+    protected def delay_from(msg : BytesMessage, backoff : Int64) : UInt32
+      age = RoughTime.unix_ms - msg.timestamp
       age = 0_i64 if age < 0
-      Math.min(backoff + age, DELAYED_RETRY_MAX_DELAY_MS).to_u32
+      delay = backoff + age
+      if expire_at = expire_at(msg)
+        delay = Math.min(delay, expire_at - msg.timestamp)
+      end
+      delay.clamp(0_i64, DELAYED_RETRY_MAX_DELAY_MS).to_u32
+    end
+
+    # Whether a message of this queue held by the retry queue has outlived its TTL
+    protected def expired_while_delayed?(msg : BytesMessage) : Bool
+      has_expired?(msg, requeue: true)
+    end
+
+    # Dead-letters a message of this queue that the retry queue holds. The
+    # block removes it from the retry queue once routed
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : -> Nil) : Nil
+      @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
+      @dead_letter.route(msg, reason, &routed)
     end
 
     protected def retry_delay_for(delivery_count : Int32) : Int64
@@ -1061,10 +1093,14 @@ module LavinMQ::AMQP
     private def expire_at(msg : BytesMessage) : Int64?
       if ttl = settings.message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
-        msg.timestamp + ttl
-      elsif ttl = msg.ttl
-        msg.timestamp + ttl
+      else
+        ttl = msg.ttl || return
       end
+      # a deadline past MAX_EXPIRE_AT never expires; the expire fiber then sleeps,
+      # but messages behind it still expire on delivery via has_expired?
+      expire_at = msg.timestamp &+ ttl
+      return if expire_at > MAX_EXPIRE_AT || expire_at < 0
+      expire_at
     end
 
     private def expire_messages : Nil
@@ -1182,6 +1218,8 @@ module LavinMQ::AMQP
           end
           if settings.counts_deliveries? && !no_ack
             env = with_delivery_count_header(env, settings)
+          elsif delivery_count_from_header(env.message.properties.headers, settings)
+            env = env.as_redelivered
           end
           sp = env.segment_position
           if no_ack
@@ -1233,13 +1271,13 @@ module LavinMQ::AMQP
       end
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
       env.message.properties.headers = headers
-      env
+      delivery_count > 0 ? env.as_redelivered : env
     end
 
     # See #strip_delivery_count for why the header can be trusted here
     private def delivery_count_from_header(headers, settings : Settings) : Int32?
       return unless settings.delayed_retry_min
-      headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
+      headers.try &.["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
 
     def ack(sp : SegmentPosition) : Nil

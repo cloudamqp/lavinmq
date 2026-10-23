@@ -19,11 +19,13 @@ require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
-    Log = LavinMQ::Log.for "launcher"
+    Log              = LavinMQ::Log.for "launcher"
+    SHUTDOWN_TIMEOUT = 10.seconds
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
+    @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
@@ -93,6 +95,8 @@ module LavinMQ
       end
       @replicator.try &.close
       @data_dir_lock.try &.release
+    ensure
+      @run_done.close
     end
 
     def stop
@@ -329,12 +333,26 @@ module LavinMQ
         stop
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        # A started node closes the replicator when #run returns, then the main
+        # fiber exits. Exiting from here before that closes the log backend
+        # while it may still be logging. A follower has nothing to close.
+        return if @server && run_finished?
         Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 1
+      end
+    end
+
+    private def run_finished? : Bool
+      select
+      when @run_done.receive?
+        true
+      when timeout(SHUTDOWN_TIMEOUT)
+        Log.warn { "Shutdown didn't finish in #{SHUTDOWN_TIMEOUT.total_seconds}s, exiting" }
+        false
       end
     end
 
@@ -427,42 +445,24 @@ module LavinMQ
     end
 
     private def setup_sni_callbacks
-      # Set up SNI callback for AMQP TLS context
-      if amqp_tls = @amqp_tls_context
-        amqp_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
-            sni_host.amqp_tls_context
-          else
-            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
+      setup_sni_callbacks_for(@amqp_tls_context, :amqp, "AMQP")
+      setup_sni_callbacks_for(@mqtt_tls_context, :mqtt, "MQTT")
+      setup_sni_callbacks_for(@http_tls_context, :http, "HTTP")
+    end
 
-      # Set up SNI callback for MQTT TLS context
-      if mqtt_tls = @mqtt_tls_context
-        mqtt_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
-            sni_host.mqtt_tls_context
-          else
-            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
-
-      # Set up SNI callback for HTTP TLS context
-      if http_tls = @http_tls_context
-        http_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
-            sni_host.http_tls_context
-          else
-            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
+    # The servername callback swaps in the SNI host's context, which carries
+    # the certificate and mTLS settings. TLS version and cipher settings
+    # cannot ride on that switch: OpenSSL selects them before the callback
+    # runs, so the listener's settings apply to every SNI host.
+    private def setup_sni_callbacks_for(ctx : OpenSSL::SSL::Context::Server?, protocol : Symbol, label : String) : Nil
+      return unless ctx
+      ctx.on_server_name do |hostname|
+        if sni_host = @config.sni_manager.get_host(hostname)
+          Log.debug { "SNI (#{label}): Using certificate for hostname '#{hostname}'" }
+          sni_host.tls_context(protocol)
+        else
+          Log.debug { "SNI (#{label}): No specific certificate for '#{hostname}', using default" }
+          nil
         end
       end
     end

@@ -232,5 +232,22 @@ module MqttSpecs
         server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
       end
     end
+
+    it "grants Failure for a topic filter longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          suback = subscribe(io, topic_filters: [subtopic("a/#{"x" * 300}"), subtopic("a/b")])
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [
+            MQTT::Protocol::SubAck::ReturnCode::Failure,
+            MQTT::Protocol::SubAck::ReturnCode::QoS0,
+          ]
+          pingpong(io).should be_a(MQTT::Protocol::PingResp)
+          disconnect(io)
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
   end
 end

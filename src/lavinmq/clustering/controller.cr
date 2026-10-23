@@ -87,6 +87,8 @@ class LavinMQ::Clustering::Controller
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
+          # Waits for a close already in progress, so the ports are free before
+          # the next client binds them, but it also holds up later leader events
           repli_client.close
         end
       end

@@ -40,15 +40,20 @@ module LavinMQ::AMQP
 
     # Publishes an expired message back to the primary queue. The message kept
     # its original timestamp while delayed, so x-message-ttl keeps applying to
-    # the message's total age
+    # the message's total age; a message that outlived it is dead-lettered by
+    # the primary queue instead of being redelivered
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
       if headers = msg.properties.headers
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
+      if @primary_queue.expired_while_delayed?(msg)
+        @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+      end
+      @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
       return redelay(env) unless result.ok?
@@ -63,7 +68,7 @@ module LavinMQ::AMQP
       h = msg.properties.headers || AMQP::Table.new
       delivery_count = h["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 1
       backoff = @primary_queue.retry_delay_for(delivery_count)
-      h["x-delay"] = @primary_queue.delay_from(msg.timestamp, backoff)
+      h["x-delay"] = @primary_queue.delay_from(msg, backoff)
       msg.properties.headers = h
       redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))

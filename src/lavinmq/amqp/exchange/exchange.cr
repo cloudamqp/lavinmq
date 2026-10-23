@@ -30,6 +30,11 @@ module LavinMQ
       # commit_policy_arguments. A published array is never mutated.
       @staged_effective_args = Array(String).new
       @staged_alternate_exchange : String?
+      @staged_federation_upstream : String?
+      @staged_federation_upstream_set : String?
+      # Set by clear_policy_arguments so that only policy passes reconcile
+      # federation links, not the handle_arguments commit in initialize
+      @federation_staged = false
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
 
@@ -56,10 +61,10 @@ module LavinMQ
             return true
           end
         when "federation-upstream"
-          @vhost.upstreams.try &.link(value.as_s, self) unless internal?
+          @staged_federation_upstream = value.as_s unless internal?
           return true
         when "federation-upstream-set"
-          @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
+          @staged_federation_upstream_set = value.as_s unless internal?
           return true
         end
         false
@@ -67,7 +72,9 @@ module LavinMQ
 
       private def clear_policy_arguments
         stage_arguments
-        @vhost.upstreams.try &.stop_link(self)
+        @staged_federation_upstream = nil
+        @staged_federation_upstream_set = nil
+        @federation_staged = true
       end
 
       def handle_arguments
@@ -80,6 +87,10 @@ module LavinMQ
       private def commit_policy_arguments
         @alternate_exchange = @staged_alternate_exchange
         @effective_args.set(@staged_effective_args, :release)
+        if @federation_staged
+          @federation_staged = false
+          @vhost.upstreams.try &.reconcile_link(self, @staged_federation_upstream, @staged_federation_upstream_set)
+        end
       end
 
       private def stage_arguments

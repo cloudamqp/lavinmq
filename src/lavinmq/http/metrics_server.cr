@@ -1,4 +1,5 @@
 require "http/server"
+require "../../stdlib/http_server"
 require "json"
 require "./constants"
 require "./handler/*"
