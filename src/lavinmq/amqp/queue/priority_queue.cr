@@ -1,4 +1,3 @@
-require "../../filesystem"
 require "./durable_queue"
 
 module LavinMQ::AMQP
@@ -60,13 +59,19 @@ module LavinMQ::AMQP
 
       private def init_sub_stores(stores)
         Dir.mkdir_p @msg_dir
+        created = false
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          Dir.mkdir(sub_msg_dir) unless Dir.exists?(sub_msg_dir)
+          unless Dir.exists?(sub_msg_dir)
+            Dir.mkdir(sub_msg_dir)
+            created = true
+          end
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}), persister: @persister)
           stores << store
         end
-        FileSystem.fsync_dir(@msg_dir) if @durable
+        # Like the queue's own directory, the sub store directories only have
+        # to be durable for the next confirm
+        @persister.try &.mark_dirty(@msg_dir) if @durable && created
       end
 
       private def migrate_from_single_store

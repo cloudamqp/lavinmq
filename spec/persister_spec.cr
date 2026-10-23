@@ -37,6 +37,46 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "fsyncs the vhost directory once with the first confirm after queues are declared" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        3.times { |i| ch.queue("declared#{i}") }
+        ch.queue("declared0").publish_confirm "first"
+        last_sync(s).paths.count(s.vhosts["/"].data_dir).should eq 1
+        ch.queue("declared0").publish_confirm "second"
+        last_sync(s).paths.should_not contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "doesn't fsync the vhost directory for queues loaded on start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("loaded").publish_confirm "before restart"
+      end
+      restart_server(s)
+      with_channel(s) do |ch|
+        ch.queue("loaded").publish_confirm "after restart"
+        last_sync(s).paths.should_not contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "fsyncs the directory of a new priority queue's sub stores with the first confirm, not after a restart" do
+    with_amqp_server do |s|
+      args = AMQP::Client::Arguments.new({"x-max-priority" => 2})
+      with_channel(s) do |ch|
+        ch.queue("prio", args: args).publish_confirm "before restart"
+        last_sync(s).paths.should contain queue_dir(s, "prio")
+      end
+      restart_server(s)
+      with_channel(s) do |ch|
+        ch.queue("prio", args: args).publish_confirm "after restart"
+        last_sync(s).paths.should_not contain queue_dir(s, "prio")
+      end
+    end
+  end
+
   it "doesn't sync the ack files consumers append to" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

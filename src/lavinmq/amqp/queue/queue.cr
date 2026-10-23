@@ -477,7 +477,12 @@ module LavinMQ::AMQP
           Dir.mkdir_p data_dir
         end
       elsif durable?
-        FileSystem.mkdir_p data_dir
+        Dir.mkdir_p data_dir
+        # Nothing in the queue's directory is durable before a confirmed
+        # publish, and a lost directory is recreated from the definitions on
+        # start, so its entry is fsynced with the next confirm instead of on
+        # every declare
+        @vhost.persister.mark_dirty(@vhost.data_dir)
       else
         Dir.mkdir_p data_dir
       end
