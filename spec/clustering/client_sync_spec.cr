@@ -983,6 +983,33 @@ module ClientSyncSpec
         end
       end
 
+      it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          write_append(lz4_writer, filename, payload)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          without_free_file_descriptors do
+            write_fsync_request(lz4_writer, filename)
+            read_acks(leader_io, record_size("$#{filename}"))
+          end
+          # Opening the file to fsync it failed, so the data dir was synced instead
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
+          client.syncs_started.should eq 1
+          client_socket.close
+        end
+      end
+
       it "doesn't sync streamed bytes that no fsync request covers" do
         with_datadir do |data_dir|
           client = make_client(data_dir)

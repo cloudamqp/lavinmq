@@ -684,7 +684,15 @@ module LavinMQ
 
       private def fsync_to_disk(paths : Set(String)) : Nil
         return unless @config.sync?
-        paths.each { |path| fsync_path(path) }
+        begin
+          paths.each { |path| fsync_path(path) }
+        rescue ex : IO::Error | RuntimeError
+          raise ex unless FileSystem.out_of_file_descriptors?(ex)
+          # Opening a path to fsync it needs a free descriptor, the already
+          # open data dir fd doesn't, so sync everything through it instead
+          Log.warn { "Out of file descriptors, syncing the whole data dir instead: #{ex.message}" }
+          sync_data_dir
+        end
       rescue ex
         Log.fatal(exception: ex) { "Failed to fsync: #{ex.message}" }
         exit 1
