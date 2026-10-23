@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Declaring a durable queue fsynced the vhost directory right away, and a priority queue fsynced its directory on every start, which made bulk declares, definition imports and starts with many priority queues slower than in 2.10. The directories are now fsynced once with the next publish confirm that depends on them
+- Declaring a durable queue fsynced the vhost directory right away, and a priority queue fsynced its directory on every start, which made bulk declares, definition imports and starts with many priority queues slower than in 2.10. The directories are now fsynced once with the next publish confirm that depends on them [#2544](https://github.com/cloudamqp/lavinmq/pull/2544)
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 - Importing definitions that contain a `federation-upstream-set` parameter failed with 400 "Cast from Array(JSON::Any) to Hash(K, V) failed", so the broker's own export couldn't be imported [#2536](https://github.com/cloudamqp/lavinmq/pull/2536)
 
