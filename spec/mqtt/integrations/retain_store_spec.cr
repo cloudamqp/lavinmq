@@ -41,6 +41,29 @@ module MqttSpecs
       end
     end
 
+    describe "index compaction" do
+      it "starts and stops with the index as it is when it can't be written, as on a full disk" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.close
+        # The compacted index can't be created
+        Dir.mkdir("tmp/retain_store/index.tmp")
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_a String
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
+        store.close
+
+        Dir.delete("tmp/retain_store/index.tmp")
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index.size.should eq 2
+      ensure
+        store.try &.close
+      end
+    end
+
     describe "each" do
       it "can be called multiple times" do
         index = IndexTree.new
