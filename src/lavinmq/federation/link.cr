@@ -294,11 +294,34 @@ module LavinMQ
 
             if federate(msg, EXCHANGE, @federated_q.name, immediate: true)
               msg.ack if @upstream.ack_mode != AckMode::NoAck
-            else
+            elsif @federated_q.consumers_empty? || @federated_q.closed?
               @log.info { "Federate failed, no downstream consumer available" }
               queue.unsubscribe(@upstream.consumer_tag)
               msg.reject(requeue: true)
+            else
+              # The downstream consumers can't take the message now, e.g. they're
+              # at their prefetch limit. Unsubscribing would stop the link until
+              # the queue had lost all its consumers and got one again, so put
+              # the message in the queue for them and wait for them to take
+              # what's there before federating more.
+              @log.debug { "Downstream consumers are busy" }
+              if federate(msg, EXCHANGE, @federated_q.name)
+                msg.ack if @upstream.ack_mode != AckMode::NoAck
+              else
+                msg.reject(requeue: true) # e.g. the queue is full, retried when it has drained
+              end
+              wait_for_federated_queue_empty
             end
+          end
+        end
+
+        # Returns when the federated queue has no ready messages, has lost its
+        # consumers, or the link changes state, e.g. stops
+        private def wait_for_federated_queue_empty : Nil
+          select
+          when @federated_q.empty.when_true.receive?
+          when @federated_q.consumers_empty.when_true.receive?
+          when @state_changed.receive?
           end
         end
 

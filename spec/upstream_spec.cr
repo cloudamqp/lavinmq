@@ -376,6 +376,40 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should keep federating when the downstream consumer is at its prefetch limit" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test busy consumer", s.amqp_server.url, nil, "federation_q1")
+        msgs = [] of AMQP::Client::DeliverMessage
+
+        with_channel(s) do |ch|
+          x, q2 = UpstreamSpecHelpers.setup_qs ch
+          ch.prefetch(1)
+          q2.subscribe(no_ack: false) do |msg|
+            msgs << msg
+          end
+          upstream.link(vhost.queue("federation_q2"))
+          x.publish_confirm "m1", "federation_q1"
+          wait_for { msgs.size == 1 }
+          x.publish_confirm "m2", "federation_q1"
+          x.publish_confirm "m3", "federation_q1"
+          # The consumer is at its prefetch limit, so m2 waits in the downstream
+          # queue. (Regression: the link unsubscribed from the upstream queue
+          # instead, and only resubscribed once the downstream queue had lost
+          # all its consumers and got one again.)
+          wait_for { vhost.queue("federation_q2").message_count == 1 }
+          msgs[0].ack
+          wait_for { msgs.size == 2 }
+          msgs[1].ack
+          wait_for { msgs.size == 3 }
+          msgs.map(&.body_io.to_s).should eq ["m1", "m2", "m3"]
+          vhost.queue("federation_q1").message_count.should eq 0
+        end
+      ensure
+        upstream.try &.close
+      end
+    end
+
     it "should keep message properties" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
