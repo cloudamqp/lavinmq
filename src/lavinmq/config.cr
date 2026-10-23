@@ -112,6 +112,8 @@ module LavinMQ
     end
 
     private def validate_sni_host!(host : SNIHost) : Nil
+      host.listener_ciphers = @tls_ciphers
+      host.listener_ciphersuites = @tls_ciphersuites
       host.amqp_tls_context
       host.mqtt_tls_context
       host.http_tls_context

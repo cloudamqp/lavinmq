@@ -2,9 +2,9 @@ require "openssl"
 
 module LavinMQ
   # Configuration for a specific SNI hostname. Only the certificate and mTLS
-  # settings can differ per host: OpenSSL selects the TLS version and cipher
-  # before the servername callback swaps the context, so version and cipher
-  # settings come from the listener and apply to every SNI host.
+  # settings can differ per host: the TLS version is selected before the
+  # servername callback swaps the context, and the listener's cipher settings
+  # are copied onto each host's contexts, as TLS 1.2 picks its cipher after.
   class SNIHost
     Log = LavinMQ::Log.for "sni"
 
@@ -30,6 +30,10 @@ module LavinMQ
     property mqtt_tls_verify_peer : Bool? = nil
     property mqtt_tls_ca_cert : String? = nil
     property mqtt_tls_keylog_file : String? = nil
+
+    # The listener's cipher settings, copied in by Config#validate_sni_tls!
+    property listener_ciphers : String = ""
+    property listener_ciphersuites : String = ""
 
     # HTTP-specific overrides (nil/empty means use the default)
     property http_tls_cert : String? = nil
@@ -94,6 +98,11 @@ module LavinMQ
 
     private def create_tls_context(cert_path, key_path, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
+
+      # TLS 1.2 picks its cipher after the servername callback, from this
+      # context, so it must not keep OpenSSL's default cipher list
+      context.ciphers = @listener_ciphers unless @listener_ciphers.empty?
+      context.cipher_suites = @listener_ciphersuites unless @listener_ciphersuites.empty?
 
       # Set certificate and key
       context.certificate_chain = cert_path

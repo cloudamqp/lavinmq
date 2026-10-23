@@ -370,6 +370,90 @@ describe "SNI end-to-end" do
     server_done.receive
   end
 
+  it "applies the listener's tls_ciphers to SNI connections over TLS 1.2" do
+    config_content = <<-INI
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_ciphers = ECDHE-RSA-AES128-GCM-SHA256
+
+      [sni:sni.localhost]
+      tls_cert = spec/resources/foobar_localhost_certificate.pem
+      tls_key = spec/resources/foobar_localhost_key.pem
+      INI
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+    config = LavinMQ::Config.new
+    begin
+      config.parse(["-c", config_file])
+
+      listener_ctx = OpenSSL::SSL::Context::Server.new
+      listener_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      listener_ctx.private_key = "spec/resources/server_key.pem"
+      listener_ctx.ciphers = config.tls_ciphers
+      listener_ctx.on_server_name do |hostname|
+        config.sni_manager.get_host(hostname).try(&.amqp_tls_context)
+      end
+
+      tcp_server = TCPServer.new("127.0.0.1", 0)
+      port = tcp_server.local_address.port
+      server_done = Channel(Nil).new
+
+      spawn do
+        3.times do
+          if client = tcp_server.accept?
+            begin
+              ssl_socket = OpenSSL::SSL::Socket::Server.new(client, listener_ctx)
+              ssl_socket.close
+            rescue
+            ensure
+              client.close
+            end
+          end
+        end
+        server_done.send(nil)
+      end
+
+      excluded_cipher_ctx = -> {
+        ctx = OpenSSL::SSL::Context::Client.new
+        ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        ctx.ciphers = "ECDHE-RSA-AES256-GCM-SHA384"
+        ctx
+      }
+
+      # Control: the listener refuses the excluded cipher without SNI
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call)
+        end
+      end
+
+      # The excluded cipher must be refused with SNI too
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call, hostname: "sni.localhost")
+        end
+      end
+
+      # An allowed cipher with SNI still connects
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        allowed_ctx = OpenSSL::SSL::Context::Client.new
+        allowed_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        allowed_ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        allowed_ctx.ciphers = "ECDHE-RSA-AES128-GCM-SHA256"
+        ssl_client = OpenSSL::SSL::Socket::Client.new(tcp, allowed_ctx, hostname: "sni.localhost")
+        ssl_client.close
+      end
+
+      tcp_server.close
+      server_done.receive
+    ensure
+      File.delete(config_file)
+    end
+  end
+
   it "rejects connection without client cert when mTLS is enabled via SNI" do
     sni_manager = LavinMQ::SNIManager.new
     mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
