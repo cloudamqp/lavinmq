@@ -9,6 +9,12 @@ module LavinMQ
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
       @upstream_set_configs = Hash(String, JSON::Any).new
+      # Serializes upstream and set changes with policy reconciles. Resource
+      # deletes wait on the upstream broker, and without the lock a change
+      # that lands in that window is silently overwritten when the parked one
+      # resumes, or a reconcile misses the set and stops its plain entries'
+      # links. Held across that network wait on purpose.
+      @change_lock = Mutex.new
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
@@ -22,6 +28,10 @@ module LavinMQ
       end
 
       def create_upstream(name, config)
+        @change_lock.synchronize { do_create_upstream(name, config) }
+      end
+
+      private def do_create_upstream(name, config)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -54,7 +64,7 @@ module LavinMQ
         rebuild = @upstream_set_configs.select do |_, config|
           config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
         end
-        rebuild.each { |set_name, config| create_upstream_set(set_name, config) }
+        rebuild.each { |set_name, config| do_create_upstream_set(set_name, config) }
       end
 
       def add(upstream : Upstream)
@@ -63,7 +73,7 @@ module LavinMQ
       end
 
       def delete_upstream(name)
-        do_delete_upstream(name)
+        @change_lock.synchronize { do_delete_upstream(name) }
         @log.info { "Upstream '#{name}' deleted" }
       end
 
@@ -117,6 +127,10 @@ module LavinMQ
       # keeps the upstream queue, and its buffered messages, alive. The other
       # links are stopped and their upstream resources removed.
       def reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
+        @change_lock.synchronize { do_reconcile_link(resource, upstream_name, set_name) }
+      end
+
+      private def do_reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
         desired = Array(Upstream).new
         if name = upstream_name
           if upstream = @upstreams[name]?
@@ -174,6 +188,10 @@ module LavinMQ
       end
 
       def create_upstream_set(name, config)
+        @change_lock.synchronize { do_create_upstream_set(name, config) }
+      end
+
+      private def do_create_upstream_set(name, config)
         # Built before the store is touched: a malformed entry must leave the
         # old set and its running links in place
         upstreams = Array(Upstream).new
@@ -234,8 +252,10 @@ module LavinMQ
       end
 
       def delete_upstream_set(name)
-        @upstream_set_configs.delete(name)
-        @upstream_sets.delete(name).try { |set| retire_copies(set, Array(Upstream).new) }
+        @change_lock.synchronize do
+          @upstream_set_configs.delete(name)
+          @upstream_sets.delete(name).try { |set| retire_copies(set, Array(Upstream).new) }
+        end
         @log.info { "Upstream set '#{name}' deleted" }
       end
 

@@ -2457,4 +2457,30 @@ describe LavinMQ::Shovel do
       end
     end
   end
+
+  describe "rejected parameter update" do
+    it "keeps the old shovel running when a shovel update is rejected" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("sr_q1", true, false)
+        vhost.declare_queue("sr_q2", true, false)
+        good = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2"}))
+        vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", good))
+        shovel = vhost.shovels["sr_shovel"]
+        wait_for { shovel.running? }
+
+        # A reconnect-delay that passes validate_config! but fails to parse.
+        # The rejected update must be a no-op: the old parameter stays (the
+        # add_parameter rollback) and the old shovel keeps running.
+        bad = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2", "reconnect-delay": "5"}))
+        expect_raises(TypeCastError) do
+          vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", bad))
+        end
+
+        vhost.parameters[{"shovel", "sr_shovel"}]?.should_not(be_nil).value.should eq good
+        vhost.shovels["sr_shovel"].should be shovel
+        shovel.running?.should be_true
+      end
+    end
+  end
 end

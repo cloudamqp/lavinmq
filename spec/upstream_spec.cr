@@ -1842,6 +1842,48 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "serializes set changes so a blocked delete can't overwrite a later PUT" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        UpstreamSpecHelpers.with_gated_proxy(s) do |proxy_url, accepted, gate|
+          store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+          store.create_upstream("hung", JSON.parse(%({"uri": "#{proxy_url}"})))
+          store.create_upstream_set("set1",
+            JSON.parse(%([{"upstream": "a", "exchange": "ex1"}, {"upstream": "hung", "exchange": "hung_ex"}])))
+          vhost.declare_exchange("downstream_ex", "topic", false, false)
+          hung_member = store.get_set?("set1").should_not(be_nil).last
+          hung_member.link(vhost.exchange("downstream_ex"))
+          accepted.receive # the hung member's link is parked in its connect
+
+          # Removing the hung entry parks this PUT in the resource delete; a
+          # PUT that lands in that window must not be silently overwritten
+          # once the parked one resumes, leaving links no store path can stop
+          done1 = Channel(Nil).new
+          spawn do
+            store.create_upstream_set("set1", JSON.parse(%([{"upstream": "a", "exchange": "ex1"}])))
+            done1.close
+          end
+          wait_for { store.get_set?("set1").nil? } # the PUT is parked in the delete
+          done2 = Channel(Nil).new
+          spawn do
+            store.create_upstream_set("set1", JSON.parse(%([{"upstream": "a", "exchange": "ex2"}])))
+            done2.close
+          end
+          10.times { Fiber.yield }
+
+          gate.close
+          done1.receive?
+          done2.receive?
+
+          member = store.get_set?("set1").should_not(be_nil).first
+          member.exchange.should eq "ex2"
+        end
+      ensure
+        store.try &.stop_all
+      end
+    end
+
     it "keeps the previous parameter and the running set when a set update is rejected" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
