@@ -84,7 +84,9 @@ module LavinMQ
       @pending.lock &.files.push(mfile)
     end
 
-    # Like mark_dirty(MFile), for regular (non-mmapped) files
+    # Like mark_dirty(MFile), for regular (non-mmapped) files and for
+    # directories with new entries. Marks are deduplicated until the next
+    # drain, so many new entries in one directory cost one fsync.
     def mark_dirty(path : String) : Nil
       @pending.lock &.paths.add(path)
     end
