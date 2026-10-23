@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, follow the UI's light/dark theme, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
+
 ### Fixed
 
 - Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)

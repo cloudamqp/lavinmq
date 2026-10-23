@@ -253,10 +253,3 @@ body {
   color: var(--color-text) !important;
   font-family: var(--font-prose);
 }
-
-/* Sidebar uses canvas-tint by default; nudge it onto our secondary panel */
-.sl-elements [data-test="sidebar"],
-.sl-elements .ElementsTableOfContentsItem,
-.sl-elements aside {
-  background: var(--color-bg-primary, var(--color-canvas-tint));
-}
