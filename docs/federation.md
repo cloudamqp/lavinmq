@@ -16,9 +16,20 @@ How it works:
 
 ### Hop Limiting
 
-In multi-hop federation topologies (A → B → C → ...), the same message could otherwise loop indefinitely. To prevent this, every federated message carries an `x-received-from` header that records each broker it has been forwarded through. Before forwarding, the link compares the size of that list to the upstream's `max-hops` parameter — if the list is already at or above `max-hops`, the message is dropped instead of being re-federated.
+Every federated message carries an `x-received-from` header. Each link that forwards the message adds one entry with the URI of the upstream it came from. Before forwarding, the link compares the number of entries with the upstream's `max-hops` and drops a message that already has `max-hops` entries.
 
-`max-hops` defaults to `1`, meaning a message is federated once and then stops. Increase it to allow chains across more brokers; the value is the maximum number of hops a single message may take.
+`max-hops` defaults to `1`, so a message crosses one link and stops. In a chain A → B → C, messages from A need `max-hops` 2 to reach C.
+
+LavinMQ limits hops but doesn't detect loops. When links form a cycle, such as two brokers that federate from each other or a ring, a message can come back to a broker it already passed through. As long as the message is under `max-hops`, that broker delivers it again. RabbitMQ drops such a message, so a `max-hops` value carried over from RabbitMQ can cause duplicates on LavinMQ.
+
+To deliver each message exactly once in a cycle, set `max-hops` on every link to the number of links a message needs to reach the farthest broker:
+
+| Topology | `max-hops` |
+|---|---|
+| Two brokers that federate from each other | `1` |
+| Ring of N brokers | `N - 1` |
+
+A higher value makes brokers in the cycle receive messages more than once. For example, two brokers with `max-hops` 3 deliver every message twice on both.
 
 ## Queue Federation
 
