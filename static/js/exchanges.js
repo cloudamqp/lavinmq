@@ -30,11 +30,14 @@ const tableOptions = {
   columnSelector: true,
   search: true
 }
+const RESERVED_EXCHANGE_PREFIXES = ['amq.', 'mqtt.']
+const isUndeletableExchange = (name) => name === '' || RESERVED_EXCHANGE_PREFIXES.some(prefix => name.startsWith(prefix))
+
 const performMultiAction = (el) => {
   const action = el.target.dataset.action
   const elems = document.querySelectorAll('input[data-name]:checked')
   const totalCount = elems.length
-  let performed = 0
+  let settled = 0
   elems.forEach(el => {
     const data = el.dataset
     let url
@@ -44,17 +47,18 @@ const performMultiAction = (el) => {
         break
     }
     if (!url) return
-    HTTP.request('DELETE', url).then(() => {
-      performed += 1
-      if (performed === totalCount) {
+    const onSettled = () => {
+      settled += 1
+      if (settled === totalCount) {
         multiSelectControls.classList.add('hide')
         elems.forEach(e => { e.checked = false })
         document.getElementById('multi-check-all').checked = false
         exchangeTable.reload()
       }
-    }).catch(() => {
+    }
+    HTTP.request('DELETE', url).then(onSettled).catch(() => {
       DOM.toast.error(`Failed to perform action on ${data.name}`)
-      exchangeTable.reload()
+      onSettled()
     })
   })
 }
@@ -121,9 +125,14 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
 
     const checkbox = document.createElement('input')
     checkbox.type = 'checkbox'
-    checkbox.setAttribute('data-vhost', item.vhost)
-    checkbox.setAttribute('data-name', item.name)
-    checkbox.addEventListener('change', rowCheckboxChanged)
+    if (isUndeletableExchange(item.name)) {
+      checkbox.disabled = true
+      checkbox.title = "This exchange can't be deleted"
+    } else {
+      checkbox.setAttribute('data-vhost', item.vhost)
+      checkbox.setAttribute('data-name', item.name)
+      checkbox.addEventListener('change', rowCheckboxChanged)
+    }
     Table.renderCell(tr, 0, checkbox, 'checkbox')
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, exchangeLink)
