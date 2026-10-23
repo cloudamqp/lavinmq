@@ -164,6 +164,11 @@ module LavinMQ
             case frame
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
+              # Close the channels, and with them the consumers, before
+              # confirming. The client has stopped reading deliveries, so a
+              # message delivered to one of its no-ack consumers after
+              # CloseOk, until the socket closed, was lost.
+              close_channels
               send AMQP::Frame::Connection::CloseOk.new
               @running = false
               next
@@ -432,6 +437,15 @@ module LavinMQ
         channel
       end
 
+      private def close_channels : Nil
+        i = 0u32
+        @channels.values.each do |ch|
+          close_channel(ch)
+          Fiber.yield if (i &+= 1) % 512 == 0
+        end
+        @channels.clear
+      end
+
       # Stays registered until Channel::CloseOk, so in-flight frames are discarded.
       protected def close_channel(channel : Client::Channel?) : Nil
         return unless channel
@@ -530,12 +544,7 @@ module LavinMQ
 
       private def cleanup
         @running = false
-        i = 0u32
-        @channels.values.each do |ch|
-          close_channel(ch)
-          Fiber.yield if (i &+= 1) % 512 == 0
-        end
-        @channels.clear
+        close_channels
         # Iterate a snapshot because Queue#close deletes exclusive queues,
         # which calls back into #exclusive_queue_deleted.
         @exclusive_queues.dup.each(&.close)
