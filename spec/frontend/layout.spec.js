@@ -108,6 +108,67 @@ test.describe('theme switcher', _ => {
   })
 })
 
+test.describe('API docs theme', _ => {
+  test('follows the theme chosen in the management UI', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('#theme-dark').click()
+    await page.goto('/docs/')
+    await expect(page.locator('html')).toContainClass('theme-dark')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+  })
+
+  test('theme chosen in the docs is used by the management UI', async ({ page }) => {
+    await page.goto('/docs/')
+    await page.locator('#theme-dark').click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await page.goto('/')
+    await expect(page.locator('html')).toContainClass('theme-dark')
+    await expect(page.locator('#theme-dark')).toHaveClass(/active/)
+  })
+
+  test('system theme follows the OS even when another color is stored with it', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.goto('/docs/')
+    await page.evaluate(() => window.localStorage.setItem('lmq.stateclasses', 'system theme-dark'))
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    await expect(page.locator('#theme-system')).toHaveClass(/active/)
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  })
+
+  test('code samples are readable in dark mode', async ({ page }) => {
+    await page.goto('/docs/#/operations/GetQueues')
+    await page.locator('#theme-dark').click()
+    const sample = page.locator('.sl-code-viewer').filter({ hasText: '--request' })
+    await expect(sample.locator('.token.string').first()).toBeVisible()
+    // Lowest WCAG contrast ratio of a token against the background behind it
+    const minContrast = await sample.evaluate(viewer => {
+      const rgb = color => color.match(/[\d.]+/g).map(Number)
+      const luminance = color => {
+        const [r, g, b] = rgb(color).slice(0, 3).map(v => {
+          v /= 255
+          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+        })
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }
+      const background = el => {
+        for (; el; el = el.parentElement) {
+          const color = window.getComputedStyle(el).backgroundColor
+          if (rgb(color)[3] !== 0) return color
+        }
+        return 'rgb(255, 255, 255)'
+      }
+      return Math.min(...[...viewer.querySelectorAll('.token')].map(token => {
+        const [a, b] = [luminance(window.getComputedStyle(token).color), luminance(background(token))]
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+      }))
+    })
+    expect(minContrast).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
 test.describe('phone header', _ => {
   test.use({ viewport: { width: 390, height: 844 } })
 
