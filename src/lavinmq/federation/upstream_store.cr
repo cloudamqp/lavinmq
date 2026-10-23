@@ -6,12 +6,29 @@ module LavinMQ
     class UpstreamStore
       include Enumerable(Upstream)
       Log = LavinMQ::Log.for "federation.upstream_store"
+
+      # A retired exchange link, the broker and queue its delete removes, and
+      # the channel closed once the delete is done
+      alias PendingDelete = {Upstream::ExchangeLink, {String, String}, Channel(Nil)}
+
+      # The links a change took out of the store. Stopping them waits for the
+      # upstream and deleting connects to it, so both happen once the lock is
+      # released
+      private class Retired
+        getter stops = Array(Upstream::Link).new
+        getter deletes = Array(PendingDelete).new
+      end
+
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
       @upstream_set_configs = Hash(String, JSON::Any).new
-      # Serializes upstream and set changes with policy reconciles, held
-      # across the resource deletes' wait on the upstream broker
+      # Serializes upstream and set changes with policy reconciles. Declares
+      # take it through reconcile_link while holding the vhost's definitions
+      # lock, so it guards in-memory state only: never connect to or wait on
+      # a broker while holding it
       @change_lock = Mutex.new
+      # Upstream resource deletes in flight, by broker and queue name
+      @pending_deletes = Hash({String, String}, Array(Channel(Nil))).new
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
@@ -25,10 +42,10 @@ module LavinMQ
       end
 
       def create_upstream(name, config)
-        @change_lock.synchronize { do_create_upstream(name, config) }
+        change { |retired| do_create_upstream(name, config, retired) }
       end
 
-      private def do_create_upstream(name, config)
+      private def do_create_upstream(name, config, retired)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -43,13 +60,13 @@ module LavinMQ
         queue = config["queue"]?.try(&.as_s)
         old = @upstreams[name]?
         if old && same_resources?(old, uri, exchange, queue, expires, msg_ttl, max_hops)
-          close_upstream(name)
+          close_upstream(name, retired)
         else
-          do_delete_upstream(name)
+          do_delete_upstream(name, retired)
         end
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
-        rebuild_sets_with(name)
+        rebuild_sets_with(name, retired)
         @log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end
@@ -57,11 +74,11 @@ module LavinMQ
       # Replacing an upstream drops its entries from every set; rebuild the
       # sets that name it so a policy re-apply can link through them again.
       # The rebuild deletes and re-inserts each config, so iterate a snapshot
-      private def rebuild_sets_with(name)
+      private def rebuild_sets_with(name, retired)
         rebuild = @upstream_set_configs.select do |_, config|
           config.as_a.any? { |cfg| cfg["upstream"].as_s == name }
         end
-        rebuild.each { |set_name, config| do_create_upstream_set(set_name, config) }
+        rebuild.each { |set_name, config| do_create_upstream_set(set_name, config, retired) }
       end
 
       def add(upstream : Upstream)
@@ -70,18 +87,20 @@ module LavinMQ
       end
 
       def delete_upstream(name)
-        @change_lock.synchronize { do_delete_upstream(name) }
+        change { |retired| do_delete_upstream(name, retired) }
         @log.info { "Upstream '#{name}' deleted" }
       end
 
-      private def do_delete_upstream(name)
-        remove_upstream(name, &.delete)
+      private def do_delete_upstream(name, retired)
+        remove_upstream(name) do |upstream|
+          upstream.take_links.each { |link| retire(link, upstream.uri, retired) }
+        end
       end
 
       # Remove the upstream and its entries from every set. The block decides
       # what happens to the resources its links created on the upstream
-      # broker: delete removes them, close keeps them for a replacement's
-      # links to reuse
+      # broker: retiring deletes them, a plain stop keeps them for a
+      # replacement's links to reuse
       private def remove_upstream(name, &)
         @upstreams.delete(name).try { |u| yield u }
         @upstream_sets.each do |_, set|
@@ -101,21 +120,20 @@ module LavinMQ
           old.expires == expires && old.msg_ttl == msg_ttl && old.max_hops == max_hops
       end
 
-      # Credentials and query options don't change which resources the links
-      # declare, only the broker and its vhost (the path) do, compared as the
-      # client defaults them
       private def same_broker?(a : URI, b : URI) : Bool
-        a.scheme == b.scheme && a.host == b.host &&
-          effective_port(a) == effective_port(b) &&
-          (a.path.presence || "/") == (b.path.presence || "/")
+        broker_id(a) == broker_id(b)
       end
 
-      private def effective_port(uri : URI) : Int32
-        uri.port || (uri.scheme == "amqps" ? 5671 : 5672)
+      # The broker and vhost a uri points to, as the client defaults them.
+      # Credentials and query options don't change which resources the links
+      # declare
+      private def broker_id(uri : URI) : String
+        port = uri.port || (uri.scheme == "amqps" ? 5671 : 5672)
+        "#{uri.scheme}://#{uri.host}:#{port}#{uri.path.presence || "/"}"
       end
 
-      private def close_upstream(name)
-        remove_upstream(name, &.close)
+      private def close_upstream(name, retired)
+        remove_upstream(name) { |upstream| retired.stops.concat upstream.take_links }
       end
 
       # Make the resource's links match its policy after a policy (re)apply.
@@ -123,10 +141,10 @@ module LavinMQ
       # keeps the upstream queue, and its buffered messages, alive. The other
       # links are stopped and their upstream resources removed.
       def reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
-        @change_lock.synchronize { do_reconcile_link(resource, upstream_name, set_name) }
+        change { |retired| do_reconcile_link(resource, upstream_name, set_name, retired) }
       end
 
-      private def do_reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?)
+      private def do_reconcile_link(resource : AMQP::Queue | Exchange, upstream_name : String?, set_name : String?, retired)
         desired = Array(Upstream).new
         if name = upstream_name
           if upstream = @upstreams[name]?
@@ -143,14 +161,17 @@ module LavinMQ
           end
         end
         each_linked_upstream do |linked|
-          linked.stop_link(resource) unless desired.any? &.same?(linked)
+          next if desired.any? &.same?(linked)
+          linked.unlink(resource).try { |link| retire(link, linked.uri, retired) }
         end
         desired.each &.link(resource)
       end
 
       def stop_link(resource : AMQP::Queue | Exchange)
-        each_linked_upstream do |upstream|
-          upstream.stop_link(resource)
+        change do |retired|
+          each_linked_upstream do |upstream|
+            upstream.unlink(resource).try { |link| retire(link, upstream.uri, retired) }
+          end
         end
       end
 
@@ -184,10 +205,10 @@ module LavinMQ
       end
 
       def create_upstream_set(name, config)
-        @change_lock.synchronize { do_create_upstream_set(name, config) }
+        change { |retired| do_create_upstream_set(name, config, retired) }
       end
 
-      private def do_create_upstream_set(name, config)
+      private def do_create_upstream_set(name, config, retired)
         # Built first: a malformed entry must leave the old set running
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
@@ -210,26 +231,26 @@ module LavinMQ
           end
           upstreams << upstream
         end
-        old_set = @upstream_sets.delete(name)
-        # Retired before the new set is stored, so a delete can't race a new
-        # link's redeclare of the same queue
-        old_set.try { |set| retire_copies(set, upstreams) }
+        old_set = @upstream_sets[name]?
         # Stored only once the whole config built, so a rejected config can't
         # break the set rebuilds of later upstream parameter PUTs
         @upstream_set_configs[name] = config
         @upstream_sets[name] = upstreams
+        old_set.try { |set| retire_copies(set, upstreams, retired) }
       end
 
       # Stops every copy in the old set and deletes an exchange link's
       # upstream resources unless an entry in the new set reuses them
-      private def retire_copies(old_set : Array(Upstream), upstreams : Array(Upstream))
+      private def retire_copies(old_set : Array(Upstream), upstreams : Array(Upstream), retired)
         old_set.each do |old|
           next unless set_copy?(old)
-          old.links.each do |link|
-            next unless link.is_a?(Upstream::ExchangeLink)
-            link.delete unless resources_reused?(link, old, upstreams)
+          old.take_links.each do |link|
+            if link.is_a?(Upstream::ExchangeLink) && resources_reused?(link, old, upstreams)
+              retired.stops << link
+            else
+              retire(link, old.uri, retired)
+            end
           end
-          old.close
         end
       end
 
@@ -244,9 +265,9 @@ module LavinMQ
       end
 
       def delete_upstream_set(name)
-        @change_lock.synchronize do
+        change do |retired|
           @upstream_set_configs.delete(name)
-          @upstream_sets.delete(name).try { |set| retire_copies(set, Array(Upstream).new) }
+          @upstream_sets.delete(name).try { |set| retire_copies(set, Array(Upstream).new, retired) }
         end
         @log.info { "Upstream set '#{name}' deleted" }
       end
@@ -257,6 +278,56 @@ module LavinMQ
           @upstreams.values
         else
           @upstream_sets[name]?
+        end
+      end
+
+      # Waits for deletes in flight of this queue on this broker, so a link
+      # never declares resources that a retired link is about to remove
+      def await_pending_deletes(uri : URI, queue : String) : Nil
+        key = {broker_id(uri), queue}
+        pending = @change_lock.synchronize { @pending_deletes[key]?.try &.dup }
+        pending.try &.each(&.receive?)
+      end
+
+      # Applies a change under the lock, then stops the links it took out of
+      # the store and deletes their upstream resources in their own fibers
+      private def change(&)
+        retired = Retired.new
+        @change_lock.synchronize { yield retired }
+      ensure
+        retired.try { |r| finish(r) }
+      end
+
+      # Queues a link the store no longer owns for a stop. An exchange link's
+      # upstream resources are deleted too, and links declaring the same queue
+      # wait for that (see #await_pending_deletes)
+      private def retire(link : Upstream::Link, uri : URI, retired : Retired)
+        unless link.is_a?(Upstream::ExchangeLink)
+          retired.stops << link
+          return
+        end
+        key = {broker_id(uri), link.upstream_q}
+        done = Channel(Nil).new
+        (@pending_deletes[key] ||= Array(Channel(Nil)).new) << done
+        retired.deletes << {link, key, done}
+      end
+
+      private def finish(retired : Retired)
+        retired.stops.each do |link|
+          spawn link.stop, name: "Federation link stop vhost=#{@vhost.name}"
+        end
+        retired.deletes.each do |link, key, done|
+          spawn(name: "Federation cleanup vhost=#{@vhost.name} queue=#{key[1]}") do
+            link.delete
+          ensure
+            @change_lock.synchronize do
+              if pending = @pending_deletes[key]?
+                pending.delete(done)
+                @pending_deletes.delete(key) if pending.empty?
+              end
+            end
+            done.close
+          end
         end
       end
 

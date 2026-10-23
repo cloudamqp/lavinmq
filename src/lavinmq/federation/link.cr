@@ -453,6 +453,7 @@ module LavinMQ
         end
 
         private def start_link
+          @upstream.vhost.upstreams.await_pending_deletes(@upstream.uri, @upstream_q)
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
             # A stop during setup must not be undone by going Running

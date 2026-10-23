@@ -41,20 +41,35 @@ module LavinMQ
 
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
-      # Links are keyed by name, so only stop the link if it belongs to this
-      # very resource, not to a replacement declared under the same name
       def stop_link(federated_exchange : AMQP::Exchange)
-        link = @ex_links[federated_exchange.name]? || return
-        return unless link.federated_ex.same?(federated_exchange)
-        @ex_links.delete(federated_exchange.name)
-        link.delete
+        unlink(federated_exchange).try &.delete
       end
 
       def stop_link(federated_q : AMQP::Queue)
+        unlink(federated_q).try &.delete
+      end
+
+      # Removes the link from this upstream without stopping it. Links are
+      # keyed by name, so only a link that belongs to this very resource is
+      # removed, not one of a replacement declared under the same name
+      def unlink(federated_exchange : AMQP::Exchange) : ExchangeLink?
+        link = @ex_links[federated_exchange.name]? || return
+        return unless link.federated_ex.same?(federated_exchange)
+        @ex_links.delete(federated_exchange.name)
+      end
+
+      def unlink(federated_q : AMQP::Queue) : QueueLink?
         link = @q_links[federated_q.name]? || return
         return unless link.federated_q.same?(federated_q)
         @q_links.delete(federated_q.name)
-        link.delete
+      end
+
+      # Removes all links from this upstream without stopping them
+      def take_links : Array(Link)
+        links.tap do
+          @ex_links.clear
+          @q_links.clear
+        end
       end
 
       def exchange_bound(federated_exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
