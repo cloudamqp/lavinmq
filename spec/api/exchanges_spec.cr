@@ -168,6 +168,26 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    it "should redeclare identical internal exchange" do
+      with_http_server do |http, _|
+        body = %({"type": "direct", "durable": true, "internal": true})
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 201
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 204
+      end
+    end
+
+    it "should redeclare identical x-mqtt-topic exchange" do
+      with_http_server do |http, _|
+        body = %({"type": "x-mqtt-topic", "durable": true})
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 201
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 204
+      end
+    end
+
     it "should require config access to declare" do
       with_http_server do |http, _|
         body = <<-JSON
