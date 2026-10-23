@@ -244,6 +244,7 @@ module LavinMQ
                                   value["definition"].as_h, value["priority"].as_i.to_i8}
           else
             next if skip_existing && v.parameters[{component, name}]?
+            validate_parameter_value(component, p["value"])
             params << {v, Parameter.new(component, name, p["value"])}
           end
         end
@@ -265,6 +266,18 @@ module LavinMQ
         touched_parameters.each(&.save_parameters!)
         touched_operator_policies.each(&.save_operator_policies!)
         apply_policies(touched_parameters | touched_operator_policies)
+      end
+    end
+
+    private def validate_parameter_value(component, value)
+      if component == VHost::FEDERATION_UPSTREAM_SET
+        value.as_a.each do |entry|
+          unless entry.as_h?.try(&.["upstream"]?).try(&.as_s?)
+            raise ArgumentError.new("Each entry in a federation-upstream-set must have a string 'upstream'")
+          end
+        end
+      else
+        value.as_h
       end
     end
 
