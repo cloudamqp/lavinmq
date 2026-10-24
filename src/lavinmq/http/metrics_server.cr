@@ -2,6 +2,7 @@ require "http/server"
 require "../../stdlib/http_server"
 require "json"
 require "./constants"
+require "./listener"
 require "./handler/*"
 require "./controller"
 require "./controller/prometheus"
@@ -59,9 +60,10 @@ module LavinMQ
       end
 
       def bind_tcp(address, port)
-        addr = @http.bind_tcp address, port
-        Log.info { "Bound to #{addr}" }
-        addr
+        tcp = HTTP.tcp_listener(address, port)
+        @http.bind(tcp)
+        Log.info { "Bound to #{tcp.local_address}" }
+        tcp.local_address
       end
 
       def listen
