@@ -25,6 +25,15 @@ describe LavinMQ::HTTP::Server do
   end
 
   describe "GET /api/overview" do
+    it "is sent with Content-Length instead of chunked" do
+      with_http_server do |http, _|
+        response = http.get("/api/overview")
+        response.status_code.should eq 200
+        response.headers["Content-Length"]?.should_not be_nil
+        response.headers["Transfer-Encoding"]?.should be_nil
+      end
+    end
+
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/api/overview")
