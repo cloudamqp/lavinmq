@@ -543,6 +543,9 @@ module LavinMQ::AMQP10
       when Descriptor::DISPOSITION
         session(frame.channel).disposition(TransferCodec.read_disposition(frame.body_reader))
         return
+      when Descriptor::FLOW
+        session(frame.channel).flow(TransferCodec.read_flow(frame.body_reader))
+        return
       end
 
       reader = frame.body_reader
@@ -553,8 +556,6 @@ module LavinMQ::AMQP10
         open_session(frame.channel, Begin.from_value(value))
       when Descriptor::ATTACH
         session(frame.channel).attach(Attach.from_value(value))
-      when Descriptor::FLOW
-        session(frame.channel).flow(Flow.from_value(value))
       when Descriptor::DETACH
         session(frame.channel).detach(Detach.from_value(value))
       when Descriptor::END

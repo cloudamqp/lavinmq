@@ -124,15 +124,7 @@ module LavinMQ::AMQP10
     # The encoded annotations map, copied out of the frame buffer, or nil for
     # a null or empty map.
     private def read_annotations(reader : IO::Memory) : Bytes?
-      start = reader.pos
-      if reader.peek.try(&.first?) == 0x40_u8 # null
-        reader.skip(1)
-        return
-      end
-      count, end_pos = Codec.read_map_header(reader)
-      reader.pos = end_pos
-      return if count.zero?
-      Codec.slice_from(reader, start).dup
+      Codec.read_optional_map(reader).try(&.dup)
     end
 
     # Properties is a struct: returns the updated copy.
