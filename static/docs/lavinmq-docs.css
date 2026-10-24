@@ -1,0 +1,401 @@
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Regular.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-display: swap;
+}
+
+/* LavinMQ chrome tokens, mirrored from static/main.css. Defined here because
+   main.css is not loaded on /docs/. */
+html.theme-light {
+  --lmq-bg-primary: #F4F4F4;
+  --lmq-bg-secondary: #FFFFFF;
+  --lmq-border: rgba(0, 0, 0, 0.1);
+  --lmq-header-text: #111827;
+  --lmq-link: #3c9368;
+  --lmq-text-primary: #141414;
+  --lmq-bg-hover: #F4F4F4;
+  --lmq-theme-switcher-bg: rgba(255, 255, 255, 0.95);
+  --lmq-theme-switcher-border: rgba(0, 0, 0, 0.12);
+}
+
+html.theme-dark {
+  --lmq-bg-primary: #181818;
+  --lmq-bg-secondary: #1D1D1D;
+  --lmq-border: rgba(247, 245, 242, 0.1);
+  --lmq-header-text: #FFFFFF;
+  --lmq-link: #54BE7E;
+  --lmq-text-primary: #fafafa;
+  --lmq-bg-hover: #2d2c2c;
+  --lmq-theme-switcher-bg: rgba(255, 255, 255, 0.08);
+  --lmq-theme-switcher-border: rgba(255, 255, 255, 0.15);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--lmq-bg-primary);
+  color: var(--lmq-header-text);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* === LavinMQ chrome above the renderer === */
+.lavinmq-docs-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--lmq-bg-secondary);
+  border-bottom: 1px solid var(--lmq-border);
+  color: var(--lmq-header-text);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.lavinmq-docs-header img {
+  height: 24px;
+  width: 24px;
+}
+
+.lavinmq-docs-header .spacer {
+  flex: 1;
+}
+
+.lavinmq-docs-header a {
+  color: var(--lmq-link);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.lavinmq-docs-header a:hover {
+  text-decoration: underline;
+}
+
+/* Logo and title, linking to the Overview page */
+.lavinmq-docs-header a.home {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--lmq-header-text);
+}
+
+.lavinmq-docs-header a.home:hover {
+  text-decoration: none;
+}
+
+/* Theme switcher, as in static/main.css. Each button has an icon for the
+   light and one for the dark theme; the active button is inverted. */
+#theme-switcher {
+  display: flex;
+  background: var(--lmq-theme-switcher-bg);
+  border: 1px solid var(--lmq-theme-switcher-border);
+  border-radius: 14px;
+  padding: 2px;
+  gap: 1px;
+}
+
+#theme-switcher button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#theme-switcher button img {
+  width: 10px;
+  height: 10px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+#theme-switcher button:hover {
+  background: var(--lmq-bg-hover);
+  transform: scale(1.05);
+}
+
+#theme-switcher button:hover img {
+  opacity: 1;
+}
+
+#theme-switcher button.active {
+  background: var(--lmq-text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1);
+}
+
+#theme-switcher button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--lmq-border);
+}
+
+html.theme-light #theme-switcher .theme-icon.dark,
+html.theme-dark #theme-switcher .theme-icon.light,
+html.theme-light #theme-switcher button.active .theme-icon.light,
+html.theme-dark #theme-switcher button.active .theme-icon.dark {
+  display: none;
+}
+
+html.theme-light #theme-switcher button.active .theme-icon.dark,
+html.theme-dark #theme-switcher button.active .theme-icon.light {
+  display: block;
+}
+
+.lavinmq-docs-elements {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* === Map LavinMQ tokens to Stoplight Elements === */
+/* Elements ships with [data-theme=light]/[data-theme=dark] tokens. We override
+   them so the renderer matches main.css. The toggle script puts data-theme on
+   <html>, which Elements happily inherits via the cascade. */
+
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  --font-prose: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+[data-theme="light"] {
+  /* Backgrounds */
+  --color-canvas: #FFFFFF;
+  --color-canvas-pure: #FFFFFF;
+  --color-canvas-dialog: #FFFFFF;
+  --color-canvas-tint: #F4F4F4;
+  --color-canvas-50: #F4F4F4;
+  --color-canvas-100: #ebecf1;
+  --color-canvas-200: #d1d5db;
+  --color-canvas-300: #d1d5db;
+  --color-canvas-400: #9ca3af;
+  --color-canvas-500: #6B7280;
+  --color-canvas-dark: #141414;
+
+  /* Borders */
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-border-light: rgba(0, 0, 0, 0.06);
+  --color-border-dark: rgba(0, 0, 0, 0.2);
+  --color-border-input: rgba(0, 0, 0, 0.18);
+  --color-border-button: rgba(0, 0, 0, 0.65);
+
+  /* Text */
+  --color-text: #141414;
+  --color-text-heading: #141414;
+  --color-text-paragraph: #374151;
+  --color-text-muted: #6B7280;
+  --color-text-light: #9CA3AF;
+  --color-text-disabled: #D1D5DB;
+
+  /* Primary (LavinMQ green) */
+  --color-primary: #3c9368;
+  --color-primary-dark: #348056;
+  --color-primary-darker: #2a6c47;
+  --color-primary-light: #54BE7E;
+  --color-primary-tint: rgba(60, 147, 104, 0.18);
+  --color-text-primary: #3c9368;
+  --color-on-primary: #FFFFFF;
+  --color-link: #3c9368;
+  --color-link-dark: #2a6c47;
+
+  /* Success */
+  --color-success: #54BE7E;
+  --color-success-dark: #2a9463;
+  --color-success-darker: #1f6e4a;
+  --color-success-light: #7FD49E;
+  --color-success-tint: rgba(84, 190, 126, 0.22);
+  --color-text-success: #2a9463;
+  --color-on-success: #FFFFFF;
+
+  /* Warning */
+  --color-warning: #e2b149;
+  --color-warning-dark: #b88a25;
+  --color-warning-darker: #8a661b;
+  --color-warning-light: #f1ca7a;
+  --color-warning-tint: rgba(226, 177, 73, 0.22);
+  --color-text-warning: #b88a25;
+  --color-on-warning: #1a1a1a;
+
+  /* Danger */
+  --color-danger: #ED4337;
+  --color-danger-dark: #c1352b;
+  --color-danger-darker: #952820;
+  --color-danger-light: #f37b73;
+  --color-danger-tint: rgba(237, 67, 55, 0.22);
+  --color-text-danger: #c1352b;
+  --color-on-danger: #FFFFFF;
+
+  /* Code */
+  --color-code: #F4F4F4;
+  --color-on-code: #141414;
+}
+
+[data-theme="dark"] {
+  /* Backgrounds */
+  --color-canvas: #181818;
+  --color-canvas-pure: #181818;
+  --color-canvas-dialog: #1D1D1D;
+  --color-canvas-tint: #1D1D1D;
+  --color-canvas-50: #1D1D1D;
+  --color-canvas-100: #242424;
+  --color-canvas-200: #2D2C2C;
+  --color-canvas-300: #2D2C2C;
+  --color-canvas-400: #414040;
+  --color-canvas-500: #6B6A68;
+  --color-canvas-dark: #FAFAFA;
+
+  /* Borders */
+  --color-border: rgba(247, 245, 242, 0.1);
+  --color-border-light: rgba(247, 245, 242, 0.06);
+  --color-border-dark: rgba(247, 245, 242, 0.2);
+  --color-border-input: rgba(247, 245, 242, 0.22);
+  --color-border-button: rgba(247, 245, 242, 0.65);
+
+  /* Text */
+  --color-text: #FAFAFA;
+  --color-text-heading: #FAFAFA;
+  --color-text-paragraph: #CDCBC9;
+  --color-text-muted: #9D9C9A;
+  --color-text-light: #6B6A68;
+  --color-text-disabled: #414040;
+
+  /* Primary (LavinMQ success green in dark) */
+  --color-primary: #54BE7E;
+  --color-primary-dark: #44a86d;
+  --color-primary-darker: #348056;
+  --color-primary-light: #7FD49E;
+  --color-primary-tint: rgba(84, 190, 126, 0.18);
+  --color-text-primary: #54BE7E;
+  --color-on-primary: #181818;
+  --color-link: #54BE7E;
+  --color-link-dark: #44FC70;
+
+  /* Success */
+  --color-success: #54BE7E;
+  --color-success-dark: #44a86d;
+  --color-success-darker: #348056;
+  --color-success-light: #7FD49E;
+  --color-success-tint: rgba(84, 190, 126, 0.22);
+  --color-text-success: #54BE7E;
+  --color-on-success: #181818;
+
+  /* Warning */
+  --color-warning: #e2b149;
+  --color-warning-dark: #b88a25;
+  --color-warning-darker: #8a661b;
+  --color-warning-light: #f1ca7a;
+  --color-warning-tint: rgba(226, 177, 73, 0.22);
+  --color-text-warning: #e2b149;
+  --color-on-warning: #181818;
+
+  /* Danger */
+  --color-danger: #ED4337;
+  --color-danger-dark: #c1352b;
+  --color-danger-darker: #952820;
+  --color-danger-light: #f37b73;
+  --color-danger-tint: rgba(237, 67, 55, 0.22);
+  --color-text-danger: #ED4337;
+  --color-on-danger: #FAFAFA;
+
+  /* Code */
+  --color-code: #2D2C2C;
+  --color-on-code: #FAFAFA;
+}
+
+/* The Elements host root sets its own background; ensure it follows our canvas */
+.sl-elements,
+.sl-elements-api {
+  background: var(--color-canvas) !important;
+  color: var(--color-text) !important;
+  font-family: var(--font-prose);
+}
+
+/* The header above already shows the logo and title, so hide the copy Elements
+   puts at the top of its sidebar. Elements has no option for this, so the
+   selector follows its DOM (Elements 8.2.0): .sl-elements-api > resizable
+   wrapper > sidebar column > logo and title row */
+.sl-elements-api > :first-child > :first-child > :first-child {
+  display: none;
+}
+
+/* Elements' code viewer always picks its light syntax theme (Mosaic never
+   switches it for dark mode) and sets the colors as inline styles, which are
+   unreadable on the dark canvas. Use the colors of Elements' own dark syntax
+   theme instead. */
+[data-theme="dark"] .sl-code-viewer .token {
+  color: inherit !important;
+  background: none !important;
+  opacity: 1 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.function, .function-variable, .attr-name, .url, .inserted) {
+  color: #d2a8ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.string, .attr-value, .regex, .cdata) {
+  color: #a5d6ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.comment, .blockquote, .prolog) {
+  color: #8b949e !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.keyword, .operator, .important, .rule, .deleted) {
+  color: #ff7b72 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.number, .list) {
+  color: rgb(247, 140, 108) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.builtin, .char, .constant, .symbol, .entity, .command, .code) {
+  color: rgb(130, 170, 255) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.selector, .doctype, .value) {
+  color: rgb(199, 146, 234) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.class-name, .class, .id, .pseudo-class, .pseudo-element, .url-reference) {
+  color: #7ee787 !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token.boolean {
+  color: #79c0ff !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.property, .atrule, .title) {
+  color: rgb(128, 203, 196) !important;
+}
+
+[data-theme="dark"] .sl-code-viewer .token:is(.namespace, .option, .variable) {
+  color: rgb(178, 204, 214) !important;
+}

@@ -400,11 +400,16 @@ module Stress
         publish_for_kind(ch, exchange, kind, body, args)
         STATS.incr_published
 
+        # `basic_publish` only suspends when the socket write would block,
+        # so without an explicit yield :fast producers can monopolise the
+        # scheduler and starve every other worker (and the stats printer).
         case mode
+        when :fast
+          Fiber.yield if seq % 128 == 0
         when :slow
           sleep Random.rand(5..50).milliseconds
         when :bursty
-          if seq % 50 == 0
+          if seq % 64 == 0
             sleep Random.rand(100..500).milliseconds
           end
         end
@@ -888,14 +893,14 @@ module Stress
         ch.basic_publish(STREAM_PAYLOAD, "", Q_STREAM, props: props)
         STATS.incr_stream_published
         # Throttle to keep the stream from crowding out the rest of the
-        # stress workload. Even "fast" yields every 50 msgs.
+        # stress workload. Even "fast" yields every 64 msgs.
         case mode
         when :fast
-          Fiber.yield if seq % 50 == 0
+          Fiber.yield if seq % 64 == 0
         when :slow
           sleep Random.rand(5..20).milliseconds
         when :bursty
-          sleep Random.rand(50..200).milliseconds if seq % 200 == 0
+          sleep Random.rand(50..200).milliseconds if seq % 256 == 0
         end
       end
     end

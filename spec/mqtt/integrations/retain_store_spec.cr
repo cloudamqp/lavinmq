@@ -1,5 +1,21 @@
 require "../spec_helper"
 
+# Counts this process's open file descriptors that point at a *.msg file in dir
+def open_msg_fds(dir : String) : Int32
+  path = File.realpath(dir)
+  {% if flag?(:linux) %}
+    Dir.children("/proc/self/fd").count do |fd|
+      target = File.readlink(File.join("/proc/self/fd", fd)) rescue nil
+      !target.nil? && target.starts_with?(path) && target.ends_with?(".msg")
+    end
+  {% else %}
+    output = `lsof -nP -p #{Process.pid}`
+    output.lines.count do |line|
+      line.includes?(path) && line.ends_with?(".msg")
+    end
+  {% end %}
+end
+
 module MqttSpecs
   extend MqttHelpers
   alias IndexTree = LavinMQ::MQTT::TopicTree(String)
@@ -108,6 +124,29 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "does not mix up non-ASCII topics" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store.retain(publish_packet(topic: "é/1", payload: "one".to_slice, retain: true))
+        store.retain(publish_packet(topic: "é/2", payload: "two".to_slice, retain: true))
+        store.retain(publish_packet(topic: "é/3", payload: "three".to_slice, retain: true))
+
+        index.size.should eq(3)
+
+        called = Array(Tuple(String, String)).new
+        {"é/1", "é/2", "é/3"}.each do |topic_filter|
+          store.each(topic_filter) do |topic, body_io, body_bytesize|
+            body = Bytes.new(body_bytesize)
+            body_io.read(body)
+            called << {topic, String.new(body)}
+          end
+        end
+
+        called.should eq [{"é/1", "one"}, {"é/2", "two"}, {"é/3", "three"}]
+      ensure
+        store.try &.close
+      end
+
       it "handles multiple subscriptions" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
@@ -136,6 +175,24 @@ module MqttSpecs
       end
     end
 
+    describe "file descriptors" do
+      it "does not keep an open file per retained topic" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        50.times do |i|
+          store.retain(publish_packet(topic: "t/#{i}", payload: "body".to_slice, retain: true))
+        end
+        read = 0
+        store.each("t/#") do |_topic, _io, _size|
+          read += 1
+        end
+        read.should eq 50
+        open_msg_fds("tmp/retain_store").should eq 0
+      ensure
+        store.try &.close
+      end
+    end
+
     describe "restore_index" do
       it "restores the index from a file" do
         index = IndexTree.new
@@ -149,6 +206,27 @@ module MqttSpecs
 
         new_index.size.should eq(1)
         new_index.@leafs.has_key?("a").should be_true
+      end
+
+      it "drops topics longer than 255 bytes and their msg files on restore" do
+        dir = "tmp/retain_store"
+        Dir.mkdir_p dir
+        long_topic = "a/" + "b" * 300
+        long_file = Digest::MD5.hexdigest(long_topic) + ".msg"
+        File.write(File.join(dir, "index"), "#{long_topic}\nok/topic\n")
+        File.write(File.join(dir, long_file), "poison")
+        File.write(File.join(dir, Digest::MD5.hexdigest("ok/topic") + ".msg"), "body")
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil, index)
+
+        index.size.should eq(1)
+        topics = Array(String).new
+        store.each("#") { |topic, _io, _size| topics << topic }
+        topics.should eq ["ok/topic"]
+        File.exists?(File.join(dir, long_file)).should be_false
+      ensure
+        store.try &.close
       end
     end
 

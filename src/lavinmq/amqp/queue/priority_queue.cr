@@ -21,9 +21,10 @@ module LavinMQ::AMQP
       super
     end
 
-    private def handle_arguments
-      super
-      @effective_args << "x-max-priority"
+    private def settings_from_arguments : Settings
+      settings = super
+      settings.effective_args << "x-max-priority"
+      settings
     end
 
     private def init_msg_store(msg_dir)

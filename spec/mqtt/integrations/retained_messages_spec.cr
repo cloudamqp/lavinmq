@@ -71,5 +71,30 @@ module MqttSpecs
         end
       end
     end
+
+    it "does not retain a message with a topic longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          expect_raises(IO::Error) do
+            publish(io, topic: "a/#{"x" * 300}", qos: 1u8, retain: true)
+          end
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 1u8, retain: true).should be_a(MQTT::Protocol::PubAck)
+          disconnect(io)
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          suback = subscribe(io, topic_filters: [subtopic("#")])
+          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          read_publish(io).topic.should eq "a/b"
+          disconnect(io)
+        end
+      end
+    end
   end
 end

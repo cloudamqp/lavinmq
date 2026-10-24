@@ -137,6 +137,23 @@ private def synced_message(body) : LavinMQ::Message
   msg
 end
 
+{% if flag?(:linux) %}
+  # Records the advice segments have when the store starts loading them
+  class AdviceOnLoadStore < LavinMQ::MessageStore
+    class_getter advice_on_load = Array({String, Array(String)}).new
+
+    private def read_metadata_file(seg, mfile)
+      @@advice_on_load << {"read_metadata_file", vm_flags(mfile.path)}
+      super
+    end
+
+    private def produce_metadata(seg, mfile)
+      @@advice_on_load << {"produce_metadata", vm_flags(mfile.path)}
+      super
+    end
+  end
+{% end %}
+
 describe LavinMQ::MessageStore do
   # Regression: avg_bytesize is read without the queue's lock (HTTP API,
   # stats), so the store can become empty between its zero check and the
@@ -186,6 +203,25 @@ describe LavinMQ::MessageStore do
 
       File.exists?(File.join(dir, "acks.0000000001")).should be_true
       File.exists?(File.join(dir, "acks.0000000002")).should be_false
+    end
+  end
+
+  it "ignores a delete for a segment purged after the message was shifted" do
+    with_store do |store, dir|
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      3.times { store.push(msg) }
+      # Shifting into the second segment moves the read segment past the first,
+      # so purge_all deletes the first
+      sp = store.shift?.should_not be_nil
+      store.shift?.should_not be_nil
+      store.purge_all
+      store.@segments.has_key?(sp.segment_position.segment).should be_false
+
+      # Like a release or dead-lettering that routed the message outside the lock
+      store.delete(sp.segment_position)
+      store.@acks.has_key?(sp.segment_position.segment).should be_false
+      File.exists?(File.join(dir, "acks.#{sp.segment_position.segment.to_s.rjust(10, '0')}")).should be_false
     end
   end
 
@@ -979,6 +1015,29 @@ describe LavinMQ::MessageStore do
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
           store = LavinMQ::MessageStore.new(dir, nil)
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
+      it "reads segments with readahead while loading them at startup" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.@segments.size.should eq 2
+          store.close
+          AdviceOnLoadStore.advice_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 4
+          loads = AdviceOnLoadStore.advice_on_load
+          loads.map(&.first).should contain "produce_metadata" # the write segment has no meta file
+          loads.each do |_, flags|
+            flags.should contain "sr"
+            flags.should_not contain "rr"
+          end
           store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
           store.close
         end

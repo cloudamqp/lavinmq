@@ -194,11 +194,9 @@ module LavinMQ
         @{{ m.id }} = {{ m.id }}
       {% end %}
 
-      @rss = statm_rss(statm) || ps_rss
-      log_rss(@rss)
-
-      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
-
+      # Before the memory stats, which open files, so that publishers are
+      # stopped when the disk is about to fill up also while out of file
+      # descriptors. statfs needs none.
       begin
         fs_stats = Filesystem.info(@data_dir)
         @disk_free = fs_stats.available.to_i64
@@ -208,6 +206,11 @@ module LavinMQ
       rescue File::NotFoundError
         # Ignore when server is closed and deleted already
       end
+
+      @rss = statm_rss(statm) || ps_rss
+      log_rss(@rss)
+
+      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
     end
 
     private def stats_loop
@@ -218,17 +221,23 @@ module LavinMQ
       # The interval slept before each tick, as a reload can change the config during the sleep
       interval = @config.stats_interval
       until closed?
-        @stats_collection_duration_seconds_total = Time.measure do
-          Stats.tick(@config.stats_log_size, interval) do
-            @stats_rates_collection_duration_seconds = Time.measure do
-              update_vhost_rates
-            end
-            @stats_system_collection_duration_seconds = Time.measure do
-              update_system_metrics(statm)
+        begin
+          @stats_collection_duration_seconds_total = Time.measure do
+            Stats.tick(@config.stats_log_size, interval) do
+              @stats_rates_collection_duration_seconds = Time.measure do
+                update_vhost_rates
+              end
+              @stats_system_collection_duration_seconds = Time.measure do
+                update_system_metrics(statm)
+              end
             end
           end
+          @gc_stats = GC.prof_stats
+        rescue ex
+          # Like when out of file descriptors. The loop has to go on, as it
+          # also stops publishers when the disk is about to fill up.
+          Log.error { "Could not collect stats: #{ex.message}" }
         end
-        @gc_stats = GC.prof_stats
 
         control_flow!
         interval = @config.stats_interval

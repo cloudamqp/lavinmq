@@ -74,7 +74,8 @@ module LavinMQ
 
     # Starts a new tick and yields to write it. The oldest row is zeroed and
     # becomes the one written, and slots that have been zero for all rows are
-    # freed. Readers see the new tick once the block returns.
+    # freed. Readers see the new tick once the block returns, also if it
+    # raises, as the values written by then are valid and the rest are zeros.
     def advance(& : -> _) : Nil
       @lock.synchronize do
         @write_tick = @tick + 1
@@ -94,8 +95,11 @@ module LavinMQ
           @chunks.pop
         end
       end
-      yield
-      @lock.synchronize { @tick = @write_tick }
+      begin
+        yield
+      ensure
+        @lock.synchronize { @tick = @write_tick }
+      end
     end
 
     # Changes the number of ticks kept, keeping the latest values

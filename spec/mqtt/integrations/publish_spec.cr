@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 module MqttSpecs
   extend MqttHelpers
@@ -16,6 +17,51 @@ module MqttSpecs
       end
     end
 
+    it "closes the connection on a publish with a topic longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub", clean_session: false)
+          subscribe(sub, topic_filters: [subtopic("#", 1u8)])
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub")
+            expect_raises(IO::Error) do
+              publish(io, topic: "a/#{"x" * 300}", qos: 1u8)
+            end
+          end
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub")
+            publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+            disconnect(io)
+          end
+
+          pub = read_publish(sub)
+          pub.topic.should eq "a/b"
+          puback(sub, pub.packet_id)
+          server.vhosts["/"].session("mqtt.sub").closed?.should be_false
+        end
+      end
+    end
+
+    it "logs a warning when closing a connection over a too long topic" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          Log.capture("lmq.mqtt.client", :warn) do |logs|
+            expect_raises(IO::Error) do
+              publish(io, topic: "a/#{"x" * 300}", qos: 1u8)
+            end
+            logs.check("a warning carrying the topic length") do |entry|
+              ex = entry.exception
+              entry.severity.warn? && ex.is_a?(LavinMQ::MQTT::TopicTooLong) &&
+                ex.message == "topic is 302 bytes, max 255"
+            end
+          end
+        end
+      end
+    end
+
     it "shouldn't return anything for QoS=0" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -24,6 +70,37 @@ module MqttSpecs
           payload = Bytes[1, 254, 200, 197, 123, 4, 87]
           ack = publish(io, topic: "test", payload: payload, qos: 0u8)
           ack.should be_nil
+        end
+      end
+    end
+
+    it "reads a PUBLISH that arrives in parts" do
+      with_server do |server|
+        payload = Bytes.new(1000) { |i| (i % 251).to_u8 }
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            packet = publish_packet(topic: "a/b", payload: payload, qos: 1u8)
+            buf = IO::Memory.new
+            packet.to_io(MQTT::Protocol::IO.new(buf))
+            bytes = buf.to_slice
+            # Split after the type byte, in the remaining length, in the topic
+            # and in the payload, with a pause so the server reads each part
+            # before the next arrives. Without Nagle, so the kernel sends each
+            # part when it's written.
+            pub.io.as(TCPSocket).tcp_nodelay = true
+            {0, 1, 2, 6, 500, bytes.size}.each_cons_pair do |from, to|
+              pub.io.write bytes[from, to - from]
+              sleep 10.milliseconds
+            end
+            ack = read_packet(pub).should be_a(MQTT::Protocol::PubAck)
+            ack.packet_id.should eq packet.packet_id
+          end
+          msg = read_publish(sub)
+          msg.topic.should eq "a/b"
+          msg.payload.should eq payload
         end
       end
     end
@@ -84,6 +161,32 @@ module MqttSpecs
           packets.should be > 0
         end
       end
+    end
+
+    it "disconnects a publisher and doesn't route its message when the server is low on disk space" do
+      # Keeps the stats loop from starting flow again
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: mk_topic_filters({"t", 1u8}))
+          server.flow(false)
+          Log.capture("lmq.*", :error) do |logs|
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              publish(pub, topic: "t", payload: "m".to_slice, qos: 1u8, expect_response: false)
+              pub.should be_closed
+            end
+            # The read loop has ended once the connection is removed
+            wait_for { server.vhosts["/"].connections_size == 1 }
+            # An intentional close, not "Client unexpectedly closed connection"
+            logs.empty
+          end
+          sub.should be_drained
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
   end
 end

@@ -27,9 +27,13 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
+      @close_done = Channel(Nil).new
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
+      @amqps_proxy : Proxy?
+      @https_proxy : Proxy?
+      @mqtts_proxy : Proxy?
       @unix_amqp_proxy : Proxy?
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
@@ -77,6 +81,12 @@ module LavinMQ
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
           @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
+          # TLS is passed through unterminated, the leader terminates it
+          if @config.tls_configured?
+            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
+            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
+            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
+          end
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
@@ -98,24 +108,7 @@ module LavinMQ
         @host = host
         @port = port
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
+        start_proxies(host)
         loop do
           hash_local_files
           return if @closed
@@ -135,6 +128,36 @@ module LavinMQ
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def start_proxies(host)
+        if amqp_proxy = @amqp_proxy
+          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+        end
+        if http_proxy = @http_proxy
+          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if mqtt_proxy = @mqtt_proxy
+          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
+        end
+        if amqps_proxy = @amqps_proxy
+          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
+        end
+        if https_proxy = @https_proxy
+          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
+        end
+        if mqtts_proxy = @mqtts_proxy
+          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
+        end
+        if unix_amqp_proxy = @unix_amqp_proxy
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+        end
+        if unix_http_proxy = @unix_http_proxy
+          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if unix_mqtt_proxy = @unix_mqtt_proxy
+          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -713,13 +736,22 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # On promotion both the leader watcher and the controller close the
+      # client, and the controller binds the listeners as soon as its call
+      # returns, so a call made while another is closing waits for it to finish.
       def close
-        return if @closed
+        if @closed
+          @close_done.receive?
+          return
+        end
         @closed = true
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
+        @amqps_proxy.try &.close
+        @https_proxy.try &.close
+        @mqtts_proxy.try &.close
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
@@ -743,6 +775,8 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+      ensure
+        @close_done.close
       end
 
       class Error < Exception; end

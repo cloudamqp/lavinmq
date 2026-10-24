@@ -64,6 +64,8 @@ module LavinMQ
 
     # Set by the server's disk space monitor, read by every publishing client
     @flow = Atomic(Bool).new(true)
+    @policy_snapshot_lock = Mutex.new
+    @policy_generation = 0_u64
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
@@ -496,8 +498,15 @@ module LavinMQ
 
     def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
+      previous = @parameters[p.name]?
       @parameters.create(p, save: save)
-      apply_parameters(p)
+      begin
+        apply_parameters(p)
+      rescue ex
+        # The old config still runs in memory, so put its parameter back
+        previous.try { |prev| @parameters.create(prev, save: save) }
+        raise ex
+      end
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
@@ -565,20 +574,29 @@ module LavinMQ
       FileUtils.rm_rf @data_dir
     end
 
+    # Each policy change spawns its own run, and runs can overlap. Each run
+    # takes a generation along with its snapshot of the policies, and a
+    # resource skips a run older than the newest one it has applied, so a run
+    # that read the policies before a later change can't overwrite that
+    # change's run. No lock is held while applying: applying a policy can
+    # take other locks, e.g. a delayed-message policy registers a queue.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
-      policies = @policies.values.sort_by!(&.priority).reverse
-      operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
+      policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
+        {@policies.values.sort_by!(&.priority).reverse,
+         @operator_policies.values.sort_by!(&.priority).reverse,
+         @policy_generation += 1}
+      end
       if r = resources
         r.each do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       else
         each_policy_target do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       end
     rescue ex : TypeCastError

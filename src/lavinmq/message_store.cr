@@ -210,6 +210,9 @@ module LavinMQ
 
     def delete(sp) : Nil
       raise ClosedError.new if @closed
+      # A message routed outside the lock can have its segment purged meanwhile,
+      # and @acks would otherwise create an ack file for the deleted segment
+      return unless @segments.has_key?(sp.segment)
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
@@ -364,10 +367,14 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
-      @rfile.dontneed unless @rfile.closed?
+      # Nothing follows the segment being written. A consumer that has caught
+      # up with the publisher gets here on every take, so this must not scan
+      # the segments or drop the pages the publisher is about to write
+      return if @rfile_id == @wfile_id
       prev_id = @rfile_id
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
+        @rfile.dontneed unless @rfile.closed?
         rfile = @segments[id]
         # Not the segment being written, it's read as it's written and cached
         if id != @wfile_id && read_fast?(@rfile, @rfile_since)
@@ -409,7 +416,8 @@ module LavinMQ
     # written to or read, which with many queues adds up to gigabytes. It also
     # keeps the page cache in page sized folios, so an msync only writes the
     # pages that changed. Writing faults once per page with or without
-    # readahead. Fast readers get readahead back, see #read_fast?.
+    # readahead. Fast readers get readahead back, see #read_fast?, and so
+    # does loading at startup, see #load_stats_from_segments.
     private def open_segment(path : String, capacity : Int? = nil) : MFile
       mfile = MFile.new(path, capacity)
       mfile.advise(MFile::Advice::Random)
@@ -604,6 +612,10 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
+        # Counting a segment's messages reads it through, as does skipping
+        # its acked messages, in order. Without readahead (see #open_segment)
+        # that would fault it in a page at a time.
+        mfile.advise(MFile::Advice::Sequential)
         begin
           read_metadata_file(seg, mfile)
         rescue File::NotFoundError | MetadataError
@@ -611,6 +623,7 @@ module LavinMQ
           break if @closed
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
+        mfile.advise(MFile::Advice::Random)
 
         counter &+= 1
         if is_long_queue
