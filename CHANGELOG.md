@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
+- Less memory and CPU for stats history: a stat only keeps a history buffer while its value changes within the last `stats_log_size` samples, in memory outside the GC heap that is returned to the OS once idle. At 100k idle queues the history no longer takes ~1.4 GB of GC heap, a stats tick takes 8 ms instead of 49 ms, a full GC 8 ms instead of 85 ms, and serializing the stats of 10k queues 50 ms instead of 590 ms (90 ms instead of 910 ms when all are busy). `/api/overview` reads message totals the stats loop records per vhost, 45 ms instead of 167 ms with 100k queues; its message history now keeps the messages of deleted queues and spans the vhost's history like its rate logs [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
+- Aggregating stats logs for the HTTP API no longer mutates the underlying per-object logs [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
