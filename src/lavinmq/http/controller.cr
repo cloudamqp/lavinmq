@@ -24,22 +24,22 @@ module LavinMQ
         search_term = extract_search_term(params)
         states = extract_state_filter(context)
         total_count = items.size
-        all_items = items.compact_map do |i|
-          next unless i.search_match?(search_term) if search_term
-          next unless i.state_match?(states) if states
-          i.details_tuple
-        rescue ex
-          Log.warn(exception: ex) { "Could not list all items" }
-          next
+        # Details are built per item written out, or sorted on; one array of all of them is a multi-MB
+        # pointerful allocation the GC can fail to place with many fibers alive
+        if search_term || states
+          items = items.select do |i|
+            (search_term.nil? || i.search_match?(search_term)) &&
+              (states.nil? || i.state_match?(states))
+          end
         end
-        all_items = sort(all_items, context)
+        items = sort(items, context)
         columns = params["columns"]?.try(&.split(','))
         JSON.build(context.response) do |json|
           if page = params["page"]?.try(&.to_i)
             json.object do
               item_count, filtered_count = json.field("items") do
                 start = (page - 1) * page_size
-                array_iterator_to_json(json, all_items, columns, start, page_size)
+                array_iterator_to_json(json, items, columns, start, page_size)
               end
               json.field("filtered_count", filtered_count)
               json.field("item_count", item_count)
@@ -49,9 +49,9 @@ module LavinMQ
               json.field("total_count", total_count)
             end
           else
-            items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
+            written, total = array_iterator_to_json(json, items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
-              Log.warn { "Result set truncated: #{items}/#{total}" }
+              Log.warn { "Result set truncated: #{written}/#{total}" }
             end
           end
         end
@@ -75,23 +75,37 @@ module LavinMQ
       private def sort_by_key!(sorted_items, sort_by, context)
         # Find first non-nil value to determine the sort type
         sample_value = sorted_items.each do |item|
-          v = dig(item, sort_by)
+          v = sort_key(item, sort_by)
           break v unless v.nil?
         end
         case sample_value
         when Number
-          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
+          sorted_items.sort_by! { |i| sort_key(i, sort_by).as?(Number) || 0 }
         when String
-          sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
+          sorted_items.sort_by! { |i| (sort_key(i, sort_by).as?(String) || "").downcase }
         when Bool
-          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Bool) ? 1 : 0 }
+          sorted_items.sort_by! { |i| sort_key(i, sort_by).as?(Bool) ? 1 : 0 }
         when QueueState
-          sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
+          sorted_items.sort_by! { |i| sort_key(i, sort_by).as?(QueueState) || QueueState::Closed }
         when Nil
           nil # all values are nil, nothing to sort
         else
           bad_request(context, "Can't sort on type #{sample_value.class}")
         end
+      end
+
+      private def sort_key(item : SortableJSON, keys : Array(String))
+        if tuple = details(item)
+          dig(tuple, keys)
+        end
+      end
+
+      # An item that can't be described any more (e.g. deleted meanwhile) is left out
+      private def details(item : SortableJSON)
+        item.details_tuple
+      rescue ex
+        Log.warn(exception: ex) { "Could not list all items" }
+        nil
       end
 
       private def dig(tuple : NamedTuple, keys : Array(String))
@@ -103,30 +117,32 @@ module LavinMQ
         end
       end
 
-      # Writes the items to the json, but also counts all items
-      # Returns the number of items written to json and the total item count
-      private def array_iterator_to_json(json, iterator, columns : Array(String)?, start : Int, page_size : Int) : Tuple(Int32, Int32)
-        size = 0
+      # Writes the page from *start* and returns {written, total}; an item that can't be
+      # described is neither written nor counted, the next one takes its slot
+      private def array_iterator_to_json(json, items, columns : Array(String)?, start : Int, page_size : Int) : Tuple(Int32, Int32)
+        written = 0
         total = 0
         json.array do
-          iterator.each_with_index do |o, i|
-            total += 1
-            next if i < start || start + page_size <= i
-            if columns
-              json.object do
-                columns.each do |col|
-                  json.field col, o[col]
-                rescue KeyError
-                  next
+          items.each do |o|
+            if total >= start && written < page_size
+              tuple = details(o) || next
+              if columns
+                json.object do
+                  columns.each do |col|
+                    json.field col, tuple[col]
+                  rescue KeyError
+                    next
+                  end
                 end
+              else
+                tuple.to_json(json)
               end
-            else
-              o.to_json(json)
+              written += 1
             end
-            size += 1
+            total += 1
           end
         end
-        {size, total}
+        {written, total}
       end
 
       private def extract_page_size(context) : Int32
