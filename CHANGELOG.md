@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
