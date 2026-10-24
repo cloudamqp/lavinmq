@@ -175,8 +175,9 @@ module LavinMQ::AMQP10
       # An address outside the /queues/ and /exchanges/ schemes names no node we have.
       parsed = Address.parse_target(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid target address #{address}")
       if parsed.exchange.empty?
-        q = @vhost.queue?(parsed.routing_key).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{parsed.routing_key}' not found")
-        raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
+        # As in 0-9-1, exclusive queues only refuse other connections'
+        # consumers, so replies can be published to a requester's dynamic queue.
+        @vhost.queue?(parsed.routing_key).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{parsed.routing_key}' not found")
       else
         ex = @vhost.exchange?(parsed.exchange) || raise LinkError.new(ErrorCondition::NOT_FOUND, "exchange '#{parsed.exchange}' not found")
         raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "Exchange '#{parsed.exchange}' is internal") if ex.internal?
@@ -197,9 +198,28 @@ module LavinMQ::AMQP10
       q
     end
 
+    # Open has no offered-capabilities field, so the frame is written here.
+    # ANONYMOUS-RELAY tells clients such as Qpid JMS that a link without a
+    # target address routes each message by its `to` property.
     def send_open : Nil
-      open = Open.new(SERVER_CONTAINER_ID, nil, @local_max_frame_size, @channel_max, @local_idle_timeout)
-      send_frame(open.frame_size, 0_u16) { |io| open.write_body(io) }
+      idle = @local_idle_timeout
+      capabilities = [Value.symbol("ANONYMOUS-RELAY")]
+      fields_size = Codec.string_size(SERVER_CONTAINER_ID) + 1 + Codec.uint_size(@local_max_frame_size) + 3 +
+                    (idle ? Codec.uint_size(idle) : 1) + 2 + Codec.encoded_size(Value.array(capabilities))
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, 0_u16) do |io|
+        Codec.write_descriptor(io, Descriptor::OPEN)
+        Codec.write_list_header(io, fields_size, 8)
+        Codec.write_string(io, SERVER_CONTAINER_ID)
+        io.write_byte 0x40_u8 # hostname
+        Codec.write_uint(io, @local_max_frame_size)
+        io.write_byte 0x60_u8 # channel-max: ushort
+        Codec.write_u16(io, @channel_max)
+        idle ? Codec.write_uint(io, idle) : io.write_byte(0x40_u8)
+        io.write_byte 0x40_u8 # outgoing-locales
+        io.write_byte 0x40_u8 # incoming-locales
+        Codec.write_array(io, capabilities)
+      end
     end
 
     def send_begin(channel : UInt16) : Nil

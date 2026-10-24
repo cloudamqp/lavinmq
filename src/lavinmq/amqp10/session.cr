@@ -859,10 +859,26 @@ module LavinMQ::AMQP10
 
     private def reject_unsupported_terminus!(terminus : Source | Target) : Nil
       raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "durable termini are not supported") unless terminus.durable.zero?
-      raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "dynamic-node-properties are not supported") if terminus.dynamic_node_properties
+      if props = terminus.dynamic_node_properties
+        unless terminus.dynamic && delete_on_close?(props)
+          raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "dynamic-node-properties other than lifetime-policy delete-on-close are not supported")
+        end
+      end
       if address = terminus.address
         raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "management links are not supported") if address.includes?("$management")
       end
+    end
+
+    # Qpid JMS asks for {lifetime-policy: delete-on-close} when creating a
+    # temporary queue (3.5.10). That is the lifetime dynamic queues already
+    # have: they are deleted when the link that created them closes.
+    private def delete_on_close?(props : Value) : Bool
+      pairs = props.map? || return false
+      return false unless pairs.size == 1
+      key, policy = pairs.first
+      return false unless key.symbol? == "lifetime-policy"
+      descriptor = policy.described?.try(&.descriptor) || return false
+      descriptor.uint? == 0x2b_u64 || descriptor.symbol? == "amqp:delete-on-close:list"
     end
 
     def flow(frame : Flow) : Nil

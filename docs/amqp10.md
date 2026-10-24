@@ -38,7 +38,9 @@ Addresses follow the [RabbitMQ AMQP 1.0 address format](https://www.rabbitmq.com
 | *(no address)* | Anonymous terminus: each message carries its target in the `to` property | — |
 | *(dynamic)* | An exclusive, auto-delete queue is created and its `/queues/...` address returned in the `attach` | Same |
 
-Dynamic queues live as long as the connection that created them. A refused attach is answered with an `attach` without a terminus followed by a `detach` carrying the reason:
+A dynamic queue is deleted when the link that created it detaches or its connection closes, which is the `delete-on-close` lifetime policy; that policy, as Qpid JMS asks for when creating a temporary queue, is accepted in `dynamic-node-properties`. Any connection may publish to a dynamic queue, but only the one that created it may consume from it.
+
+A refused attach is answered with an `attach` without a terminus followed by a `detach` carrying the reason:
 
 | Condition | When |
 |-----------|------|
@@ -46,7 +48,7 @@ Dynamic queues live as long as the connection that created them. A refused attac
 | `amqp:unauthorized-access` | The user lacks the permission, or the exchange is internal |
 | `amqp:resource-locked` | The queue is exclusive to another connection |
 | `amqp:resource-limit-exceeded` | A dynamic queue cannot be created: the vhost queue limit is reached or disk space is low |
-| `amqp:not-implemented` | `$management` addresses, durable termini, `dynamic-node-properties` or source filters |
+| `amqp:not-implemented` | `$management` addresses, durable termini, `dynamic-node-properties` other than `lifetime-policy: delete-on-close`, or source filters |
 | `amqp:invalid-field` | A dynamic terminus with an address, or a receiving link without a source address |
 
 Publishing requires write permission on the exchange (an empty exchange name for queue targets), consuming requires read permission on the queue. A `user-id` property must match the authenticated user unless the user may impersonate others.
@@ -62,6 +64,12 @@ Incoming transfers are settled by LavinMQ once they are processed (`rcv-settle-m
 | `rejected` | Refused by a queue with `reject-publish` overflow, invalid address, `user-id` mismatch, message larger than `max_message_size`, or a message that could not be decoded |
 
 Each link is granted 65,535 credits at attach; the credit is topped up as deliveries complete. The `message-format` must be `0`. Multi-frame deliveries are reassembled before publishing; an aborted delivery is discarded.
+
+LavinMQ offers the `ANONYMOUS-RELAY` capability in its `open`, so clients such as Qpid JMS publish messages for any destination over one link without a target address, each routed by its `to` property.
+
+## Request-Reply
+
+The requester sets `reply-to` to the address of a dynamic queue it consumes from (a JMS temporary queue), or of a pre-declared queue, and the responder publishes the reply to that address, over a link to it or an anonymous link with `to` set. Direct reply-to (`amq.direct.reply-to`) is not supported.
 
 ## Consuming
 

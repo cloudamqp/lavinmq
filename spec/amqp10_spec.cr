@@ -63,8 +63,10 @@ private class AMQP10SpecClient
 
   def attach_sender(address : String?, handle = 0_u32, name = "sender", dynamic = false,
                     snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil,
-                    initial_delivery_count : UInt32? = nil) : LavinMQ::AMQP10::Attach
-    target = LavinMQ::AMQP10::Target.new(address, dynamic: dynamic).to_value
+                    initial_delivery_count : UInt32? = nil,
+                    dynamic_node_properties : LavinMQ::AMQP10::Value? = nil) : LavinMQ::AMQP10::Attach
+    target = LavinMQ::AMQP10::Target.new(address, dynamic: dynamic,
+      dynamic_node_properties: dynamic_node_properties).to_value
     fields = attach_fields(name, handle, role_receiver: false,
       source: LavinMQ::AMQP10::Value.null, target: target,
       snd_settle_mode: snd_settle_mode, rcv_settle_mode: rcv_settle_mode,
@@ -1487,6 +1489,20 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "offers the ANONYMOUS-RELAY capability" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), expect_open: false)
+      value = client.read_value
+      open = LavinMQ::AMQP10::Open.from_value(value)
+      open.container_id.should eq "lavinmq"
+      open.max_frame_size.should eq LavinMQ::Config.instance.frame_max
+      fields = value.described?.should_not(be_nil).value.list?.should_not(be_nil)
+      capabilities = fields[7].list?.should_not(be_nil)
+      capabilities.map(&.symbol?).should eq ["ANONYMOUS-RELAY"]
+      client.close
+    end
+  end
+
   it "advertises channel-max and refuses sessions on channels above it" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s), expect_open: false)
@@ -2603,6 +2619,52 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "creates dynamic queues with the delete-on-close lifetime policy" do
+    with_amqp_server do |s|
+      # As Qpid JMS asks for when creating a temporary queue
+      delete_on_close = LavinMQ::AMQP10::Value.map([
+        {LavinMQ::AMQP10::Value.symbol("lifetime-policy"),
+         LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(0x2b_u64), LavinMQ::AMQP10::Value.list([] of LavinMQ::AMQP10::Value))},
+      ])
+      client = AMQP10SpecClient.new(amqp_port(s))
+      attach = client.attach_sender(nil, dynamic: true, dynamic_node_properties: delete_on_close)
+      address = attach.target.should_not(be_nil).address.should_not(be_nil)
+      queue_name = address.split("/").last
+      s.vhosts["/"].queue?(queue_name).should be_a LavinMQ::AMQP::Queue
+
+      client.detach
+      should_eventually(be_nil) { s.vhosts["/"].queue?(queue_name) }
+      client.close
+    end
+  end
+
+  it "delivers replies from other connections to a requester's dynamic queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        requests = ch.queue("amqp10-rpc-requests", auto_delete: true)
+        requester = AMQP10SpecClient.new(amqp_port(s))
+        reply_to = requester.attach_receiver(nil, dynamic: true).source.should_not(be_nil).address.should_not(be_nil)
+        requester.flow(credit: 2_u32)
+        requester.attach_sender("/queues/#{requests.name}", handle: 1_u32)
+        requester.publish(1_u32, 1_u32, "request").should eq LavinMQ::AMQP10::Outcome::Accepted
+
+        responder = AMQP10SpecClient.new(amqp_port(s))
+        responder.attach_receiver("/queues/#{requests.name}")
+        responder.flow
+        responder.consume_one.should eq "request"
+        responder.attach_sender(reply_to, handle: 1_u32)
+        responder.publish(1_u32, 1_u32, "reply via target").should eq LavinMQ::AMQP10::Outcome::Accepted
+        responder.attach_sender(nil, handle: 2_u32, name: "anonymous")
+        responder.publish(2_u32, 2_u32, "reply via to", reply_to).should eq LavinMQ::AMQP10::Outcome::Accepted
+
+        requester.consume_one.should eq "reply via target"
+        requester.consume_one.should eq "reply via to"
+        responder.close
+        requester.close
+      end
+    end
+  end
+
   it "rejects unsupported topology and terminus requests without creating queues" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
@@ -2615,6 +2677,14 @@ describe LavinMQ::AMQP10 do
       ])
       client.attach_receiver_detached(nil, name: "dynamic-props", dynamic: true,
         dynamic_node_properties: dynamic_props).closed.should be_true
+      client.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::NOT_IMPLEMENTED
+      delete_on_no_links = LavinMQ::AMQP10::Value.map([
+        {LavinMQ::AMQP10::Value.symbol("lifetime-policy"),
+         LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(0x2c_u64), LavinMQ::AMQP10::Value.list([] of LavinMQ::AMQP10::Value))},
+      ])
+      client.attach_sender_detached(nil, name: "delete-on-no-links", dynamic: true,
+        dynamic_node_properties: delete_on_no_links).closed.should be_true
+      client.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::NOT_IMPLEMENTED
       client.attach_sender_detached(nil, name: "durable-target", dynamic: true,
         durable: 1_u32).closed.should be_true
       client.close
