@@ -1,10 +1,13 @@
 require "./mfile"
+require "./filesystem"
 require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
+require "./persister"
 require "./bool_channel"
+require "./rough_time"
 require "./message_store/requeued_store"
 
 module LavinMQ
@@ -24,17 +27,21 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
+    # When the reader moved into @rfile, see #read_fast?
+    @rfile_since : Time::Instant = RoughTime.instant
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
+                   metadata : ::Log::Metadata = ::Log::Metadata.empty, persister : Persister? = nil)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
+      @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -75,7 +82,7 @@ module LavinMQ
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
           raise Error.new(seg, cause: ex)
         end
@@ -97,7 +104,7 @@ module LavinMQ
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
         raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -109,6 +116,22 @@ module LavinMQ
       end
     end
 
+    # Shifts the next message, under `lock`, and yields it outside the lock with
+    # its segment kept mapped until the block returns, even if the segment is
+    # deleted or the store closed meanwhile. For deliveries, which can be
+    # suspended in a socket write. Returns false if there was no message.
+    def shift_with_lease?(lock : Mutex, consumer = nil, & : Envelope -> _) : Bool
+      env = lock.synchronize { shift?(consumer).try &.lease } || return false
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
+    # The envelope points into the segment, so it's only valid while the lock
+    # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
@@ -118,7 +141,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           # sp has already been removed from @requeued; drop its accounting too
           # so @size/@bytesize don't leak when the segment is gone or the
@@ -151,7 +174,7 @@ module LavinMQ
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -173,15 +196,13 @@ module LavinMQ
       end
     end
 
-    # Like `#[]`, but the returned message owns all its memory: the record is
-    # copied out of the segment's mmap, so the message stays valid after the
-    # segment is deleted and unmapped. For messages that outlive the caller's
-    # @msg_store_lock hold, e.g. dead-lettering (see AMQP::Queue#expire_msg).
-    def copy(sp : SegmentPosition) : BytesMessage
+    # Like `#[]`, as an envelope, with the segment position made from the message
+    def envelope(sp : SegmentPosition, redelivered = false) : Envelope
       raise ClosedError.new if @closed
       segment = @segments[sp.segment]
       begin
-        BytesMessage.from_bytes(segment.to_slice(sp.position.to_i64, sp.bytesize.to_i64).dup)
+        msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+        Envelope.new(SegmentPosition.make(sp.segment, sp.position, msg), msg, redelivered: redelivered, segment: segment)
       rescue ex
         raise Error.new(segment, cause: ex)
       end
@@ -189,6 +210,9 @@ module LavinMQ
 
     def delete(sp) : Nil
       raise ClosedError.new if @closed
+      # A message routed outside the lock can have its segment purged meanwhile,
+      # and @acks would otherwise create an ack file for the deleted segment
+      return unless @segments.has_key?(sp.segment)
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
@@ -293,6 +317,7 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
+      # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
     end
 
@@ -304,6 +329,9 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
+      # A delivery may still be reading from a segment, e.g. a basic.get that
+      # isn't waited for like consumers are, MFile#close only unmaps it once
+      # the delivery releases it (see Envelope#lease)
       if replicator = @replicator
         @segments.each_value do |segment|
           replicator.register_file segment.path
@@ -319,9 +347,12 @@ module LavinMQ
       end
     end
 
+    # Called without the queue's lock (HTTP API, stats), so @size and
+    # @bytesize can change in between the reads
     def avg_bytesize : UInt32
-      return 0u32 if @size.zero?
-      (@bytesize / @size).to_u32
+      size = @size
+      return 0u32 if size.zero?
+      Math.min(@bytesize // size, UInt32::MAX).to_u32
     end
 
     private def state_snapshot : String
@@ -336,14 +367,22 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
-      @rfile.dontneed unless @rfile.closed?
+      # Nothing follows the segment being written. A consumer that has caught
+      # up with the publisher gets here on every take, so this must not scan
+      # the segments or drop the pages the publisher is about to write
+      return if @rfile_id == @wfile_id
       prev_id = @rfile_id
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
+        @rfile.dontneed unless @rfile.closed?
         rfile = @segments[id]
-        rfile.advise(MFile::Advice::Sequential)
+        # Not the segment being written, it's read as it's written and cached
+        if id != @wfile_id && read_fast?(@rfile, @rfile_since)
+          rfile.advise(MFile::Advice::Sequential)
+        end
         @rfile_id = id
         @rfile = rfile
+        @rfile_since = RoughTime.instant
         @log.debug { "select_next_read_segment: #{prev_id} -> #{id}, segments=#{@segments.keys}" }
         rfile
       else
@@ -361,8 +400,44 @@ module LavinMQ
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      # After the replication dispatch, so the fsync request the persister
+      # sends followers comes after this append in the stream
+      if msg.needs_sync? && (persister = @persister)
+        persister.mark_dirty(wfile)
+      end
       @segment_msg_count[wfile_id] += 1
       sp
+    end
+
+    # Segments are mapped without readahead. Readahead on a page fault caches
+    # up to the readahead window (4 MiB on btrfs, 128 KiB on ext4/XFS) around
+    # it: for the segment being written that's its empty rest, and for a slow
+    # reader the part it hasn't reached yet, kept for as long as the queue is
+    # written to or read, which with many queues adds up to gigabytes. It also
+    # keeps the page cache in page sized folios, so an msync only writes the
+    # pages that changed. Writing faults once per page with or without
+    # readahead. Fast readers get readahead back, see #read_fast?, and so
+    # does loading at startup, see #load_stats_from_segments.
+    private def open_segment(path : String, capacity : Int? = nil) : MFile
+      mfile = MFile.new(path, capacity)
+      mfile.advise(MFile::Advice::Random)
+      mfile
+    end
+
+    # A reader that got through its previous segment at least this fast gets
+    # readahead for its next one. A slower reader isn't waiting on the disk,
+    # so readahead wouldn't speed it up. Reading a segment a page per fault,
+    # without readahead, is faster than this even on slow disks, so a reader
+    # that is held back by the disk still gets it.
+    READAHEAD_MIN_BYTES_PER_SECOND = 1024 * 1024
+
+    private def read_fast?(segment : MFile, since : Time::Instant) : Bool
+      segment.size >= READAHEAD_MIN_BYTES_PER_SECOND * (RoughTime.instant - since).total_seconds
+    end
+
+    # Called on rollover for the segment that was just written to
+    private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
+      mfile.dontneed unless mfile == @rfile
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
@@ -370,11 +445,11 @@ module LavinMQ
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
       end
-      @wfile.dontneed unless @wfile == @rfile
+      unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = MFile.new(path, capacity)
+      wfile = open_segment(path, capacity)
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -405,6 +480,10 @@ module LavinMQ
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
       mfile = MFile.new(path, capacity, writeonly: true)
+      # Page sized folios, so a sync doesn't rewrite up to 128 KiB of acks
+      # for each 4 byte append (see #open_segment). A page fault
+      # still covers 1024 acks, so it's cheap enough to always do.
+      mfile.advise(MFile::Advice::Random)
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
@@ -477,9 +556,9 @@ module LavinMQ
         path = File.join(@msg_dir, filename)
         file = if idx == last_idx
                  # expand the last segment
-                 MFile.new(path, Config.instance.segment_size)
+                 open_segment(path, Config.instance.segment_size)
                else
-                 MFile.new(path)
+                 open_segment(path)
                end
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
@@ -495,7 +574,7 @@ module LavinMQ
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = MFile.new(path, Config.instance.segment_size)
+              file = open_segment(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
@@ -533,6 +612,10 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
+        # Counting a segment's messages reads it through, as does skipping
+        # its acked messages, in order. Without readahead (see #open_segment)
+        # that would fault it in a page at a time.
+        mfile.advise(MFile::Advice::Sequential)
         begin
           read_metadata_file(seg, mfile)
         rescue File::NotFoundError | MetadataError
@@ -540,6 +623,7 @@ module LavinMQ
           break if @closed
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
+        mfile.advise(MFile::Advice::Random)
 
         counter &+= 1
         if is_long_queue
@@ -631,7 +715,6 @@ module LavinMQ
 
       File.open(tmp_path, "w") do |f|
         positions.each { |p| f.write_bytes(p, IO::ByteFormat::SystemEndian) }
-        f.fsync
       end
 
       # Unmap the old file before renaming so mmap stops pinning the old inode.
@@ -639,7 +722,7 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      File.rename(tmp_path, final_path)
+      FileSystem.durable_rename(tmp_path, final_path)
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the
@@ -661,6 +744,13 @@ module LavinMQ
         @bytesize += bytesize
         @size += 1
       rescue IO::EOFError
+        # EOF at a record boundary is the normal end of an intact segment;
+        # anything before it is an incomplete record to drop.
+        if pos && pos < mfile.size
+          mfile.resize(pos)
+          @replicator.try &.replace_file(mfile) # followers append at their own end
+          @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
+        end
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }

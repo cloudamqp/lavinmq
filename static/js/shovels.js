@@ -102,6 +102,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
+  DOM.wireTooltipAnchors(tr)
   const btns = document.createElement('div')
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({

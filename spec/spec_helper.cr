@@ -110,12 +110,26 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
   address = state[:address] || return
   port = state[:port] || return
 
+  socket = rebind_tcp(address, port)
   if tls_context = state[:tls_context]
-    server.bind_tls(address, port, tls_context)
+    server.bind_tls(socket, tls_context)
   else
-    server.bind_tcp(address, port)
+    server.bind_tcp(socket)
   end
   spawn(name: name) { server.listen } if state[:listening]
+end
+
+# The restart only just closed the listener on this port, and binding it again
+# right away sometimes fails with "Address already in use" on macOS, so retry
+# for a while. The port must stay the same, as specs may hold URLs to it.
+private def rebind_tcp(address : String, port : Int32) : TCPServer
+  deadline = Time.instant + 5.seconds
+  loop do
+    return TCPServer.new(address, port)
+  rescue ex : Socket::BindError
+    raise ex if Time.instant >= deadline
+    sleep 10.milliseconds
+  end
 end
 
 def restart_server(server : LavinMQ::Server)
@@ -152,6 +166,11 @@ end
 
 def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+end
+
+def amqp_tls_port(s)
+  tls_listeners = s.amqp_server.@tls_contexts.keys.compact_map(&.as?(TCPServer))
+  tls_listeners.first.local_address.port
 end
 
 def with_raw_amqp_connection(s, &)
@@ -233,9 +252,31 @@ def wait_for(timeout = WAIT_FOR_TIMEOUT, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
+# Lowers the soft limit on open files to 0 until the block returns, so that
+# opening another file or socket fails with EMFILE, while open ones still work.
+# Unlike a limit at the lowest free descriptor, it holds when a descriptor is
+# closed meanwhile, like a closed server's stats loop closing its statm file
+# when it wakes up. Waits in the block need a shorter timeout than the spec, as
+# a spec that times out never returns from the block, which would leave the
+# limit lowered for the specs after it.
+def without_free_file_descriptors(&)
+  rlimit = uninitialized LibC::Rlimit
+  raise RuntimeError.from_errno("getrlimit") unless LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  original = rlimit.rlim_cur
+  rlimit.rlim_cur = typeof(original).new(0)
+  raise RuntimeError.from_errno("setrlimit") unless LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  begin
+    yield
+  ensure
+    rlimit.rlim_cur = original
+    LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit))
+  end
+end
+
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
@@ -249,6 +290,12 @@ def with_amqp_server(tls = false, replicator = nil,
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
+    end
+    if extra_tls_listener
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      amqp_server.bind_tls("localhost", 0, ctx)
     end
     spawn(name: "amqp listener") { amqp_server.listen }
     Fiber.yield
@@ -308,6 +355,9 @@ class NoOpReplicator
   def delete_file(path : String)
   end
 
+  def delete_dir(path : String)
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
@@ -330,6 +380,12 @@ class NoOpReplicator
   def wait_for_followers : Nil
   end
 
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
+  end
+
   def close
   end
 
@@ -346,8 +402,10 @@ end
 
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
                      replicator = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, &)
-  with_amqp_server(replicator: replicator, authenticator: authenticator, file: file, line: line) do |s|
+  with_amqp_server(replicator: replicator, authenticator: authenticator,
+    extra_tls_listener: extra_tls_listener, file: file, line: line) do |s|
     h = s.http_server
     addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
     spawn(name: "http listen") { h.listen }
@@ -511,4 +569,18 @@ Spec.around_each do |example|
   ensure
     FileUtils.rm_rf data_dir
   end
+end
+
+# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
+# mapping of the file at `path`
+def vm_flags(path : String) : Array(String)
+  in_mapping = false
+  File.each_line("/proc/self/smaps") do |line|
+    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
+      in_mapping = line.ends_with?(" #{path}")
+    elsif in_mapping && line.starts_with?("VmFlags:")
+      return line.split[1..]
+    end
+  end
+  fail "#{path} isn't mapped"
 end

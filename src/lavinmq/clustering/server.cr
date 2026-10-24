@@ -5,6 +5,7 @@ require "./follower"
 require "./checksums"
 require "./coordinator"
 require "../config"
+require "../accept_loop"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
@@ -177,6 +178,24 @@ module LavinMQ
         end
       end
 
+      def delete_dir(path : String)
+        prefix = "#{strip_datadir path}/"
+        deleted = @file_index.lock do |files, checksums|
+          paths = files.keys.select!(&.starts_with?(prefix))
+          paths.each do |p|
+            files.delete(p)
+            checksums.delete(p)
+          end
+          paths
+        end
+        each_follower do |f|
+          deleted.each do |p|
+            f.delete(p)
+            f.forget_baseline(p)
+          end
+        end
+      end
+
       def nr_of_files
         @file_index.shared { |files, _checksums| files.size }
       end
@@ -314,8 +333,7 @@ module LavinMQ
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
-        loop do
-          socket = server.accept? || break
+        AcceptLoop.each(server, "Clustering listener") do |socket|
           spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
@@ -455,6 +473,16 @@ module LavinMQ
       # earlier and left the ISR dirty) may lack data that's about to be
       # acknowledged, so its removal must be committed to the coordinator
       # before this returns (see flush_isr).
+      def request_fsync(paths : Enumerable(String)) : Nil
+        return if paths.empty?
+        relative = paths.map { |p| strip_datadir p }
+        followers.each &.request_fsync(relative)
+      end
+
+      def request_syncfs : Nil
+        followers.each &.request_syncfs
+      end
+
       def wait_for_followers : Nil
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for_confirm }

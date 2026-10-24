@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory high watermark in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
@@ -55,6 +55,12 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
 | `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
+| `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue (labeled by `dead_letter_strategy`) |
+
+The `dead_letter_strategy` label is `at_most_once` when the message was published to a dead letter exchange, and `disabled` when there was no dead letter exchange and the message was discarded.
 
 #### Runtime and clustering
 
@@ -68,8 +74,8 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `stats_system_collection_duration_seconds` | gauge | Time to collect system metrics |
 | `total_connected_followers` | gauge | Number of follower nodes connected |
 | `follower_lag_in_bytes` | gauge | Bytes not yet synchronized to a follower (labeled by `id`) |
-| `follower_bytes_sent_total` | counter | Bytes streamed to a follower since it connected (labeled by `id`), served on the leader |
-| `follower_bytes_acked_total` | counter | Bytes a follower acknowledged since it connected (labeled by `id`), served on the leader |
+| `follower_bytes_sent_total` | counter | Bytes streamed to a follower since it started streaming (labeled by `id`), served on the leader |
+| `follower_bytes_acked_total` | counter | Bytes a follower acknowledged since it started streaming (labeled by `id`), served on the leader |
 | `cluster_received_bytes_total` | counter | Bytes streamed from the current leader, served on a follower |
 | `mfile_count` | gauge | Number of memory-mapped files (`MFile` instances) currently open |
 
@@ -86,6 +92,25 @@ A joining follower first copies files in bulk and starts streaming once it is
 caught up. That phase is reported per follower by `GET /api/nodes`, where
 `uncompressed_bytes` and `compressed_bytes` cover every byte written to the
 follower, bulk transfer included.
+
+#### Socket buffer pool
+
+Client connections take their socket read and write buffers from a pool and
+return them when idle. Each thread caches up to 4 MiB of idle buffers per
+buffer size. The metrics are labeled by `buffer_size` in bytes, so after a
+config reload that changes `socket_buffer_size` there is a series for each
+size still in use.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `socket_buffer_pool_available` | gauge | Buffers cached for reuse |
+| `socket_buffer_pool_allocated_total` | counter | Buffers allocated because none was cached |
+| `socket_buffer_pool_reused_total` | counter | Buffers taken from the cache |
+| `socket_buffer_pool_released_total` | counter | Buffers returned to the cache |
+| `socket_buffer_pool_dropped_total` | counter | Buffers left to the GC because the cache was full |
+
+A steadily increasing `socket_buffer_pool_dropped_total` means more connections
+are busy at once than the cache holds, so buffers are reallocated.
 
 #### Garbage collection
 
@@ -163,6 +188,8 @@ LavinMQ collects rate statistics at a configurable interval:
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
 | `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
 
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
+
 ## Logging
 
 | Config Key | Section | Description |
@@ -179,6 +206,6 @@ The management API provides live log streaming via Server-Sent Events at `GET /a
 | Signal | Behavior |
 |--------|----------|
 | `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting connections, close existing connections, flush to disk, exit |
-| `SIGUSR1` | Print GC statistics and fiber dump to stdout |
+| `SIGUSR1` | Print GC statistics, a fiber dump with stack usage per fiber, and socket buffer pool statistics (buffer size, threads, and buffers available, allocated, reused, released to the pool, and dropped when a thread's cache is full) to stdout |
 | `SIGUSR2` | Run garbage collection |
 | `SIGHUP` | Reload server configuration |

@@ -69,9 +69,13 @@ module LavinMQ
       if vhosts = body["vhosts"]?
         # Create with save: false so each vhost doesn't rewrite+fsync vhosts.json
         # (and users.json, via the permissions create adds); save both once at the end.
+        # Definitions with an mqtt_permissions key hold every group of the
+        # exported server, so a vhost they create gets only those groups. A
+        # locked down vhost then stays locked down, also when it has no group.
+        mqtt_default_group = body["mqtt_permissions"]?.nil?
         vhosts.as_a.each do |v|
           name = v["name"].as_s
-          @amqp_server.vhosts.create name, save: false
+          @amqp_server.vhosts.create name, save: false, mqtt_default_group: mqtt_default_group
         end
         @amqp_server.vhosts.save!
         @amqp_server.users.save!
@@ -159,15 +163,10 @@ module LavinMQ
         parsed = Hash(VHost, Array(MQTT::PermissionGroup)).new do |hash, vhost|
           hash[vhost] = Array(MQTT::PermissionGroup).new
         end
-        persisted = Hash(VHost, Bool).new
         groups.as_a.each do |g|
           next unless v = fetch_vhost?(g)
-          service = v.mqtt_permission_service
-          has_permissions = persisted.fetch(v) do
-            persisted[v] = File.exists?(File.join(v.data_dir, "mqtt_permissions.json"))
-          end
           name = g["name"].as_s
-          next if skip_existing && has_permissions && service[name]?
+          next if skip_existing && v.mqtt_permission_service[name]?
           members = (m = g["members"]?) ? Array(String).from_json(m.to_json) : Array(String).new
           rules = (r = g["rules"]?) ? Array(MQTT::PermissionGroup::Rule).from_json(r.to_json) : Array(MQTT::PermissionGroup::Rule).new
           parsed[v] << MQTT::PermissionGroup.new(name, v.name, members, rules).validate!
@@ -336,7 +335,7 @@ module LavinMQ
       json.array do
         vhosts.each_value do |v|
           v.each_queue do |q|
-            next if q.exclusive?
+            next if q.exclusive? || q.internal?
             {
               "name":        q.name,
               "vhost":       q.vhost.name,
@@ -362,7 +361,10 @@ module LavinMQ
     private def export_exchanges(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges.reject(&.internal?).each do |e|
+          # Internal exchanges with user names (x-mqtt-topic, x-federation-upstream)
+          # are exported: their bindings are exported either way, so skipping the
+          # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
+          v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
             delayed = e.arguments["x-delayed-exchange"]?
             if delayed
               arguments = e.arguments.clone

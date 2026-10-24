@@ -1,3 +1,4 @@
+require "../../filesystem"
 require "./durable_queue"
 
 module LavinMQ::AMQP
@@ -20,15 +21,16 @@ module LavinMQ::AMQP
       super
     end
 
-    private def handle_arguments
-      super
-      @effective_args << "x-max-priority"
+    private def settings_from_arguments : Settings
+      settings = super
+      settings.effective_args << "x-max-priority"
+      settings
     end
 
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata, persister: @vhost.persister)
     end
 
     class PriorityMessageStore < MessageStore
@@ -45,6 +47,7 @@ module LavinMQ::AMQP
         @replicator : Clustering::Replicator?,
         @durable : Bool = true,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
+        @persister : Persister? = nil,
       )
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
@@ -56,12 +59,14 @@ module LavinMQ::AMQP
       end
 
       private def init_sub_stores(stores)
+        Dir.mkdir_p @msg_dir
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
+          Dir.mkdir(sub_msg_dir) unless Dir.exists?(sub_msg_dir)
+          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}), persister: @persister)
           stores << store
         end
+        FileSystem.fsync_dir(@msg_dir) if @durable
       end
 
       private def migrate_from_single_store
@@ -70,7 +75,7 @@ module LavinMQ::AMQP
           raise "Message store #{@msg_dir} contains messages that should be migrated, " \
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
-        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
+        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
         msg_count = old_store.size
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
@@ -102,12 +107,9 @@ module LavinMQ::AMQP
         false
       end
 
-      # returns the substore for the priority
+      # returns the substore for the priority, clamped to max_priority
       private def store_for(prio : UInt8, &)
-        unless 0 <= prio <= @max_priority
-          raise ArgumentError.new "Priority must be between 0 and #{@max_priority}, got #{prio}"
-        end
-        yield @stores[prio]
+        yield @stores[Math.min(prio, @max_priority)]
       end
 
       private def store_for(sp : SegmentPosition, &)
@@ -130,7 +132,7 @@ module LavinMQ::AMQP
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        prio = Math.min(msg.properties.priority || 0u8, @max_priority)
+        prio = msg.properties.priority || 0u8
         was_empty = size.zero?
         sp = store_for prio, &.push(msg)
         @empty.set false if was_empty
@@ -167,9 +169,9 @@ module LavinMQ::AMQP
         store_for sp, &.[sp]
       end
 
-      def copy(sp : SegmentPosition) : BytesMessage
+      def envelope(sp : SegmentPosition, redelivered = false) : Envelope
         raise ClosedError.new if @closed
-        store_for sp, &.copy(sp)
+        store_for sp, &.envelope(sp, redelivered)
       end
 
       def delete(sp) : Nil

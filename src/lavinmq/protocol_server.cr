@@ -2,6 +2,8 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "./accept_loop"
+require "../stdlib/io_buffered"
 
 module LavinMQ
   enum Protocol
@@ -110,8 +112,7 @@ module LavinMQ
     end
 
     private def listen_tcp(s : TCPServer)
-      loop do
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} listener") do |client|
         next client.close if closed? || @server.closed?
         accept_tcp(client)
       end
@@ -121,8 +122,7 @@ module LavinMQ
     end
 
     private def listen_unix(s : UNIXServer)
-      loop do # do not try to use while
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} unix listener") do |client|
         next client.close if closed? || @server.closed?
         accept_unix(client)
       end
@@ -132,8 +132,7 @@ module LavinMQ
     end
 
     private def listen_tls(s : TCPServer, context : OpenSSL::SSL::Context::Server)
-      loop do # do not try to use while
-        client = s.accept? || break
+      AcceptLoop.each(s, "#{@protocol} TLS listener") do |client|
         next client.close if closed? || @server.closed?
         accept_tls(client, context)
       end
@@ -192,6 +191,7 @@ module LavinMQ
     private def accept_unix(client)
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
+        set_write_timeout(client)
         set_buffer_size(client)
         if conn_info = ProxyProtocol.parse(client)
           # PROXY protocol over unix socket
@@ -209,18 +209,23 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
+        set_tls_tcp_read_buffer(client)
+        # Followers proxy TLS connections unterminated, with a PROXY header in front
+        conn_info = follower_proxy_conn_info(client) || ConnectionInfo.new(remote_addr, client.local_address)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
-        handle_tls_connection(ssl_client, client.local_address, remote_addr)
+        Log.info { "#{conn_info.remote_address} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
+        handle_tls_connection(ssl_client, conn_info)
+      rescue ex : OpenSSL::SSL::Error
+        Log.warn { "Error accepting TLS connection from #{remote_addr}: #{ex.message}" }
+        client.close rescue nil
       rescue ex
-        Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+        Log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
     end
 
-    private def handle_tls_connection(ssl_client, local_addr, remote_addr)
+    private def handle_tls_connection(ssl_client, conn_info)
       set_buffer_size(ssl_client)
-      conn_info = ConnectionInfo.new(remote_addr, local_addr)
       conn_info.ssl = true
       conn_info.ssl_version = ssl_client.tls_version
       conn_info.ssl_cipher = ssl_client.cipher
@@ -238,12 +243,19 @@ module LavinMQ
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
         end
       else
-        if @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          parsed_proxy = ProxyProtocol.parse(client)
-          return parsed_proxy if parsed_proxy
+        if parsed_proxy = follower_proxy_conn_info(client)
+          return parsed_proxy
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)
+    end
+
+    # Parses the PROXY header a follower sends in front of connections it proxies to the leader
+    private def follower_proxy_conn_info(client) : ConnectionInfo?
+      return unless @config.clustering?
+      remote_address = client.remote_address
+      return unless @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+      ProxyProtocol.parse(client)
     end
 
     private def trusted_proxy_source?(address : String) : Bool
@@ -264,11 +276,41 @@ module LavinMQ
       socket.tcp_nodelay = true if @config.tcp_nodelay?
       @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
+      set_write_timeout(socket)
+    end
+
+    # Writes, and closing the connection, wait for the client's write lock,
+    # so a client that stops reading mustn't block a write forever
+    private def set_write_timeout(socket)
+      socket.write_timeout = @config.tcp_send_timeout.seconds
+    end
+
+    # The TCP socket under a TLS socket buffers OpenSSL's reads (a record
+    # header, then its body). Pooled, so idle TLS connections don't hold it.
+    # Writes aren't buffered (sync), OpenSSL writes whole records.
+    private def set_tls_tcp_read_buffer(socket)
+      if @config.socket_buffer_size.positive?
+        socket.buffer_pool = buffer_pool
+        socket.read_buffering = true
+      end
+    end
+
+    @buffer_pool : IO::BufferPool?
+
+    # The pool for the configured socket_buffer_size, cached so that accepting
+    # a connection doesn't take IO::BufferPool.for's lock. Looked up again when
+    # a config reload changes the size.
+    private def buffer_pool : IO::BufferPool
+      size = @config.socket_buffer_size
+      if (pool = @buffer_pool) && pool.buffer_size == size
+        return pool
+      end
+      @buffer_pool = IO::BufferPool.for(size)
     end
 
     private def set_buffer_size(socket)
       if @config.socket_buffer_size.positive?
-        socket.buffer_size = @config.socket_buffer_size
+        socket.buffer_pool = buffer_pool
         socket.sync = false
         socket.read_buffering = true
       else

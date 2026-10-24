@@ -346,11 +346,11 @@ describe LavinMQ::Shovel do
             tag3 = tag
           when timeout(2.seconds)
           end
-          tag3.should_not be_nil
+          tag3 = tag3.should_not be_nil
           sleep 50.milliseconds # a few ack timeouts on the same channel
           q.consumer_count.should eq 1
 
-          source.ack(tag3.not_nil!, batch: false)
+          source.ack(tag3, batch: false)
           should_eventually(eq 0) { q.unacked_count }
           q.message_count.should eq 0
           source.stop
@@ -523,7 +523,7 @@ describe LavinMQ::Shovel do
           # every in-flight message must be requeued there — otherwise a later
           # cumulative ack sweeps it away undelivered. When the whole shovel is
           # stopping the source is already closed and the Runner ignores it.
-          dest.@ch.not_nil!.cleanup
+          dest.@ch.not_nil!("destination channel not open").cleanup
           voided = listener.outcomes.select { |(_, outcome)| outcome.retry? }
           voided.size.should eq(50 - listener.outcomes.count { |(_, outcome)| outcome.confirmed? })
         end
@@ -611,7 +611,10 @@ describe LavinMQ::Shovel do
           left = q1.message_count
           (delivered.size + left).should eq 3
           delivered.uniq.size.should eq delivered.size
-          left_bodies = Array(String).new(left) { q1.get(no_ack: true).not_nil!.body_io.to_s }
+          left_bodies = Array(String).new(left) do
+            msg = q1.get(no_ack: true).should_not be_nil
+            msg.body_io.to_s
+          end
           (delivered + left_bodies).sort.should eq ["m1", "m2", "newer"]
         ensure
           server.try &.close
@@ -783,7 +786,8 @@ describe LavinMQ::Shovel do
           x.publish_confirm "a" * 200_000, "lm_q1"
           shovel.run
           sleep 10.milliseconds
-          q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 200_000
+          msg = q2.get(no_ack: true).should_not be_nil
+          msg.body_io.to_s.bytesize.should eq 200_000
         end
       end
     end
@@ -989,7 +993,8 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me", "od_q1"
           rmsg = nil
           wait_for { rmsg = q2.get(no_ack: true) }
-          rmsg.not_nil!.body_io.to_s.should eq "shovel me"
+          msg = rmsg.should_not be_nil
+          msg.body_io.to_s.should eq "shovel me"
         end
       ensure
         shovel.try &.terminate
@@ -1139,7 +1144,8 @@ describe LavinMQ::Shovel do
           shovel = LavinMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
           spawn { shovel.run }
           wait_for { shovel.details_tuple[:error] }
-          shovel.details_tuple[:error].not_nil!.should contain "ACCESS_REFUSED"
+          error = shovel.details_tuple[:error].should_not be_nil
+          error.should contain "ACCESS_REFUSED"
           shovel.terminate
           shovel.state.to_s.should eq "Terminated"
         end
@@ -2158,7 +2164,7 @@ describe LavinMQ::Shovel do
         runner.details_tuple[:consecutive_failures].should eq 1
         runner.pending_backoff.should be <= 0.5.seconds
         # ...whereas the next round after the deadline doubles the window.
-        sleep runner.pending_backoff + 0.2.seconds # past the deadline as the 100ms rough clock sees it
+        sleep runner.pending_backoff + 20.milliseconds # past the deadline as the coarse clock sees it
         runner.report(3_u64, LavinMQ::Shovel::Outcome::Retry)
         runner.details_tuple[:consecutive_failures].should eq 2
         runner.pending_backoff.should be > 0.5.seconds
@@ -2190,7 +2196,7 @@ describe LavinMQ::Shovel do
           runner.pause
           runner.resume
           wait_for { runner.running? }
-          sleep 0.6.seconds # the old run's backoff has ended by now
+          sleep 0.5.seconds # the old run's backoff has ended by now
           dest.pushes.should eq 0
           runner.running?.should be_true
         ensure
@@ -2448,6 +2454,30 @@ describe LavinMQ::Shovel do
         end
       ensure
         dead.try &.close
+      end
+    end
+  end
+
+  describe "rejected parameter update" do
+    it "keeps the old shovel running when a shovel update is rejected" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("sr_q1", true, false)
+        vhost.declare_queue("sr_q2", true, false)
+        good = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2"}))
+        vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", good))
+        shovel = vhost.shovels["sr_shovel"]
+        wait_for { shovel.running? }
+
+        # Passes validate_config! but fails to parse; the update must be a no-op
+        bad = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2", "reconnect-delay": "5"}))
+        expect_raises(TypeCastError) do
+          vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", bad))
+        end
+
+        vhost.parameters[{"shovel", "sr_shovel"}]?.should_not(be_nil).value.should eq good
+        vhost.shovels["sr_shovel"].should be shovel
+        shovel.running?.should be_true
       end
     end
   end

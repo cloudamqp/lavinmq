@@ -10,21 +10,15 @@ require "./connection_reply_code"
 require "./reply_text"
 require "../rough_time"
 require "../connection_info"
-require "../observable"
-require "./queue/event"
 require "../auth/permission_cache"
+require "../../stdlib/io_buffered_discard"
+require "../../stdlib/socket_shutdown"
 
 module LavinMQ
   module AMQP
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
-      include Observer(QueueEvent)
-
-      def on(event : QueueEvent, data : Object?)
-        @exclusive_queues.delete(data) if event.deleted? && data.is_a?(Queue)
-      end
-
       getter vhost, log, name
       getter user
       getter max_frame_size : UInt32
@@ -542,8 +536,8 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
-        # Iterate a snapshot because Queue#close fires QueueEvent::Deleted,
-        # whose observer mutates @exclusive_queues.
+        # Iterate a snapshot because Queue#close deletes exclusive queues,
+        # which calls back into #exclusive_queue_deleted.
         @exclusive_queues.dup.each(&.close)
         @exclusive_queues.clear
         case user = @user
@@ -552,14 +546,29 @@ module LavinMQ
         end
       end
 
+      # The connection is first shut down, which makes an ongoing write,
+      # e.g. of a large message to a slowly reading client, fail right away
+      # instead of holding the write lock. The socket is then closed under
+      # the write lock, so that closing never runs concurrently with a write.
+      # Buffered data is dropped instead of flushed: after a failed write it
+      # may already have been partly sent, and the connection is being
+      # abandoned anyway.
       private def close_socket
         @running = false
-        @socket.close
+        socket = @socket
+        socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
+        @write_lock.synchronize do
+          socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
+          socket.close
+        end
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
 
-      def close(reason = nil, timeout : Time::Span = 5.seconds)
+      # *timeout* applies to new socket writes, not to one already blocked on a
+      # client that doesn't read. *force_close_timeout* shuts the socket down if
+      # the Close frame isn't confirmed by then, which aborts such a write.
+      def close(reason = nil, timeout : Time::Span = 5.seconds, force_close_timeout : Time::Span? = nil)
         reason ||= "Connection closed"
         @log.info { "Closing: #{reason}" }
 
@@ -569,10 +578,28 @@ module LavinMQ
           socket.read_timeout = timeout
         end
 
-        code = ConnectionReplyCode::CONNECTION_FORCED
-        send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        send_done = start_force_close_timer(force_close_timeout) if force_close_timeout
+        begin
+          code = ConnectionReplyCode::CONNECTION_FORCED
+          send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        ensure
+          send_done.try &.send(nil)
+        end
       ensure
         @running = false
+      end
+
+      private def start_force_close_timer(force_close_timeout : Time::Span) : ::Channel(Nil)
+        send_done = ::Channel(Nil).new(1)
+        spawn(name: "AMQP::Client#close force close timer") do
+          select
+          when send_done.receive
+          when timeout(force_close_timeout)
+            @log.info { "Sending the Close frame didn't complete within #{force_close_timeout.total_seconds}s, shutting the connection down" }
+            close_socket
+          end
+        end
+        send_done
       end
 
       def force_close
@@ -614,6 +641,10 @@ module LavinMQ
       def send_access_refused(frame, text)
         @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
         send_channel_close(frame, ChannelReplyCode::ACCESS_REFUSED, text)
+      end
+
+      def send_internal_queue_refused(frame, name)
+        send_access_refused(frame, "Queue '#{name}' in vhost '#{@vhost.name}' is an internal queue")
       end
 
       def send_not_found(frame, text = "")
@@ -724,8 +755,8 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def delete_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
@@ -734,6 +765,8 @@ module LavinMQ
         q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif frame.if_unused && !q.consumer_count.zero?
@@ -752,6 +785,11 @@ module LavinMQ
 
       def queue_exclusive_to_other_client?(q)
         q.exclusive? && !@exclusive_queues.includes?(q)
+      end
+
+      # Called by Queue#delete on the queue's exclusive owner
+      def exclusive_queue_deleted(q : Queue) : Nil
+        @exclusive_queues.delete(q)
       end
 
       private def declare_queue(frame)
@@ -782,7 +820,9 @@ module LavinMQ
       end
 
       private def redeclare_queue(frame, q)
-        if queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
+        if q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
+        elsif queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
           q.redeclare
@@ -822,7 +862,7 @@ module LavinMQ
         if frame.exclusive
           q = @vhost.queue(frame.queue_name)
           @exclusive_queues << q
-          q.register_observer(self)
+          q.exclusive_owner = self
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
@@ -830,22 +870,18 @@ module LavinMQ
       end
 
       private def bind_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
           # according to spec if both queue name and routing key is empty,
           # then substitute them with the name of the last declared queue
           if frame.routing_key.empty?
-            frame.routing_key = @last_queue_name.not_nil!
+            frame.routing_key = last_queue_name
           end
         end
         return unless valid_q_bind_unbind?(frame)
+        return unless q = bindable_queue?(frame)
 
-        q = @vhost.queue?(frame.queue_name)
-        if q.nil?
-          send_not_found frame, "Queue '#{frame.queue_name}' not found"
-        elsif !@vhost.exchange_exists?(frame.exchange_name)
-          send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
-        elsif !@user.can_read?(@vhost.name, frame.exchange_name)
+        if !@user.can_read?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
         elsif !@user.can_write?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
@@ -861,9 +897,23 @@ module LavinMQ
         end
       end
 
+      private def bindable_queue?(frame) : Queue?
+        q = @vhost.queue?(frame.queue_name)
+        if q.nil?
+          send_not_found frame, "Queue '#{frame.queue_name}' not found"
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
+        elsif !@vhost.exchange_exists?(frame.exchange_name)
+          send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
+        else
+          return q
+        end
+        nil
+      end
+
       private def unbind_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         return unless valid_q_bind_unbind?(frame)
 
@@ -871,6 +921,8 @@ module LavinMQ
         if q.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif !@vhost.exchange_exists?(frame.exchange_name)
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -942,8 +994,8 @@ module LavinMQ
       end
 
       private def purge_queue(frame)
-        if frame.queue_name.empty? && @last_queue_name
-          frame.queue_name = @last_queue_name.not_nil!
+        if frame.queue_name.empty? && (last_queue_name = @last_queue_name)
+          frame.queue_name = last_queue_name
         end
         unless @user.can_read?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
@@ -952,7 +1004,9 @@ module LavinMQ
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
         elsif q = @vhost.queue?(frame.queue_name)
-          if queue_exclusive_to_other_client?(q)
+          if q.internal?
+            send_internal_queue_refused(frame, frame.queue_name)
+          elsif queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else
             messages_purged = q.purge
@@ -974,8 +1028,8 @@ module LavinMQ
       end
 
       private def consume(frame)
-        if frame.queue.empty? && @last_queue_name
-          frame.queue = @last_queue_name.not_nil!
+        if frame.queue.empty? && (last_queue_name = @last_queue_name)
+          frame.queue = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
@@ -989,8 +1043,8 @@ module LavinMQ
       end
 
       private def basic_get(frame)
-        if frame.queue.empty? && @last_queue_name
-          frame.queue = @last_queue_name.not_nil!
+        if frame.queue.empty? && (last_queue_name = @last_queue_name)
+          frame.queue = last_queue_name
         end
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")

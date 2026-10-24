@@ -38,7 +38,7 @@ describe LavinMQ::Server do
 
     begin
       server.start_log_exchange
-      log_channel = server.@log_exchange_channel.not_nil!
+      log_channel = server.@log_exchange_channel.not_nil!("log exchange channel not started")
       ::Log::InMemoryBackend.instance.channels.includes?(log_channel).should be_true
 
       server.close
@@ -57,9 +57,21 @@ describe LavinMQ::Server do
       Log.capture("lmq.server", :info) do |logs|
         client_ctx = OpenSSL::SSL::Context::Client.new
         client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
-        conn = AMQP::Client.new(host: uri.hostname.not_nil!, port: uri.port.not_nil!, tls: client_ctx).connect
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!("URI has no host"), port: uri.port.not_nil!("URI has no port"), tls: client_ctx).connect
         conn.close
         logs.check(:info, /connected with .* kTLS=off/)
+      end
+    end
+  end
+
+  it "doesn't hold the TCP read buffer of idle TLS connections" do
+    with_amqp_server(tls: true) do |s|
+      with_channel(s, tls: true, verify_mode: OpenSSL::SSL::VerifyMode::NONE) do |ch|
+        ch.queue # a roundtrip, so the connection is idle afterwards
+        client = s.connections.first.as(LavinMQ::AMQP::Client)
+        tcp = client.@socket.as(OpenSSL::SSL::Socket).@bio.to_reference.io.as(TCPSocket)
+        tcp.buffer_pool.should_not be_nil
+        wait_for { tcp.@in_buffer.null? }
       end
     end
   end
@@ -72,7 +84,7 @@ describe LavinMQ::Server do
         q.bind(x.name, "#")
         pmsg = "test message"
         x.publish pmsg, q.name
-        msg = q.get(no_ack: true).not_nil!
+        msg = q.get(no_ack: true).should_not be_nil
         msg.body_io.to_s.should eq("test message")
       end
     end
@@ -89,7 +101,7 @@ describe LavinMQ::Server do
         pmsg = "m2"
         q = ch.queue("del_q")
         q.publish pmsg
-        msg = q.get.not_nil!
+        msg = q.get.should_not be_nil
         msg.body_io.to_s.should eq("m2")
       end
     end
@@ -115,9 +127,9 @@ describe LavinMQ::Server do
         q.publish "m1"
         m1 = q.get(no_ack: false)
         m1.try(&.reject(requeue: true))
-        m1 = q.get(no_ack: false)
-        m1.not_nil!.body_io.to_s.should eq("m1")
-        m1.not_nil!.redelivered.should be_true
+        m1 = q.get(no_ack: false).should_not be_nil
+        m1.body_io.to_s.should eq("m1")
+        m1.redelivered.should be_true
       end
     end
   end
@@ -170,8 +182,8 @@ describe LavinMQ::Server do
       end
       with_channel(s) do |ch|
         q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
-        m1 = q.get(no_ack: true)
-        m1.not_nil!.body_io.to_s.should eq("m1")
+        m1 = q.get(no_ack: true).should_not be_nil
+        m1.body_io.to_s.should eq("m1")
       end
     end
   end
@@ -277,9 +289,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end
@@ -293,11 +305,11 @@ describe LavinMQ::Server do
         ttl_msg = "queue dlx"
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
-        msg.not_nil!.body_io.to_s.should eq(ttl_msg)
+        msg.body_io.to_s.should eq(ttl_msg)
         s.vhosts["/"].queue(q.name).empty?.should be_true
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
-        msg.not_nil!.body_io.to_s.should eq(ttl_msg)
+        msg.body_io.to_s.should eq(ttl_msg)
       end
     end
   end
@@ -308,10 +320,10 @@ describe LavinMQ::Server do
         q, dlq = create_ttl_and_dl_queues(ch, queue_ttl: 500)
         r_msg = "requeue msg"
         q.publish_confirm r_msg
-        msg = q.get(no_ack: false).not_nil!
+        msg = q.get(no_ack: false).should_not be_nil
         msg.reject(requeue: true)
         msg = wait_for { dlq.get(no_ack: true) }
-        msg.not_nil!.body_io.to_s.should eq(r_msg)
+        msg.body_io.to_s.should eq(r_msg)
         s.vhosts["/"].queue(q.name).empty?.should be_true
       end
     end
@@ -356,7 +368,7 @@ describe LavinMQ::Server do
         x = ch.exchange("", "direct", passive: true)
         x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
         msg = wait_for { dlq.get(no_ack: true) }
-        msg.not_nil!.body_io.to_s.should eq("dead letter")
+        msg.body_io.to_s.should eq("dead letter")
       end
     end
   end
@@ -371,9 +383,8 @@ describe LavinMQ::Server do
         q.publish_confirm "1"
         q.publish_confirm "2"
         q.publish_confirm "3"
-        msg = q.get(no_ack: true)
-        msg.should_not be_nil
-        msg.not_nil!.body_io.to_s.should eq "3"
+        msg = q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq "3"
       end
     end
   end
@@ -601,9 +612,9 @@ describe LavinMQ::Server do
           q = ch.queue
           q.purge
           q.publish_confirm pmsg1
-          msg = q.get(no_ack: true)
-          msg.not_nil!.body_io.size.should eq msg_size
-          Digest::SHA1.digest(msg.not_nil!.body_io).should eq sha1
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.body_io.size.should eq msg_size
+          Digest::SHA1.digest(msg.body_io).should eq sha1
         end
       end
     end
@@ -616,8 +627,8 @@ describe LavinMQ::Server do
         2.times do
           q = ch.queue
           q.publish pmsg
-          msg = q.get
-          msg.not_nil!.body_io.to_s.should eq pmsg
+          msg = q.get.should_not be_nil
+          msg.body_io.to_s.should eq pmsg
         end
       end
     end
@@ -658,8 +669,8 @@ describe LavinMQ::Server do
         pmsg = "test message"
         x1.publish_confirm pmsg, "e2e"
         Fiber.yield
-        msg = q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("test message")
+        msg = q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("test message")
       end
     end
   end
@@ -770,6 +781,27 @@ describe LavinMQ::Server do
     end
   end
 
+  it "refuses an exclusive consumer when the queue already has consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("exclusive_consumer_after_shared", auto_delete: true)
+        q.subscribe { }
+
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+          with_channel(s) do |ch2|
+            q2 = ch2.queue("exclusive_consumer_after_shared", passive: true)
+            q2.subscribe(exclusive: true) { }
+          end
+        end
+
+        # The refused exclusive consumer must not lock out further consumers
+        with_channel(s) do |ch3|
+          ch3.queue("exclusive_consumer_after_shared", passive: true).subscribe { }
+        end
+      end
+    end
+  end
+
   it "only allow one connection access an exlusive queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -854,8 +886,8 @@ describe LavinMQ::Server do
         q = ch.queue
         q.bind(ae.name, "*")
         x1.publish("m1", "rk")
-        msg = q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("m1")
+        msg = q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("m1")
       end
     end
   end
@@ -870,8 +902,8 @@ describe LavinMQ::Server do
         q = ch.queue
         q.bind(ae.name, "*")
         x1.publish("m1", "rk")
-        msg = q.get(no_ack: true)
-        msg.not_nil!.body_io.to_s.should eq("m1")
+        msg = q.get(no_ack: true).should_not be_nil
+        msg.body_io.to_s.should eq("m1")
       end
     end
   end
@@ -913,10 +945,10 @@ describe LavinMQ::Server do
         q2.bind(x1.name, "rk")
         x1.publish("m1", "rk")
         sleep 50.milliseconds
-        msg_q1 = q1.get(no_ack: true)
-        msg_q2 = q2.get(no_ack: true)
-        msg_q1.not_nil!.body_io.to_s.should eq("m1")
-        msg_q2.not_nil!.body_io.to_s.should eq("m1")
+        msg_q1 = q1.get(no_ack: true).should_not be_nil
+        msg_q2 = q2.get(no_ack: true).should_not be_nil
+        msg_q1.body_io.to_s.should eq("m1")
+        msg_q2.body_io.to_s.should eq("m1")
       end
     end
   end
@@ -940,7 +972,7 @@ describe LavinMQ::Server do
         q = ch.queue
         props = AMQP::Client::Properties.new(timestamp: Int64::MAX)
         q.publish "m1", props: props
-        msg = q.get(no_ack: true).not_nil!
+        msg = q.get(no_ack: true).should_not be_nil
         msg.body_io.to_s.should eq "m1"
         msg.properties.timestamp_raw.should eq Int64::MAX
       end
@@ -957,7 +989,9 @@ describe LavinMQ::Server do
         msg = nil
         q.subscribe(no_ack: true) { |m| msg = m }
         wait_for { msg }
-        msg.not_nil!.properties.timestamp.not_nil!.to_unix.should be_close(t, 1)
+        delivered = msg.should_not be_nil
+        timestamp = delivered.properties.timestamp.should_not be_nil
+        timestamp.to_unix.should be_close(t, 1)
       end
       LavinMQ::Config.instance.set_timestamp = false
     end
@@ -1020,9 +1054,11 @@ describe LavinMQ::Server do
         q = ch.queue
         q.publish_confirm "m1"
         q.publish_confirm "m2"
-        q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.body_io.to_s.should eq "m1"
         ch.basic_recover(requeue: true)
-        q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.body_io.to_s.should eq "m1"
       end
     end
   end
@@ -1033,9 +1069,11 @@ describe LavinMQ::Server do
         q = ch.queue
         q.publish_confirm "m1"
         q.publish_confirm "m2"
-        q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.body_io.to_s.should eq "m1"
         ch.basic_recover(requeue: false)
-        q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.body_io.to_s.should eq "m1"
       end
     end
   end
@@ -1047,11 +1085,13 @@ describe LavinMQ::Server do
         args["x-delivery-limit"] = 1
         q = ch.queue("delivery_limit", args: args)
         q.publish "m1"
-        msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!.has_key?("x-delivery-count").should be_false # x-delivery-count is not set on first delivery
+        msg = q.get(no_ack: false).should_not be_nil
+        headers = msg.properties.headers.should_not be_nil
+        headers.has_key?("x-delivery-count").should be_false # x-delivery-count is not set on first delivery
         msg.reject(requeue: true)
-        msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
+        msg = q.get(no_ack: false).should_not be_nil
+        headers = msg.properties.headers.should_not be_nil
+        headers["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
         s.vhosts["/"].queue("delivery_limit").empty?.should be_true
@@ -1077,9 +1117,8 @@ describe LavinMQ::Server do
         q = ch.queue
         ch.queue_bind("", "amq.direct", "foo")
         ch.basic_publish_confirm("bar", "amq.direct", "foo")
-        msg = q.get
-        msg.should_not be_nil
-        msg.not_nil!.body_io.to_s.should eq "bar"
+        msg = q.get.should_not be_nil
+        msg.body_io.to_s.should eq "bar"
       end
     end
   end
@@ -1141,14 +1180,14 @@ describe LavinMQ::Server do
         q.publish "1"
         q.publish "2"
         q.publish "3"
-        msg1 = ch.basic_get(q.name, no_ack: false)
-        msg2 = ch.basic_get(q.name, no_ack: false)
+        msg1 = ch.basic_get(q.name, no_ack: false).should_not be_nil
+        msg2 = ch.basic_get(q.name, no_ack: false).should_not be_nil
         _msg3 = ch.basic_get(q.name, no_ack: false)
-        msg2.not_nil!.ack
-        msg2.not_nil!.ack # this will trigger the error
+        msg2.ack
+        msg2.ack # this will trigger the error
         sleep 0.1.seconds
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 2/) do
-          msg1.not_nil!.ack
+          msg1.ack
         end
       end
     end
@@ -1162,13 +1201,13 @@ describe LavinMQ::Server do
         q.publish "2"
         q.publish "3"
         _msg1 = ch.basic_get(q.name, no_ack: false)
-        msg2 = ch.basic_get(q.name, no_ack: false)
-        msg3 = ch.basic_get(q.name, no_ack: false)
-        msg2.not_nil!.ack
-        msg2.not_nil!.ack(multiple: true) # this should tigger a precondition fail
+        msg2 = ch.basic_get(q.name, no_ack: false).should_not be_nil
+        msg3 = ch.basic_get(q.name, no_ack: false).should_not be_nil
+        msg2.ack
+        msg2.ack(multiple: true) # this should tigger a precondition fail
         sleep 0.1.seconds
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 2/) do
-          msg3.not_nil!.ack
+          msg3.ack
         end
       end
     end
@@ -1382,5 +1421,111 @@ describe LavinMQ::Server do
       t.read(buf)
       buf.should eq Bytes['A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord, 0, 0, 9, 1]
     end
+  end
+end
+
+# Fails to accept with *errno* *failures* times, then returns *client* once
+private class FailingListener
+  include Socket::Server
+  getter? closed = false
+
+  def initialize(@failures : Int32, @client : IO, @errno = Errno::EMFILE)
+  end
+
+  def accept? : IO?
+    return if @closed
+    if @failures > 0
+      @failures -= 1
+      raise Socket::Error.from_os_error("accept", @errno)
+    end
+    client, @client = @client, nil
+    client
+  end
+
+  def accept : IO
+    accept? || raise IO::Error.new("Closed")
+  end
+
+  def close
+    @closed = true
+  end
+end
+
+describe LavinMQ::AcceptLoop do
+  it "accepts the next connection when the one being accepted failed" do
+    # Network errors that accept(2) passes on from the connection
+    errors = [Errno::ECONNABORTED]
+    {% if flag?(:linux) %}
+      errors << Errno.new(112) << Errno.new(64) # EHOSTDOWN, ENONET
+    {% end %}
+    errors.each do |errno|
+      client, server_side = UNIXSocket.pair
+      listener = FailingListener.new(failures: 1, client: server_side, errno: errno)
+      accepted = nil
+      LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+        accepted = socket
+        listener.close
+      end
+      accepted.should be server_side
+    ensure
+      client.try &.close
+      server_side.try &.close
+    end
+  end
+
+  it "keeps accepting after an error that isn't listed" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 2, client: server_side, errno: Errno::ECONNRESET)
+    accepted = nil
+    started = Time.instant
+    LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+      accepted = socket
+      listener.close
+    end
+    accepted.should be server_side
+    # 10 and 20ms, as it's not known to pass right away
+    (Time.instant - started).should be >= 30.milliseconds
+  ensure
+    client.try &.close
+    server_side.try &.close
+  end
+end
+
+describe "Running out of file descriptors" do
+  it "keeps accepting AMQP connections" do
+    with_amqp_server do |s|
+      address = s.amqp_server.@listeners.select(TCPServer).first.local_address
+      rejected = Socket.tcp(address.family)
+      without_free_file_descriptors do
+        rejected.connect(address)
+        sleep 100.milliseconds # the listener fails to accept it
+      end
+      # Linux accepts this one later, macOS drops it when accept fails
+      rejected.close
+      client = TCPSocket.new(address.address, address.port)
+      client.read_timeout = 5.seconds
+      client.write "AMQP\u0000\u0000\u0009\u0001".to_slice
+      client.read_byte.should eq 1 # the method frame with the server's Connection.Start
+    ensure
+      rejected.try &.close
+      client.try &.close
+    end
+  end
+
+  it "pauses the HTTP listener before accepting again" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 4, client: server_side)
+    http = HTTP::Server.new(&.response.print("ok"))
+    http.bind(listener)
+    started = Time.instant
+    spawn { http.listen }
+    client << "GET / HTTP/1.1\r\nHost: spec\r\n\r\n"
+    client.flush
+    HTTP::Client::Response.from_io(client).body.should eq "ok"
+    # 10, 20, 40 and 80ms, instead of trying again right away
+    (Time.instant - started).should be >= 140.milliseconds
+  ensure
+    http.try &.close
+    client.try &.close
   end
 end

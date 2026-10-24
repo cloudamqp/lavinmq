@@ -13,13 +13,259 @@ private def connect_amqp(websocket : HTTP::WebSocket)
     AMQP::Client::ConnectionInformation.new  )
 end
 
+private def connect_mqtt(http, will : MQTT::Protocol::Will? = nil, &)
+  ws = HTTP::WebSocket.new(http.addr.address, path: "/mqtt", port: http.addr.port)
+  connect = MQTT::Protocol::Connect.new(client_id: "ws-close", clean_session: true, keepalive: 30u16,
+    username: "guest", password: "guest".to_slice, will: will)
+  connack = Channel(Nil).new(1)
+  closed = Channel(HTTP::WebSocket::CloseCode).new(1)
+  ws.on_binary { |_| connack.send nil unless connack.closed? }
+  ws.on_close { |code, _| closed.send code }
+  spawn do
+    ws.run
+  rescue IO::Error
+  end
+  ws.stream { |io| connect.to_io(MQTT::Protocol::IO.new(io)) }
+  connack.receive
+  connack.close
+  yield ws
+  select
+  when code = closed.receive then code
+  when timeout(3.seconds) then fail "WebSocket not closed"
+  end
+end
+
+private def with_websocket_io(&)
+  peer, socket = UNIXSocket.pair
+  io = LavinMQ::WebSocketIO.new(socket)
+  client = HTTP::WebSocket::Protocol.new(peer, masked: true)
+  yield io, client, peer, socket
+ensure
+  peer.try &.close
+  socket.try &.close
+end
+
 describe "Websocket support" do
+  describe "sends a close frame" do
+    it "when an MQTT client disconnects" do
+      with_http_server do |http, _|
+        code = connect_mqtt(http) do |ws|
+          ws.stream { |io| MQTT::Protocol::Disconnect.new.to_io(MQTT::Protocol::IO.new(io)) }
+        end
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
+      end
+    end
+
+    it "when an MQTT client closes the WebSocket" do
+      with_http_server do |http, _|
+        code = connect_mqtt(http) do |ws|
+          # HTTP::WebSocket#close would close the client's socket before the reply arrives
+          ws.@ws.send(Bytes[0x03, 0xe8], HTTP::WebSocket::Protocol::Opcode::CLOSE)
+        end
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
+      end
+    end
+
+    it "after handling a DISCONNECT received together with the close frame" do
+      with_http_server do |http, s|
+        will = MQTT::Protocol::Will.new(topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+        code = connect_mqtt(http, will) do |ws|
+          frames = IO::Memory.new
+          protocol = HTTP::WebSocket::Protocol.new(frames, masked: true)
+          disconnect = IO::Memory.new
+          MQTT::Protocol::Disconnect.new.to_io(MQTT::Protocol::IO.new(disconnect))
+          protocol.send(disconnect.to_slice)
+          protocol.send(Bytes[0x03, 0xe8], HTTP::WebSocket::Protocol::Opcode::CLOSE)
+          socket = ws.@ws.@io
+          socket.write(frames.to_slice)
+          socket.flush
+        end
+        code.should eq HTTP::WebSocket::CloseCode::NormalClosure
+        wait_for { s.vhosts["/"].connections.none?(LavinMQ::MQTT::Client) }
+        s.vhosts["/"].exchange("mqtt.default").publish_in_count.should eq 0
+      end
+    end
+  end
+
   it "should connect over websocket" do
     with_http_server do |http, _|
       c = AMQP::Client.new("ws://#{http.addr}")
       conn = c.connect
       conn.should_not be_nil
       conn.close
+    end
+  end
+
+  it "sets tcp_send_timeout as write timeout on wss connections" do
+    LavinMQ::Config.instance.tcp_send_timeout = 7
+    with_amqp_server do |s|
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      addr = s.http_server.bind_tls("127.0.0.1", 0, ctx)
+      spawn(name: "https listen") { s.http_server.listen }
+      Fiber.yield
+      conn = AMQP::Client.new("wss://#{addr}?verify=none").connect
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+      client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      ws_io = client.@socket.as(LavinMQ::WebSocketIO)
+      tls = ws_io.@socket.as(OpenSSL::SSL::Socket)
+      tls.write_timeout.should eq 7.seconds
+      conn.close
+    end
+  end
+
+  it "shuts down the underlying connection of wss connections" do
+    with_amqp_server do |s|
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      addr = s.http_server.bind_tls("127.0.0.1", 0, ctx)
+      spawn(name: "https listen") { s.http_server.listen }
+      Fiber.yield
+      conn = AMQP::Client.new("wss://#{addr}?verify=none").connect
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+      client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      client.@socket.as(LavinMQ::WebSocketIO).shutdown_read_write
+      wait_for { client.closed? }
+      wait_for { conn.closed? }
+    end
+  end
+
+  describe LavinMQ::WebSocketIO do
+    it "answers a ping with a pong" do
+      with_websocket_io do |io, client|
+        client.ping("hello")
+        read = Channel(Int32).new
+        spawn { read.send io.read(Bytes.new(16)) }
+        buffer = Bytes.new(16)
+        info = client.receive(buffer)
+        info.opcode.should eq HTTP::WebSocket::Protocol::Opcode::PONG
+        String.new(buffer[0, info.size]).should eq "hello"
+        client.send(Bytes.empty, :close)
+        read.receive.should eq 0
+      end
+    end
+
+    it "reads a fragmented message as a stream" do
+      with_websocket_io do |io, client|
+        client.send("ab".to_slice, :binary, flags: :none)
+        client.send("cd".to_slice, :continuation)
+        buffer = Bytes.new(4)
+        io.read_fully(buffer)
+        String.new(buffer).should eq "abcd"
+      end
+    end
+
+    it "closes the connection on a text frame" do
+      with_websocket_io do |io, client|
+        client.send("text")
+        io.read(Bytes.new(16)).should eq 0
+        buffer = Bytes.new(16)
+        info = client.receive(buffer)
+        info.opcode.should eq HTTP::WebSocket::Protocol::Opcode::CLOSE
+        IO::ByteFormat::NetworkEndian.decode(UInt16, buffer).should eq 1003
+      end
+    end
+
+    it "raises IO::Error on a malformed frame" do
+      with_websocket_io do |io, _, peer|
+        unmasked = HTTP::WebSocket::Protocol.new(peer, masked: false)
+        unmasked.send("data".to_slice)
+        expect_raises(IO::Error, "expected masked frame") { io.read(Bytes.new(16)) }
+      end
+    end
+
+    it "replies to a close frame after the frame being written, with the same code" do
+      with_websocket_io do |io, client|
+        frame = Bytes.new(1000, 1u8)
+        sent = 0
+        # The peer doesn't read yet, so the socket buffer fills and a frame stays in flight
+        spawn do
+          loop do
+            io.write(frame)
+            io.flush
+            sent += 1
+          end
+        rescue IO::Error
+        end
+        sleep 50.milliseconds
+        client.send(Bytes[0x03, 0xe8], :close)
+        read = Channel(Int32).new
+        spawn { read.send io.read(Bytes.new(1)) }
+        buffer = Bytes.new(64 * 1024)
+        frames = 0
+        loop do
+          info = client.receive(buffer)
+          break if info.opcode.close?
+          info.opcode.should eq HTTP::WebSocket::Protocol::Opcode::BINARY
+          info.size.should eq frame.size
+          buffer[0, info.size].should eq frame
+          frames += 1
+        end
+        IO::ByteFormat::NetworkEndian.decode(UInt16, buffer).should eq 1000
+        read.receive.should eq 0
+        frames.should be >= sent
+        expect_raises(IO::Error, "Closed stream") { io.write(frame); io.flush }
+      end
+    end
+
+    {"pings", "pongs"}.each do |frames|
+      it "times out a read when only #{frames} arrive" do
+        with_websocket_io do |io, client|
+          io.read_timeout = 300.milliseconds
+          result = Channel(Exception?).new(1)
+          spawn do
+            io.read(Bytes.new(16))
+            result.send nil
+          rescue ex
+            result.send ex
+          end
+          timed_out = false
+          10.times do
+            select
+            when ex = result.receive
+              ex.should be_a IO::TimeoutError
+              timed_out = true
+              break
+            when timeout(100.milliseconds)
+            end
+            frames == "pings" ? client.ping : client.send(Bytes.empty, :pong)
+          end
+          timed_out.should be_true
+        end
+      end
+    end
+
+    it "doesn't time out a read while data arrives" do
+      with_websocket_io do |io, client|
+        io.read_timeout = 500.milliseconds
+        buffer = Bytes.new(1)
+        10.times do
+          sleep 100.milliseconds
+          client.ping
+          client.send("x".to_slice, :binary)
+          io.read(buffer).should eq 1
+          client.receive(Bytes.new(16)).opcode.should eq HTTP::WebSocket::Protocol::Opcode::PONG
+        end
+      end
+    end
+
+    it "writes nothing more after a frame that failed mid-write" do
+      with_websocket_io do |io, _, _, socket|
+        socket.write_timeout = 50.milliseconds
+        # The peer doesn't read, so the frame is only partly written
+        expect_raises(IO::TimeoutError) { io.write(Bytes.new(8 * 1024 * 1024)) }
+        expect_raises(IO::Error, "Closed stream") { io.write(Bytes.new(8 * 1024 * 1024)) }
+      end
+    end
+
+    it "doesn't raise when the connection is gone before the close frame is sent" do
+      with_websocket_io do |io, _, _, socket|
+        socket.shutdown_read_write
+        io.close
+        io.shutdown_read_write
+      end
     end
   end
 
@@ -119,7 +365,11 @@ describe "Websocket support" do
           websocket.on_close do
             ch.close
           end
-          spawn { websocket.run }
+          spawn do
+            websocket.run
+          rescue IO::Error
+            # The server closes the connection right after its close frame
+          end
 
           websocket.stream { |io| connect.to_io(MQTT::Protocol::IO.new(io)) }
 
@@ -187,7 +437,11 @@ describe "Websocket support" do
             websocket.on_close do
               ch.close
             end
-            spawn { websocket.run }
+            spawn do
+              websocket.run
+            rescue IO::Error
+              # The server closes the connection right after its close frame
+            end
 
             websocket.stream { |io| connect.to_io(MQTT::Protocol::IO.new(io)) }
 
@@ -265,7 +519,11 @@ describe "Websocket support" do
             expect_raises(IO::Error) do
               connect_amqp(websocket)
             end
-            websocket.close
+            begin
+              websocket.close
+            rescue IO::Error
+              # The server closes the connection right after its close frame
+            end
           end
         end
       end

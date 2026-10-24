@@ -72,7 +72,7 @@ module LavinMQ
           raise JWT::VerificationError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
 
           # Validate iat (Issued At) - reject tokens issued in the future
-          # Allow 200ms tolerance to account for RoughTime caching (updates every 100ms)
+          # Allow 200ms tolerance for clock skew between the issuer and us
           if iat = payload.iat
             raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc + 0.2.seconds
           end

@@ -34,7 +34,8 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `control_unix_path` | `--control-unix-path` | `LAVINMQ_CONTROL_UNIX_PATH` | String | `/tmp/lavinmqctl.sock` | UNIX socket that `lavinmqctl` connects to. Use a unique path per instance to run multiple servers on one host. |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
-| `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
+| `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers, TLS 1.2 and below |
+| `tls_ciphersuites` | `--ciphersuites` | `LAVINMQ_TLS_CIPHERSUITES` | String | (empty) | Allowed TLS 1.3 ciphersuites |
 | `tls_prefer_server_ciphers` | `--tls-prefer-server-ciphers` | `LAVINMQ_TLS_PREFER_SERVER_CIPHERS` | Bool | `false` | Use the server's cipher order instead of the client's preference |
 | `tls_min_version` | `--tls-min-version` | `LAVINMQ_TLS_MIN_VERSION` | String | (empty) | Minimum TLS version. When empty, the TLS library default (1.2) is used. |
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
@@ -43,11 +44,14 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain |
 | `set_timestamp` | — | — | Bool | `false` | Set timestamp on received messages |
 | `socket_buffer_size` | — | — | Int | `16384` | Socket buffer size (bytes) |
-| `tcp_nodelay` | — | — | Bool | `false` | Disable Nagle's algorithm |
+| `tcp_nodelay` | — | — | Bool | `true` | Disable Nagle's algorithm |
 | `tcp_keepalive` | — | — | String | `60:10:3` | TCP keepalive (idle:interval:probes, colon-separated) |
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
+| `tcp_send_timeout` | — | — | Int | `15` | Seconds a client may go without reading what the server sends before it's disconnected (must be positive) |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
+| `sync` | `--no-sync` | `LAVINMQ_SYNC` | Bool | `true` | Sync (fsync/msync/syncfs) data to disk before confirming publishes. Disabling leaves durability to the OS (unsafe). See [Publisher Confirms](publisher-confirms.md#durability-and-synchronization) |
+| `syncfs_threshold` | — | — | Int | `64` | Files a publish confirm depends on above which the whole filesystem is synced (syncfs) instead of each file individually |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
@@ -90,7 +94,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `port` | `--mqtt-port` | — | Int | `1883` | MQTT port |
 | `tls_port` | `--mqtts-port` | — | Int | `8883` | MQTTS port |
 | `unix_path` | `--mqtt-unix-path` | — | String | (empty) | MQTT Unix socket path |
-| `max_inflight_messages` | — | — | UInt16 | `65535` | Max unacknowledged messages per session |
+| `max_inflight_messages` | — | — | UInt16 | `65535` | Max unacknowledged messages per session, must be at least `1` |
 | `max_packet_size` | — | — | UInt32 | `268435455` | Max MQTT packet size (bytes) |
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | — | — | Bool | `false` | Apply the user's AMQP permissions to the MQTT exchange and session queue |
@@ -151,20 +155,18 @@ Per-hostname TLS configuration. Create a section for each hostname.
 |-----|-------------|
 | `tls_cert` | Certificate file (host is dropped with a warning if this is missing) |
 | `tls_key` | Private key file. If empty, the cert file is expected to contain both. |
-| `tls_min_version` | Minimum TLS version |
-| `tls_ciphers` | Allowed cipher list |
-| `tls_prefer_server_ciphers` | Use the server's cipher order instead of the client's preference |
 | `tls_verify_peer` | Require client certificate (mTLS) |
 | `tls_ca_cert` | CA bundle for verifying client certs (mTLS) |
 | `tls_keylog_file` | TLS key log file for debugging |
 
 Each key can be prefixed with `amqp_`, `mqtt_`, or `http_` to apply only to that protocol. For example, `amqp_tls_cert` overrides the certificate for AMQP connections to that hostname only.
 
+The TLS version and cipher settings (`tls_min_version`, `tls_ciphers`, `tls_ciphersuites`, `tls_prefer_server_ciphers`) cannot be set per hostname; the `[main]` values apply to every SNI host. LavinMQ logs a warning for those keys in an SNI section.
+
 ```ini
 [sni:example.com]
 tls_cert = /path/to/example.com.crt
 tls_key = /path/to/example.com.key
-tls_min_version = 1.3
 tls_verify_peer = true
 tls_ca_cert = /path/to/ca.pem
 ```

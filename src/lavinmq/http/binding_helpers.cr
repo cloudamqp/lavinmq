@@ -10,7 +10,7 @@ module LavinMQ
         end
       end
 
-      private def binding_for_props(context, source, destination : Destination, props)
+      private def binding_for_props(context, source, destination : LavinMQ::Queue | LavinMQ::Exchange, props)
         binding = source.bindings_details.find do |bd|
           bd.destination == destination && bd.binding_key.properties_key == props
         end

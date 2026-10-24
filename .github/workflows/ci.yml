@@ -34,18 +34,18 @@ on:
 jobs:
   format:
     name: Format check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-24.04
+    container: 84codes/crystal:latest-ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: crystal tool format --check
 
   lint:
     name: Lint check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-24.04
+    container: 84codes/crystal:latest-ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -54,7 +54,7 @@ jobs:
 
   lint-js:
     name: Lint javascript
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -66,7 +66,7 @@ jobs:
 
   lint-openapi:
     name: Lint OpenAPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -86,8 +86,8 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
-            container: 84codes/crystal:latest-ubuntu-24.04
+            runner: ubuntu-26.04
+            container: 84codes/crystal:latest-ubuntu-26.04
           - arch: arm64
             runner: ubuntu-26.04-arm
             container: 84codes/crystal:latest-ubuntu-26.04
@@ -106,13 +106,14 @@ jobs:
 
   spec_osx:
     name: Spec macOS
-    runs-on: macos-15-xlarge
+    runs-on: macos-15
     if: github.repository == 'cloudamqp/lavinmq'
     timeout-minutes: 10
     steps:
       - name: Install dependencies
         run: |
           brew update
+          brew unlink openssl@3 || true
           brew install crystal etcd
           echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
         env:
@@ -128,8 +129,8 @@ jobs:
 
   compile-changed-files:
     name: Compile changed *.cr files independently
-    runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-24.04
+    runs-on: ubuntu-26.04
+    container: 84codes/crystal:latest-ubuntu-26.04
     steps:
       - name: Install dependencies
         run: apt-get update && apt-get install -y liblz4-dev git
@@ -177,8 +178,8 @@ jobs:
 
   compile:
     name: Compile LavinMQ
-    runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-24.04
+    runs-on: ubuntu-26.04
+    container: 84codes/crystal:latest-ubuntu-26.04
 
     steps:
       - name: Install dependencies
@@ -207,9 +208,9 @@ jobs:
 
   path_filter:
     name: Filters for frontend specs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
-      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' }}
+      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' || steps.changes.outputs.ci == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -221,12 +222,19 @@ jobs:
               - 'views/**'
             js:
               - '**/*.js'
+            ci:
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
 
   spec_frontend:
-    name: Frontend specs
-    runs-on: ubuntu-24.04
+    name: Frontend specs (${{ matrix.browser }})
+    runs-on: ubuntu-26.04
     needs: [compile, path_filter]
     if: ${{ github.ref_name == 'main' || needs.path_filter.outputs.frontend_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
       - name: Install LavinMQ dependencies
         run: |
@@ -249,25 +257,19 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install playwright
-        run: npm install @playwright/test
-
-      - name: Install browsers
-        run: npx playwright install --with-deps
-
-      - name: Run tests
-        run: npx playwright test --config ./spec/frontend/playwright.config.js --reporter list
+      - name: Run frontend tests
+        run: make test-frontend PLAYWRIGHT_INSTALL_FLAGS=--with-deps PLAYWRIGHT_BROWSER=${{ matrix.browser }}
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 10
 
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
     continue-on-error: true
 
@@ -323,7 +325,7 @@ jobs:
 
   bunny-test:
     name: Bunny client test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
 
     steps:
@@ -480,7 +482,7 @@ jobs:
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
     continue-on-error: true
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -512,7 +514,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           working-directory: rabbitmq_http_api_client
-          ruby-version: 2.7.1
+          ruby-version: '3.3'
           bundler-cache: true
 
       - name: Run specs
@@ -522,7 +524,7 @@ jobs:
 
   go-http-api-test:
     name: RabbitMQ HTTP API Go client test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
     continue-on-error: true
 
@@ -579,7 +581,7 @@ jobs:
 
   release-mode-test:
     name: Test in release mode
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
     continue-on-error: true
 
@@ -608,7 +610,7 @@ jobs:
   freebsd-test:
     if: false # Crystal is outdated in FreeBSD
     name: Spec FreeBSD
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -622,7 +624,7 @@ jobs:
 
   stress:
     name: Stress test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
 
     steps:
@@ -676,7 +678,7 @@ jobs:
 
   shovel-test:
     name: Shovel test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: compile
 
     steps:
@@ -727,3 +729,48 @@ jobs:
             echo "::error::Found errors in LavinMQ log"
             exit 1
           fi
+
+  amqp-quickcheck:
+    name: amqp-quickcheck property tests
+    runs-on: ubuntu-26.04
+    needs: compile
+    env:
+      QC_VERSION: v0.2.4
+      QC_BIN: lavinmq-quickcheck-tests-x86_64-linux
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - name: Download lavinmq-quickcheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$QC_VERSION" -R 84codes/lavinmq-quickcheck -p "$QC_BIN*"
+          sha256sum -c "$QC_BIN.sha256"
+          chmod +x "$QC_BIN"
+
+      - name: Wait for LavinMQ
+        run: |
+          for _ in $(seq 60); do
+            curl -sf -u guest:guest http://localhost:15672/api/overview >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Run property tests
+        # Known flaky under parallel load; see AGENTS.md (Gotchas).
+        timeout-minutes: 10
+        run: ./"$QC_BIN"
+

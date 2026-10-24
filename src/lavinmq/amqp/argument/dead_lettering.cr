@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "amq-protocol"
 require "../argument"
 require "../argument_validator/string_validator.cr"
@@ -25,12 +26,41 @@ module LavinMQ::AMQP
         def dequeue? : Task?
           @pending_tasks.shift?
         end
+
+        def empty? : Bool
+          @pending_tasks.empty?
+        end
       end
 
       class DeadLetterer
-        property dlx : String? = nil
-        property dlrk : String? = nil
-        @tasks = Tasks.new
+        # The DLX and DLRK are swapped in as one reference, so a route on
+        # another thread never pairs a new DLX with an old DLRK
+        class Target
+          getter dlx : String?
+          getter dlrk : String?
+
+          def initialize(@dlx : String?, @dlrk : String?)
+          end
+        end
+
+        @target = Atomic(Target).new(Target.new(nil, nil))
+
+        def dlx : String?
+          @target.get(:acquire).dlx
+        end
+
+        def dlrk : String?
+          @target.get(:acquire).dlrk
+        end
+
+        def set_target(dlx : String?, dlrk : String?) : Nil
+          @target.set(Target.new(dlx, dlrk), :release)
+        end
+
+        # Tasks of drained chains, for the next chains to reuse. A chain holds
+        # its tasks until drained, so chains running at once get one each.
+        @free_tasks = Sync::Exclusive(Array(Tasks)).new(Array(Tasks).new, :unchecked)
+        MAX_FREE_TASKS = 16
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -49,7 +79,7 @@ module LavinMQ::AMQP
           xdeaths.each do |field|
             next unless xdeath = field.as?(AMQ::Protocol::Table)
             return false if xdeath["reason"]? == "rejected"
-            return true if xdeath["queue"]? == qname && xdeath["reason"] == reason.to_s
+            return true if xdeath["queue"]? == qname && xdeath["reason"]? == reason.to_s
           end
           false
         end
@@ -61,10 +91,11 @@ module LavinMQ::AMQP
 
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          return routed.call unless dlx = (msg.dlx || dlx())
+          target = @target.get(:acquire)
+          return routed.call unless dlx = (msg.dlx || target.dlx)
           ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
 
-          dlrk = msg.dlrk || dlrk()
+          dlrk = msg.dlrk || target.dlrk
 
           props = create_message_properties(msg, reason)
           routing_headers = props.headers
@@ -89,8 +120,12 @@ module LavinMQ::AMQP
           ex.find_queues(routing_rk, routing_headers, queues)
           return routed.call if queues.empty?
 
+          # The first dead lettering in a chain gets its own tasks, as the
+          # queue can dead letter on several fibers/threads at once, while
+          # nested ones (from overflow in a destination queue) add theirs
+          # to the chain's
           first_in_chain = dlx_tasks.nil?
-          ctx = dlx_tasks || @tasks
+          ctx = dlx_tasks || take_tasks
 
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
@@ -106,11 +141,22 @@ module LavinMQ::AMQP
           end
           ctx.enqueue(routed)
 
-          drain_context if first_in_chain
+          drain_chain(ctx) if first_in_chain
         end
 
-        private def drain_context
-          while task = @tasks.dequeue?
+        private def take_tasks : Tasks
+          @free_tasks.lock(&.pop?) || Tasks.new
+        end
+
+        private def drain_chain(tasks : Tasks) : Nil
+          drain_context(tasks)
+          @free_tasks.lock do |free|
+            free.push(tasks) if tasks.empty? && free.size < MAX_FREE_TASKS
+          end
+        end
+
+        private def drain_context(tasks : Tasks)
+          while task = tasks.dequeue?
             case task
             when MessageRoutedCallback
               begin
@@ -121,9 +167,10 @@ module LavinMQ::AMQP
             else
               dst_q, msg = task
               begin
+                dst_q.strip_delivery_count(msg)
                 # Result intentionally discarded: if the destination queue is closed
                 # or rejects on overflow we drop the dead-lettered message.
-                dst_q.publish_internal(msg, dlx_tasks: @tasks)
+                dst_q.publish_internal(msg, dlx_tasks: tasks)
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end

@@ -8,8 +8,6 @@ require "../rough_time"
 require "../stats"
 require "../event_type"
 require "../auth/permission_cache"
-require "../observable"
-require "../amqp/queue/event"
 require "../amqp/queue"
 require "./address"
 require "./protocol"
@@ -20,7 +18,6 @@ module LavinMQ::AMQP10
   class Client < LavinMQ::Client
     include Stats
     include SortableJSON
-    include Observer(LavinMQ::QueueEvent)
 
     Log                 = LavinMQ::Log.for "amqp10.client"
     SERVER_CONTAINER_ID = "lavinmq"
@@ -84,8 +81,9 @@ module LavinMQ::AMQP10
       read_loop
     end
 
-    def on(event : LavinMQ::QueueEvent, data : Object?)
-      @exclusive_queues.delete(data) if event.deleted? && data.is_a?(LavinMQ::AMQP::Queue)
+    # Called by Queue#delete on the queue's exclusive owner
+    def exclusive_queue_deleted(q : LavinMQ::AMQP::Queue) : Nil
+      @exclusive_queues.delete(q)
     end
 
     def channel_count : Int32
@@ -177,7 +175,7 @@ module LavinMQ::AMQP10
       @vhost.apply(frame)
       q = @vhost.queue(name).as(LavinMQ::AMQP::Queue)
       @exclusive_queues << q
-      q.register_observer(self)
+      q.exclusive_owner = self
       q
     end
 

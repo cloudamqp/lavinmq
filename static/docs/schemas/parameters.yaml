@@ -107,6 +107,11 @@ shovel-value:
       enum: [on-confirm, on-publish, no-ack]
       default: on-confirm
       example: on-confirm
+    dest-timeout:
+      type: number
+      description: Connect and read timeout in seconds for each attempt to an HTTP destination. Must be positive.
+      default: 30
+      example: 30
   required:
     - src-uri
     - dest-uri

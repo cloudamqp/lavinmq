@@ -1,208 +1,370 @@
+/* global ResizeObserver MutationObserver */
+import UPlot from './lib/uplot.esm.js'
 import * as helpers from './helpers.js'
-import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title, Filler } from './lib/chart.js'
-import './lib/chartjs-adapter-luxon.esm.js'
-Chart.register(TimeScale)
-Chart.register(LinearScale)
-Chart.register(LineController)
-Chart.register(PointElement)
-Chart.register(LineElement)
-Chart.register(Legend)
-Chart.register(Tooltip)
-Chart.register(Title)
-Chart.register(Filler)
+import * as Poller from './poller.js'
+import { statsInterval } from './http.js'
+import {
+  buildLegend, addLegendItem, updateLegend, alignLegend,
+  formatLabel, formatDigits, isByteUnit, timeFormatter
+} from './chart-legend.js'
 
 const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
   '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79', '#770f1c']
 
-const POLLING_RATE = 5000
-const X_AXIS_LENGTH = 600000 // 10 min
-const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
+function seriesColor (seriesIdx) {
+  return chartColors[(seriesIdx - 1) % chartColors.length]
+}
 
-function render (id, unit, fill = false, stacked = false, reverseStack = false) {
+const handles = new Set()
+const cursorSync = UPlot.sync('lavinmq')
+
+function refreshLegend (handle) {
+  updateLegend(handle, handle.uplot ? handle.uplot.legend.idx : null)
+}
+
+Poller.events.addEventListener('change', () => {
+  for (const h of handles) refreshLegend(h)
+})
+
+function toPoint (v) {
+  if (v == null) return null
+  if (typeof v === 'object') v = v.rate
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function makeSeriesDef (handle, key, color, filled) {
+  return {
+    label: formatLabel(handle, key),
+    stroke: color,
+    width: 1.5,
+    points: { show: false },
+    fill: filled ? color + '40' : undefined
+  }
+}
+
+function chartHeight (width) {
+  return Math.round(width / 2.5)
+}
+
+const SCALE_STEPS = [1, 1.5, 2, 3, 5, 7.5, 10]
+const SHRINK_RATIO = 0.6
+const SHRINK_POLLS = 5
+
+function niceCeil (v) {
+  const mag = 10 ** Math.floor(Math.log10(v))
+  return SCALE_STEPS.find(s => v <= s * mag) * mag
+}
+
+function targetMax (handle, max) {
+  if (handle.fixedMax > 0) {
+    return max > handle.fixedMax ? niceCeil(max * 1.05) : handle.fixedMax
+  }
+  if (handle.scaleCap > 0 && max > handle.scaleCap / 2) return niceCeil(handle.scaleCap)
+  return max > 0 ? niceCeil(max * 1.05) : 0
+}
+
+function stableMax (handle, target) {
+  let scaleMax = handle.scaleMax || 0
+  if (target > scaleMax) {
+    scaleMax = target
+    handle.shrinkCount = 0
+  } else if (target >= scaleMax * SHRINK_RATIO) {
+    handle.shrinkCount = 0
+  } else if (handle.countedPoll !== handle.poll) {
+    handle.countedPoll = handle.poll
+    if (++handle.shrinkCount >= SHRINK_POLLS) {
+      scaleMax = target
+      handle.shrinkCount = 0
+    }
+  }
+  handle.scaleMax = scaleMax
+  return scaleMax
+}
+
+function stableMaxRange (handle) {
+  return (u, min, max) => {
+    const scaleMax = stableMax(handle, targetMax(handle, max))
+    return [0, scaleMax > 0 ? scaleMax : 10]
+  }
+}
+
+const darkSchemeMql = window.matchMedia('(prefers-color-scheme: dark)')
+
+function prefersDark () {
+  const theme = document.documentElement.classList
+  if (theme.contains('theme-light')) return false
+  return theme.contains('theme-dark') || darkSchemeMql.matches
+}
+
+let dark = prefersDark()
+
+function redrawOnThemeChange () {
+  if (prefersDark() === dark) return
+  dark = !dark
+  for (const h of handles) h.uplot && h.uplot.redraw()
+}
+darkSchemeMql.addEventListener('change', redrawOnThemeChange)
+new MutationObserver(redrawOnThemeChange).observe(
+  document.documentElement, { attributes: true, attributeFilter: ['class'] }
+)
+
+function setScale (handle, { fixedMax = null, scaleCap = null, refLines = [] } = {}) {
+  handle.fixedMax = fixedMax
+  handle.scaleCap = scaleCap
+  handle.refLines = refLines
+}
+
+const REF_TONES = {
+  neutral: () => prefersDark() ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)',
+  warn: () => '#d2a106',
+  alarm: () => prefersDark() ? 'rgba(255,120,120,0.85)' : 'rgba(200,40,40,0.7)'
+}
+
+const LABEL_ROOM = 16
+
+function drawRefLines (u, handle) {
+  const lines = handle.refLines
+  if (!lines || !lines.length) return
+  const ctx = u.ctx
+  const dpr = window.devicePixelRatio
+  const left = u.bbox.left
+  const right = u.bbox.left + u.bbox.width
+  const top = u.bbox.top
+  for (const line of lines) {
+    if (!(line.value > 0)) continue
+    const offTop = line.value > u.scales.y.max
+    if (offTop && !line.pinAbove) continue
+    const color = (REF_TONES[line.tone] || REF_TONES.neutral)()
+    const alignLeft = line.align === 'left'
+    const labelX = alignLeft ? left + 4 * dpr : right - 4 * dpr
+    const text = line.valueText ? `${line.label} ${line.valueText}` : line.label
+    ctx.save()
+    ctx.fillStyle = color
+    ctx.font = `${10 * dpr}px sans-serif`
+    ctx.textAlign = alignLeft ? 'left' : 'right'
+    ctx.textBaseline = 'bottom'
+    if (offTop) {
+      ctx.fillText(`↑ ${text}`, labelX, top - 2 * dpr)
+      ctx.restore()
+      continue
+    }
+    const y = Math.round(u.valToPos(line.value, 'y', true)) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = dpr
+    ctx.setLineDash([4 * dpr, 4 * dpr])
+    ctx.beginPath()
+    ctx.moveTo(left, y)
+    ctx.lineTo(right, y)
+    ctx.stroke()
+    ctx.setLineDash([])
+    if (line.label) ctx.fillText(text, labelX, y - 2 * dpr)
+    ctx.restore()
+  }
+}
+
+function yAxisSize (u, values, axisIdx, cycleNum) {
+  const axis = u.axes[axisIdx]
+  if (cycleNum > 1) return axis._size
+  let textWidth = 0
+  if (values) {
+    u.ctx.font = axis.font[0]
+    for (const v of values) {
+      textWidth = Math.max(textWidth, u.ctx.measureText(v).width)
+    }
+  }
+  const size = axis.ticks.size + axis.gap + textWidth / window.devicePixelRatio
+  return Math.max(24, Math.ceil(size / 8) * 8)
+}
+
+const BYTE_INCRS = [0, 1, 2, 3, 4].flatMap(p =>
+  [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p))
+
+function fmtAxisBytes (v, perSec) {
+  if (v === 0) return '0'
+  const { value, prefix } = helpers.scaleBytes(v)
+  const digits = formatDigits(value)
+  return digits + ' ' + prefix + (perSec ? '/s' : '')
+}
+
+function xAxisValues (u, vals) {
+  const dpr = window.devicePixelRatio
+  const plotWidth = u.bbox.width / dpr
+  const leftRoom = u.bbox.left / dpr
+  u.ctx.font = u.axes[0].font[0]
+  return vals.map(v => {
+    const label = timeFormatter.format(new Date(v * 1000))
+    const half = u.ctx.measureText(label).width / dpr / 2
+    const pos = u.valToPos(v, 'x')
+    if (pos - half < -leftRoom || pos + half > plotWidth) return null
+    return label
+  })
+}
+
+function initChart (handle) {
+  const { el, config, seriesKeys, data } = handle
+  const width = el.clientWidth || 400
+  const height = chartHeight(width)
+
+  const series = [{}]
+  seriesKeys.forEach((key, i) => {
+    series.push(makeSeriesDef(handle, key, seriesColor(i + 1), config.fill))
+  })
+
+  const gridColor = () => prefersDark() ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)'
+  const axisColor = () => prefersDark() ? '#777' : '#666'
+  const bytes = isByteUnit(config.unit)
+
+  const opts = {
+    width,
+    height,
+    padding: [LABEL_ROOM, 0, null, 0],
+    cursor: {
+      show: true,
+      drag: { x: false, y: false },
+      focus: { prox: 16 },
+      sync: { key: cursorSync.key, setSeries: false, scales: ['x', null] }
+    },
+    focus: { alpha: 0.25 },
+    legend: { show: false },
+    hooks: {
+      setLegend: [(u) => {
+        updateLegend(handle, u.legend.idx)
+      }],
+      draw: [() => alignLegend(handle), (u) => drawRefLines(u, handle)]
+    },
+    series,
+    axes: [
+      {
+        stroke: axisColor,
+        grid: { stroke: gridColor, dash: [2, 4] },
+        ticks: { stroke: gridColor },
+        space: 80,
+        incrs: [1, 5, 10, 15, 30, 60, 120, 300, 600],
+        values: xAxisValues
+      },
+      {
+        stroke: axisColor,
+        grid: { stroke: gridColor, dash: [2, 4] },
+        ticks: { stroke: gridColor, size: 3 },
+        ...(bytes && { incrs: BYTE_INCRS }),
+        values: bytes
+          ? (u, vals) => vals.map(v => fmtAxisBytes(v, config.unit === 'bytes/s'))
+          : (u, vals) => vals.map(helpers.nFormatter),
+        size: yAxisSize,
+        gap: 2
+      }
+    ],
+    scales: {
+      y: {
+        range: stableMaxRange(handle)
+      }
+    }
+  }
+
+  buildLegend(handle)
+  for (let i = 1; i <= seriesKeys.length; i++) {
+    addLegendItem(handle, i, seriesColor(i))
+  }
+
+  handle.uplot = new UPlot(opts, data, el)
+  el.append(handle.legendEl)
+  alignLegend(handle)
+  initChartObservers(handle)
+}
+
+function initChartObservers (handle) {
+  const el = handle.el
+  let lastWidth = el.clientWidth
+  const ro = new ResizeObserver(() => {
+    const newWidth = el.clientWidth
+    if (newWidth > 0 && newWidth !== lastWidth && handle.uplot) {
+      lastWidth = newWidth
+      handle.uplot.setSize({ width: newWidth, height: chartHeight(newWidth) })
+      alignLegend(handle)
+    }
+  })
+  ro.observe(el)
+}
+
+function render (id, unit, fill = false) {
   const el = document.getElementById(id)
   const graphContainer = document.createElement('div')
   graphContainer.classList.add('graph')
-  const ctx = document.createElement('canvas')
-  graphContainer.append(ctx)
   el.append(graphContainer)
 
-  const chart = new Chart(ctx, {
-    type: 'line',
-    reverseStack,
-    data: {
-      datasets: [],
-      labels: []
-    },
-    options: Object.assign({
-      responsive: true,
-      maintainAspectRatio: false,
-      aspectRatio: 1.3,
-      plugins: {
-        legend: {
-          labels: {
-            generateLabels: function (chart) {
-              return Chart.defaults.plugins.legend.labels.generateLabels(chart)
-                .map(function (label) {
-                  return { ...label, fillStyle: label.strokeStyle }
-                })
-            }
-          }
-        }
-      },
-      tooltips: {
-        mode: 'x',
-        intersect: false,
-        position: 'nearest',
-        callbacks: {
-          label: function (tooltipItem, data) {
-            let label = data.datasets[tooltipItem.datasetIndex].label || ''
-            label += ': ' + helpers.formatNumber(tooltipItem.yLabel)
-            return label
-          }
-        }
-      },
-      hover: {
-        mode: 'x',
-        intersect: false
-      },
-      scales: {
-        x: {
-          type: 'time',
-          distribution: 'series',
-          gridLines: {
-            display: false
-          },
-          grid: {
-            color: '#2D2C2C'
-          },
-          border: {
-            dash: [2, 4]
-          },
-          time: {
-            unit: 'second',
-            displayFormats: {
-              second: 'HH:mm:ss'
-            }
-          }
-        },
-        y: {
-          title: {
-            display: true,
-            text: unit,
-            fontsize: 14
-          },
-          grid: {
-            color: '#2D2C2C'
-          },
-          border: {
-            dash: [2, 4]
-          },
-          ticks: {
-            beginAtZero: true,
-            min: 0,
-            suggestedMax: 10,
-            callback: helpers.nFormatter
-          },
-          stacked,
-          beginAtZero: true
-        }
-      }
-    }, fill)
+  const handle = {
+    el: graphContainer,
+    uplot: null,
+    legendEl: null,
+    seriesKeys: [],
+    labels: {},
+    descs: {},
+    data: [[]],
+    scaleMax: 0,
+    shrinkCount: 0,
+    poll: 0,
+    config: { unit, fill }
+  }
+  handles.add(handle)
+  return handle
+}
+
+function toSpecs (data) {
+  if (Array.isArray(data)) return data
+  return Object.keys(data)
+    .filter(key => key.endsWith('_details'))
+    .map(key => ({ key, value: data[key], log: data[key + '_log'] || (data[key] && data[key].log) }))
+}
+
+function rebuildFromLogs (handle, specs) {
+  const now = Date.now() / 1000
+  const byKey = new Map(specs.map(spec => [spec.key, spec]))
+  const logs = handle.seriesKeys.map(key => (byKey.get(key) || {}).log || [])
+  const maxLen = Math.max(1, ...logs.map(log => log.length))
+
+  const timestamps = []
+  for (let i = 0; i < maxLen; i++) {
+    timestamps.push(now - (statsInterval() / 1000) * (maxLen - 1 - i))
+  }
+  handle.data = [timestamps]
+
+  handle.seriesKeys.forEach((key, i) => {
+    const series = logs[i].map(toPoint)
+    if (series.length === 0) series.push(toPoint((byKey.get(key) || {}).value))
+    const pad = new Array(maxLen - series.length).fill(null)
+    handle.data.push(pad.concat(series))
   })
-  chart.reverseStack = reverseStack
-
-  return chart
-}
-function formatLabel (key) {
-  const label = key.replace(/_/g, ' ').replace(/(rate|details|messages)/ig, '').trim()
-    .replace(/^\w/, c => c.toUpperCase())
-  return label || 'Total'
 }
 
-function value (data) {
-  return (data.rate === undefined) ? data : data.rate
-}
+function update (handle, data) {
+  const specs = toSpecs(data)
+  handle.poll++
 
-function createDataset (key, color, fill, order = 0) {
-  const label = formatLabel(key)
-  const backgroundColor = fill ? color + '66' : color
-
-  return {
-    key,
-    label,
-    fill,
-    order,
-    type: 'line',
-    steppedLine: false,
-    lineTension: 0.3,
-    pointRadius: 0,
-    pointStyle: 'line',
-    data: [],
-    backgroundColor,
-    borderColor: color
+  const newKeys = []
+  for (const { key, label, desc } of specs) {
+    if (label) handle.labels[key] = label
+    if (desc) handle.descs[key] = desc
+    if (handle.seriesKeys.includes(key)) continue
+    newKeys.push(key)
+    handle.seriesKeys.push(key)
+    if (handle.legendEl) addLegendItem(handle, handle.seriesKeys.length, seriesColor(handle.seriesKeys.length))
   }
-}
 
-function addToDataset (dataset, data, date) {
-  const point = {
-    x: date,
-    y: value(data)
-  }
-  if (dataset.data.length >= MAX_TICKS) {
-    dataset.data.shift()
-  }
-  dataset.data.push(point)
-  fillDatasetVoids(dataset)
-  fixDatasetLength(dataset)
-}
+  rebuildFromLogs(handle, specs)
 
-function fillDatasetVoids (dataset) {
-  let prevPoint = dataset.data[0]
-  let moreIter = false
-  dataset.data.forEach((point, i) => {
-    const timeDiff = point.x.getTime() - prevPoint.x.getTime()
-    if (timeDiff >= POLLING_RATE * 2) {
-      dataset.data.splice(i, 0, { x: new Date(point.x.getTime() - POLLING_RATE), y: null })
-      moreIter = timeDiff >= POLLING_RATE * 3
+  if (!handle.uplot) {
+    initChart(handle)
+  } else {
+    for (const key of newKeys) {
+      const idx = handle.seriesKeys.indexOf(key)
+      handle.uplot.addSeries(makeSeriesDef(handle, key, seriesColor(idx + 1), handle.config.fill), idx + 1)
     }
-    prevPoint = point
-  })
-  moreIter && fillDatasetVoids(dataset)
-}
-
-function fixDatasetLength (dataset) {
-  const now = new Date()
-  dataset.data.forEach((point) => {
-    now > point.x.getTime() + X_AXIS_LENGTH && dataset.data.shift()
-  })
-}
-
-function update (chart, data, filled = false) {
-  const date = new Date()
-  let keys = Object.keys(data)
-  const hasDetails = keys.find(key => key.match(/_details$/))
-  if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
-  for (const key in data) {
-    if (key.match(/_log$/)) continue
-    if (hasDetails && !key.match(/_details$/)) continue
-    let dataset = chart.data.datasets.find(dataset => dataset.key === key)
-    const i = keys.indexOf(key)
-    if (dataset === undefined) {
-      const color = chartColors[i % chartColors.length]
-      const order = chart.reverseStack ? keys.length - i : i
-      dataset = createDataset(key, color, filled, order)
-      chart.data.datasets.push(dataset)
-      const log = data[`${key}_log`] || data[key].log || []
-      log.forEach((p, i) => {
-        const pDate = new Date(date.getTime() - POLLING_RATE * (log.length - i))
-        addToDataset(dataset, p, pDate)
-      })
-    }
-    addToDataset(dataset, data[key], date)
   }
-  chart.update()
+  handle.uplot.setData(handle.data)
+  refreshLegend(handle)
 }
 
 export {
-  render, update
+  render, update, setScale, stableMax
 }

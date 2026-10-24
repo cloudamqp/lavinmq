@@ -1,3 +1,4 @@
+require "./filesystem"
 require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
@@ -22,14 +23,14 @@ module LavinMQ
     include ParameterTarget
 
     @closed = BoolChannel.new(false)
-    @flow = true
+    @flow = Atomic(Bool).new(true)
 
     def closed? : Bool
       @closed.value
     end
 
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     @replicator : Clustering::Replicator?
@@ -45,7 +46,7 @@ module LavinMQ
       @blocks_out = rusage.blocks_out.to_i64
 
       @data_dir = @config.data_dir
-      Dir.mkdir_p @data_dir
+      FileSystem.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
@@ -184,16 +185,9 @@ module LavinMQ
         @{{ m.id }} = {{ m.id }}
       {% end %}
 
-      until @rss_log.size < log_size
-        @rss_log.shift
-      end
-
-      rss = statm_rss(statm) || ps_rss
-      @rss = rss
-      @rss_log.push @rss
-
-      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
-
+      # Before the memory stats, which open files, so that publishers are
+      # stopped when the disk is about to fill up also while out of file
+      # descriptors. statfs needs none.
       begin
         fs_stats = Filesystem.info(@data_dir)
         until @disk_free_log.size < log_size
@@ -212,6 +206,16 @@ module LavinMQ
       rescue File::NotFoundError
         # Ignore when server is closed and deleted already
       end
+
+      until @rss_log.size < log_size
+        @rss_log.shift
+      end
+
+      rss = statm_rss(statm) || ps_rss
+      @rss = rss
+      @rss_log.push @rss
+
+      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
     end
 
     private def stats_loop
@@ -220,15 +224,21 @@ module LavinMQ
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
       until closed?
-        @stats_collection_duration_seconds_total = Time.measure do
-          @stats_rates_collection_duration_seconds = Time.measure do
-            update_stats_rates
+        begin
+          @stats_collection_duration_seconds_total = Time.measure do
+            @stats_rates_collection_duration_seconds = Time.measure do
+              update_stats_rates
+            end
+            @stats_system_collection_duration_seconds = Time.measure do
+              update_system_metrics(statm)
+            end
           end
-          @stats_system_collection_duration_seconds = Time.measure do
-            update_system_metrics(statm)
-          end
+          @gc_stats = GC.prof_stats
+        rescue ex
+          # Like when out of file descriptors. The loop has to go on, as it
+          # also stops publishers when the disk is about to fill up.
+          Log.error { "Could not collect stats: #{ex.message}" }
         end
-        @gc_stats = GC.prof_stats
 
         control_flow!
         sleep @config.stats_interval.milliseconds
@@ -306,15 +316,29 @@ module LavinMQ
           flow(false)
         end
       elsif !flow?
-        Log.info { "Not low on disk space, starting flow" }
-        flow(true)
+        # Don't resume until there is a margin above the alarm threshold, so the
+        # burst of writes when publishing resumes doesn't run out of blocks for
+        # mmap'd pages (SIGBUS) and the alarm doesn't flap
+        if disk_recovered?
+          Log.info { "Not low on disk space, starting flow" }
+          flow(true)
+        end
       elsif disk_usage_over_warning_level?
         Log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 
     def disk_full?
-      @disk_free < 3_i64 * @config.segment_size || @disk_free < @config.free_disk_min
+      @disk_free < disk_alarm_threshold
+    end
+
+    # Free disk space required before publishing is resumed after a disk alarm
+    def disk_recovered?
+      @disk_free - 3_i64 * @config.segment_size >= disk_alarm_threshold
+    end
+
+    private def disk_alarm_threshold : Int64
+      Math.max(3_i64 * @config.segment_size, @config.free_disk_min)
     end
 
     def disk_usage_over_warning_level?
@@ -322,7 +346,7 @@ module LavinMQ
     end
 
     def flow(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
       @vhosts.each_value &.flow=(active)
     end
 

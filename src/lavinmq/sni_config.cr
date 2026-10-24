@@ -1,7 +1,10 @@
 require "openssl"
 
 module LavinMQ
-  # Configuration for a specific SNI hostname
+  # Configuration for a specific SNI hostname. Only the certificate and mTLS
+  # settings can differ per host: OpenSSL selects the TLS version and cipher
+  # before the servername callback swaps the context, so version and cipher
+  # settings come from the listener and apply to every SNI host.
   class SNIHost
     Log = LavinMQ::Log.for "sni"
 
@@ -10,9 +13,6 @@ module LavinMQ
     # Default TLS settings (used by all protocols unless overridden)
     property tls_cert : String = ""
     property tls_key : String = ""
-    property tls_min_version : String = ""
-    property tls_ciphers : String = ""
-    property? tls_prefer_server_ciphers : Bool = false
     property? tls_verify_peer : Bool = false
     property tls_ca_cert : String = ""
     property tls_keylog_file : String = ""
@@ -20,9 +20,6 @@ module LavinMQ
     # AMQP-specific overrides (nil/empty means use the default)
     property amqp_tls_cert : String? = nil
     property amqp_tls_key : String? = nil
-    property amqp_tls_min_version : String? = nil
-    property amqp_tls_ciphers : String? = nil
-    property amqp_tls_prefer_server_ciphers : Bool? = nil
     property amqp_tls_verify_peer : Bool? = nil
     property amqp_tls_ca_cert : String? = nil
     property amqp_tls_keylog_file : String? = nil
@@ -30,9 +27,6 @@ module LavinMQ
     # MQTT-specific overrides (nil/empty means use the default)
     property mqtt_tls_cert : String? = nil
     property mqtt_tls_key : String? = nil
-    property mqtt_tls_min_version : String? = nil
-    property mqtt_tls_ciphers : String? = nil
-    property mqtt_tls_prefer_server_ciphers : Bool? = nil
     property mqtt_tls_verify_peer : Bool? = nil
     property mqtt_tls_ca_cert : String? = nil
     property mqtt_tls_keylog_file : String? = nil
@@ -40,9 +34,6 @@ module LavinMQ
     # HTTP-specific overrides (nil/empty means use the default)
     property http_tls_cert : String? = nil
     property http_tls_key : String? = nil
-    property http_tls_min_version : String? = nil
-    property http_tls_ciphers : String? = nil
-    property http_tls_prefer_server_ciphers : Bool? = nil
     property http_tls_verify_peer : Bool? = nil
     property http_tls_ca_cert : String? = nil
     property http_tls_keylog_file : String? = nil
@@ -57,77 +48,56 @@ module LavinMQ
     # Get or create the TLS context for AMQP
     def amqp_tls_context : OpenSSL::SSL::Context::Server
       @amqp_tls_context ||= create_tls_context(
-        @amqp_tls_cert || @tls_cert,
-        @amqp_tls_key || @tls_key,
-        @amqp_tls_min_version || @tls_min_version,
-        @amqp_tls_ciphers || @tls_ciphers,
-        {@amqp_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
-        {@amqp_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
-        @amqp_tls_ca_cert || @tls_ca_cert,
-        @amqp_tls_keylog_file || @tls_keylog_file
+        pick(@amqp_tls_cert, @tls_cert),
+        pick(@amqp_tls_key, @tls_key),
+        {@amqp_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
+        pick(@amqp_tls_ca_cert, @tls_ca_cert),
+        pick(@amqp_tls_keylog_file, @tls_keylog_file)
       )
     end
 
     # Get or create the TLS context for MQTT
     def mqtt_tls_context : OpenSSL::SSL::Context::Server
       @mqtt_tls_context ||= create_tls_context(
-        @mqtt_tls_cert || @tls_cert,
-        @mqtt_tls_key || @tls_key,
-        @mqtt_tls_min_version || @tls_min_version,
-        @mqtt_tls_ciphers || @tls_ciphers,
-        {@mqtt_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
-        {@mqtt_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
-        @mqtt_tls_ca_cert || @tls_ca_cert,
-        @mqtt_tls_keylog_file || @tls_keylog_file
+        pick(@mqtt_tls_cert, @tls_cert),
+        pick(@mqtt_tls_key, @tls_key),
+        {@mqtt_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
+        pick(@mqtt_tls_ca_cert, @tls_ca_cert),
+        pick(@mqtt_tls_keylog_file, @tls_keylog_file)
       )
     end
 
     # Get or create the TLS context for HTTP
     def http_tls_context : OpenSSL::SSL::Context::Server
       @http_tls_context ||= create_tls_context(
-        @http_tls_cert || @tls_cert,
-        @http_tls_key || @tls_key,
-        @http_tls_min_version || @tls_min_version,
-        @http_tls_ciphers || @tls_ciphers,
-        {@http_tls_prefer_server_ciphers, @tls_prefer_server_ciphers}.find(&.is_a?(Bool)),
-        {@http_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
-        @http_tls_ca_cert || @tls_ca_cert,
-        @http_tls_keylog_file || @tls_keylog_file
+        pick(@http_tls_cert, @tls_cert),
+        pick(@http_tls_key, @tls_key),
+        {@http_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
+        pick(@http_tls_ca_cert, @tls_ca_cert),
+        pick(@http_tls_keylog_file, @tls_keylog_file)
       )
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
-    private def create_tls_context(cert_path, key_path, min_version, ciphers, prefer_server_ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
-      context = OpenSSL::SSL::Context::Server.new
-      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-
-      # Set TLS version
-      case min_version
-      when "1.0"
-        context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                               OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                               OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.1"
-        context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        context.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.2", ""
-        context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        context.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.3"
-        context.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-      else
-        Log.warn { "Unrecognized tls_min_version for SNI host '#{@hostname}': '#{min_version}'" }
+    def tls_context(protocol : Symbol) : OpenSSL::SSL::Context::Server
+      case protocol
+      when :amqp then amqp_tls_context
+      when :mqtt then mqtt_tls_context
+      when :http then http_tls_context
+      else            raise ArgumentError.new("unknown protocol #{protocol}")
       end
+    end
+
+    # An empty override is kept: an empty key means the key is in the cert file
+    private def pick(override : String?, base : String) : String
+      override || base
+    end
+
+    private def create_tls_context(cert_path, key_path, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
+      context = OpenSSL::SSL::Context::Server.new
 
       # Set certificate and key
       context.certificate_chain = cert_path
       context.private_key = key_path.empty? ? cert_path : key_path
-
-      # Set ciphers
-      context.ciphers = ciphers unless ciphers.empty?
-
-      # Let the server's cipher order win over the client's
-      context.add_options(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE) if prefer_server_ciphers
 
       # Set client certificate verification (mTLS)
       if verify_peer

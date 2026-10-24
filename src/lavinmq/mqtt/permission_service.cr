@@ -1,3 +1,4 @@
+require "../filesystem"
 require "json"
 require "./permission_group"
 require "./topic_rule_segment"
@@ -45,10 +46,13 @@ module LavinMQ
       @save_lock = Mutex.new
       @compiled : Compiled
 
-      def initialize(@vhost : String, @data_dir : String, @replicator : Clustering::Replicator?)
+      # A vhost without mqtt_permissions.json gets the DEFAULT_GROUP unless
+      # default_group is false, and the result is saved at once, so the file
+      # always holds the groups that are in effect.
+      def initialize(@vhost : String, @data_dir : String, @replicator : Clustering::Replicator?, default_group = true)
         @groups = Hash(String, PermissionGroup).new
         @compiled = Compiled.new(Hash(String, Array(CompiledRule)).new, Array(CompiledRule).new)
-        load!
+        load!(default_group)
       end
 
       def []?(name : String) : PermissionGroup?
@@ -65,13 +69,6 @@ module LavinMQ
 
       def each_value(& : PermissionGroup ->) : Nil
         @groups.each_value { |group| yield group }
-      end
-
-      def save! : Nil
-        @save_lock.synchronize do
-          path = save!(@groups)
-          @replicator.try &.replace_file path
-        end
       end
 
       def put(group : PermissionGroup) : PermissionGroup
@@ -125,17 +122,16 @@ module LavinMQ
         end
       end
 
-      # Commit all imported groups together, including replacing the automatic
-      # default. Check disk and existing names under the same lock as API edits.
+      # Commit all imported groups together. Check existing names under the
+      # same lock as API edits. An import adds and replaces groups, it never
+      # deletes one.
       def import(imported : Array(PermissionGroup), skip_existing = false) : Nil
         return if imported.empty?
         imported.each(&.validate!)
         @save_lock.synchronize do
-          persisted = File.exists?(File.join(@data_dir, "mqtt_permissions.json"))
           groups = @groups.dup
-          groups.delete(DEFAULT_GROUP) unless persisted
           imported.each do |group|
-            next if skip_existing && persisted && @groups[group.name]?
+            next if skip_existing && @groups[group.name]?
             groups[group.name] = group
           end
           commit(groups) unless groups == @groups
@@ -207,9 +203,9 @@ module LavinMQ
       # Groups are validated on load as they are on put, so everything in
       # memory always passes validate! and every later put of a loaded group
       # can only fail on the change being made.
-      private def load!
+      private def load!(default_group : Bool)
         path = File.join(@data_dir, "mqtt_permissions.json")
-        return create_default_group unless File.exists? path
+        return create_groups(default_group) unless File.exists? path
         File.open(path) do |f|
           Array(PermissionGroup).from_json(f) do |group|
             @groups[group.name] = group.validate!
@@ -222,12 +218,14 @@ module LavinMQ
         raise ex
       end
 
-      # Created only when mqtt_permissions.json is missing. The first change
-      # or vhost close saves the current groups. A deleted default group stays
-      # deleted across restarts, because the delete leaves an empty list on disk.
-      private def create_default_group
-        @groups[DEFAULT_GROUP] = PermissionGroup.default(@vhost)
-        rebuild
+      # Called only when mqtt_permissions.json is missing, that is for a new
+      # vhost or one from a version without topic permissions. A deleted
+      # default group stays deleted, because the delete leaves an empty list
+      # on disk.
+      private def create_groups(default_group : Bool) : Nil
+        groups = Hash(String, PermissionGroup).new
+        groups[DEFAULT_GROUP] = PermissionGroup.default(@vhost) if default_group
+        @save_lock.synchronize { commit(groups) }
       end
 
       # Called with @save_lock held. Build and save a separate collection so
@@ -245,12 +243,7 @@ module LavinMQ
 
       private def save!(groups : Hash(String, PermissionGroup)) : String
         path = File.join(@data_dir, "mqtt_permissions.json")
-        tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") do |f|
-          groups.values.to_pretty_json(f)
-          f.fsync
-        end
-        File.rename tmpfile, path
+        FileSystem.replace(path) { |f| groups.values.to_pretty_json(f) }
         path
       rescue ex : IO::Error
         raise SaveError.new("Failed to save MQTT permission groups for vhost #{@vhost.inspect}", cause: ex)

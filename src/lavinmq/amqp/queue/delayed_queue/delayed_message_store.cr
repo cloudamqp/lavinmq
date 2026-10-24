@@ -2,16 +2,14 @@ require "../../../message_store"
 require "./delayed_requeued_store"
 
 module LavinMQ::AMQP
-  class DelayedExchangeQueue < Queue
-    # A delayed exchange queue must have its messages order by "expire at"
-    # so the message expire loop will look at the right message. To acheive this
-    # messages are always added to a custom requeued store. This requeued store
-    # acts as a inmemory index where messages are ordered based on when they
-    # should be published.
-    # The reason why the requeued store is used, is that #shift and #first? will
-    # look for any requeued messages first, then read the next from disk. For a
-    # delayed exchange queue we never want to read messages in the order they
-    # arrived (was written to disk).
+  abstract class DelayedQueue < Queue
+    # A delayed queue must have its messages ordered by "expire at" so the
+    # message expire loop will look at the right message. To achieve this,
+    # messages are always added to a custom requeued store, which acts as an
+    # in-memory index ordered by when messages should be published.
+    # The requeued store is used because #shift and #first? look for requeued
+    # messages first, then read the next from disk. For a delayed queue we
+    # never want to read messages in the order they arrived (were written to disk).
     class DelayedMessageStore < MessageStore
       # Redefine @requeued (defined in MessageStore)
       @requeued : RequeuedStore = DelayedRequeuedStore.new
@@ -73,7 +71,7 @@ module LavinMQ::AMQP
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          Envelope.new(sp, msg, redelivered: true)
+          Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
           raise MessageStore::Error.new(seg, cause: ex)
         end
@@ -88,7 +86,7 @@ module LavinMQ::AMQP
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          Envelope.new(sp, msg, redelivered: true)
+          Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           raise MessageStore::Error.new(segment, cause: ex)
         end
@@ -104,6 +102,15 @@ module LavinMQ::AMQP
         @size += 1
         @empty.set false if was_empty
         sp
+      end
+
+      def purge_all
+        while sp = @requeued.shift?
+          @size -= 1
+          @bytesize -= sp.bytesize
+          delete(sp) if @segments.has_key?(sp.segment)
+        end
+        @empty.set true
       end
 
       def requeue(sp : SegmentPosition)

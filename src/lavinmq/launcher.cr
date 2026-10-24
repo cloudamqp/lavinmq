@@ -2,6 +2,8 @@ require "log"
 require "file"
 require "systemd"
 require "./server"
+require "../stdlib/io_buffered"
+require "../stdlib/fiber"
 require "./amqp/server"
 require "./mqtt/server"
 require "./http/http_server"
@@ -17,17 +19,20 @@ require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
-    Log = LavinMQ::Log.for "launcher"
+    Log              = LavinMQ::Log.for "launcher"
+    SHUTDOWN_TIMEOUT = 10.seconds
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
+    @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
+    @metrics_server : LavinMQ::HTTP::MetricsServer?
 
     def initialize(@config : Config)
       print_environment_info
@@ -39,14 +44,15 @@ module LavinMQ
         Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
       Dir.mkdir_p @config.data_dir
-      if @config.data_dir_lock?
-        @data_dir_lock = DataDirLock.new(@config.data_dir)
-      end
+      acquire_data_dir_lock if @config.data_dir_lock?
+      print_data_dir_read_ahead
+
+      @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
 
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
+        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
         @replicator = Clustering::Server.new(@config, coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
@@ -65,7 +71,6 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
-      @data_dir_lock.try &.acquire
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
@@ -73,22 +78,25 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
       start_listeners(amqp_server, mqtt_server, http_server)
-      start_metrics_server(server) unless @config.metrics_http_port == -1
+      @metrics_server.try &.leader = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
-    rescue ex : Socket::BindError
+    rescue ex : Socket::BindError | HTTP::ControlSocketError
       stop
       abort "Error: #{ex.message}"
     end
 
     def run
+      start_metrics_server
       @runner.run do
         start
       end
       @replicator.try &.close
       @data_dir_lock.try &.release
+    ensure
+      @run_done.close
     end
 
     def stop
@@ -102,6 +110,16 @@ module LavinMQ
       @server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+    end
+
+    # Exits if another process holds the lock, before the server or the
+    # replication client touches the data directory
+    private def acquire_data_dir_lock
+      lock = DataDirLock.new(@config.data_dir)
+      lock.acquire
+      @data_dir_lock = lock
+    rescue ex : DataDirLock::Error
+      abort "Error: #{ex.message}"
     end
 
     private def print_environment_info
@@ -131,6 +149,41 @@ module LavinMQ
       {% end %}
     end
 
+    READ_AHEAD_WARN_KB = 1024
+
+    # The first write fault in a new segment reads ahead up to read_ahead_kb
+    # of it synchronously, in the publish path, which with a large readahead
+    # and a full page cache stalls publishers at every segment rollover.
+    private def print_data_dir_read_ahead
+      {% if flag?(:linux) %}
+        device, read_ahead_kb = data_dir_read_ahead || return
+        Log.info { "Data directory read ahead: #{read_ahead_kb} KiB (#{device})" }
+        if read_ahead_kb > READ_AHEAD_WARN_KB
+          Log.warn { "The read ahead of the data directory's block device is large, it can cause latency spikes on segment rollover." }
+          Log.warn { "Consider lowering it, e.g. to the kernel default: echo 128 > /sys/block/#{device}/queue/read_ahead_kb" }
+        end
+      {% end %}
+    end
+
+    # Looks up the block device of the data dir in sysfs, returns its name and
+    # read ahead in KiB. Returns nil for file systems without one (tmpfs,
+    # overlayfs, NFS, btrfs subvolumes etc.).
+    private def data_dir_read_ahead : Tuple(String, Int32)?
+      {% if flag?(:linux) %}
+        return if LibC.stat(@config.data_dir.check_no_null_byte, out stat) != 0
+        dev = stat.st_dev.to_u64
+        major = ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff_u64)
+        minor = (dev & 0xff) | ((dev >> 12) & ~0xff_u64)
+        sys_dev = File.realpath("/sys/dev/block/#{major}:#{minor}")
+        # Partitions share the queue of their disk
+        sys_dev = File.dirname(sys_dev) if File.exists?(File.join(sys_dev, "partition"))
+        {File.basename(sys_dev), File.read(File.join(sys_dev, "queue", "read_ahead_kb")).strip.to_i}
+      {% end %}
+    rescue ex : File::Error | ArgumentError
+      Log.debug { "Could not read data directory read ahead: #{ex.message}" }
+      nil
+    end
+
     private def load_definitions(amqp_server)
       path = @config.load_definitions
       return if path.empty?
@@ -149,12 +202,17 @@ module LavinMQ
       exit 1
     end
 
-    private def start_metrics_server(server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server)
+    # Bound once, before the node knows its role, and kept until shutdown so
+    # that the port isn't rebound when a follower becomes leader
+    private def start_metrics_server
+      return unless metrics_server = @metrics_server
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
+    rescue ex : Socket::BindError
+      stop
+      abort "Error: #{ex.message}"
     end
 
     private def start_listeners(amqp_server, mqtt_server, http_server)
@@ -215,7 +273,26 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
+      total_stack = 0_u64
+      Fiber.list do |f|
+        if stack = f.stack_used
+          total_stack += stack
+          puts "  #{f.inspect}: #{stack.humanize_bytes}"
+        else
+          puts "  #{f.inspect}: running"
+        end
+      end
+      puts "  total stack used (excluding running fibers): #{total_stack.humanize_bytes}"
+      IO::BufferPool.all.each do |pool|
+        stats = pool.stats
+        puts "Buffer pool (#{stats[:buffer_size].humanize_bytes} buffers)"
+        puts "  threads: #{stats[:threads]}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+        puts "  dropped: #{stats[:dropped]}"
+      end
       STDOUT.flush
     end
 
@@ -256,12 +333,26 @@ module LavinMQ
         stop
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        # A started node closes the replicator when #run returns, then the main
+        # fiber exits. Exiting from here before that closes the log backend
+        # while it may still be logging. A follower has nothing to close.
+        return if @server && run_finished?
         Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 1
+      end
+    end
+
+    private def run_finished? : Bool
+      select
+      when @run_done.receive?
+        true
+      when timeout(SHUTDOWN_TIMEOUT)
+        Log.warn { "Shutdown didn't finish in #{SHUTDOWN_TIMEOUT.total_seconds}s, exiting" }
+        false
       end
     end
 
@@ -278,6 +369,9 @@ module LavinMQ
       ctx = OpenSSL::SSL::Context::Server.new
       configure_tls_context(ctx)
       ctx
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to initiate the OpenSSL context: #{e.message}" }
+      exit 1
     end
 
     private def warn_if_ktls_unavailable
@@ -301,6 +395,8 @@ module LavinMQ
         next if ctx.nil?
         configure_tls_context(ctx)
       end
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to reload the OpenSSL context, keeping previous configuration: #{e.message}" }
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
@@ -323,6 +419,7 @@ module LavinMQ
       ctx.certificate_chain = @config.tls_cert_path
       ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      ctx.cipher_suites = @config.tls_ciphersuites unless @config.tls_ciphersuites.empty?
       if @config.tls_prefer_server_ciphers?
         ctx.add_options(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE)
       else
@@ -348,42 +445,24 @@ module LavinMQ
     end
 
     private def setup_sni_callbacks
-      # Set up SNI callback for AMQP TLS context
-      if amqp_tls = @amqp_tls_context
-        amqp_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
-            sni_host.amqp_tls_context
-          else
-            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
+      setup_sni_callbacks_for(@amqp_tls_context, :amqp, "AMQP")
+      setup_sni_callbacks_for(@mqtt_tls_context, :mqtt, "MQTT")
+      setup_sni_callbacks_for(@http_tls_context, :http, "HTTP")
+    end
 
-      # Set up SNI callback for MQTT TLS context
-      if mqtt_tls = @mqtt_tls_context
-        mqtt_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
-            sni_host.mqtt_tls_context
-          else
-            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
-
-      # Set up SNI callback for HTTP TLS context
-      if http_tls = @http_tls_context
-        http_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
-            sni_host.http_tls_context
-          else
-            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
+    # The servername callback swaps in the SNI host's context, which carries
+    # the certificate and mTLS settings. TLS version and cipher settings
+    # cannot ride on that switch: OpenSSL selects them before the callback
+    # runs, so the listener's settings apply to every SNI host.
+    private def setup_sni_callbacks_for(ctx : OpenSSL::SSL::Context::Server?, protocol : Symbol, label : String) : Nil
+      return unless ctx
+      ctx.on_server_name do |hostname|
+        if sni_host = @config.sni_manager.get_host(hostname)
+          Log.debug { "SNI (#{label}): Using certificate for hostname '#{hostname}'" }
+          sni_host.tls_context(protocol)
+        else
+          Log.debug { "SNI (#{label}): No specific certificate for '#{hostname}', using default" }
+          nil
         end
       end
     end

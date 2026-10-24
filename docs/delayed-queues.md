@@ -43,7 +43,7 @@ The `x-delayed-exchange` argument on the exchange also enables delayed mode.
 Each delayed exchange creates an internal queue named `amq.delayed-<exchange_name>` (or `amq.delayed.<exchange_name>` for queues created before this naming convention; both forms continue to work). This queue:
 
 - Delivers messages in expiration order (messages are stored in arrival order on disk; an in-memory index orders them by delivery time)
-- Cannot be consumed from or published to by clients
+- Cannot be operated on by AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED` (it stays visible in the management UI and HTTP API)
 - Is automatically deleted when the exchange is deleted
 - Inherits the durability of the exchange
 

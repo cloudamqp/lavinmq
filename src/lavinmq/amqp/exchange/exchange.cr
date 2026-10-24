@@ -4,12 +4,10 @@ require "../binding_details"
 require "../destination"
 require "../../error"
 require "../../exchange"
-require "../../observable"
 require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
-require "./event"
 
 module LavinMQ
   module AMQP
@@ -17,7 +15,6 @@ module LavinMQ
       include PolicyTarget
       include Stats
       include SortableJSON
-      include Observable(ExchangeEvent)
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
@@ -27,7 +24,17 @@ module LavinMQ
       @delayed_queue : DelayedExchangeQueue?
       @deleted = false
       @deduper : Deduplication::Deduper?
-      @effective_args = Array(String).new
+      # Replaced, never mutated, and published with release ordering
+      @effective_args = Atomic(Array(String)).new(Array(String).new)
+      # Built by stage_arguments/apply_policy_argument, published by
+      # commit_policy_arguments. A published array is never mutated.
+      @staged_effective_args = Array(String).new
+      @staged_alternate_exchange : String?
+      @staged_federation_upstream : String?
+      @staged_federation_upstream_set : String?
+      # Set by clear_policy_arguments so that only policy passes reconcile
+      # federation links, not the handle_arguments commit in initialize
+      @federation_staged = false
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
 
@@ -40,54 +47,72 @@ module LavinMQ
       private def apply_policy_argument(key : String, value : JSON::Any) : Bool
         case key
         when "alternate-exchange"
-          if @alternate_exchange.nil?
-            @alternate_exchange = value.as_s?
-            @effective_args.delete("x-alternate-exchange")
-            @effective_args.delete("alternate-exchange")
+          if @staged_alternate_exchange.nil?
+            @staged_alternate_exchange = value.as_s?
+            @staged_effective_args.delete("x-alternate-exchange")
+            @staged_effective_args.delete("alternate-exchange")
             return true
           end
         when "delayed-message"
           if value.as?(Bool) == true
-            @effective_args.delete("x-delayed-message")
+            @staged_effective_args.delete("x-delayed-message")
             @delayed = true
             init_delayed_queue
             return true
           end
         when "federation-upstream"
-          @vhost.upstreams.try &.link(value.as_s, self) unless internal?
+          @staged_federation_upstream = value.as_s unless internal?
           return true
         when "federation-upstream-set"
-          @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
+          @staged_federation_upstream_set = value.as_s unless internal?
           return true
         end
         false
       end
 
       private def clear_policy_arguments
-        handle_arguments
-        @vhost.upstreams.try &.stop_link(self)
+        stage_arguments
+        @staged_federation_upstream = nil
+        @staged_federation_upstream_set = nil
+        @federation_staged = true
       end
 
       def handle_arguments
-        @effective_args = Array(String).new
-        if @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
-          @effective_args << "x-alternate-exchange"
-        elsif @alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
-          @effective_args << "alternate-exchange"
+        @policy_lock.synchronize do
+          stage_arguments
+          commit_policy_arguments
+        end
+      end
+
+      private def commit_policy_arguments
+        @alternate_exchange = @staged_alternate_exchange
+        @effective_args.set(@staged_effective_args, :release)
+        if @federation_staged
+          @federation_staged = false
+          @vhost.upstreams.try &.reconcile_link(self, @staged_federation_upstream, @staged_federation_upstream_set)
+        end
+      end
+
+      private def stage_arguments
+        @staged_effective_args = effective_args = Array(String).new
+        if @staged_alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+          effective_args << "x-alternate-exchange"
+        elsif @staged_alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
+          effective_args << "alternate-exchange"
         end
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
-          @effective_args << "x-delayed-exchange"
+          effective_args << "x-delayed-exchange"
         end
         if @arguments["x-message-deduplication"]?.try(&.as?(Bool))
-          @effective_args << "x-message-deduplication"
+          effective_args << "x-message-deduplication"
           ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
-          @effective_args << "x-cache-ttl" if ttl
+          effective_args << "x-cache-ttl" if ttl
           size = parse_header("x-cache-size", Int).try(&.to_u32)
-          @effective_args << "x-cache-size" if size
+          effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
-          @effective_args << "x-deduplication-header" if header_key
+          effective_args << "x-deduplication-header" if header_key
           @deduper ||= begin
             cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
             Deduplication::Deduper.new(cache, ttl, header_key)
@@ -109,7 +134,7 @@ module LavinMQ
           operator_policy: operator_policy.try &.name,
           effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
           message_stats: current_stats_details,
-          effective_arguments: @effective_args,
+          effective_arguments: @effective_args.get(:acquire),
         }
       end
 
@@ -154,7 +179,17 @@ module LavinMQ
         @deleted = true
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
-        notify_observers(ExchangeEvent::Deleted)
+        @vhost.upstreams.try &.stop_link(self)
+      end
+
+      # Keep federation links' upstream bindings in sync. Call after the
+      # binding is stored, ExchangeLink's bindings snapshot relies on it.
+      private def upstreams_bound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_bound(self, binding)
+      end
+
+      private def upstreams_unbound(binding : BindingDetails) : Nil
+        @vhost.upstreams.try &.exchange_unbound(self, binding)
       end
 
       # This outer macro will add a finished macro hook to all inherited classes
@@ -181,11 +216,11 @@ module LavinMQ
         {% end %}
       end
 
-      def bind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
-      def unbind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
+      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
@@ -203,7 +238,7 @@ module LavinMQ
       # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
       # while `MQTT::Exchange` overrides this to return `Array(MQTT::SubscriptionDetails)`.
       abstract def bindings_details
-      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
 
       # Number of bindings on this exchange. Counted cheaply, without allocating
       # the full `bindings_details` array.
@@ -211,20 +246,20 @@ module LavinMQ
 
       # Result of routing a message through an exchange.
       # `Routed` is set if at least one queue accepted the message.
-      # `Overflowed` is set if at least one matched queue rejected the message
-      # due to a reject-publish overflow policy. The two flags are independent:
-      # a publish can be both routed (one queue accepted) and overflowed
-      # (another queue rejected), in which case the publisher should still be
-      # nack'ed on confirm channels.
+      # `Rejected` is set if at least one matched queue didn't store the
+      # message: due to a reject-publish overflow policy, or because it was
+      # closed, e.g. on shutdown. The two flags are independent: a publish can
+      # be both routed (one queue accepted) and rejected (another didn't), in
+      # which case the publisher should still be nack'ed on confirm channels.
       @[Flags]
       enum PublishResult
         Routed
-        Overflowed
+        Rejected
       end
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
+                  exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -247,10 +282,17 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(LavinMQ::Exchange).new)
+        route_msg(msg, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
+      def route_msg(msg : Message, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
+        route_msg(msg, false, queues, exchanges)
+      ensure
+        queues.clear
+        exchanges.clear
+      end
+
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
@@ -259,30 +301,30 @@ module LavinMQ
         end
 
         count = 0u32
-        overflow = false
+        rejected = false
         queues.each do |queue|
           case queue.publish(msg)
           in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
-          in .overflow?
-            overflow = true
+          in .overflow?, .closed?
+            rejected = true
           in .dropped?
-            # queue was closed or message was a duplicate; nothing to do
+            # message was a duplicate; nothing to do
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+        @unroutable_count.add(1, :relaxed) if count.zero? && !rejected
 
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?
-        result |= PublishResult::Overflowed if overflow
+        result |= PublishResult::Rejected if rejected
         result
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                      exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
+                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
         each_destination(routing_key, headers) do |d|
           case d
@@ -291,7 +333,7 @@ module LavinMQ
             unless delayed? && d == @delayed_queue
               queues.add(d)
             end
-          in LavinMQ::Exchange
+          in AMQP::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end
         end

@@ -17,8 +17,14 @@ Unix domain sockets are also supported via `unix_path` in the `[mqtt]` section. 
 | QoS | Supported | Behavior |
 |-----|-----------|----------|
 | 0 (at most once) | Yes | Fire and forget. Messages are not persisted for the session. |
-| 1 (at least once) | Yes | Messages are acknowledged with PUBACK. |
+| 1 (at least once) | Yes | Incoming publishes are acknowledged with PUBACK after the affected durable data is synced, unless synchronization is disabled. |
 | 2 (exactly once) | Downgraded to QoS 1 | LavinMQ does not implement the full QoS 2 handshake. |
+
+For incoming QoS 1 publishes, PUBACKs are sent in publish order after the broker finishes handling the publish and syncing its affected durable message and retained-message files. In a cluster, the broker also waits for the in-sync followers to acknowledge the replicated writes after synchronization. This uses the same persistence mechanism as [publisher confirms](publisher-confirms.md#durability-and-synchronization).
+
+Waiting for disk synchronization makes QoS 1 throughput depend on disk latency and the number of publishes the client keeps in flight. QoS 0 does not wait for this synchronization. Setting `sync=false` in `[main]` (or using `--no-sync`) skips local disk synchronization; followers also skip synchronization if it is disabled in their own configuration. A PUBACK then provides no disk durability guarantee on those nodes.
+
+A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
 ## Sessions
 
@@ -38,8 +44,10 @@ When a client connects with `clean_session=false`:
 
 - The session persists across disconnections
 - Subscriptions are preserved
-- Unacknowledged QoS 1 messages are requeued and redelivered on reconnect
+- Unacknowledged QoS 1 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
 - The session queue is durable
+
+The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs. If a `max-length` policy or a purge discards a message the session still owes, its packet ID is forgotten along with it; the messages that remain keep theirs.
 
 ### Session Takeover
 
@@ -53,7 +61,7 @@ Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits),
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
-- Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
+- Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over, and keep their packet IDs for the redelivery. For clean sessions, unacknowledged messages are discarded.
 
 ## Connection Limits
 
@@ -78,6 +86,9 @@ MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wil
 Examples:
 - `sensor/+/temperature` matches `sensor/room1/temperature` but not `sensor/room1/sub/temperature`
 - `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
+- `sensor/#` also matches `sensor`, because `#` includes the parent level
+
+A filter that starts with `#` or `+` does not match a topic that starts with `$`. To get messages on `$` topics, subscribe to a filter that starts with the `$` level, for example `$SYS/#`.
 
 ## MQTT-AMQP Bridge
 
@@ -86,8 +97,26 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 - A dedicated MQTT exchange handles topic routing
 - Each MQTT session is an AMQP queue
 - MQTT subscriptions are bindings on the MQTT exchange
-- MQTT topic separators (`/`) map directly to AMQP routing key segments
+- The MQTT topic is used unchanged as the routing key: `/` is not translated to `.`, also not for messages delivered to AMQP consumers through an [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp)
 - Message properties are mapped between protocols (e.g., `delivery_mode` maps to QoS, `mqtt.retain` header tracks retain flag)
+
+## Consuming MQTT Messages over AMQP
+
+An exchange of type `x-mqtt-topic` makes MQTT publishes available to AMQP consumers. Declare one, then bind queues to it with MQTT topic filters as binding keys:
+
+```
+exchange.declare  name=sensors  type=x-mqtt-topic  durable=true
+queue.declare     name=sensor-readings  durable=true
+queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+/temp
+```
+
+Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
+
+- The exchange is always internal, so AMQP clients cannot publish into it
+- Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
+- The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
+- [Retained messages](#retained-messages) are not replayed when a binding is created
+- Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
 
 ## Configuration
 
@@ -97,7 +126,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `port` | `[mqtt]` | `1883` | MQTT listen port |
 | `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
 | `unix_path` | `[mqtt]` | (empty) | Unix socket path |
-| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session |
+| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session, must be at least `1` |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
@@ -107,8 +136,8 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 Topic permissions restrict which topics a user's MQTT clients can publish to and receive from. They are defined as permission groups on a vhost.
 
 - A client can only publish to or receive on topics granted by a matching rule
-- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic
-- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything. Deleting the `default` group is not reliably carried over by a definitions export and import, see [Definitions](#definitions)
+- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic. A vhost created by a definitions import is the exception, see [Definitions](#definitions)
+- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything
 - A vhost with no groups denies every topic
 - There is no administrator bypass
 - A user still needs a permission entry on the vhost to connect
@@ -195,6 +224,7 @@ Example: allow every user to use only its own device subtrees under `chat/`.
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/members/%2A
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/rules/own-chat \
+  -H 'Content-Type: application/json' \
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
@@ -202,20 +232,19 @@ Permission changes are saved to disk before becoming active. If saving fails, th
 
 ### Definitions
 
-Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. The file is written when the vhost is created, so it always holds the groups that are in effect, including the `default` group.
 
-Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
+An import adds groups and replaces groups with the same name. It never deletes a group, like for users and policies, so importing definitions into an existing vhost keeps its `default` group. To lock that vhost down, delete or narrow its `default` group. `load_definitions` also skips groups whose name already exists on the vhost.
 
-Deleting the `default` group is not reliably carried over by an export and import:
+A vhost created by an import only gets the `default` group if the definitions have no `mqtt_permissions` key. With the key, which every export has, the vhost gets only the groups the definitions list for it, so a vhost exported without groups is imported locked down. Definitions from before topic permissions have no such key, and their vhosts stay open.
 
-- If the vhost has no other groups, the export has no entries for it, so the import leaves the target as it is
-- Otherwise, a target vhost that already has `mqtt_permissions.json` keeps its `default` group. Every vhost has that file after its first restart or change to its groups
+Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
 
-To make a lockdown survive, keep the `default` group and remove or narrow its rule instead. `load_definitions` never replaces existing groups, so there this only takes effect on a vhost without `mqtt_permissions.json`, such as one the definitions file creates.
+Definitions generated from a data directory include the groups in `mqtt_permissions.json`. If the file is missing, the generator includes the `default` group, which the server creates when it loads the vhost.
 
 ### Upgrading
 
-- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import, or when the vhost closes
+- A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
 - The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
@@ -240,5 +269,8 @@ Note that connecting with a client_id already in use takes over that session, so
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
-- AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
-- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).
+- An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
+- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding). Topics and topic filters can be at most 255 bytes, while MQTT allows 65535:
+  - A PUBLISH to a longer topic closes the connection, with a warning in the broker log. Such a publish can never succeed, and MQTT 3.1.1 has no way to reject a single PUBLISH, so the disconnect is the only signal the client can get.
+  - A CONNECT with a will topic longer than 255 bytes is refused: the connection is closed, with a warning in the broker log.
+  - A SUBSCRIBE with a longer topic filter gets return code `0x80` (failure) for that filter.

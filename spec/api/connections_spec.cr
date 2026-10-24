@@ -13,6 +13,25 @@ describe LavinMQ::HTTP::ConnectionsController do
       end
     end
 
+    it "should sort on the ssl column" do
+      with_http_server(extra_tls_listener: true) do |http, s|
+        with_channel(s) do
+          with_channel(s, port: amqp_tls_port(s), tls: true,
+            verify_mode: OpenSSL::SSL::VerifyMode::NONE) do
+            response = http.get("/api/connections?page=1&sort=ssl")
+            response.status_code.should eq 200
+            items = JSON.parse(response.body).as_h["items"].as_a
+            items.map(&.["ssl"].as_bool).should eq [false, true]
+
+            response = http.get("/api/connections?page=1&sort=ssl&sort_reverse=true")
+            response.status_code.should eq 200
+            items = JSON.parse(response.body).as_h["items"].as_a
+            items.map(&.["ssl"].as_bool).should eq [true, false]
+          end
+        end
+      end
+    end
+
     it "should only show own connections for policymaker" do
       with_http_server do |http, s|
         s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])

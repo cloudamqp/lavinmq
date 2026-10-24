@@ -5,6 +5,18 @@ describe "Delayed Message Exchange" do
   delay_q_name = "amq.delayed-#{x_name}"
   x_args = AMQP::Client::Arguments.new({"x-delayed-exchange" => true})
 
+  it "should reject an exchange name that leaves no room for the delayed queue prefix" do
+    with_amqp_server do |s|
+      name = "x" * 244
+      with_channel(s) do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, /too long/) do
+          ch.exchange(name, "topic", args: x_args)
+        end
+      end
+      s.vhosts["/"].exchange?(name).should be_nil
+    end
+  end
+
   describe "internal queue" do
     it "should use old name if dir exists" do
       with_amqp_server do |s|
@@ -26,9 +38,8 @@ describe "Delayed Message Exchange" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.exchange(x_name, "topic", args: x_args)
-          q = s.vhosts["/"].queue?(delay_q_name)
-          q.should_not be_nil
-          dlx_exchange = q.not_nil!.arguments["x-dead-letter-exchange"]?.try &.as?(String)
+          q = s.vhosts["/"].queue?(delay_q_name).should_not be_nil
+          dlx_exchange = q.arguments["x-dead-letter-exchange"]?.try &.as?(String)
           dlx_exchange.should eq x_name
         end
       end
@@ -56,8 +67,27 @@ describe "Delayed Message Exchange" do
         end
         restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
-        sleep 1.second
         wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
+      end
+    end
+
+    it "should route messages that are overdue at startup" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "topic", args: x_args)
+          q = ch.queue("overdue_q", durable: true)
+          q.bind(x.name, "#")
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 200})
+          100.times do
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 100
+        end
+        s.stop
+        sleep 300.milliseconds
+        restart_server(s)
+        wait_for { s.vhosts["/"].queue("overdue_q").message_count == 100 }
+        s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
       end
     end
 
@@ -174,29 +204,26 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-        # Publish three message with delay 9000ms, 6000ms, 3000ms
+        queue = s.vhosts["/"].queue(q_name)
+        # Publish three message with delay 3000ms, 2000ms, 1000ms
         3.downto(1) do |i|
-          delay = i * 3000
+          delay = i * 1000
           hdrs = AMQP::Client::Arguments.new({"x-delay" => delay})
           x.publish_confirm delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           Fiber.yield
         end
-        # by sleeping 5 seconds the message with delay 3000ms should be published
-        sleep 5.seconds
-        # publish another message, with a delay low enough to make the message
-        # being published before at least the one with 9000ms
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1500})
-        x.publish_confirm "1500", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        Fiber.yield
-        # by sleeping another 2 seconds we've slept for 7s in total, meaning that
-        # the message published with 6000ms should be published. Also, the new message
-        # with 1500ms should be published
-        sleep 2.seconds
-        queue = s.vhosts["/"].queue(q_name)
-        queue.message_count.should eq 3
-        sleep 3.seconds # total 10, the 9000ms message should have been published
-        queue.message_count.should eq 4
-        expected = %w[3000 6000 1500 9000]
+        # by sleeping 1.5 seconds the message with delay 1000ms should be published
+        sleep 1.5.seconds
+        queue.message_count.should eq 1
+        # publish another message, with a delay that makes it due after the
+        # 2000ms message but before the 3000ms message
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 700})
+        x.publish_confirm "700", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        # the 2000ms message and the new 700ms message are published by ~2.2s,
+        # well before the 3000ms message is due
+        wait_for { queue.message_count == 3 }
+        wait_for { queue.message_count == 4 }
+        expected = %w[1000 2000 700 3000]
         expected.each do |expected_delay|
           queue.basic_get(no_ack: true) do |env|
             String.new(env.message.body).should eq expected_delay
@@ -297,9 +324,9 @@ describe "Delayed Message Exchange" do
       queue = s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue)
       queue.message_count.should eq 1
 
-      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore)
+      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore)
       seg_id = store.@segments.first_key
-      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore)
+      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore::DelayedRequeuedStore)
 
       # Insert an index entry pointing past the segment data with an already-elapsed
       # expire_at, so the expire loop reads it first and BytesMessage.from_bytes raises
@@ -337,8 +364,8 @@ describe "Delayed Message Exchange" do
         internal_queue = s.vhosts["/"].queue?(delay_q_name)
         internal_queue.should_not be_nil
 
-        # Attempting to bind the delayed exchange to its internal queue should raise an error
-        expect_raises(AMQP::Client::Channel::ClosedException, /Cannot bind delayed exchange/) do
+        # Attempting to bind to an internal queue should raise an error
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
           ch.queue_bind(delay_q_name, x_name, "#")
         end
       end

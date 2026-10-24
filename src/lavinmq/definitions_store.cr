@@ -1,4 +1,5 @@
 require "./logger"
+require "./filesystem"
 require "./schema"
 require "./event_type"
 require "./queue_factory"
@@ -32,7 +33,9 @@ module LavinMQ
       # fds, so a frame must never sit in a user-space write buffer where they
       # can't see it — a follower joining in that window would be marked
       # synced while permanently missing the frame.
+      created = !File.exists?(@definitions_file_path)
       @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
+      FileSystem.fsync_dir(@data_dir) if created
       @replicator.try &.register_file(@definitions_file)
       @definitions_deletes = 0
     end
@@ -44,7 +47,10 @@ module LavinMQ
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
-        @replicator.try &.wait_for_followers
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
       end
     end
 
@@ -187,6 +193,10 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          if dst.is_a?(AMQP::MqttTopicExchange)
+            return false if loading
+            raise Error::PreconditionFailed.new("Exchange '#{dst.name}' of type x-mqtt-topic only receives MQTT publishes and cannot be a binding destination")
+          end
           return false unless src.bind(dst, f.routing_key, f.arguments)
           store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
@@ -361,7 +371,7 @@ module LavinMQ
             false, e.arguments)
           io.write_bytes f
         end
-        @queues.each_value.select(&.durable?).each do |q|
+        @queues.each_value.select { |q| q.durable? && !q.internal? }.each do |q|
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
@@ -394,8 +404,7 @@ module LavinMQ
             end
           end
         end
-        io.fsync
-        File.rename io.path, @definitions_file_path
+        FileSystem.durable_rename(io, @definitions_file_path)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
@@ -421,7 +430,10 @@ module LavinMQ
         # could elect a follower lacking the acknowledged change. A follower
         # that doesn't ack within its deadline is disconnected and its ISR
         # removal committed before this returns.
-        @replicator.try &.wait_for_followers
+        if replicator = @replicator
+          replicator.request_fsync({@definitions_file_path})
+          replicator.wait_for_followers
+        end
       end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
@@ -455,6 +467,8 @@ module LavinMQ
         AMQP::FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
         AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-mqtt-topic"
+        AMQP::MqttTopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("unknown exchange type '#{type}'")
       end
     end

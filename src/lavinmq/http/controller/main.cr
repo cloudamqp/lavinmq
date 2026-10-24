@@ -15,6 +15,7 @@ module LavinMQ
         {name: "headers", human: "Headers"},
         {name: "x-federation-upstream", human: "Federation Upstream"},
         {name: "x-consistent-hash", human: "Consistent Hash"},
+        {name: "x-mqtt-topic", human: "MQTT Topic"},
       }
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
@@ -156,16 +157,17 @@ module LavinMQ
               4_u64,
               IO::Memory.new("test"))
             routed = vhost.publish(msg).routed?
-            env = nil
-            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = routed && env && String.new(env.message.body) == "test"
+            # Compare inside the block, the segment can be deleted once it returns
+            body_ok = false
+            vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
+            ok = routed && body_ok
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end
 
         get "/api/federation-links" do |context, _params|
           arr = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
+            vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
           end
@@ -174,7 +176,7 @@ module LavinMQ
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+            arr = vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
             page(context, arr)

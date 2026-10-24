@@ -11,14 +11,14 @@ require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
-require "../publish_confirm_target"
+require "../persister"
 
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
-      include PublishConfirmTarget
+      include Persister::ConfirmTarget
 
       getter id, name, client
       property? running = true
@@ -256,11 +256,11 @@ module LavinMQ
       private def finish_publish(body_io)
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
-        props = @next_msg_props.not_nil!
+        props = @next_msg_props.not_nil!("No message headers received")
         props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
         msg = Message.new(RoughTime.unix_ms,
-          @next_publish_exchange_name.not_nil!,
-          @next_publish_routing_key.not_nil!,
+          @next_publish_exchange_name.not_nil!("No publish started"),
+          @next_publish_routing_key.not_nil!("No publish started"),
           props,
           @next_msg_size,
           body_io)
@@ -285,6 +285,7 @@ module LavinMQ
           return
         end
 
+        msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
@@ -309,7 +310,7 @@ module LavinMQ
       # Yields to the block which must return an `Exchange::PublishResult`, then
       # sends a publisher confirm based on the outcome:
       # * if the block raises, send NACK and re-raise
-      # * if any matched queue rejected on overflow, send NACK
+      # * if any matched queue rejected on overflow, or was closed, send NACK
       # * otherwise send ACK
       # When publisher confirms are disabled the block is just yielded.
       private def confirm(&)
@@ -317,7 +318,7 @@ module LavinMQ
           msgid = @confirm_total &+= 1
           begin
             result = yield
-            if result.overflowed?
+            if result.rejected?
               confirm_nack(msgid)
             else
               confirm_ack(msgid)
@@ -441,8 +442,8 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
             return
           end
-          if q.has_exclusive_consumer?
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          if q.internal?
+            @client.send_internal_queue_refused(frame, frame.queue)
             return
           end
           c = if q.is_a? Stream
@@ -450,8 +451,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
-          q.add_consumer(c)
+          return unless add_consumer(q, c, frame)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
@@ -461,10 +461,29 @@ module LavinMQ
         Fiber.yield # Notify :add_consumer observers
       end
 
+      # The exclusivity check is made atomically with the add, so that
+      # concurrent consumes on other connections can't both pass it
+      private def add_consumer(q, c, frame) : Bool
+        @consumers.push(c)
+        if q.add_consumer(c)
+          true
+        else
+          @consumers.delete(c)
+          @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          false
+        end
+      rescue Queue::ClosedError
+        @consumers.delete(c)
+        @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+        false
+      end
+
       def basic_get(frame)
         if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
+          elsif q.internal?
+            @client.send_internal_queue_refused(frame, frame.queue)
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           elsif q.is_a? Stream
@@ -578,7 +597,9 @@ module LavinMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
-        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        if unack.consumer.nil? # only basic.get deliveries are in the queue's basic.get unacked list
+          unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        end
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
       end
@@ -657,7 +678,9 @@ module LavinMQ
           c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
-        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        if unack.consumer.nil? # only basic.get deliveries are in the queue's basic.get unacked list
+          unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        end
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
       end
@@ -687,7 +710,7 @@ module LavinMQ
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
-              unack.queue.reject(unack.sp, requeue: true)
+              unack.queue.requeue(unack.sp)
             end
             @unacked.clear
           else # redeliver to the original recipient
@@ -698,7 +721,7 @@ module LavinMQ
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
                 false
               else
-                unack.queue.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
                 true
               end
             end
@@ -733,8 +756,10 @@ module LavinMQ
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.reject(unack.sp, true)
-            unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+            unack.queue.requeue(unack.sp)
+            if unack.consumer.nil?
+              unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+            end
           end
           @unacked.clear
         end

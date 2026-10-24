@@ -208,7 +208,7 @@ module DeadLetteringSpec
             channel.default_exchange.publish_confirm("msg#{i}", q.name)
           end
 
-          msg1 = q.get(no_ack: false).not_nil!
+          msg1 = q.get(no_ack: false).should_not be_nil
           msg1.reject(requeue: true)
 
           wait_for { q.message_count == 3 }
@@ -226,8 +226,8 @@ module DeadLetteringSpec
           props = AMQP::Client::Properties.new(expiration: "1000")
           ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
 
-          msg = q.get(no_ack: false).not_nil!
-          sleep 1100.milliseconds
+          msg = q.get(no_ack: false).should_not be_nil
+          sleep 1020.milliseconds
           msg.reject(requeue: true)
 
           dlq_msg = wait_for { dlq.get }.should_not be_nil
@@ -295,6 +295,32 @@ module DeadLetteringSpec
 
           q_msg = q.get.should_not be_nil
           q_msg.body_io.to_s.should eq "msg3"
+        end
+      end
+    end
+
+    describe "segment leases" do
+      # q dead-letters into "middle", whose max-length drops its head into
+      # "last" as part of q's chain: middle's route only queues that publish,
+      # q's drain does it after middle's route has returned, so middle's
+      # segment must stay leased until then, and be released afterwards
+      it "keeps a dead-lettered message mapped until a nested chain publishes it" do
+        with_dead_lettering_setup(qargs: {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "middle"}) do |q, _, ch, s|
+          middle = ch.queue("middle", args: AMQP::Client::Arguments.new({
+            "x-max-length" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "last",
+          }))
+          last = ch.queue("last")
+          ch.default_exchange.publish_confirm("head of middle", middle.name)
+          vhost = s.vhosts["/"]
+          segment = vhost.queue(middle.name).@msg_store.@segments.first_value
+
+          ch.default_exchange.publish_confirm("from q", q.name)
+          get1(q, no_ack: false, &.reject(requeue: false))
+
+          get1(last).body_io.to_s.should eq "head of middle"
+          get1(middle).body_io.to_s.should eq "from q"
+          vhost.delete_queue(middle.name)
+          segment.closed?.should be_true
         end
       end
     end
@@ -386,14 +412,14 @@ module DeadLetteringSpec
             wait_for { dlx.message_count == 2 }
             q.message_count.should eq 1
 
-            q_msg = q.get
-            q_msg.not_nil!.body_io.to_s.should eq "msg1"
+            q_msg = q.get.should_not be_nil
+            q_msg.body_io.to_s.should eq "msg1"
 
-            dlx_msg2 = dlx.get
-            dlx_msg3 = dlx.get
+            dlx_msg2 = dlx.get.should_not be_nil
+            dlx_msg3 = dlx.get.should_not be_nil
 
-            dlx_msg2.not_nil!.body_io.to_s.should eq "msg2"
-            dlx_msg3.not_nil!.body_io.to_s.should eq "msg3"
+            dlx_msg2.body_io.to_s.should eq "msg2"
+            dlx_msg3.body_io.to_s.should eq "msg3"
           end
         end
       end
@@ -748,6 +774,23 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: cycle detection raised KeyError on an x-death entry for a
+      # destination queue without a "reason", so the message was never routed
+      it "should dead letter a message with an x-death entry without reason" do
+        qargs = {
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => DLQ_NAME,
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          xdeath = [AMQ::Protocol::Table.new({"queue" => DLQ_NAME})] of AMQ::Protocol::Field
+          props = AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"x-death" => xdeath}))
+          ch.default_exchange.publish_confirm("msg1", q.name, props: props)
+
+          get1(dlq).body_io.to_s.should eq "msg1"
+        end
+      end
+
       it "should add x-death for message expiration" do
         with_dead_lettering_setup do |q, dlq, ch, _|
           props = AMQ::Protocol::Properties.new(expiration: "1")
@@ -756,7 +799,7 @@ module DeadLetteringSpec
 
           dlq_msg = get1(dlq)
 
-          headers = dlq_msg.not_nil!.properties.headers.should_not be_nil
+          headers = dlq_msg.properties.headers.should_not be_nil
           x_death = headers["x-death"].as(Array(AMQ::Protocol::Field))
           death_entry = x_death[0].as(AMQ::Protocol::Table)
           death_entry["reason"].should eq "expired"
@@ -840,7 +883,7 @@ module DeadLetteringSpec
           get1(q, &.nack(requeue: false))
 
           dlq_msg = get1(dlq)
-          headers = dlq_msg.properties.headers.not_nil!
+          headers = dlq_msg.properties.headers.should_not be_nil
           x_death = headers["x-death"].as(Array(AMQ::Protocol::Field))
           x_death.size.should eq 1
           x_death[0].as(AMQ::Protocol::Table)["reason"].should eq "rejected"
@@ -859,7 +902,7 @@ module DeadLetteringSpec
           end
 
           dlq_msg2 = get1(dlq)
-          headers = dlq_msg2.properties.headers.not_nil!
+          headers = dlq_msg2.properties.headers.should_not be_nil
           x_death = headers["x-death"].as(Array(AMQ::Protocol::Field))
           x_death[0].as(AMQ::Protocol::Table)["reason"].should eq "expired"
         end
@@ -1009,7 +1052,7 @@ module DeadLetteringSpec
           get1(dlq2, &.nack(requeue: false))
 
           msg2 = get1(q)
-          headers = msg2.not_nil!.properties.headers.should_not be_nil
+          headers = msg2.properties.headers.should_not be_nil
           headers["x-first-death-reason"].should eq "rejected"
           headers["x-first-death-queue"].should eq q.name
           headers["x-first-death-exchange"].should eq ""
@@ -1122,6 +1165,43 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: every dead lettering from a queue shared one task queue,
+      # so rejects on several threads drained it concurrently, corrupting it
+      # and running each other's publishes and routed callbacks
+      it "dead letters rejects from several threads", tags: "slow" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          vhost.declare_queue("dlq", durable: true, auto_delete: false)
+          vhost.declare_queue("src", durable: true, auto_delete: false,
+            arguments: LavinMQ::AMQP::Table.new({
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlq",
+            }))
+          src = vhost.queue("src").as(LavinMQ::AMQP::Queue)
+          dlq = vhost.queue("dlq").as(LavinMQ::AMQP::Queue)
+          ctx = Fiber::ExecutionContext::Parallel.new("dlx-reject", 4)
+          per_fiber = 500
+          30.times do |round|
+            (4 * per_fiber).times { src.publish(LavinMQ::Message.new("", "src", "body")) }
+            sps = Array(LavinMQ::SegmentPosition).new(4 * per_fiber)
+            while src.basic_get(false) { |env| sps << env.segment_position }
+            end
+            wg = WaitGroup.new(4)
+            4.times do |i|
+              ctx.spawn do
+                sps[i * per_fiber, per_fiber].each { |sp| src.reject(sp, requeue: false) }
+              ensure
+                wg.done
+              end
+            end
+            wg.wait
+            src.message_count.should eq 0
+            src.unacked_count.should eq 0
+            dlq.message_count.should eq (round + 1) * 4 * per_fiber
+          end
+        end
+      end
+
       # When cycle detection drops all destinations the routed callback
       # must still fire so the source message is removed from storage.
       # The queue self-binds to the fanout DLX: on first TTL the message
@@ -1146,6 +1226,55 @@ module DeadLetteringSpec
             q.message_count.should eq 0
           end
         end
+      end
+    end
+
+    it "never pairs a new dead letter exchange with an old routing key", tags: "slow" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        {"dlx-a", "dlx-b"}.each { |ex| vhost.declare_exchange(ex, "direct", false, false) }
+        {"dl-a", "dl-b", "dl-torn"}.each do |q|
+          vhost.declare_queue(q, false, false, LavinMQ::AMQP::Table.new({"x-max-length" => 1}))
+        end
+        vhost.bind_queue("dl-a", "dlx-a", "rk-a")
+        vhost.bind_queue("dl-torn", "dlx-a", "rk-b")
+        vhost.bind_queue("dl-b", "dlx-b", "rk-b")
+        vhost.bind_queue("dl-torn", "dlx-b", "rk-a")
+        # Every publish overflows and is dead lettered
+        vhost.declare_queue("dl-src", false, false, LavinMQ::AMQP::Table.new({"x-max-length" => 0}))
+        src = vhost.queue("dl-src").as(LavinMQ::AMQP::Queue)
+        dead_letter = src.@dead_letter
+        stop = Atomic(Bool).new(false)
+        deadline = Time.instant + 2.seconds
+        ctx = Fiber::ExecutionContext::Parallel.new("dlx-dlrk-race", 4)
+        wg = WaitGroup.new
+        wg.add(1)
+        ctx.spawn do
+          until Time.instant >= deadline
+            dead_letter.set_target("dlx-a", "rk-a")
+            dead_letter.set_target("dlx-b", "rk-b")
+            Fiber.yield
+          end
+        ensure
+          stop.set(true)
+          wg.done
+        end
+        3.times do
+          wg.add(1)
+          ctx.spawn do
+            # Yield, and stop at the deadline, so that the target switcher
+            # isn't starved on a runner with fewer cores than threads
+            until stop.get || Time.instant >= deadline
+              src.publish(LavinMQ::Message.new("", src.name, "body"))
+              Fiber.yield
+            end
+          ensure
+            wg.done
+          end
+        end
+        wg.wait
+        vhost.queue("dl-torn").message_count.should eq 0
+        (vhost.queue("dl-a").message_count + vhost.queue("dl-b").message_count).should be > 0
       end
     end
   end

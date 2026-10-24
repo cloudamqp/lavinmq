@@ -10,7 +10,7 @@ Declare a priority queue by setting the `x-max-priority` argument:
 x-max-priority: 10
 ```
 
-The value defines the maximum priority level (0-255). Messages with a priority higher than this value are capped to the maximum.
+The value defines the maximum priority level (0-255). Messages with a priority higher than this value are accepted, but clamped to the maximum. For example, with `x-max-priority: 5`, messages published with priorities 6, 7, and 8 all get priority 5. The queue delivers them in publish order.
 
 The `x-max-priority` argument is required at declaration time and cannot be changed after creation.
 

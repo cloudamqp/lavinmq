@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 module MqttSpecs
   extend MqttHelpers
@@ -18,11 +19,16 @@ module MqttSpecs
           server.users.create("no_write", "pass")
           server.users.add_permission("no_write", "/", /.*/, /.*/, /^$/) # config: .*, read: .*, write: ^$
 
-          with_client_io(server) do |io|
-            connect(io, username: "no_write", password: "pass".to_slice)
-            publish(io, false, topic: "test/topic", payload: "hello".to_slice)
-            # Connection should be closed due to permission denial
-            io.should be_closed
+          Log.capture("lmq.*", :error) do |logs|
+            with_client_io(server) do |io|
+              connect(io, username: "no_write", password: "pass".to_slice)
+              publish(io, false, topic: "test/topic", payload: "hello".to_slice)
+              # Connection should be closed due to permission denial
+              io.should be_closed
+            end
+            # An intentional close, not "Client unexpectedly closed connection"
+            wait_for { server.vhosts["/"].connections_size.zero? }
+            logs.empty
           end
         end
       end
@@ -32,12 +38,16 @@ module MqttSpecs
           server.users.create("no_read", "pass")
           server.users.add_permission("no_read", "/", /.*/, /^$/, /^$/) # config: .*, read: ^$, write: ^$
 
-          with_client_io(server) do |io|
-            connect(io, username: "no_read", password: "pass".to_slice)
-            topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 0u8)
-            subscribe(io, false, topic_filters: [topic_filter])
-            # Connection should be closed due to permission denial
-            io.should be_closed
+          Log.capture("lmq.*", :error) do |logs|
+            with_client_io(server) do |io|
+              connect(io, username: "no_read", password: "pass".to_slice)
+              topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 0u8)
+              subscribe(io, false, topic_filters: [topic_filter])
+              # Connection should be closed due to permission denial
+              io.should be_closed
+            end
+            wait_for { server.vhosts["/"].connections_size.zero? }
+            logs.empty
           end
         end
       end

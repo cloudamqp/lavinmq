@@ -45,7 +45,10 @@ module LavinMQ
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
       @synced_baseline = Hash(String, Int64).new
+      # Fsync requests not yet written to the stream, guarded by @write_lock
+      @pending_fsyncs = Array(String).new
       getter id = -1
+      getter protocol_version = 1
       getter remote_address
       getter state
 
@@ -102,6 +105,7 @@ module LavinMQ
           @ack_notify.try_send(nil) # wake any publish-confirm waiter
         rescue IO::TimeoutError
           @write_lock.synchronize do
+            write_pending_fsyncs
             @lz4.flush
           end
           # A connected follower that stops acking while data is outstanding
@@ -143,7 +147,10 @@ module LavinMQ
       # swallowed: a broken socket is detected by ack_loop, which closes
       # @ack_notify so a wait_for_confirm waiter still unblocks.
       private def flush : Nil
-        @write_lock.synchronize { @lz4.flush }
+        @write_lock.synchronize do
+          write_pending_fsyncs
+          @lz4.flush
+        end
       rescue IO::Error | Socket::Error
       end
 
@@ -195,8 +202,11 @@ module LavinMQ
         buf = uninitialized UInt8[8]
         slice = buf.to_slice
         @socket.read_fully(slice)
-        if slice != Start
-          @socket.write(Start)
+        case slice
+        when StartV2 then @protocol_version = 2
+        when Start   then @protocol_version = 1
+        else
+          @socket.write(StartV2)
           raise InvalidStartHeaderError.new(slice)
         end
       end
@@ -345,7 +355,50 @@ module LavinMQ
         end
       end
 
+      # Ask the follower to fsync `paths` (relative to the data dir) before it
+      # acks past this point in the stream. The bytes are counted as sent right
+      # away, so a later wait_for_confirm covers them, and they're written
+      # before anything sent after them (see #write_pending_fsyncs). Only
+      # buffers, never touches the socket, so it's safe to call from the
+      # isolated publish confirm loop. Version 1 followers sync before every
+      # ack and don't understand fsync requests.
+      def request_fsync(paths : Enumerable(String)) : Nil
+        return if @protocol_version < 2
+        @write_lock.synchronize do
+          paths.each do |path|
+            @sent_bytes.add(fsync_record_size(path))
+            @pending_fsyncs << path
+          end
+        end
+        request_flush
+      end
+
+      # Ask the follower to sync its whole data dir, an fsync request without a path
+      def request_syncfs : Nil
+        request_fsync({""})
+      end
+
+      private def fsync_record_size(path) : Int64
+        (sizeof(Int32) + 1 + path.bytesize + sizeof(Int64)).to_i64
+      end
+
+      # Caller must hold @write_lock. Written ahead of every other record, so
+      # stream order matches the order in which bytes were counted as sent,
+      # and the follower's cumulative ack can't pass a fsync request's bytes
+      # before it has handled it.
+      private def write_pending_fsyncs : Nil
+        return if @pending_fsyncs.empty?
+        @pending_fsyncs.each do |path|
+          @lz4.write_bytes (path.bytesize + 1).to_i32, IO::ByteFormat::LittleEndian
+          @lz4.write_byte FSYNC_PREFIX.ord.to_u8
+          @lz4.write path.to_slice
+          @lz4.write_bytes 0i64
+        end
+        @pending_fsyncs.clear
+      end
+
       private def send_filename(path)
+        write_pending_fsyncs
         @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         @lz4.write path.to_slice
       end

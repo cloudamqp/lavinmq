@@ -13,7 +13,9 @@ Message TTL can be set in two places:
 - **Per-message** — set the `expiration` property on the message (string value in milliseconds, e.g., `"60000"` for 60 seconds)
 - **Per-queue** — set the `x-message-ttl` queue argument or apply the `message-ttl` policy
 
-When both per-message and per-queue TTL are set, the lower of the two applies. The effective deadline is calculated as `(msg.timestamp + ttl) // 100 * 100` — that is, the publish time of the message plus the smaller TTL, truncated to the nearest 100 ms. Because the deadline is computed from `msg.timestamp`, changing the queue-level TTL retroactively affects messages already in the queue (they are re-evaluated against the new value at the next expiration check).
+When both per-message and per-queue TTL are set, the lower of the two applies. The effective deadline is `msg.timestamp + ttl` — that is, the publish time of the message (in milliseconds) plus the smaller TTL. A message is never expired before its deadline; the background expiration check wakes on deadlines rounded up to the next 10 ms, so messages expiring close together are expired in one batch. Because the deadline is computed from `msg.timestamp`, changing the queue-level TTL retroactively affects messages already in the queue (they are re-evaluated against the new value at the next expiration check).
+
+A deadline that doesn't fit in a 64-bit millisecond timestamp (about 292 million years after 1970), such as from an `x-message-ttl` of `2^63-1`, is never reached: the message never expires.
 
 ### Zero TTL
 

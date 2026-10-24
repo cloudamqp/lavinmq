@@ -1,0 +1,427 @@
+---
+"/mqtt/permission-groups":
+  get:
+    tags:
+    - mqtt
+    description: List permission group summaries on all vhosts. Requires the administrator tag.
+    summary: List all permission groups
+    operationId: GetMqttPermissionGroups
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-summaries"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  get:
+    tags:
+    - mqtt
+    description: List permission group summaries on a vhost. Requires the administrator tag.
+    summary: List permission groups by vhost
+    operationId: GetMqttPermissionGroupsVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-summaries"
+      '404':
+        description: Vhost not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}/{name}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the permission group.
+  get:
+    tags:
+    - mqtt
+    description: Get the summary of a permission group. Requires the administrator tag.
+    summary: Get permission group
+    operationId: GetMqttPermissionGroup
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-summary"
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - mqtt
+    description: Create an empty permission group. Takes no request body; add members and rules with the members and rules endpoints. Requires the administrator tag.
+    summary: Create permission group
+    operationId: PutMqttPermissionGroup
+    responses:
+      '201':
+        description: The group was created
+      '204':
+        description: The group already exists and is unchanged
+      '400':
+        description: Invalid group name, or a non-empty request body
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '404':
+        description: Vhost not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - mqtt
+    description: Delete a permission group with all its members and rules. Requires the administrator tag.
+    summary: Delete permission group
+    operationId: DeleteMqttPermissionGroup
+    responses:
+      '204':
+        description: The group was deleted
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}/{name}/members":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the permission group.
+  get:
+    tags:
+    - mqtt
+    description: List the members of a permission group. Requires the administrator tag.
+    summary: List group members
+    operationId: GetMqttPermissionGroupMembers
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-members"
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}/{name}/members/{username}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the permission group.
+  - in: path
+    name: username
+    required: true
+    schema:
+      type: string
+      description: Username of the member, or `*` for every user.
+  put:
+    tags:
+    - mqtt
+    description: Add a member to a permission group. Requires the administrator tag.
+    summary: Add group member
+    operationId: PutMqttPermissionGroupMember
+    responses:
+      '201':
+        description: The member was added
+      '204':
+        description: The user is already a member
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - mqtt
+    description: Remove a member from a permission group. Requires the administrator tag.
+    summary: Remove group member
+    operationId: DeleteMqttPermissionGroupMember
+    responses:
+      '204':
+        description: The member was removed
+      '404':
+        description: Vhost, group or member not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}/{name}/rules":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the permission group.
+  get:
+    tags:
+    - mqtt
+    description: List the rules of a permission group. Requires the administrator tag.
+    summary: List group rules
+    operationId: GetMqttPermissionGroupRules
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/mqtt-permission-group-rules"
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the permission group.
+  - in: path
+    name: identifier
+    required: true
+    schema:
+      type: string
+      description: Identifier of the rule.
+  put:
+    tags:
+    - mqtt
+    description: Add a rule to a permission group, or replace the rule with the same identifier. Requires the administrator tag.
+    summary: Create/update group rule
+    operationId: PutMqttPermissionGroupRule
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/mqtt-PutRuleRequestBody"
+    responses:
+      '201':
+        description: The rule was added
+      '204':
+        description: An existing rule was replaced
+      '400':
+        description: Invalid identifier or topic filter, missing or non-string `pattern`, a non-boolean `read` or `write`, or a body that is not a JSON object
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '404':
+        description: Vhost or group not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - mqtt
+    description: Remove a rule from a permission group. Requires the administrator tag.
+    summary: Remove group rule
+    operationId: DeleteMqttPermissionGroupRule
+    responses:
+      '204':
+        description: The rule was removed
+      '404':
+        description: Vhost, group or rule not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

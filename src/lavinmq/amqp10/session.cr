@@ -2,7 +2,7 @@ require "../stats"
 require "../exchange"
 require "./client"
 require "./protocol"
-require "../publish_confirm_target"
+require "../persister"
 
 module LavinMQ::AMQP10
   abstract class Link
@@ -45,7 +45,7 @@ module LavinMQ::AMQP10
   end
 
   class ReceiverLink < Link
-    include LavinMQ::PublishConfirmTarget
+    include LavinMQ::Persister::ConfirmTarget
 
     # Credit granted to the peer's sender at attach, topped up to the full
     # amount again once half of it has been used so the link never runs dry.
@@ -125,7 +125,7 @@ module LavinMQ::AMQP10
       msg = Message.new(RoughTime.unix_ms, target.exchange, target.routing_key,
         incoming.properties, incoming.body.bytesize.to_u64, @body_io)
       result = @session.publish(msg)
-      outcome = if result.overflowed?
+      outcome = if result.rejected?
                   Outcome::Rejected
                 elsif result.routed?
                   Outcome::Accepted
@@ -759,7 +759,7 @@ module LavinMQ::AMQP10
     # under one lock.
     @remote_incoming_window : UInt32
     @remote_window_lock = Mutex.new(:checked)
-    @visited = Set(Exchange).new
+    @visited = Set(AMQP::Exchange).new
     @found_queues = Set(AMQP::Queue).new
 
     rate_stats({"ack", "publish", "deliver", "redeliver", "reject"})

@@ -1,5 +1,8 @@
+require "../filesystem"
+require "./consts"
 require "./topic_tree"
 require "./protocol"
+require "../persister"
 require "digest/md5"
 
 module LavinMQ
@@ -12,13 +15,8 @@ module LavinMQ
 
       alias IndexTree = TopicTree(String)
 
-      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new)
-        Dir.mkdir_p @dir
-        @files = Hash(String, File).new do |files, file_name|
-          file = File.new(File.join(@dir, file_name))
-          file.read_buffering = false
-          files[file_name] = file
-        end
+      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new, @persister : Persister? = nil)
+        FileSystem.mkdir_p @dir
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
         @replicator.try &.register_file(@index_file)
@@ -33,7 +31,6 @@ module LavinMQ
         @lock.synchronize do
           write_index
           @index_file.close
-          @files.each_value &.close
         end
       end
 
@@ -48,6 +45,10 @@ module LavinMQ
         )
 
         while topic = index_file.gets
+          if topic.bytesize > MAX_TOPIC_BYTESIZE
+            Log.warn { "dropping retained message, topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
+            next
+          end
           msg_file_name = make_file_name(topic)
           unless msg_file_segments.delete(msg_file_name)
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }
@@ -73,14 +74,19 @@ module LavinMQ
           payload = packet.payload
           Log.debug { "retain topic=#{topic} body.bytesize=#{payload.bytesize}" }
           # An empty message with retain flag means clear the topic from retained messages
+          # QoS 1 publishes are acked when durable, so like publish confirms
+          # they sync what they changed before the persister acks them
+          needs_sync = packet.qos > 0
           if payload.empty?
             delete_from_index(topic)
+            @persister.try &.mark_dirty(@dir) if needs_sync
             return
           end
 
           unless msg_file_name = @index[topic]?
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
+            @persister.try &.mark_dirty(@index_file_name) if needs_sync
           end
 
           file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
@@ -92,8 +98,13 @@ module LavinMQ
           final_file_path = File.join(@dir, msg_file_name)
           file.rename(final_file_path)
           @replicator.try &.replace_file(final_file_path)
-          @files.delete(msg_file_name).try &.close
-          @files[msg_file_name] = file
+          # Synced by the persister before the PUBACK, not inline on the read
+          # loop while holding @lock
+          if needs_sync
+            @persister.try &.mark_dirty(final_file_path)
+            @persister.try &.mark_dirty(@dir)
+          end
+          file.close
         end
       end
 
@@ -106,8 +117,7 @@ module LavinMQ
         @index.each do |topic|
           f.puts topic
         end
-        f.flush
-        f.rename @index_file_name
+        FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end
@@ -124,20 +134,19 @@ module LavinMQ
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          if file = @files.delete(file_name)
-            file.close
-            file.delete
-          end
-          @replicator.try &.delete_file(File.join(@dir, file_name))
+          file_path = File.join(@dir, file_name)
+          File.delete? file_path
+          @replicator.try &.delete_file(file_path)
         end
       end
 
       def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
           @index.each(subscription) do |topic, file_name|
-            f = @files[file_name]
-            f.rewind
-            block.call(topic, f, f.size.to_u64)
+            File.open(File.join(@dir, file_name)) do |f|
+              f.read_buffering = false
+              block.call(topic, f, f.size.to_u64)
+            end
           end
         end
       end

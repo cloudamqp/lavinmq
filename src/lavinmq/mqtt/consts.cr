@@ -8,6 +8,13 @@ module LavinMQ
 
     SESSION_PREFIX = "mqtt."
 
+    # Topics become routing keys and topic filters binding keys, both stored as
+    # AMQP short strings, so longer ones can't be written to a queue. MQTT itself
+    # allows topics up to 65535 bytes.
+    MAX_TOPIC_BYTESIZE = UInt8::MAX
+
+    RETAIN_HEADERS = AMQP::Table.new({RETAIN_HEADER => true})
+
     QOS0_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 0u8})
     QOS1_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 1u8})
 

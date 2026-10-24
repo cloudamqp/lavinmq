@@ -4,7 +4,7 @@ module LavinMQ
     # closed, as if the disk sync or the followers' acks were slow.
     class_property held_confirms : ::Channel(Nil)? = nil
 
-    private def drain_pending_acks
+    private def drain : Nil
       Persister.held_confirms.try &.receive?
       previous_def
     end

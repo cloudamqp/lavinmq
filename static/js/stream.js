@@ -1,9 +1,12 @@
+/* global MutationObserver */
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import * as Poller from './poller.js'
+import './tabs.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
@@ -14,8 +17,19 @@ document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
-  setConsumers (consumers) { this.items = consumers }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
+  setConsumers (consumers, totalCount) {
+    this.items = {
+      items: consumers,
+      total_count: totalCount,
+      filtered_count: totalCount,
+      item_count: consumers.length,
+      page: 1,
+      page_size: consumers.length,
+      page_count: 1
+    }
+  }
+
   reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
@@ -79,8 +93,9 @@ function handleQueueState (state) {
 
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
-function updateQueue (all) {
-  HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
+let detailsRendered = false
+function updateQueue (all, signal) {
+  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
@@ -89,14 +104,15 @@ function updateQueue (all) {
       const totalAvgBytes = item.messages !== 0 ? (item.message_bytes_unacknowledged + item.message_bytes_ready) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
-      item.consumer_details.filtered_count = item.consumers
-      consumersDataSource.setConsumers(item.consumer_details)
+      document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
+      consumersDataSource.setConsumers(item.consumer_details, item.consumers)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
       loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
       if (hasMoreConsumers) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
-      if (all) {
+      if (all || !detailsRendered) {
+        detailsRendered = true
         let features = ''
         features += item.durable ? ' <span title="Durable">D</span>' : ''
         features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
@@ -135,14 +151,22 @@ function updateQueue (all) {
       }
     }).catch(() => {})
 }
-updateQueue(true)
-setInterval(updateQueue, 5000)
+Poller.start(signal => updateQueue(false, signal))
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
   keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
+
+const bindingsTabBadge = document.querySelector('[data-tab="bindings"] .badge')
+const bindingsCountElement = document.getElementById('bindings-count')
+
+new MutationObserver(() => {
+  const bindingsCount = bindingsCountElement.textContent
+  bindingsTabBadge.textContent = bindingsCount
+}).observe(bindingsCountElement, { childList: true, subtree: true })
+
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
@@ -288,7 +312,3 @@ resumeQueueForm.addEventListener('submit', function (evt) {
 })
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})

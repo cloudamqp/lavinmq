@@ -9,6 +9,11 @@ require "../vhost"
 
 module LavinMQ
   module MQTT
+    # Raised for a topic that cannot become an AMQP routing key, so the
+    # packet can never be processed, which the client read loop and the
+    # connection factory handle like a packet that can't be decoded
+    class TopicTooLong < ::MQTT::Protocol::Error::PacketDecode; end
+
     class Broker
       getter vhost, sessions
       Log = LavinMQ::Log.for "mqtt.broker"
@@ -26,7 +31,7 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
       end
 
@@ -100,9 +105,15 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish)
+      # Returns false, without storing or routing the packet, during a disk alarm
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
+        if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
+          raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
+        end
+        return false unless @vhost.flow?
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet)
+        @exchange.publish(packet, ctx)
+        true
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
@@ -111,18 +122,20 @@ module LavinMQ
           Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
           return topics.map { Protocol::SubAck::ReturnCode::Failure }
         end
-        headers = AMQP::Table.new({RETAIN_HEADER => true})
-        topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
-          session.subscribe(tf.topic, qos)
-          ts = RoughTime.unix_ms
-          @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: qos)
-            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
-            session.publish(msg)
-          end
-          Protocol::SubAck::ReturnCode.from_int(qos)
+        topics.map { |tf| grant(session, tf) }
+      end
+
+      def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
+        qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+        return Protocol::SubAck::ReturnCode::Failure if tf.topic.bytesize > MAX_TOPIC_BYTESIZE
+        return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
+        ts = RoughTime.unix_ms
+        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+          props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
+          msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+          session.publish(msg)
         end
+        Protocol::SubAck::ReturnCode.from_int(qos)
       end
 
       def unsubscribe(client_id, topics)

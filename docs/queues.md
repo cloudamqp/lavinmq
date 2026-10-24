@@ -44,6 +44,9 @@ A non-durable, non-exclusive queue is called a transient queue. Its messages are
 | `x-cache-size` | Int (>= 0) | Deduplication cache size |
 | `x-cache-ttl` | Int (>= 0) | Deduplication cache TTL in milliseconds |
 | `x-deduplication-header` | String | Header to use for deduplication key |
+| `x-delayed-retry-min` | Int (>= 1) | Enable automatic retries with this initial backoff delay in milliseconds. See [Automatic Retries](automatic-retries.md). |
+| `x-delayed-retry-multiplier` | Int (>= 1) | Backoff shape: omit for linear, 1 for constant, 2 or more for exponential |
+| `x-delayed-retry-max` | Int (>= 1) | Cap on a single retry delay in milliseconds |
 
 ## Overflow Behavior
 
@@ -99,3 +102,7 @@ The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept
 ## Reserved Queue Name Prefixes
 
 Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use. Client queue declarations using these prefixes will be rejected, except for `amq.direct.reply-to.*` queues used for direct reply-to consumers.
+
+## Internal Queues
+
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect, purge and delete them. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.

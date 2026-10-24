@@ -1,25 +1,27 @@
 require "../amqp/exchange"
 require "./consts"
-require "../destination"
 require "./subscription_tree"
 require "./session"
 require "./subscription_key"
 require "./subscription_details"
+require "./publish_context"
 
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
       def type : String
         "mqtt"
       end
 
       def initialize(vhost : VHost, name : String)
+        @tree = vhost.mqtt_subscription_tree
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : Protocol::Publish) : UInt32
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
+        ctx.reset
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -29,10 +31,11 @@ module LavinMQ
         body = ::IO::Memory.new(packet.payload, writable: false)
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
+        msg.needs_sync = packet.qos > 0
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
+        @tree.each_entry(packet.topic) do |subscriber, qos, filter|
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
+          if subscriber.deliver(msg, filter, ctx)
             count += 1
             msg.body_io.rewind
           end
@@ -42,49 +45,45 @@ module LavinMQ
         count
       end
 
+      # The tree is shared with x-mqtt-topic exchanges, so only MQTT::Session
+      # entries are this exchange's own bindings.
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
+        @tree.each_entry do |subscriber, qos, filter|
+          next unless session = subscriber.as?(MQTT::Session)
           result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
         end
         result
       end
 
       def binding_count : Int32
-        @tree.size
+        count = 0
+        @tree.each_entry do |subscriber, _qos, _filter|
+          count += 1 if subscriber.is_a?(MQTT::Session)
+        end
+        count
       end
 
       # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
-
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        @tree.subscribe(routing_key, destination, MQTT.qos(arguments))
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
         @tree.unsubscribe(routing_key, destination)
-
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
-
         delete if @auto_delete && @tree.empty?
         true
       end
 
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
+      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
