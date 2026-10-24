@@ -18,7 +18,7 @@ module LavinMQ
       {% for name, i in stats_keys %}
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
         @{{ name.id }}_count_prev = 0_u64
-        @{{ name.id }}_rate_log = StatColumn.new(0_u32)
+        @{{ name.id }}_rate_log = StatColumn.new(0_u64)
 
         def {{ name.id }}_count
           @{{ name.id }}_count.get(:relaxed)
@@ -29,7 +29,7 @@ module LavinMQ
         end
       {% end %}
       {% for name, i in log_keys %}
-        @{{ name.id }}_log = StatColumn.new(0_u32)
+        @{{ name.id }}_log = StatColumn.new(0_u64)
 
         def {{ name.id }}_log : StatLogView
           _stats_view(@{{ name.id }}_log.last) { @{{ name.id }}_log.block }
@@ -41,7 +41,7 @@ module LavinMQ
       end
 
       # Retries if the column changed block while the view read its header
-      private def _stats_view(last : UInt32, & : -> Pointer(UInt32)) : StatLogView
+      private def _stats_view(last : UInt64, & : -> Pointer(UInt64)) : StatLogView
         loop do
           block = yield
           Atomic.fence(:acquire)
@@ -52,7 +52,7 @@ module LavinMQ
       end
 
       @[NoInline]
-      private def _stats_alloc(fill : UInt32, cap : Int32) : Pointer(UInt32)
+      private def _stats_alloc(fill : UInt64, cap : Int32) : Pointer(UInt64)
         block = StatBlockPool.for(cap).alloc
         Slice.new(block, cap).fill(fill)
         @_stats_lease = StatBlockPool.tick if @_stats_blocks.zero?
@@ -101,7 +101,7 @@ module LavinMQ
         {% for name, i in stats_keys %}
           count = @{{ name.id }}_count.get(:relaxed)
           delta = count - @{{ name.id }}_count_prev
-          tenths = 0_u32
+          tenths = 0_u64
           unless delta.zero? # idle objects must not dirty their cache lines
             @{{ name.id }}_count_prev = count
             tenths = RateLogView.encode_delta(delta, interval)
@@ -109,7 +109,7 @@ module LavinMQ
           changed = true if @{{ name.id }}_rate_log.record(tenths, tail, established) { |fill| _stats_alloc(fill, cap) }
         {% end %}
         {% for name, i in log_keys %}
-          changed = true if @{{ name.id }}_log.record({{ name.id }}, tail, established) { |fill| _stats_alloc(fill, cap) }
+          changed = true if @{{ name.id }}_log.record({{ name.id }}.to_u64, tail, established) { |fill| _stats_alloc(fill, cap) }
         {% end %}
 
         buffered = @_stats_steady_run > 0 || (changed && stats_log_buffered?)
@@ -135,7 +135,7 @@ module LavinMQ
           return false unless @{{ name.id }}_count.get(:relaxed) == @{{ name.id }}_count_prev && @{{ name.id }}_rate_log.last.zero?
         {% end %}
         {% for name in log_keys %}
-          return false unless {{ name.id }} == @{{ name.id }}_log.last
+          return false unless {{ name.id }}.to_u64 == @{{ name.id }}_log.last
         {% end %}
         true
       end
@@ -179,7 +179,7 @@ module LavinMQ
         if stats_log_buffered?
           old_pool = StatBlockPool.for(@_stats_log_capacity)
           pool = StatBlockPool.for(cap)
-          blocks = StaticArray(Pointer(UInt32), {{ columns.size }}).new(Pointer(UInt32).null)
+          blocks = StaticArray(Pointer(UInt64), {{ columns.size }}).new(Pointer(UInt64).null)
           begin
             {% for column, i in columns %}
               blocks[{{ i }}] = pool.alloc if {{ column }}.buffered?

@@ -33,16 +33,20 @@ module LavinMQ
       pools.each &.trim(deadline, tick)
     end
 
-    def self.generation(data : Pointer(UInt32)) : UInt32
-      data[-3]
+    def self.generation(data : Pointer(UInt64)) : UInt32
+      data.as(Pointer(UInt32))[-3]
     end
 
-    def self.ordinal(data : Pointer(UInt32)) : Int32
-      data[-2].to_i32
+    def self.ordinal(data : Pointer(UInt64)) : Int32
+      data.as(Pointer(UInt32))[-2].to_i32
     end
 
-    def self.renew(data : Pointer(UInt32), tick : UInt32) : Nil
-      data[-4] = tick
+    def self.capacity(data : Pointer(UInt64)) : Int32
+      data.as(Pointer(UInt32))[-1].to_i32
+    end
+
+    def self.renew(data : Pointer(UInt64), tick : UInt32) : Nil
+      data.as(Pointer(UInt32))[-4] = tick
     end
 
     getter capacity : Int32
@@ -63,12 +67,12 @@ module LavinMQ
 
     def initialize(@capacity : Int32)
       raise ArgumentError.new("capacity must be positive") unless @capacity.positive?
-      @stride = ((@capacity + HEADER) * sizeof(UInt32) + 7) & ~7
+      @stride = (@capacity * sizeof(UInt64) + HEADER * sizeof(UInt32) + 7) & ~7
       @slab_blocks = Math.max(SLAB_SIZE // @stride, 1)
       @slab_bytes = (@slab_blocks * @stride + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
     end
 
-    def alloc : Pointer(UInt32)
+    def alloc : Pointer(UInt64)
       @lock.synchronize do
         loop do
           @slabs << Slab.new(@slab_blocks, @slab_bytes, @stride) if @first_free == @slabs.size
@@ -81,7 +85,7 @@ module LavinMQ
       end
     end
 
-    def release(data : Pointer(UInt32)) : Nil
+    def release(data : Pointer(UInt64)) : Nil
       @lock.synchronize { free(StatBlockPool.ordinal(data)) }
     end
 
@@ -152,7 +156,7 @@ module LavinMQ
     end
 
     # Headed by a new generation, published before the owner fills the block
-    private def data(ordinal : Int32) : Pointer(UInt32)
+    private def data(ordinal : Int32) : Pointer(UInt64)
       slab_index, index = ordinal.divmod(@slab_blocks)
       block = @slabs[slab_index].block(index).as(Pointer(UInt32))
       block[0] = StatBlockPool.tick
@@ -160,7 +164,7 @@ module LavinMQ
       block[2] = ordinal.to_u32
       block[3] = @capacity.to_u32
       Atomic.fence(:release)
-      block + HEADER
+      (block + HEADER).as(Pointer(UInt64))
     end
 
     private class Slab

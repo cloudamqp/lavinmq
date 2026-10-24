@@ -5,16 +5,16 @@ require "./stat_block_pool"
 module LavinMQ
   # A stat's last value, plus a pooled ring buffer while it changes
   struct StatColumn
-    getter last : UInt32
+    getter last : UInt64
     # Inverted so the conservative GC doesn't scan it as a pointer
     @hidden : UInt64 = UInt64::MAX
 
-    def initialize(@last : UInt32)
+    def initialize(@last : UInt64)
     end
 
     @[AlwaysInline]
-    def block : Pointer(UInt32)
-      Pointer(UInt32).new(~@hidden)
+    def block : Pointer(UInt64)
+      Pointer(UInt64).new(~@hidden)
     end
 
     @[AlwaysInline]
@@ -24,7 +24,7 @@ module LavinMQ
 
     # Returns whether the value changed; takes a buffer on the first change
     @[AlwaysInline]
-    def record(value : UInt32, tail : Int32, established : Bool, & : UInt32 -> Pointer(UInt32)) : Bool
+    def record(value : UInt64, tail : Int32, established : Bool, & : UInt64 -> Pointer(UInt64)) : Bool
       buf = block
       if value == @last
         buf[tail] = value if buf
@@ -48,7 +48,7 @@ module LavinMQ
     end
 
     # Fills the rest with the last value, as readers may pair *buf* with the old head and size
-    def move(buf : Pointer(UInt32), old_cap : Int32, head : Int32, size : Int32, new_cap : Int32) : Pointer(UInt32)
+    def move(buf : Pointer(UInt64), old_cap : Int32, head : Int32, size : Int32, new_cap : Int32) : Pointer(UInt64)
       old = block
       keep = Math.min(size, new_cap)
       first = head + size - keep
@@ -63,34 +63,34 @@ module LavinMQ
       old
     end
 
-    def drop : Pointer(UInt32)
+    def drop : Pointer(UInt64)
       old = block
-      self.block = Pointer(UInt32).null
+      self.block = Pointer(UInt64).null
       old
     end
 
-    private def block=(buf : Pointer(UInt32)) : Nil
+    private def block=(buf : Pointer(UInt64)) : Nil
       @hidden = ~buf.address
     end
   end
 
   # Reads `const` once the buffer is handed out again, and never past its header's capacity
   struct StatLogView
-    include Enumerable(UInt32)
+    include Enumerable(UInt64)
 
     @generation = 0_u32
     @capacity = 0
 
-    def initialize(@base : Pointer(UInt32), @head : Int32, @size : Int32, @const : UInt32)
+    def initialize(@base : Pointer(UInt64), @head : Int32, @size : Int32, @const : UInt64)
       if @base
         @generation = StatBlockPool.generation(@base)
-        @capacity = @base[-1].to_i
+        @capacity = StatBlockPool.capacity(@base)
         # Zeroed header: the page was given back to the OS
-        @base = Pointer(UInt32).null if @capacity.zero?
+        @base = Pointer(UInt64).null if @capacity.zero?
       end
     end
 
-    getter const : UInt32
+    getter const : UInt64
 
     def constant? : Bool
       @base.null?
@@ -100,7 +100,7 @@ module LavinMQ
       @base.null? ? @size : Math.min(@size, @capacity)
     end
 
-    def [](index : Int32) : UInt32
+    def [](index : Int32) : UInt64
       raise IndexError.new if index < 0 || index >= size
       return @const if @base.null?
       value = @base[wrap(@head % @capacity + index, @capacity)]
@@ -110,13 +110,13 @@ module LavinMQ
     CHUNK = 64
 
     # Checks the generation once per chunk
-    def each(& : UInt32 ->) : Nil
+    def each(& : UInt64 ->) : Nil
       n = size
       if @base.null?
         n.times { yield @const }
         return
       end
-      chunk = uninitialized UInt32[CHUNK]
+      chunk = uninitialized UInt64[CHUNK]
       i = @head % @capacity
       done = 0
       while done < n
@@ -134,7 +134,7 @@ module LavinMQ
       end
     end
 
-    @@const_json : ConstJson(UInt32)? = nil
+    @@const_json : ConstJson(UInt64)? = nil
 
     def to_json(json : JSON::Builder) : Nil
       if @base.null?
@@ -158,20 +158,23 @@ module LavinMQ
     end
   end
 
-  # Rates stored as tenths in UInt32 samples
+  # Rates stored as tenths in UInt64 samples
   struct RateLogView
     include Enumerable(Float64)
 
-    def self.encode(rate : Float64) : UInt32
-      (rate * 10).round.clamp(0.0, UInt32::MAX.to_f64).to_u32
+    # Rates up to here decode to Float64 exactly and print as one decimal
+    MAX_TENTHS = (1_u64 << 51).to_f64
+
+    def self.encode(rate : Float64) : UInt64
+      (rate * 10).round.clamp(0.0, MAX_TENTHS).to_u64
     end
 
     # Same as `encode((delta / interval).round(1))`, with one rounding
-    def self.encode_delta(delta : UInt64, interval : Float64) : UInt32
-      (delta / interval * 10).round.clamp(0.0, UInt32::MAX.to_f64).to_u32
+    def self.encode_delta(delta : UInt64, interval : Float64) : UInt64
+      (delta / interval * 10).round.clamp(0.0, MAX_TENTHS).to_u64
     end
 
-    def self.decode(tenths : UInt32) : Float64
+    def self.decode(tenths : UInt64) : Float64
       tenths / 10.0
     end
 
@@ -214,7 +217,7 @@ module LavinMQ
         n = 1
         first = true
         view.each do |value|
-          if n > BUFFER - 14
+          if n > BUFFER - 24
             io.write_string(Slice.new(ptr, n))
             n = 0
           end
@@ -230,24 +233,24 @@ module LavinMQ
       end
     end
 
-    private def self.write_tenths(ptr : Pointer(UInt8), tenths : UInt32) : Int32
+    private def self.write_tenths(ptr : Pointer(UInt8), tenths : UInt64) : Int32
       len = write_digits(ptr, tenths // 10)
       ptr[len] = '.'.ord.to_u8
       ptr[len + 1] = 48_u8 &+ (tenths % 10).to_u8!
       len + 2
     end
 
-    private def self.write_digits(ptr : Pointer(UInt8), value : UInt32) : Int32
-      digits = uninitialized UInt8[10]
-      i = 10
+    private def self.write_digits(ptr : Pointer(UInt8), value : UInt64) : Int32
+      digits = uninitialized UInt8[20]
+      i = 20
       loop do
         i -= 1
         digits[i] = 48_u8 &+ (value % 10).to_u8!
         value //= 10
         break if value.zero?
       end
-      ptr.copy_from(digits.to_unsafe + i, 10 - i)
-      10 - i
+      ptr.copy_from(digits.to_unsafe + i, 20 - i)
+      20 - i
     end
   end
 
