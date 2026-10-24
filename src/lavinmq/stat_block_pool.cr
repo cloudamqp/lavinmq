@@ -3,7 +3,7 @@ module LavinMQ
   # and a new generation per handout lets readers detect reuse.
   class StatBlockPool
     SLAB_SIZE   = 1 << 20
-    PAGE_SIZE   = LibC.sysconf(LibC::SC_PAGESIZE).to_i32
+    PAGE_SIZE   = LibC.getpagesize
     HEADER      = 4 # UInt32 words: lease, generation, ordinal, capacity
     TRIM_TIME   = 2.milliseconds
     LEASE       = 64_u32 # ticks a block stays used without its owner renewing it

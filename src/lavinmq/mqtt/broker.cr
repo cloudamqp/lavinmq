@@ -103,6 +103,7 @@ module LavinMQ
         end
         @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)
+        Stats.retire(client)
       end
 
       # Returns false, without storing or routing the packet, during a disk alarm

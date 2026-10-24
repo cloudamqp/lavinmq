@@ -173,6 +173,7 @@ module LavinMQ
         vhost.update_message_totals(ready, unacked)
         vhost.update_rates
       end
+      Stats.release_retired
       StatBlockPool.trim
     end
 

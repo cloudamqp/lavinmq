@@ -4,6 +4,7 @@ require "./spec_helper"
 private def block(cap : Int32) : Pointer(UInt64)
   raw = Pointer(UInt64).malloc(cap + LavinMQ::StatBlockPool::HEADER // 2)
   data = raw + LavinMQ::StatBlockPool::HEADER // 2
+  data.as(Pointer(UInt32))[-3] = 1_u32 # generation, as the pool never hands out 0
   data.as(Pointer(UInt32))[-1] = cap.to_u32
   data
 end
@@ -360,6 +361,111 @@ describe LavinMQ::Stats do
     end
   end
 
+  it "releases a retired object's buffers when the stats loop drains, keeping the log as its last value" do
+    orig = LavinMQ::Config.instance.stats_log_size
+    begin
+      LavinMQ::Config.instance.stats_log_size = 37 # a pool of its own
+      pool = LavinMQ::StatBlockPool.for(37)
+      p = LavinMQ::StatsProbe.new
+      p.bump(5_u64, 3_u32); tick(p)
+      p.bump(10_u64, 3_u32); tick(p)
+      p.constant?.should be_false
+      used = pool.@used
+      LavinMQ::Stats.retire(p)
+      p.constant?.should be_false # until the stats loop drains
+      LavinMQ::Stats.release_retired
+      p.constant?.should be_true
+      (used - pool.@used).should eq 1
+      p.x_log.to_a.should eq [2.0, 2.0]
+      LavinMQ::Stats.release_retired # a retired object whose buffers are gone is left alone
+      (used - pool.@used).should eq 1
+    ensure
+      LavinMQ::Config.instance.stats_log_size = orig
+    end
+  end
+
+  it "only forgets a retired object's buffers once its lease has run out, as the pool has them" do
+    orig = LavinMQ::Config.instance.stats_log_size
+    begin
+      LavinMQ::Config.instance.stats_log_size = 31 # a pool of its own
+      pool = LavinMQ::StatBlockPool.for(31)
+      p = LavinMQ::StatsProbe.new
+      p.bump(5_u64, 3_u32); tick(p)
+      p.bump(10_u64, 3_u32); tick(p)
+      block = p.@x_rate_log.block
+      (LavinMQ::StatBlockPool::LEASE * 2).times { LavinMQ::StatBlockPool.trim } # p isn't ticked, e.g. its vhost is being deleted
+      reused = pool.alloc
+      reused.should eq block
+      Slice.new(reused, 31).fill(99_u64)
+      used = pool.@used
+      LavinMQ::Stats.retire(p)
+      LavinMQ::Stats.release_retired
+      p.constant?.should be_true
+      pool.@used.should eq used
+      LavinMQ::StatBlockPool.generation(reused).should_not eq 0
+      Slice.new(reused, 31).all?(99_u64).should be_true
+    ensure
+      LavinMQ::Config.instance.stats_log_size = orig
+    end
+  end
+
+  it "relocates a buffer with its ring layout intact, so a reader's head and size still fit it" do
+    orig = LavinMQ::Config.instance.stats_log_size
+    begin
+      LavinMQ::Config.instance.stats_log_size = 6 # a pool of its own
+      pool = LavinMQ::StatBlockPool.for(6)
+      fillers = Array.new(50) { pool.alloc }
+      p = LavinMQ::StatsProbe.new
+      8.times { |i| p.bump(5_u64 * (i + 1), 0_u32); p.update_rates }
+      p.x_log.to_a.should eq [3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+      p.@_stats_log_head.get.should eq 2
+      p.@_stats_high.should be >= 50
+
+      fillers.each { |b| pool.release(b) }
+      pool.trim
+      p.bump(45_u64, 0_u32); p.update_rates
+      p.@_stats_high.should eq 0
+      p.x_log.to_a.should eq [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+      p.@_stats_log_head.get.should eq 3
+      Slice.new(p.@x_rate_log.block, 6).to_a.should eq [70, 80, 90, 40, 50, 60]
+    ensure
+      LavinMQ::Config.instance.stats_log_size = orig
+    end
+  end
+
+  # The stats loop sleeps an hour after its first sweep; the spec drives the sweeps itself.
+  it "releases the buffers of a closed connection's channel and a deleted queue on the next tick" do
+    orig = LavinMQ::Config.instance.stats_interval
+    LavinMQ::Config.instance.stats_interval = 3_600_000
+    begin
+      with_amqp_server do |s|
+        LavinMQ::Config.instance.stats_interval = 1000
+        vhost = s.vhosts["/"]
+        chans = [] of LavinMQ::AMQP::Channel
+        with_channel(s) do |ch|
+          cq = ch.queue("retired")
+          chans << vhost.connections.first.channels.first
+          [1, 2].each do |n|
+            n.times { cq.publish_confirm "m" }
+            s.update_stats_rates
+          end
+        end
+        q = vhost.queue("retired")
+        chan = chans.first
+        q.stats_log_buffered?.should be_true
+        chan.stats_log_buffered?.should be_true
+        wait_for { vhost.connections.empty? }
+        q.delete
+        s.update_stats_rates
+        q.stats_log_buffered?.should be_false
+        chan.stats_log_buffered?.should be_false
+        q.publish_log.to_a.should eq [2.0, 2.0]
+      end
+    ensure
+      LavinMQ::Config.instance.stats_interval = orig
+    end
+  end
+
   it "fills a grown buffer with its own samples, for readers still on the old head and size" do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
@@ -368,7 +474,7 @@ describe LavinMQ::Stats do
       Array.new(4) { pool.alloc.tap { |b| Slice.new(b, 20).fill(99_u64) } }.each { |b| pool.release(b) }
       p = LavinMQ::StatsProbe.new
       12.times { |i| p.bump(0_u64, (i % 2 + 1).to_u32); p.update_rates } # full, head moved on
-      head, size = p.@_stats_log_head, p.@_stats_log_size
+      head, size = p.@_stats_log_head.get, p.@_stats_log_size.get
 
       LavinMQ::Config.instance.stats_log_size = 20
       p.bump(0_u64, 1_u32); p.update_rates
@@ -532,7 +638,7 @@ describe LavinMQ::StatBlockPool do
     pool.alloc.should eq stale
   end
 
-  it "voids the generation of a released block, so a stale view reads its constant" do
+  it "voids the generation of a released block, so a stale or new view reads its constant" do
     pool = LavinMQ::StatBlockPool.new(8)
     a = pool.alloc
     8.times { |i| a[i] = 5_u64 }
@@ -541,6 +647,7 @@ describe LavinMQ::StatBlockPool do
     pool.release(a)
     v.to_a.should eq [1] * 8
     v.to_json.should eq "[1,1,1,1,1,1,1,1]"
+    LavinMQ::StatLogView.new(a, 0, 8, 1_u64).constant?.should be_true
   end
 
   it "hands out every block with a new generation, also a reused one" do

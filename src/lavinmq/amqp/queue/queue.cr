@@ -821,6 +821,7 @@ module LavinMQ::AMQP
       return false if @closed
       @closed = true
       @state = QueueState::Closed
+      Stats.retire(self)
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close

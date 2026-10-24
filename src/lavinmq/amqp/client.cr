@@ -530,6 +530,7 @@ module LavinMQ
 
       private def cleanup
         @running = false
+        Stats.retire(self)
         i = 0u32
         @channels.values.each do |ch|
           close_channel(ch)

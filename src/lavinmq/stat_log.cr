@@ -47,17 +47,23 @@ module LavinMQ
       end
     end
 
-    # Fills the rest with the last value, as readers may pair *buf* with the old head and size
+    # Same capacity: laid out as before, so readers pair *buf* with the unchanged head and size.
+    # New capacity: compacted to the front and filled up with the last value, as a reader may
+    # still pair *buf* with the old head and size
     def move(buf : Pointer(UInt64), old_cap : Int32, head : Int32, size : Int32, new_cap : Int32) : Pointer(UInt64)
       old = block
-      keep = Math.min(size, new_cap)
-      first = head + size - keep
-      keep.times do |k|
-        src = first + k
-        src -= old_cap if src >= old_cap
-        buf[k] = old[src]
+      if new_cap == old_cap
+        buf.copy_from(old, old_cap)
+      else
+        keep = Math.min(size, new_cap)
+        first = head + size - keep
+        keep.times do |k|
+          src = first + k
+          src -= old_cap if src >= old_cap
+          buf[k] = old[src]
+        end
+        Slice.new(buf + keep, new_cap - keep).fill(@last)
       end
-      Slice.new(buf + keep, new_cap - keep).fill(@last)
       Atomic.fence(:release)
       self.block = buf
       old
@@ -85,8 +91,8 @@ module LavinMQ
       if @base
         @generation = StatBlockPool.generation(@base)
         @capacity = StatBlockPool.capacity(@base)
-        # Zeroed header: the page was given back to the OS
-        @base = Pointer(UInt64).null if @capacity.zero?
+        # A zeroed generation or capacity: the block was released, or its page given back to the OS
+        @base = Pointer(UInt64).null if @generation.zero? || @capacity.zero?
       end
     end
 
