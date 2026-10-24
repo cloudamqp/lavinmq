@@ -42,8 +42,8 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
     frame = reader.read
     value = LavinMQ::AMQP10::Codec.decode(frame.body_reader)
-    fields = value.described?.not_nil!.value.list?.not_nil!
-    fields[0].uint?.not_nil!.to_u8
+    fields = value.described?.should_not(be_nil).value.list?.should_not(be_nil)
+    fields[0].uint?.should_not(be_nil).to_u8
   ensure
     io.try &.close
   end
@@ -168,7 +168,7 @@ private class AMQP10SpecClient
 
     frame = @reader.read
     disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
-    disposition.outcome.not_nil!
+    disposition.outcome.should_not(be_nil)
   end
 
   def publish_reading_flows(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil)
@@ -183,7 +183,7 @@ private class AMQP10SpecClient
         flows << LavinMQ::AMQP10::Flow.from_value(LavinMQ::AMQP10::Codec.decode(frame.body_reader))
       when LavinMQ::AMQP10::Descriptor::DISPOSITION
         disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
-        return {flows, disposition.outcome.not_nil!}
+        return {flows, disposition.outcome.should_not(be_nil)}
       else
         fail "unexpected AMQP 1.0 performative #{code}"
       end
@@ -213,7 +213,7 @@ private class AMQP10SpecClient
 
     frame = @reader.read
     disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
-    disposition.outcome.not_nil!
+    disposition.outcome.should_not(be_nil)
   end
 
   # Publishes an encoded message split over transfer frames of chunk_size bytes.
@@ -236,7 +236,7 @@ private class AMQP10SpecClient
       payload.write chunk
       write_amqp_frame(payload.to_slice)
     end
-    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.not_nil!
+    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.should_not(be_nil)
   end
 
   # A single-frame transfer that omits the mandatory delivery-id.
@@ -260,7 +260,7 @@ private class AMQP10SpecClient
 
     frame = @reader.read
     disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
-    disposition.outcome.not_nil!
+    disposition.outcome.should_not(be_nil)
   end
 
   def consume_one(outcome = LavinMQ::AMQP10::Outcome::Accepted) : String
@@ -274,7 +274,7 @@ private class AMQP10SpecClient
 
   def consume_one_delivery(outcome = LavinMQ::AMQP10::Outcome::Accepted)
     transfer, incoming = read_delivery
-    settle(transfer.delivery_id.not_nil!, outcome)
+    settle(transfer.delivery_id.should_not(be_nil), outcome)
     {transfer, incoming}
   end
 
@@ -326,7 +326,7 @@ private class AMQP10SpecClient
     end
     incoming = LavinMQ::AMQP10::MessageCodec.decode(IO::Memory.new(payload.to_slice))
     @last_delivery_id = delivery_id
-    LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16, delivery_id.not_nil!, outcome)
+    LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16, delivery_id.should_not(be_nil), outcome)
     String.new(incoming.body)
   end
 
@@ -359,8 +359,8 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
     frame = @reader.read
     value = LavinMQ::AMQP10::Codec.decode(frame.body_reader)
-    fields = value.described?.not_nil!.value.list?.not_nil!
-    fields[0].uint?.not_nil!.should eq 0
+    fields = value.described?.should_not(be_nil).value.list?.should_not(be_nil)
+    fields[0].uint?.should_not(be_nil).should eq 0
   end
 
   private def send_transport_header(split_transport_header : Bool) : Nil
@@ -429,7 +429,7 @@ private class AMQP10SpecClient
     LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, delivery_id.to_s.to_slice, false, false)
     payload.write message
     write_amqp_frame(payload.to_slice)
-    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.not_nil!
+    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.should_not(be_nil)
   end
 
   # Settles a delivery with a modified outcome carrying message-annotations.
@@ -482,7 +482,7 @@ private class AMQP10SpecClient
   end
 
   def read_performative_code
-    read_value.described?.not_nil!.descriptor_code?
+    read_value.described?.should_not(be_nil).descriptor_code?
   end
 
   def read_value
@@ -498,8 +498,8 @@ private class AMQP10SpecClient
 
   # The error list carried by a Close or Detach performative: [condition, description]
   def error_fields(performative : LavinMQ::AMQP10::Value) : Array(LavinMQ::AMQP10::Value)
-    error = performative.described?.not_nil!.value.list?.not_nil!.last
-    error.described?.not_nil!.value.list?.not_nil!
+    error = performative.described?.should_not(be_nil).value.list?.should_not(be_nil).last
+    error.described?.should_not(be_nil).value.list?.should_not(be_nil)
   end
 end
 
@@ -606,13 +606,13 @@ private def factory_sasl(s, connection_info, mechanism, response = Bytes.empty) 
   client.read_fully(header)
   header.should eq LavinMQ::AMQP10::SASL_HEADER
   reader = LavinMQ::AMQP10::FrameReader.new(client, LavinMQ::Config.instance.frame_max)
-  mechanisms = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.not_nil!.value.list?.not_nil!
-  offered = mechanisms[0].list?.not_nil!.map(&.symbol?.not_nil!)
+  mechanisms = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.should_not(be_nil).value.list?.should_not(be_nil)
+  offered = mechanisms[0].list?.should_not(be_nil).map(&.symbol?.should_not(be_nil))
   fields = [LavinMQ::AMQP10::Value.symbol(mechanism), LavinMQ::AMQP10::Value.binary(response)]
   LavinMQ::AMQP10::FrameWriter.write_performative(client, 0_u16, LavinMQ::AMQP10::SASL_FRAME_TYPE,
     LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
-  outcome = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.not_nil!.value.list?.not_nil!
-  {offered, outcome[0].uint?.not_nil!.to_u8}
+  outcome = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.should_not(be_nil).value.list?.should_not(be_nil)
+  {offered, outcome[0].uint?.should_not(be_nil).to_u8}
 ensure
   client.try &.close
   server.try &.close
@@ -643,12 +643,12 @@ end
 
 # The entries of an encoded annotations map, by symbol key.
 private def annotation_entries(map : Bytes) : Hash(String, LavinMQ::AMQP10::Value)
-  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(map)).map?.not_nil!.to_h { |k, v| {k.symbol?.not_nil!, v} }
+  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(map)).map?.should_not(be_nil).to_h { |k, v| {k.symbol?.should_not(be_nil), v} }
 end
 
 # The fields of a list-bodied section such as header or properties.
 private def section_fields(section : Bytes) : Array(LavinMQ::AMQP10::Value)
-  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(section)).described?.not_nil!.value.list?.not_nil!
+  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(section)).described?.should_not(be_nil).value.list?.should_not(be_nil)
 end
 
 # Decodes a published AMQP 1.0 message and stores it the way a queue would.
@@ -698,10 +698,10 @@ describe LavinMQ::AMQP10::MessageCodec do
 
     incoming.properties.delivery_mode.should eq 2_u8
     incoming.properties.priority.should eq 7_u8
-    incoming.properties.headers.not_nil!["app"].should eq "amqp10"
-    incoming.properties.headers.not_nil!["enabled"].should be_true
-    incoming.properties.headers.not_nil!["tries"].should eq 3_u32
-    incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
+    incoming.properties.headers.should_not(be_nil)["app"].should eq "amqp10"
+    incoming.properties.headers.should_not(be_nil)["enabled"].should be_true
+    incoming.properties.headers.should_not(be_nil)["tries"].should eq 3_u32
+    incoming.properties.headers.should_not(be_nil)["ratio"].should eq 1.5_f64
     String.new(incoming.body).should eq "body"
   end
 
@@ -810,8 +810,8 @@ describe LavinMQ::AMQP10::MessageCodec do
 
     incoming = LavinMQ::AMQP10::MessageCodec.decode(IO::Memory.new(payload.to_slice))
 
-    incoming.properties.headers.not_nil!["neg"].should eq -1
-    incoming.properties.headers.not_nil!["zero"].should eq 0_u32
+    incoming.properties.headers.should_not(be_nil)["neg"].should eq -1
+    incoming.properties.headers.should_not(be_nil)["zero"].should eq 0_u32
   end
 
   it "accepts symbolic section descriptors" do
@@ -1110,7 +1110,7 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
       [LavinMQ::AMQP10::Value.null])
     payload.write sequences.to_slice
     msg = stored_message(payload.to_slice)
-    msg.properties.headers.not_nil!["x-amqp10-body-type"].should eq "sequence"
+    msg.properties.headers.should_not(be_nil)["x-amqp10-body-type"].should eq "sequence"
 
     sections = delivered_sections(msg)
     sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::PROPERTIES,
@@ -1124,7 +1124,7 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
       LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE), LavinMQ::AMQP10::Value.string("text")))
     msg = stored_message(payload.to_slice)
     String.new(msg.body).should eq "text"
-    msg.properties.headers.not_nil!["x-amqp10-body-type"].should eq "string"
+    msg.properties.headers.should_not(be_nil)["x-amqp10-body-type"].should eq "string"
   end
 
   it "delivers data bodies, including those published over 0-9-1, as a data section" do
@@ -1223,8 +1223,8 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     incoming = LavinMQ::AMQP10::MessageCodec.decode(IO::Memory.new(payload.to_slice))
     String.new(incoming.body).should eq body
     incoming.properties.content_type.should eq "text/plain"
-    incoming.properties.headers.not_nil!["header-0"].should eq "value-0-#{"x" * 80}"
-    incoming.properties.headers.not_nil!["header-15"].should eq "value-15-#{"x" * 80}"
+    incoming.properties.headers.should_not(be_nil)["header-0"].should eq "value-0-#{"x" * 80}"
+    incoming.properties.headers.should_not(be_nil)["header-15"].should eq "value-15-#{"x" * 80}"
   end
 
   it "writes AMQP 0-9-1 timestamps as AMQP 1.0 milliseconds" do
@@ -1303,7 +1303,7 @@ end
 describe LavinMQ::AMQP10::Address do
   it "percent-decodes address components with URI decoding" do
     LavinMQ::AMQP10::Address.parse_source("/queues/my%2Fqueue").should eq "my/queue"
-    target = LavinMQ::AMQP10::Address.parse_target("/exchanges/amq.direct/a%20b").not_nil!
+    target = LavinMQ::AMQP10::Address.parse_target("/exchanges/amq.direct/a%20b").should_not(be_nil)
     target.routing_key.should eq "a b"
   end
 end
@@ -1370,7 +1370,7 @@ describe LavinMQ::AMQP10 do
       client.close
     end
   ensure
-    LavinMQ::Config.instance.heartbeat = heartbeat.not_nil!
+    LavinMQ::Config.instance.heartbeat = heartbeat.should_not(be_nil)
   end
 
   it "keeps a read timeout for the idle check when the peer announces an idle-timeout" do
@@ -1383,7 +1383,7 @@ describe LavinMQ::AMQP10 do
       client.close
     end
   ensure
-    LavinMQ::Config.instance.heartbeat = heartbeat.not_nil!
+    LavinMQ::Config.instance.heartbeat = heartbeat.should_not(be_nil)
   end
 
   it "reads frames the peer sends partly before and partly after an idle check" do
@@ -1414,7 +1414,7 @@ describe LavinMQ::AMQP10 do
           LavinMQ::AMQP10::TransferCodec.read_disposition(reply.body_reader).outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
           break
         end
-        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "split"
+        q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "split"
         client.close
       end
     end
@@ -1491,7 +1491,7 @@ describe LavinMQ::AMQP10 do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s), expect_open: false)
       open = LavinMQ::AMQP10::Open.from_value(client.read_value)
-      channel_max = open.channel_max.not_nil!
+      channel_max = open.channel_max.should_not(be_nil)
       channel_max.should eq LavinMQ::Config.instance.channel_max
 
       client.begin_session(channel: channel_max)
@@ -1532,7 +1532,7 @@ describe LavinMQ::AMQP10 do
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_sender("/queues/#{q.name}")
         client.publish(0_u32, 1_u32, "hello").should eq LavinMQ::AMQP10::Outcome::Accepted
-        msg = q.get(no_ack: true).not_nil!
+        msg = q.get(no_ack: true).should_not(be_nil)
         msg.body_io.gets_to_end.should eq "hello"
         client.close
       end
@@ -1546,7 +1546,7 @@ describe LavinMQ::AMQP10 do
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_sender("/queues/#{q.name}")
         client.publish_fragmented(0_u32, 1_u32, "hello fragmented").should eq LavinMQ::AMQP10::Outcome::Accepted
-        msg = q.get(no_ack: true).not_nil!
+        msg = q.get(no_ack: true).should_not(be_nil)
         msg.body_io.gets_to_end.should eq "hello fragmented"
         client.close
       end
@@ -1561,7 +1561,7 @@ describe LavinMQ::AMQP10 do
         client.attach_sender("/queues/#{q.name}")
         client.send_empty_frame
         client.publish(0_u32, 1_u32, "after-keepalive").should eq LavinMQ::AMQP10::Outcome::Accepted
-        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "after-keepalive"
+        q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "after-keepalive"
         client.close
       end
     end
@@ -1609,7 +1609,7 @@ describe LavinMQ::AMQP10 do
       client.close
     end
   ensure
-    LavinMQ::Config.instance.frame_max = frame_max.not_nil!
+    LavinMQ::Config.instance.frame_max = frame_max.should_not(be_nil)
   end
 
   it "advertises its own max-frame-size and accepts frames up to it from a peer with a smaller one" do
@@ -1626,7 +1626,7 @@ describe LavinMQ::AMQP10 do
         client.attach_sender("/queues/#{q.name}")
         body = "x" * 2000 # a frame larger than the peer's own max-frame-size
         client.publish(0_u32, 1_u32, body).should eq LavinMQ::AMQP10::Outcome::Accepted
-        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq body
+        q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq body
         client.close
       end
     end
@@ -1644,12 +1644,12 @@ describe LavinMQ::AMQP10 do
         client.attach_sender("/queues/#{q.name}")
         body = "x" * 2000
         client.publish(0_u32, 1_u32, body).should eq LavinMQ::AMQP10::Outcome::Accepted
-        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq body
+        q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq body
         client.close
       end
     end
   ensure
-    LavinMQ::Config.instance.frame_max = frame_max.not_nil!
+    LavinMQ::Config.instance.frame_max = frame_max.should_not(be_nil)
   end
 
   it "rejects oversized fragmented publishes before the final frame" do
@@ -1672,7 +1672,7 @@ describe LavinMQ::AMQP10 do
         q = ch.queue("amqp10-credit-refill", auto_delete: true)
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_sender("/queues/#{q.name}", initial_delivery_count: 5_u32)
-        flow = client.attach_flow.not_nil!
+        flow = client.attach_flow.should_not(be_nil)
         flow.delivery_count.should eq 5_u32
         flow.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
 
@@ -1727,11 +1727,11 @@ describe LavinMQ::AMQP10 do
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_sender("/exchanges/#{ex.name}/rk")
         client.publish(0_u32, 1_u32, "via-exchange").should eq LavinMQ::AMQP10::Outcome::Accepted
-        q1.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "via-exchange"
+        q1.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "via-exchange"
 
         client.attach_sender(nil, handle: 1_u32, name: "anonymous")
         client.publish(1_u32, 2_u32, "via-to", "/exchanges/#{ex.name}/anon").should eq LavinMQ::AMQP10::Outcome::Accepted
-        q2.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "via-to"
+        q2.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "via-to"
         client.close
       end
     end
@@ -1823,7 +1823,7 @@ describe LavinMQ::AMQP10 do
 
         transfer, incoming = client.read_delivery
         String.new(incoming.body).should eq "only-one"
-        client.settle(transfer.delivery_id.not_nil!)
+        client.settle(transfer.delivery_id.should_not(be_nil))
 
         flow = client.read_flow
         flow.link_credit.should eq 0_u32
@@ -1864,8 +1864,8 @@ describe LavinMQ::AMQP10 do
         client.flow(handle: 0_u32)
         client.flow(handle: 1_u32)
 
-        first = client.consume_one_delivery[0].delivery_id.not_nil!
-        second = client.consume_one_delivery[0].delivery_id.not_nil!
+        first = client.consume_one_delivery[0].delivery_id.should_not(be_nil)
+        second = client.consume_one_delivery[0].delivery_id.should_not(be_nil)
 
         [first, second].sort.should eq [0_u32, 1_u32]
         client.close
@@ -2189,10 +2189,10 @@ describe LavinMQ::AMQP10 do
         client.flow
         incoming = client.consume_one_message
         String.new(incoming.body).should eq "with-headers"
-        incoming.properties.headers.not_nil!["app"].should eq "lavinmq"
-        incoming.properties.headers.not_nil!["enabled"].should be_true
-        incoming.properties.headers.not_nil!["tries"].should eq 3_i32
-        incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
+        incoming.properties.headers.should_not(be_nil)["app"].should eq "lavinmq"
+        incoming.properties.headers.should_not(be_nil)["enabled"].should be_true
+        incoming.properties.headers.should_not(be_nil)["tries"].should eq 3_i32
+        incoming.properties.headers.should_not(be_nil)["ratio"].should eq 1.5_f64
         client.close
       end
     end
@@ -2252,7 +2252,7 @@ describe LavinMQ::AMQP10 do
         client.flow
         transfer, incoming = client.read_delivery
         String.new(incoming.body).should eq "second"
-        delivery_id = transfer.delivery_id.not_nil!
+        delivery_id = transfer.delivery_id.should_not(be_nil)
         client.settle(delivery_id, LavinMQ::AMQP10::Outcome::Accepted, settled: false)
 
         disposition = client.read_disposition
@@ -2329,7 +2329,7 @@ describe LavinMQ::AMQP10 do
         disposition.settled.should be_false
         # The sender settles; nothing is expected in reply.
         client.settle(1_u32, role: LavinMQ::AMQP10::Role::Sender)
-        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "second"
+        q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "second"
 
         client.attach_sender("/queues/#{q.name}", handle: 1_u32, name: "first").rcv_settle_mode.should eq 0_u8
         client.write_publish(1_u32, 2_u32, "first")
@@ -2386,7 +2386,7 @@ describe LavinMQ::AMQP10 do
         limited.close
 
         owner = AMQP10SpecClient.new(amqp_port(s))
-        address = owner.attach_sender(nil, dynamic: true).target.not_nil!.address.not_nil!
+        address = owner.attach_sender(nil, dynamic: true).target.should_not(be_nil).address.should_not(be_nil)
         other = AMQP10SpecClient.new(amqp_port(s))
         other.attach_receiver_detached(address)
         other.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
@@ -2429,12 +2429,12 @@ describe LavinMQ::AMQP10 do
         client.flow(credit: 2_u32)
         transfer, sections = client.read_delivery_sections
         sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
-        client.settle(transfer.delivery_id.not_nil!, LavinMQ::AMQP10::Outcome::Released)
+        client.settle(transfer.delivery_id.should_not(be_nil), LavinMQ::AMQP10::Outcome::Released)
 
         transfer, sections = client.read_delivery_sections
         sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
         section_fields(sections[0][1])[4].uint?.should eq 1_u64
-        client.settle(transfer.delivery_id.not_nil!)
+        client.settle(transfer.delivery_id.should_not(be_nil))
         client.close
       end
     end
@@ -2478,7 +2478,7 @@ describe LavinMQ::AMQP10 do
           client.publish_raw(0_u32, i.to_u32, message.to_slice).should eq LavinMQ::AMQP10::Outcome::Accepted
           transfer, sections = consumer.read_delivery_sections
           sections.should eq [{LavinMQ::AMQP10::Descriptor::AMQP_VALUE, message.to_slice}]
-          consumer.settle(transfer.delivery_id.not_nil!)
+          consumer.settle(transfer.delivery_id.should_not(be_nil))
         end
         consumer.close
         client.close
@@ -2504,10 +2504,10 @@ describe LavinMQ::AMQP10 do
         client.flow(handle: 1_u32, credit: 10_u32)
 
         transfer, _sections = client.read_delivery_sections
-        client.settle_modified(transfer.delivery_id.not_nil!,
+        client.settle_modified(transfer.delivery_id.should_not(be_nil),
           annotations_map({"x-opt-reason" => LavinMQ::AMQP10::Value.string("app offline")}))
         transfer, _sections = client.read_delivery_sections
-        client.settle_modified(transfer.delivery_id.not_nil!,
+        client.settle_modified(transfer.delivery_id.should_not(be_nil),
           annotations_map({"x-opt-retry" => LavinMQ::AMQP10::Value.long(2_i64)}))
 
         transfer, sections = client.read_delivery_sections
@@ -2518,9 +2518,9 @@ describe LavinMQ::AMQP10 do
         entries["x-opt-a1"].int?.should eq 12345_i64
         entries["x-opt-reason"].string?.should eq "app offline"
         entries["x-opt-retry"].int?.should eq 2_i64
-        client.settle(transfer.delivery_id.not_nil!)
+        client.settle(transfer.delivery_id.should_not(be_nil))
         should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
-        internal_q.@header_overrides.not_nil!.empty?.should be_true
+        internal_q.@header_overrides.should_not(be_nil).empty?.should be_true
         client.close
       end
     end
@@ -2542,7 +2542,7 @@ describe LavinMQ::AMQP10 do
 
       s.users.add_permission("amqp10-configure-only", "/", /.*/, /.*/, /.*/)
       client = AMQP10SpecClient.new(amqp_port(s), username: "amqp10-configure-only", password: "pw")
-      client.attach_receiver(nil, dynamic: true).source.not_nil!.dynamic.should be_true
+      client.attach_receiver(nil, dynamic: true).source.should_not(be_nil).dynamic.should be_true
       client.attach_sender(nil, handle: 1_u32, name: "dynamic-target", dynamic: true)
       client.close
     end
@@ -2560,7 +2560,7 @@ describe LavinMQ::AMQP10 do
         q.unsubscribe(tag)
         internal_q = s.vhosts["/"].queue(q.name)
         should_eventually(be_false) { internal_q.has_exclusive_consumer? }
-        client.attach_receiver("/queues/#{q.name}", handle: 1_u32).source.not_nil!.address.should eq "/queues/#{q.name}"
+        client.attach_receiver("/queues/#{q.name}", handle: 1_u32).source.should_not(be_nil).address.should eq "/queues/#{q.name}"
         client.close
       end
     end
@@ -2570,7 +2570,7 @@ describe LavinMQ::AMQP10 do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
       attach = client.attach_receiver(nil, dynamic: true)
-      address = attach.source.not_nil!.address.not_nil!
+      address = attach.source.should_not(be_nil).address.should_not(be_nil)
       queue_name = address.split("/").last
       s.vhosts["/"].queue?(queue_name).should_not be_nil
       client.detach
@@ -2583,7 +2583,7 @@ describe LavinMQ::AMQP10 do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
       attach = client.attach_sender(nil, dynamic: true)
-      address = attach.target.not_nil!.address.not_nil!
+      address = attach.target.should_not(be_nil).address.should_not(be_nil)
       queue_name = address.split("/").last
       queue = s.vhosts["/"].queue?(queue_name).should be_a LavinMQ::AMQP::Queue
       queue.exclusive?.should be_true

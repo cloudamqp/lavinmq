@@ -1087,19 +1087,19 @@ describe LavinMQ::AMQP::Queue do
 
           sp = nil
           queue.basic_get(false) { |env| sp = env.segment_position }.should be_true
-          queue.reject(sp.not_nil!, true, LavinMQ::AMQP::Table.new({"k" => "new", "added" => 1}))
+          queue.reject(sp.should_not(be_nil), true, LavinMQ::AMQP::Table.new({"k" => "new", "added" => 1}))
 
           headers = nil
           queue.basic_get(false) do |env|
             sp = env.segment_position
             headers = env.message.properties.headers
           end.should be_true
-          headers.not_nil!["keep"].should eq "yes"
-          headers.not_nil!["k"].should eq "new"
-          headers.not_nil!["added"].should eq 1
+          headers.should_not(be_nil)["keep"].should eq "yes"
+          headers.should_not(be_nil)["k"].should eq "new"
+          headers.should_not(be_nil)["added"].should eq 1
 
-          queue.ack(sp.not_nil!)
-          queue.@header_overrides.not_nil!.empty?.should be_true
+          queue.ack(sp.should_not(be_nil))
+          queue.@header_overrides.should_not(be_nil).empty?.should be_true
         end
       end
     end
