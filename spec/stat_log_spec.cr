@@ -1,21 +1,21 @@
 require "./spec_helper"
 
 # A buffered column laid out like the pool hands it out, with its header before it.
-private def block(cap : Int32) : Pointer(UInt32)
-  raw = Pointer(UInt32).malloc(cap + LavinMQ::StatBlockPool::HEADER)
-  data = raw + LavinMQ::StatBlockPool::HEADER
-  data[-1] = cap.to_u32
+private def block(cap : Int32) : Pointer(UInt64)
+  raw = Pointer(UInt64).malloc(cap + LavinMQ::StatBlockPool::HEADER // 2)
+  data = raw + LavinMQ::StatBlockPool::HEADER // 2
+  data.as(Pointer(UInt32))[-1] = cap.to_u32
   data
 end
 
-private def view(values : Array(UInt32), cap = 4) : LavinMQ::StatLogView
+private def view(values : Array, cap = 4) : LavinMQ::StatLogView
   col = block(cap)
   head = 0
   size = 0
   values.each do |v|
     tail = head + size
     tail -= cap if tail >= cap
-    col[tail] = v
+    col[tail] = v.to_u64
     if size < cap
       size += 1
     else
@@ -23,11 +23,11 @@ private def view(values : Array(UInt32), cap = 4) : LavinMQ::StatLogView
       head -= cap if head >= cap
     end
   end
-  LavinMQ::StatLogView.new(col, head, size, 0_u32)
+  LavinMQ::StatLogView.new(col, head, size, 0_u64)
 end
 
-private def const_view(value : UInt32, size : Int32) : LavinMQ::StatLogView
-  LavinMQ::StatLogView.new(Pointer(UInt32).null, 0, size, value)
+private def const_view(value : Int, size : Int32) : LavinMQ::StatLogView
+  LavinMQ::StatLogView.new(Pointer(UInt64).null, 0, size, value.to_u64)
 end
 
 # Own PRNG so the sequence is identical across Crystal versions.
@@ -67,8 +67,8 @@ describe LavinMQ::StatLogView do
   # A read may pair a buffer with stale head/size from before a resize.
   it "clamps stale head and size to the buffer's own capacity" do
     data = block(3)
-    data[0] = 10_u32; data[1] = 11_u32; data[2] = 12_u32
-    v = LavinMQ::StatLogView.new(data, 999, 200_000_000, 0_u32)
+    data[0] = 10_u64; data[1] = 11_u64; data[2] = 12_u64
+    v = LavinMQ::StatLogView.new(data, 999, 200_000_000, 0_u64)
     v.size.should eq 3
     v.to_a.sort.should eq [10, 11, 12]
     expect_raises(IndexError) { v[3] }
@@ -76,8 +76,8 @@ describe LavinMQ::StatLogView do
 
   it "reads a buffer whose page was given back (all zeros) as the constant" do
     data = block(4)
-    data[-1] = 0_u32
-    v = LavinMQ::StatLogView.new(data, 3, 5, 7_u32)
+    data.as(Pointer(UInt32))[-1] = 0_u32
+    v = LavinMQ::StatLogView.new(data, 3, 5, 7_u64)
     v.size.should eq 5
     v.to_a.should eq [7, 7, 7, 7, 7]
     v.to_json.should eq "[7,7,7,7,7]"
@@ -102,9 +102,10 @@ describe LavinMQ::StatLogView do
   end
 
   it "serializes rates like the Float64 values they decode to" do
-    tenths = [0_u32, 1_u32, 9_u32, 10_u32, 11_u32, 99_u32, 100_u32, 1_000_000_001_u32, UInt32::MAX]
+    max = LavinMQ::RateLogView::MAX_TENTHS.to_u64
+    tenths = [0_u64, 1_u64, 9_u64, 10_u64, 11_u64, 99_u64, 100_u64, UInt32::MAX.to_u64 + 1, max - 1, max]
     rng = Xorshift.new(7_u32)
-    200.times { tenths << (rng.u32 >> rng.below(32)) }
+    200.times { tenths << ((rng.u32.to_u64 << 19 | rng.u32) >> rng.below(51)) }
     view = view(tenths, tenths.size)
     LavinMQ::RateLogView.new(view).to_json.should eq tenths.map { |t| LavinMQ::RateLogView.decode(t) }.to_json
     LavinMQ::RateLogView.new(view).to_a.should eq tenths.map { |t| t / 10.0 }
@@ -153,7 +154,7 @@ end
 class LavinMQ::StatBlockPool
   class_property? fail_alloc = false
 
-  def alloc : Pointer(UInt32)
+  def alloc : Pointer(UInt64)
     raise "alloc failed" if StatBlockPool.fail_alloc?
     previous_def
   end
@@ -205,11 +206,13 @@ describe LavinMQ::Stats do
     p.y_log.to_a.should eq Array.new(cap, 9_u32)
   end
 
-  it "caps a rate at the largest 32-bit tenths sample" do
+  it "keeps rates past 32-bit tenths and caps them where they still print exactly" do
     p = LavinMQ::StatsProbe.new
+    p.bump(1_000_000_000_u64 * 5, 0_u32); p.update_rates # 1 GB/s at the 5 s interval
+    p.x_log.to_a.should eq [1.0e9]
     p.bump(UInt64::MAX // 2, 0_u32); p.update_rates
-    p.x_log.to_a.should eq [UInt32::MAX / 10.0]
-    p.current_stats_details[:x_details][:rate].should eq UInt32::MAX / 10.0
+    p.x_log.to_a.last.should eq LavinMQ::RateLogView::MAX_TENTHS / 10.0
+    p.current_stats_details[:x_details][:rate].should eq LavinMQ::RateLogView::MAX_TENTHS / 10.0
   end
 
   it "records a count-log change on an otherwise idle object" do
@@ -267,8 +270,8 @@ describe LavinMQ::Stats do
 
       # A released buffer would be handed out again by its pool
       pool = LavinMQ::StatBlockPool.for(8)
-      garbage = Array(Pointer(UInt32)).new
-      2000.times { garbage << pool.alloc.tap { |b| Slice.new(b, 8).fill(99_u32) } }
+      garbage = Array(Pointer(UInt64)).new
+      2000.times { garbage << pool.alloc.tap { |b| Slice.new(b, 8).fill(99_u64) } }
       view.to_a.should eq [2.0, 2.0] # the window it was taken from, all at the last value since
       view.to_json.should eq "[2.0,2.0]"
     ensure
@@ -346,12 +349,12 @@ describe LavinMQ::Stats do
       (LavinMQ::StatBlockPool::LEASE * 2).times { LavinMQ::StatBlockPool.trim } # p isn't updated
       pool.@used.should eq 0
       reused = pool.alloc
-      Slice.new(reused, 47).fill(99_u32)
+      Slice.new(reused, 47).fill(99_u64)
 
       p.bump(10_u64, 3_u32); tick(p)
       p.constant?.should be_true
       p.x_log.to_a.uniq.should eq [2.0]
-      Slice.new(reused, 47).all?(99_u32).should be_true
+      Slice.new(reused, 47).all?(99_u64).should be_true
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -362,7 +365,7 @@ describe LavinMQ::Stats do
     begin
       LavinMQ::Config.instance.stats_log_size = 8
       pool = LavinMQ::StatBlockPool.for(20)
-      Array.new(4) { pool.alloc.tap { |b| Slice.new(b, 20).fill(99_u32) } }.each { |b| pool.release(b) }
+      Array.new(4) { pool.alloc.tap { |b| Slice.new(b, 20).fill(99_u64) } }.each { |b| pool.release(b) }
       p = LavinMQ::StatsProbe.new
       12.times { |i| p.bump(0_u64, (i % 2 + 1).to_u32); p.update_rates } # full, head moved on
       head, size = p.@_stats_log_head, p.@_stats_log_size
@@ -370,7 +373,7 @@ describe LavinMQ::Stats do
       LavinMQ::Config.instance.stats_log_size = 20
       p.bump(0_u64, 1_u32); p.update_rates
       mid_resize = LavinMQ::StatLogView.new(p.@y_log.block, head, size, p.@y_log.last)
-      mid_resize.to_a.should_not contain 99_u32
+      mid_resize.to_a.should_not contain 99_u64
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -407,22 +410,22 @@ end
 
 describe "add_logs! with a StatLogView source" do
   it "sums right-aligned, newest samples together, without touching the view" do
-    a = Deque(UInt32).new
-    a.concat([1_u32, 2_u32, 3_u32, 4_u32])
+    a = Deque(UInt64).new
+    a.concat([1_u64, 2_u64, 3_u64, 4_u64])
     young = view([10_u32, 20_u32])
     AggProbe.new.add_logs!(a, young)
     a.to_a.should eq [1, 2, 13, 24]
     young.to_a.should eq [10, 20]
 
-    b = Deque(UInt32).new
-    b.concat([1_u32, 2_u32])
+    b = Deque(UInt64).new
+    b.concat([1_u64, 2_u64])
     AggProbe.new.add_logs!(b, view([10_u32, 20_u32, 30_u32, 40_u32]))
     b.to_a.should eq [10, 20, 31, 42]
   end
 
   it "sums a constant view" do
-    a = Deque(UInt32).new
-    a.concat([1_u32, 2_u32, 3_u32])
+    a = Deque(UInt64).new
+    a.concat([1_u64, 2_u64, 3_u64])
     AggProbe.new.add_logs!(a, const_view(10_u32, 3))
     a.to_a.should eq [11, 12, 13]
   end
@@ -446,13 +449,13 @@ describe LavinMQ::StatBlockPool do
     b = pool.alloc
     c = pool.alloc
     b.should_not eq a
-    a[-1].should eq 8_u32
+    LavinMQ::StatBlockPool.capacity(a).should eq 8
     LibGC.is_heap_ptr(a.as(Void*)).should eq 0
     pool.release(c)
     pool.release(a)
     pool.trim
     pool.alloc.should eq a
-    a[-1].should eq 8_u32
+    LavinMQ::StatBlockPool.capacity(a).should eq 8
   end
 
   # MADV_DONTNEED drops private pages at once on Linux only
@@ -484,14 +487,14 @@ describe LavinMQ::StatBlockPool do
 
     it "keeps the pages a used block shares with released ones" do
       pool = LavinMQ::StatBlockPool.new(120)
-      blocks = Array.new(100) { |i| pool.alloc.tap { |b| Slice.new(b, 120).fill(i.to_u32) } }
+      blocks = Array.new(100) { |i| pool.alloc.tap { |b| Slice.new(b, 120).fill(i.to_u64) } }
       live = blocks.delete_at(50)
       blocks.each { |b| pool.release(b) }
       pool.trim
-      Slice.new(live, 120).all?(50_u32).should be_true
-      live[-1].should eq 120_u32
+      Slice.new(live, 120).all?(50_u64).should be_true
+      LavinMQ::StatBlockPool.capacity(live).should eq 120
       page = LibC.sysconf(LibC::SC_PAGESIZE).to_u64
-      live_pages = ((live - LavinMQ::StatBlockPool::HEADER).address // page)..((live + 120).address - 1) // page
+      live_pages = ((live.as(Pointer(UInt32)) - LavinMQ::StatBlockPool::HEADER).address // page)..((live + 120).address - 1) // page
       blocks.reject { |b| live_pages.includes?(b.address // page) }.none? { |b| resident?(b) }.should be_true
     end
   {% end %}
@@ -532,8 +535,8 @@ describe LavinMQ::StatBlockPool do
   it "voids the generation of a released block, so a stale view reads its constant" do
     pool = LavinMQ::StatBlockPool.new(8)
     a = pool.alloc
-    8.times { |i| a[i] = 5_u32 }
-    v = LavinMQ::StatLogView.new(a, 0, 8, 1_u32)
+    8.times { |i| a[i] = 5_u64 }
+    v = LavinMQ::StatLogView.new(a, 0, 8, 1_u64)
     v.to_a.should eq [5] * 8
     pool.release(a)
     v.to_a.should eq [1] * 8
@@ -734,7 +737,7 @@ describe "concurrent readers" do
   it "only see an object's own samples while its blocks are dropped, moved and reused" do
     orig = LavinMQ::Config.instance.stats_log_size
     probes = Array.new(32) { LavinMQ::StatsProbe.new }
-    own = ->(k : Int32, v : UInt32) { v.zero? || v // 1000 == k.to_u32 + 1 }
+    own = ->(k : Int32, v : UInt64) { v.zero? || v // 1000 == k.to_u64 + 1 }
     stop = Atomic(Bool).new(false)
     foreign = Atomic(Int32).new(0)
     errors = Atomic(Int32).new(0)
