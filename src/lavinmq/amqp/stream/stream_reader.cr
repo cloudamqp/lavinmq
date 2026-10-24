@@ -25,7 +25,7 @@ module LavinMQ::AMQP
           yield env
         end
         if read
-          stream.@deliver_get_count.add(1, :relaxed)
+          stream.@get_no_ack_count.add(1, :relaxed)
         else
           # try read from new segment, the current one may also have been
           # dropped by retention, so take the offset from the next segment

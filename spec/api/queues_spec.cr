@@ -206,6 +206,30 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should return the rate history in order" do
+      config = LavinMQ::Config.instance
+      orig = config.stats_interval
+      # Keep the stats loop asleep after its first tick, the spec drives the ticks
+      config.stats_interval = 3_600_000
+      begin
+        with_http_server do |http, s|
+          config.stats_interval = 1000
+          with_channel(s) do |ch|
+            q = ch.queue("history_q")
+            [5, 10, 0].each do |n|
+              n.times { q.publish_confirm "m" }
+              s.update_stats_rates
+            end
+          end
+          body = JSON.parse(http.get("/api/queues/%2f/history_q").body)
+          body["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 10.0, 0.0]
+          body["message_stats"]["ack_details"]["log"].as_a.map(&.as_f).should eq [0.0, 0.0, 0.0]
+        end
+      ensure
+        config.stats_interval = orig
+      end
+    end
+
     it "writes message_stats only once" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_queue("stats_q", false, false)

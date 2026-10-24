@@ -17,6 +17,19 @@ describe LavinMQ::HTTP::NodesController do
       end
     end
 
+    it "should include system metrics history" do
+      with_http_server do |http, s|
+        s.update_stats_rates
+        s.update_system_metrics(nil)
+        data = JSON.parse(http.get("/api/nodes").body).as_a.first
+        data["disk_total_details"]["log"].as_a.last.should eq s.disk_total
+        data["mem_used_details"]["log"].as_a.last.as_i64.should be > 0
+        {"cpu_user_details", "cpu_sys_details", "io_read_details", "io_write_details"}.each do |key|
+          data[key]["log"].as_a.should_not be_empty
+        end
+      end
+    end
+
     it "should not include GC stats" do
       with_http_server do |http, _|
         response = http.get("/api/nodes")

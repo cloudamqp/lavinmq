@@ -87,6 +87,9 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      unless @stats_log_size.positive?
+        raise Error.new("stats_log_size must be positive (got #{@stats_log_size})")
+      end
       # 0 is not "unlimited": the capacity gate would never open, so every MQTT
       # session would accept publishes and deliver none of them.
       unless @max_inflight_messages.positive?
