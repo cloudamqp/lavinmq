@@ -42,7 +42,6 @@ module LavinMQ
 
       getter log, name, user, client_id, socket, connection_info
       getter? clean_session
-      @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       @publish_context = PublishContext.new
@@ -50,7 +49,7 @@ module LavinMQ
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
       # Created with the PUBACK writer fiber on the first QoS 1 publish
-      @puback_mailbox : ::Channel(UInt64)?
+      getter confirm_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -146,16 +145,10 @@ module LavinMQ
         when Auth::OAuthUser
           user.cleanup
         end
-        @puback_mailbox.try &.close
+        @confirm_mailbox.try &.close
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
-      end
-
-      private def duration
-        ms = RoughTime.unix_ms - @connected_at
-        seconds = (ms / 1000).round.to_i
-        Time::Span.new(seconds: seconds)
       end
 
       def read_and_handle_packet
@@ -233,24 +226,13 @@ module LavinMQ
       # PUBACK is sent by the writer fiber, so the read loop never waits for
       # the disk.
       private def enqueue_puback(packet_id : UInt16) : Nil
-        unless @puback_mailbox
-          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
+        unless @confirm_mailbox
+          mailbox = @confirm_mailbox = ::Channel(UInt64).new(1)
           spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
         end
         seq = @publish_seq &+= 1
         @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
         vhost.enqueue_ack(self, seq)
-      end
-
-      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
-      # (confirms are cumulative).
-      def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @puback_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
       end
 
       private def puback_writer(mailbox : ::Channel(UInt64))

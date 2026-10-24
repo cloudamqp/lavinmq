@@ -3,48 +3,31 @@ require "uri"
 module LavinMQ::AMQP10
   record PublishAddress, exchange : String, routing_key : String
 
+  # The /queues/<queue> and /exchanges/<exchange>[/<routing-key>] address
+  # schemes, with percent-encoded components.
   module Address
     extend self
 
     def parse_target(address : String) : PublishAddress?
-      if component = queue_component(address)
-        PublishAddress.new("", component)
+      if queue = parse_source(address)
+        PublishAddress.new("", queue)
       elsif exchange = exchange_component(address)
-        PublishAddress.new(exchange[0], exchange[1])
+        PublishAddress.new(*exchange)
       end
     end
 
+    # The queue a /queues/ address names
     def parse_source(address : String) : String?
-      queue_component(address)
-    end
-
-    private def queue_component(address : String) : String?
-      prefix = "/queues/"
-      return unless address.starts_with?(prefix)
-      encoded = address[prefix.bytesize..]?
-      return if encoded.nil? || encoded.empty? || encoded.includes?('/')
-      percent_decode(encoded)
+      encoded = address.lchop?("/queues/") || return
+      return if encoded.empty? || encoded.includes?('/')
+      URI.decode(encoded)
     end
 
     private def exchange_component(address : String) : Tuple(String, String)?
-      prefix = "/exchanges/"
-      return unless address.starts_with?(prefix)
-      rest = address[prefix.bytesize..]?
-      return if rest.nil? || rest.empty?
-      slash = rest.index('/')
-      if slash
-        exchange = rest[0, slash]
-        routing_key = rest[(slash + 1)..]
-      else
-        exchange = rest
-        routing_key = ""
-      end
+      rest = address.lchop?("/exchanges/") || return
+      exchange, _, routing_key = rest.partition('/')
       return if exchange.empty?
-      {percent_decode(exchange), percent_decode(routing_key)}
-    end
-
-    private def percent_decode(value : String) : String
-      URI.decode(value)
+      {URI.decode(exchange), URI.decode(routing_key)}
     end
   end
 end

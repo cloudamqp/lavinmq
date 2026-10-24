@@ -1099,7 +1099,7 @@ describe LavinMQ::AMQP::Queue do
           headers.should_not(be_nil)["added"].should eq 1
 
           queue.ack(sp.should_not(be_nil))
-          queue.@header_overrides.should_not(be_nil).empty?.should be_true
+          queue.@header_overrides.should be_nil
         end
       end
     end

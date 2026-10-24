@@ -401,7 +401,9 @@ module LavinMQ::AMQP10
 
     # Precomputed encoded sizes for a message's sections, so the size pass and
     # the write pass do not each re-walk the (allocating) headers Table.
-    private record SectionSizes,
+    # `annotations` are the message-annotations the delivery goes out with, a
+    # copy, nil if none.
+    record SectionSizes,
       total : Int32,
       delivery_count : UInt32,
       first_acquirer : Bool,
@@ -438,20 +440,20 @@ module LavinMQ::AMQP10
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
                        delivery_tag : Bytes, msg : BytesMessage, max_frame_size = UInt32::MAX,
                        settled = false, redelivered = false) : Tuple(UInt64, UInt32)
-      write_transfer(io, channel, handle, delivery_id, delivery_tag, msg, max_frame_size, settled, redelivered) { }
+      write_transfer(io, channel, handle, delivery_id, delivery_tag, msg, section_sizes(msg, redelivered), max_frame_size, settled) { }
     end
 
-    # Yields after each frame is written, with whether more frames of the
-    # delivery follow, so the caller can account for the peer's session window
-    # frame by frame.
+    # Takes the sizes from `section_sizes`, computed by the caller before any
+    # lock is taken. Yields after each frame is written, with whether more
+    # frames of the delivery follow, so the caller can account for the peer's
+    # session window frame by frame.
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
-                       delivery_tag : Bytes, msg : BytesMessage, max_frame_size, settled, redelivered,
+                       delivery_tag : Bytes, msg : BytesMessage, sizes : SectionSizes, max_frame_size, settled,
                        & : Bool -> Nil) : Tuple(UInt64, UInt32)
       if msg.bodysize > UInt32::MAX
         raise ProtocolError.new("message too large for AMQP 1.0 data section")
       end
 
-      sizes = compute_section_sizes(msg, redelivered)
       prefix_size = sizes.total
       message_size = prefix_size.to_u64 + msg.bodysize
       max = effective_max_frame_size(max_frame_size)
@@ -472,7 +474,7 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def compute_section_sizes(msg : BytesMessage, redelivered : Bool) : SectionSizes
+    def section_sizes(msg : BytesMessage, redelivered : Bool) : SectionSizes
       props = msg.properties
       delivery_count = delivery_count(props, redelivered)
       first_acquirer = delivery_count.zero? && first_acquirer?(props.headers)
@@ -500,7 +502,7 @@ module LavinMQ::AMQP10
         message_id_kind, correlation_id_kind, app_count, app_fields, body_kind)
     end
 
-    # The stored message-annotations map, if any, as a view into the headers.
+    # The stored message-annotations map, if any, as a copy out of the headers.
     # Anything but one complete encoded map (e.g. a header set by a 0-9-1
     # publisher) is not delivered.
     def message_annotations(headers : LavinMQ::AMQP::Table?) : Bytes?

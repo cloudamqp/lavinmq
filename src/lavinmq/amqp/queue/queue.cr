@@ -1270,8 +1270,7 @@ module LavinMQ::AMQP
     private def with_header_overrides(env) : Envelope
       overrides = @header_overrides_lock.synchronize { @header_overrides.try(&.[env.segment_position]?) } || return env
       headers = env.message.properties.headers || AMQP::Table.new
-      overrides.each { |key, value| headers[key] = value }
-      env.message.properties.headers = headers
+      env.message.properties.headers = headers.merge!(overrides)
       env
     end
 
@@ -1299,7 +1298,7 @@ module LavinMQ::AMQP
       @header_overrides_lock.synchronize do
         overrides = (@header_overrides ||= Hash(SegmentPosition, AMQ::Protocol::Table).new)
         if existing = overrides[sp]?
-          headers.each { |key, value| existing[key] = value }
+          existing.merge!(headers)
         else
           overrides[sp] = headers
         end
@@ -1324,7 +1323,12 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @header_overrides_lock.synchronize { @header_overrides.try &.delete(sp) } if @header_overrides
+      if overrides = @header_overrides
+        @header_overrides_lock.synchronize do
+          overrides.delete(sp)
+          @header_overrides = nil if overrides.empty? # so deliveries skip the lookup again
+        end
+      end
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)

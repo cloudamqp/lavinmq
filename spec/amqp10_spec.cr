@@ -2520,7 +2520,7 @@ describe LavinMQ::AMQP10 do
         entries["x-opt-retry"].int?.should eq 2_i64
         client.settle(transfer.delivery_id.should_not(be_nil))
         should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
-        internal_q.@header_overrides.should_not(be_nil).empty?.should be_true
+        should_eventually(be_nil) { internal_q.@header_overrides }
         client.close
       end
     end

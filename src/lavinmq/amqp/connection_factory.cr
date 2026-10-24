@@ -55,12 +55,14 @@ module LavinMQ
       end
 
       HEADERS = {
-        AMQP::PROTOCOL_START_0_9_1.to_slice,
-        AMQP::PROTOCOL_START_0_9.to_slice,
-        LavinMQ::AMQP10::SASL_HEADER,
-        LavinMQ::AMQP10::PROTOCOL_HEADER,
+        AMQP::PROTOCOL_START_0_9_1.to_slice => :amqp091,
+        AMQP::PROTOCOL_START_0_9.to_slice   => :amqp091,
+        LavinMQ::AMQP10::SASL_HEADER        => :amqp10,
+        LavinMQ::AMQP10::PROTOCOL_HEADER    => :amqp10_without_sasl,
       }
 
+      # Reads the protocol header and returns which protocol it starts, or nil
+      # (after answering with the 0-9-1 header) if it is none of ours.
       def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
         slice = proto.to_slice
@@ -73,25 +75,14 @@ module LavinMQ
           end
           pos += read
           received = slice[0, pos]
-          next if HEADERS.any? { |header| header[0, pos] == received }
+          next if HEADERS.each_key.any? { |header| header[0, pos] == received }
 
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
           log.warn { "Unexpected protocol #{String.new(received).inspect}, closing socket" }
           return
         end
-        if proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
-          :amqp091
-        elsif slice == LavinMQ::AMQP10::SASL_HEADER
-          :amqp10
-        elsif slice == LavinMQ::AMQP10::PROTOCOL_HEADER
-          :amqp10_without_sasl
-        else
-          socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
-          socket.flush
-          log.warn { "Unexpected protocol #{String.new(slice).inspect}, closing socket" }
-          nil
-        end
+        HEADERS[slice]
       rescue IO::EOFError
         log.warn { "Client closed connection during protocol header, closing socket" }
         nil

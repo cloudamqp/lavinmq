@@ -52,7 +52,7 @@ module LavinMQ
       @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
-      @confirm_ack_mailbox : ::Channel(UInt64)?
+      getter confirm_mailbox : ::Channel(UInt64)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -132,7 +132,7 @@ module LavinMQ
           return
         end
         unless @confirm
-          @confirm_ack_mailbox = mailbox = ::Channel(UInt64).new(1)
+          @confirm_mailbox = mailbox = ::Channel(UInt64).new(1)
           spawn confirm_writer(mailbox), name: "Channel##{@id} confirm writer"
           @confirm = true
         end
@@ -342,16 +342,6 @@ module LavinMQ
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
-      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
-      def enqueue_confirm_ack(msgid : UInt64) : Nil
-        mailbox = @confirm_ack_mailbox || return
-        loop do
-          return if mailbox.try_send(msgid)
-          mailbox.try_receive?
-        end
-      rescue ::Channel::ClosedError
-      end
-
       private def confirm_writer(mailbox : ::Channel(UInt64))
         while msgid = mailbox.receive?
           do_confirm_ack(msgid, multiple: true)
@@ -367,7 +357,7 @@ module LavinMQ
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
-        if ch = @client.vhost.direct_reply_consumer?(consumer_tag).as?(AMQP::Channel)
+        if ch = @client.vhost.direct_reply_consumer?(consumer_tag)
           confirm do
             deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
               1_u64, false,
@@ -743,7 +733,7 @@ module LavinMQ
       def close : Bool
         return false unless @running
         @running = false
-        @confirm_ack_mailbox.try &.close
+        @confirm_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close
           consumer.queue.rm_consumer(consumer)

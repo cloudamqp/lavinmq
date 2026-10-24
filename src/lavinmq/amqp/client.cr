@@ -28,10 +28,8 @@ module LavinMQ
       getter client_properties : AMQP::Table
       getter connection_info : ConnectionInfo
 
-      @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, AMQP::Channel).new
       @actual_channel_max : UInt16
-      @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
       @running = true
       @last_recv_frame = RoughTime.instant
@@ -214,12 +212,6 @@ module LavinMQ
         cleanup
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
-      end
-
-      private def duration
-        ms = RoughTime.unix_ms - @connected_at
-        seconds = (ms / 1000).round.to_i
-        Time::Span.new(seconds: seconds)
       end
 
       private def frame_size_ok?(frame) : Bool
@@ -536,10 +528,7 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
-        # Iterate a snapshot because Queue#close deletes exclusive queues,
-        # which calls back into #exclusive_queue_deleted.
-        @exclusive_queues.dup.each(&.close)
-        @exclusive_queues.clear
+        close_exclusive_queues
         case user = @user
         when Auth::OAuthUser
           user.cleanup
@@ -781,15 +770,6 @@ module LavinMQ
           @exclusive_queues.delete(q) if q.exclusive?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
-      end
-
-      def queue_exclusive_to_other_client?(q)
-        q.exclusive? && !@exclusive_queues.includes?(q)
-      end
-
-      # Called by Queue#delete on the queue's exclusive owner
-      def exclusive_queue_deleted(q : Queue) : Nil
-        @exclusive_queues.delete(q)
       end
 
       private def declare_queue(frame)

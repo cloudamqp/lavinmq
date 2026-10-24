@@ -39,7 +39,7 @@ module LavinMQ::AMQP10
       # Sized for our frame_max, the limit we advertise for incoming frames;
       # the client keeps using it rather than allocating a second buffer.
       reader = FrameReader.new(socket, Config.instance.frame_max)
-      open = read_open(reader, log) || return
+      open = read_open(reader)
       # Outgoing frames must fit the peer's max-frame-size (and ours).
       max_frame_size = negotiated_frame_max(open.max_frame_size)
       local_max_frame_size = local_frame_max(max_frame_size)
@@ -47,12 +47,11 @@ module LavinMQ::AMQP10
       # Advertise our own idle-timeout so dead peers are reaped, and honor the
       # peer's so it does not drop us during idle periods.
       local_idle_timeout = server_idle_timeout
-      remote_idle_timeout = open.idle_time_out
-      vhost = resolve_vhost(socket, open, user, local_max_frame_size, channel_max, local_idle_timeout, log) || return
+      local_open = Open.new(Client::SERVER_CONTAINER_ID, nil, local_max_frame_size, channel_max, local_idle_timeout)
+      vhost = resolve_vhost(socket, open, user, local_open, log) || return
 
-      client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size,
-        remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max,
-        local_max_frame_size: local_max_frame_size)
+      client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size, local_max_frame_size,
+        channel_max, open.idle_time_out, local_idle_timeout, reader)
       client.send_open
       client
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
@@ -67,19 +66,15 @@ module LavinMQ::AMQP10
       loopback = connection_info.loopback?
       send_sasl_mechanisms(socket, anonymous: loopback)
       mechanism, response = read_sasl_init(socket)
-      case mechanism
-      when "PLAIN"
-        username, password = plain_credentials(response)
-      when "ANONYMOUS"
-        unless loopback
-          send_sasl_outcome(socket, 1_u8)
-          return
-        end
-        username, password = Config.instance.default_user, ANONYMOUS_PASSWORD
-      else
+      credentials = case mechanism
+                    when "PLAIN"     then plain_credentials(response)
+                    when "ANONYMOUS" then {Config.instance.default_user, ANONYMOUS_PASSWORD} if loopback
+                    end
+      unless credentials
         send_sasl_outcome(socket, 1_u8)
         return
       end
+      username, password = credentials
       context = Auth::Context.new(username, password, loopback: loopback)
       if user = @authenticator.authenticate(context)
         send_sasl_outcome(socket, 0_u8)
@@ -113,9 +108,7 @@ module LavinMQ::AMQP10
     private def send_sasl_mechanisms(socket, anonymous : Bool)
       mechanisms = [Value.symbol("PLAIN")]
       mechanisms << Value.symbol("ANONYMOUS") if anonymous
-      fields = Array(Value).new(1)
-      fields << Value.array(mechanisms)
-      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_MECHANISMS, fields)
+      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_MECHANISMS, [Value.array(mechanisms)])
     end
 
     private def read_sasl_init(socket) : Tuple(String, Bytes)
@@ -131,9 +124,7 @@ module LavinMQ::AMQP10
     end
 
     private def send_sasl_outcome(socket, code : UInt8)
-      fields = Array(Value).new(1)
-      fields << Value.ubyte(code)
-      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_OUTCOME, fields)
+      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_OUTCOME, [Value.ubyte(code)])
     end
 
     # SASL PLAIN (RFC 4616): authzid NUL authcid NUL passwd. Split on the raw
@@ -148,8 +139,7 @@ module LavinMQ::AMQP10
 
     private def confirm_transport_header(socket, log) : Bool
       header = uninitialized UInt8[8]
-      socket.read_fully(header.to_slice)
-      if header.to_slice == PROTOCOL_HEADER
+      if socket.read_fully?(header.to_slice) && header.to_slice == PROTOCOL_HEADER
         socket.write PROTOCOL_HEADER
         socket.flush
         true
@@ -157,58 +147,40 @@ module LavinMQ::AMQP10
         log.warn { "AMQP 1.0 client did not send transport header after SASL" }
         false
       end
-    rescue IO::EOFError
-      log.warn { "AMQP 1.0 client did not send transport header after SASL" }
-      false
     end
 
-    private def read_open(reader : FrameReader, log) : Open?
+    private def read_open(reader : FrameReader) : Open
       frame = reader.read
       raise DecodeError.new("expected AMQP frame") unless frame.type == AMQP_FRAME_TYPE
-      open = Open.from_value(Codec.decode(frame.body_reader))
-      open
+      Open.from_value(Codec.decode(frame.body_reader))
     end
 
-    private def resolve_vhost(socket, open : Open, user, max_frame_size : UInt32, channel_max : UInt16,
-                              idle_timeout : UInt32?, log)
-      vhost_name = if hostname = open.hostname
-                     hostname.starts_with?("vhost:") ? hostname[6..] : "/"
-                   else
-                     "/"
-                   end
-      if vhost = @vhosts[vhost_name]?
-        if user.find_permission(vhost_name)
-          if vhost.max_connections.try { |max| vhost.connections_size >= max }
-            log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
-            refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_ALLOWED,
-              "access to vhost '#{vhost_name}' refused: connection limit is reached")
-            return
-          end
-          vhost
-        else
-          log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
-          refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::UNAUTHORIZED_ACCESS,
-            "'#{user.name}' does not have access to '#{vhost_name}'")
-          nil
-        end
-      else
+    # The vhost the peer's Open names, or nil after refusing the connection.
+    # `local_open` is the Open a refusal is answered with.
+    private def resolve_vhost(socket, open : Open, user, local_open : Open, log) : VHost?
+      vhost_name = open.hostname.try(&.lchop?("vhost:")) || "/"
+      vhost = @vhosts[vhost_name]?
+      if vhost.nil?
         log.warn { "VHost \"#{vhost_name}\" not found" }
-        refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_FOUND, "vhost not found")
-        nil
+        refuse(socket, local_open, ErrorCondition::NOT_FOUND, "vhost not found")
+      elsif !user.find_permission(vhost_name)
+        log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
+        refuse(socket, local_open, ErrorCondition::UNAUTHORIZED_ACCESS, "'#{user.name}' does not have access to '#{vhost_name}'")
+      elsif vhost.connection_limit_reached?
+        log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
+        refuse(socket, local_open, ErrorCondition::NOT_ALLOWED, "access to vhost '#{vhost_name}' refused: connection limit is reached")
+      else
+        vhost
       end
     end
 
     # Open MUST be the first frame either peer sends (spec 2.4.1), so a refused
     # connection gets our Open followed by a Close carrying the error; clients
     # only surface the Close's error once they have seen the Open.
-    private def refuse(socket, max_frame_size : UInt32, channel_max : UInt16, idle_timeout : UInt32?,
-                       condition, description)
-      open = Open.new(Client::SERVER_CONTAINER_ID, nil, max_frame_size, channel_max, idle_timeout)
+    private def refuse(socket, open : Open, condition, description) : Nil
       FrameWriter.write_frame_header(socket, open.frame_size, AMQP_FRAME_TYPE, 0_u16)
       open.write_body(socket)
-      fields = Array(Value).new(1)
-      fields << ErrorInfo.new(condition, description).to_value
-      FrameWriter.write_performative(socket, 0_u16, AMQP_FRAME_TYPE, Descriptor::CLOSE, fields)
+      FrameWriter.write_performative(socket, 0_u16, AMQP_FRAME_TYPE, Descriptor::CLOSE, [ErrorInfo.new(condition, description).to_value])
     end
 
     # Derive the AMQP 1.0 idle-timeout (milliseconds) from the configured

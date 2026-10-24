@@ -26,48 +26,43 @@ module LavinMQ::AMQP10
     getter max_frame_size : UInt32
     getter client_properties = LavinMQ::AMQP::Table.new
 
-    @connected_at = RoughTime.unix_ms
     @sessions = Hash(UInt16, Session).new
     # Channels of sessions we ended (e.g. closed via the management API) whose
     # end the peer has not answered yet; their frames are discarded meanwhile.
     @ending_sessions = Set(UInt16).new
     @ending_lock = Mutex.new(:checked)
-    @exclusive_queues = Array(LavinMQ::AMQP::Queue).new
     @running = true
     @write_lock = Mutex.new(:checked)
     @descriptor_reader = IO::Memory.new(Bytes.empty)
     @acl_write_cache = Auth::PermissionCache.new
     @last_recv = RoughTime.instant
     @last_sent = RoughTime.instant
-    # idle-time-out negotiated with the peer (milliseconds):
+    # idle-time-out negotiated with the peer (milliseconds), nil for none:
     #   @remote_idle_timeout — the peer's; we must send a frame within it
     #   @local_idle_timeout  — ours; we may drop the peer if it goes silent
     @remote_idle_timeout : UInt32?
-    @local_idle_timeout : UInt32?
+    getter log : Logger
 
     rate_stats({"send_oct", "recv_oct"})
 
+    # @max_frame_size is the limit for outgoing frames, @local_max_frame_size
+    # ours, advertised in the Open and the limit for incoming ones.
     def initialize(@socket : IO,
                    @connection_info : ConnectionInfo,
                    @vhost : VHost,
                    @user : Auth::BaseUser,
                    @auth_mechanism : String,
                    @max_frame_size : UInt32,
-                   @remote_idle_timeout : UInt32? = nil,
-                   @local_idle_timeout : UInt32? = nil,
-                   @frame_reader : FrameReader? = nil,
-                   @channel_max : UInt16 = UInt16::MAX,
-                   local_max_frame_size : UInt32? = nil)
-      # Ours, advertised in the Open and the limit for incoming frames;
-      # @max_frame_size is the limit for outgoing ones.
-      @local_max_frame_size = local_max_frame_size || @max_frame_size
+                   @local_max_frame_size : UInt32,
+                   @channel_max : UInt16,
+                   remote_idle_timeout : UInt32?,
+                   @local_idle_timeout : UInt32?,
+                   @frame_reader : FrameReader)
+      # A zero idle-time-out in the peer's Open means none (2.4.5)
+      @remote_idle_timeout = remote_idle_timeout unless remote_idle_timeout.try(&.zero?)
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
-    end
-
-    def log : Logger
-      @log
     end
 
     def run : Nil
@@ -79,11 +74,6 @@ module LavinMQ::AMQP10
         end
       end
       read_loop
-    end
-
-    # Called by Queue#delete on the queue's exclusive owner
-    def exclusive_queue_deleted(q : LavinMQ::AMQP::Queue) : Nil
-      @exclusive_queues.delete(q)
     end
 
     def channel_count : Int32
@@ -148,10 +138,6 @@ module LavinMQ::AMQP10
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def queue_exclusive_to_other_client?(q : LavinMQ::AMQP::Queue)
-      q.exclusive? && !@exclusive_queues.includes?(q)
-    end
-
     # A dynamic source is consumed from and a dynamic target published to (via
     # the default exchange), so that access is required as well as configure.
     def declare_dynamic_queue(*, consume : Bool) : LavinMQ::AMQP::Queue
@@ -205,8 +191,6 @@ module LavinMQ::AMQP10
       queue_name = Address.parse_source(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid source address #{address}")
       q = @vhost.queue?(queue_name).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{queue_name}' not found")
       raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
-      # Queue#add_consumer does not enforce an exclusive consumer's claim.
-      raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' in exclusive use") if q.has_exclusive_consumer?
       unless @user.can_read?(@vhost.name, queue_name)
         raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{queue_name}'")
       end
@@ -234,32 +218,7 @@ module LavinMQ::AMQP10
 
     def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
       snd_mode, rcv_mode = settle_modes(link, remote_attach)
-      fields_size = Codec.string_size(link.name) + Codec.uint_size(link.local_handle) + 1 + 2 + 2 +
-                    (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
-      fields_count = 7
-      if link.role.sender?
-        fields_size += 1 + 1 + Codec.uint_size(link.delivery_count)
-        fields_count = 10
-      end
-      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
-      send_frame(frame_size.to_u32, session.id) do |io|
-        Codec.write_descriptor(io, Descriptor::ATTACH)
-        Codec.write_list_header(io, fields_size, fields_count)
-        Codec.write_string(io, link.name)
-        Codec.write_uint(io, link.local_handle)
-        io.write_byte(link.role.receiver? ? 0x41_u8 : 0x42_u8)
-        io.write_byte 0x50_u8
-        io.write_byte snd_mode
-        io.write_byte 0x50_u8
-        io.write_byte rcv_mode
-        source ? source.write_to(io) : io.write_byte(0x40_u8)
-        target ? target.write_to(io) : io.write_byte(0x40_u8)
-        if link.role.sender?
-          io.write_byte 0x40_u8 # unsettled: null
-          io.write_byte 0x40_u8 # incomplete-unsettled: null
-          Codec.write_uint(io, link.delivery_count)
-        end
-      end
+      write_attach(session, link.name, link.local_handle, link.role, snd_mode, rcv_mode, source, target, link.delivery_count)
     end
 
     # Each settle-mode field states the actual mode of the peer playing that
@@ -272,31 +231,40 @@ module LavinMQ::AMQP10
       end
     end
 
+    # A refused attach is answered with one without source and target (2.6.3),
+    # followed by a detach carrying the error.
     def send_rejected_attach(session : Session, remote_attach : Attach, local_handle : UInt32) : Nil
-      local_role_receiver = remote_attach.role.sender?
-      fields_size = Codec.string_size(remote_attach.name) + Codec.uint_size(local_handle) + 1 + 2 + 2 + 1 + 1
+      role = remote_attach.role.sender? ? Role::Receiver : Role::Sender
+      write_attach(session, remote_attach.name, local_handle, role,
+        remote_attach.snd_settle_mode || 0_u8, remote_attach.rcv_settle_mode || 0_u8, nil, nil, 0_u32)
+    end
+
+    private def write_attach(session : Session, name : String, handle : UInt32, role : Role, snd_mode : UInt8,
+                             rcv_mode : UInt8, source : Source?, target : Target?, delivery_count : UInt32) : Nil
+      fields_size = Codec.string_size(name) + Codec.uint_size(handle) + 1 + 2 + 2 +
+                    (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
       fields_count = 7
-      unless local_role_receiver
-        fields_size += 1 + 1 + Codec.uint_size(0_u32)
+      if role.sender?
+        fields_size += 1 + 1 + Codec.uint_size(delivery_count)
         fields_count = 10
       end
       frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
       send_frame(frame_size.to_u32, session.id) do |io|
         Codec.write_descriptor(io, Descriptor::ATTACH)
         Codec.write_list_header(io, fields_size, fields_count)
-        Codec.write_string(io, remote_attach.name)
-        Codec.write_uint(io, local_handle)
-        io.write_byte(local_role_receiver ? 0x41_u8 : 0x42_u8)
+        Codec.write_string(io, name)
+        Codec.write_uint(io, handle)
+        io.write_byte(role.receiver? ? 0x41_u8 : 0x42_u8)
         io.write_byte 0x50_u8
-        io.write_byte(remote_attach.snd_settle_mode || 0_u8)
+        io.write_byte snd_mode
         io.write_byte 0x50_u8
-        io.write_byte(remote_attach.rcv_settle_mode || 0_u8)
-        io.write_byte 0x40_u8 # source: null
-        io.write_byte 0x40_u8 # target: null
-        unless local_role_receiver
+        io.write_byte rcv_mode
+        source ? source.write_to(io) : io.write_byte(0x40_u8)
+        target ? target.write_to(io) : io.write_byte(0x40_u8)
+        if role.sender?
           io.write_byte 0x40_u8 # unsettled: null
           io.write_byte 0x40_u8 # incomplete-unsettled: null
-          Codec.write_uint(io, 0_u32)
+          Codec.write_uint(io, delivery_count)
         end
       end
     end
@@ -319,20 +287,7 @@ module LavinMQ::AMQP10
     end
 
     def send_end(channel : UInt16, error : ErrorInfo? = nil) : Nil
-      if error
-        fields_size = error.encoded_size
-        frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
-        send_frame(frame_size.to_u32, channel) do |io|
-          Codec.write_descriptor(io, Descriptor::END)
-          Codec.write_list_header(io, fields_size, 1)
-          error.write_to(io)
-        end
-      else
-        send_frame((8 + 3 + 1).to_u32, channel) do |io|
-          Codec.write_descriptor(io, Descriptor::END)
-          io.write_byte 0x45_u8 # empty list0
-        end
-      end
+      send_with_optional_error(Descriptor::END, channel, error)
     end
 
     # Server-initiated session end: the session is closed right away, like a
@@ -355,59 +310,64 @@ module LavinMQ::AMQP10
     end
 
     def send_close(error : ErrorInfo? = nil) : Nil
-      if error
-        fields_size = error.encoded_size
-        frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
-        send_frame(frame_size.to_u32, 0_u16) do |io|
-          Codec.write_descriptor(io, Descriptor::CLOSE)
-          Codec.write_list_header(io, fields_size, 1)
-          error.write_to(io)
-        end
-      else
-        send_frame((8 + 3 + 1).to_u32, 0_u16) do |io|
-          Codec.write_descriptor(io, Descriptor::CLOSE)
-          io.write_byte 0x45_u8 # empty list0
-        end
-      end
+      send_with_optional_error(Descriptor::CLOSE, 0_u16, error)
     ensure
       @running = false
     end
 
-    def send_flow(session : Session, link : SenderLink | ReceiverLink, credit : UInt32, drain : Bool = false) : Nil
-      bytes = @write_lock.synchronize do
-        TransferCodec.write_flow(@socket, session.id, session.next_incoming_id, session.incoming_window,
+    # End and Close carry an optional error and nothing else
+    private def send_with_optional_error(descriptor : UInt64, channel : UInt16, error : ErrorInfo?) : Nil
+      if error
+        fields_size = error.encoded_size
+        frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+        send_frame(frame_size.to_u32, channel) do |io|
+          Codec.write_descriptor(io, descriptor)
+          Codec.write_list_header(io, fields_size, 1)
+          error.write_to(io)
+        end
+      else
+        send_frame((8 + 3 + 1).to_u32, channel) do |io|
+          Codec.write_descriptor(io, descriptor)
+          io.write_byte 0x45_u8 # empty list0
+        end
+      end
+    end
+
+    def send_flow(session : Session, link : Link, credit : UInt32, drain : Bool = false) : Nil
+      write_locked do |io|
+        TransferCodec.write_flow(io, session.id, session.next_incoming_id, session.incoming_window,
           session.next_outgoing_id, DEFAULT_WINDOW, link.local_handle, link.delivery_count, credit, drain)
       end
-      add_send_bytes(bytes)
     end
 
     def send_session_flow(session : Session) : Nil
-      bytes = @write_lock.synchronize do
-        TransferCodec.write_flow(@socket, session.id, session.next_incoming_id, session.incoming_window,
+      write_locked do |io|
+        TransferCodec.write_flow(io, session.id, session.next_incoming_id, session.incoming_window,
           session.next_outgoing_id, DEFAULT_WINDOW)
       end
-      add_send_bytes(bytes)
     end
 
     def send_disposition(session : Session, first : UInt32, outcome : Outcome, settled = true,
                          last : UInt32? = nil) : Nil
-      bytes = @write_lock.synchronize do
-        TransferCodec.write_disposition(@socket, session.id, first, outcome, settled, Role::Receiver, last)
-      end
-      add_send_bytes(bytes)
+      write_locked { |io| TransferCodec.write_disposition(io, session.id, first, outcome, settled, Role::Receiver, last) }
     end
 
     # Sender-side settlement of deliveries a rcv-settle-mode second receiver
     # has applied an outcome to but is still holding until we settle.
     def send_settlement(session : Session, first : UInt32, last : UInt32?, outcome : Outcome) : Nil
-      bytes = @write_lock.synchronize do
-        TransferCodec.write_disposition(@socket, session.id, first, outcome, true, Role::Sender, last)
-      end
+      write_locked { |io| TransferCodec.write_disposition(io, session.id, first, outcome, true, Role::Sender, last) }
+    end
+
+    # Yields the socket under the write lock; the block returns the bytes written
+    private def write_locked(& : IO -> UInt64) : Nil
+      bytes = @write_lock.synchronize { yield @socket }
       add_send_bytes(bytes)
     end
 
     def send_transfer(session : Session, link : SenderLink, msg : BytesMessage,
                       sp : SegmentPosition, settled : Bool, redelivered = false) : Bool
+      # Walks the message's headers, so done before taking the lock
+      sizes = MessageCodec.section_sizes(msg, redelivered)
       @write_lock.synchronize do
         # Assign the delivery-id and record the unacked entry under the lock so
         # ids and unacked stay ordered even if two sender links deliver
@@ -415,9 +375,9 @@ module LavinMQ::AMQP10
         delivery_id = session.take_delivery_id
         tag = link.delivery_tag_buffer
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
-        link.record_unacked(delivery_id, sp, MessageCodec.message_annotations(msg.properties.headers).try(&.dup)) unless settled
+        link.record_unacked(delivery_id, sp, sizes.annotations) unless settled
         bytes, _frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
-          delivery_id, tag, msg, @max_frame_size, settled, redelivered) do |more|
+          delivery_id, tag, msg, sizes, @max_frame_size, settled) do |more|
           session.advance_outgoing(1_u32)
           wait_for_session_window(session, link) if more
         end
@@ -509,8 +469,8 @@ module LavinMQ::AMQP10
     # our max-frame-size, which it always can unless frame_max is 0
     # (unlimited) and the reader was sized to the minimum.
     private def connection_frame_reader : FrameReader
-      reader = @frame_reader.try { |r| r if r.buffer_size >= @local_max_frame_size } ||
-               FrameReader.new(@socket, @local_max_frame_size)
+      reader = @frame_reader
+      reader = FrameReader.new(@socket, @local_max_frame_size) if reader.buffer_size < @local_max_frame_size
       reader.max_frame_size = @local_max_frame_size
       reader
     end
@@ -527,25 +487,17 @@ module LavinMQ::AMQP10
     # How often the read loop should wake to send a keepalive and/or check the
     # peer's liveness; nil when no idle-timeout was negotiated in either direction.
     private def idle_check_interval : Time::Span?
-      intervals = [] of Int64
-      if r = @remote_idle_timeout
-        intervals << (r // 2).to_i64 if r > 0
-      end
-      if l = @local_idle_timeout
-        intervals << (l // 2).to_i64 if l > 0
-      end
-      return if intervals.empty?
-      Math.max(intervals.min, 1_i64).milliseconds
+      remote, local = @remote_idle_timeout, @local_idle_timeout
+      timeout = (remote && local ? Math.min(remote, local) : remote || local) || return
+      Math.max(timeout // 2, 1_u32).milliseconds
     end
 
     # Returns false when the peer has gone silent past our advertised idle-timeout
     # (with grace); otherwise sends an empty keepalive when the peer expects one.
     private def handle_idle_timeout : Bool
-      if l = @local_idle_timeout
-        if l > 0 && (RoughTime.instant - @last_recv) > (l + l // 2).milliseconds
-          @log.info { "AMQP 1.0 idle timeout, no frames received for #{l} ms" }
-          return false
-        end
+      if (l = @local_idle_timeout) && (RoughTime.instant - @last_recv) > (l + l // 2).milliseconds
+        @log.info { "AMQP 1.0 idle timeout, no frames received for #{l} ms" }
+        return false
       end
       send_empty_frame if keepalive_due?
       true
@@ -554,7 +506,7 @@ module LavinMQ::AMQP10
     # The peer drops us if we stay silent for its idle-time-out, so a keepalive
     # is due once half of it has passed since the last frame we sent.
     private def keepalive_due? : Bool
-      return false unless (r = @remote_idle_timeout) && r > 0
+      r = @remote_idle_timeout || return false
       RoughTime.instant - @last_sent >= (r // 2).milliseconds
     end
 
@@ -639,11 +591,6 @@ module LavinMQ::AMQP10
       @sessions[channel]? || raise ProtocolError.new("session #{channel} not begun")
     end
 
-    private def duration
-      ms = RoughTime.unix_ms - @connected_at
-      Time::Span.new(seconds: (ms / 1000).round.to_i)
-    end
-
     def close(reason = "Connection closed", timeout : Time::Span = 5.seconds)
       @log.info { "Closing AMQP 1.0 connection: #{reason}" }
       socket = @socket
@@ -667,13 +614,14 @@ module LavinMQ::AMQP10
     end
 
     private def cleanup
-      return unless @running
-    ensure
       @running = false
       @sessions.each_value &.close
       @sessions.clear
-      @exclusive_queues.dup.each(&.close)
-      @exclusive_queues.clear
+      close_exclusive_queues
+      case user = @user
+      when Auth::OAuthUser
+        user.cleanup
+      end
     end
 
     private def close_socket
