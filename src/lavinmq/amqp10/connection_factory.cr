@@ -1,0 +1,247 @@
+require "../client/connection_factory"
+require "../auth/authenticator"
+require "../auth/context"
+require "../vhost_store"
+require "../logger"
+require "./protocol"
+require "./client"
+require "./session"
+
+module LavinMQ::AMQP10
+  class ConnectionFactory < LavinMQ::ConnectionFactory
+    Log = LavinMQ::Log.for "amqp10.connection_factory"
+    # The default user's default password. SASL ANONYMOUS, and clients that
+    # skip SASL, log in with it, and only on loopback connections: they are
+    # granted what a local client logging in with the default credentials
+    # would get, so neither works once the default user's password changes.
+    ANONYMOUS_PASSWORD = "guest".to_slice
+
+    def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
+    end
+
+    def start(socket, connection_info, sasl = true) : Client?
+      metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
+      start(socket, connection_info, Logger.new(Log, metadata), sasl)
+    end
+
+    # With sasl false the client has sent the AMQP protocol header, skipping
+    # the SASL layer.
+    def start(socket, connection_info, log : Logger, sasl = true) : Client?
+      if sasl
+        socket.write SASL_HEADER
+        socket.flush
+        user, mechanism = authenticate(socket, connection_info, log) || return
+        confirm_transport_header(socket, log) || return
+      else
+        user = authenticate_without_sasl(socket, connection_info, log) || return
+        mechanism = "ANONYMOUS"
+      end
+      # Sized for our frame_max, the limit we advertise for incoming frames;
+      # the client keeps using it rather than allocating a second buffer.
+      reader = FrameReader.new(socket, Config.instance.frame_max)
+      open = read_open(reader, log) || return
+      # Outgoing frames must fit the peer's max-frame-size (and ours).
+      max_frame_size = negotiated_frame_max(open.max_frame_size)
+      local_max_frame_size = local_frame_max(max_frame_size)
+      channel_max = server_channel_max
+      # Advertise our own idle-timeout so dead peers are reaped, and honor the
+      # peer's so it does not drop us during idle periods.
+      local_idle_timeout = server_idle_timeout
+      remote_idle_timeout = open.idle_time_out
+      vhost = resolve_vhost(socket, open, user, local_max_frame_size, channel_max, local_idle_timeout, log) || return
+
+      client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size,
+        remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max,
+        local_max_frame_size: local_max_frame_size)
+      client.send_open
+      client
+    rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
+      log.warn { "#{ex} when #{connection_info.remote_address} tried to establish AMQP 1.0 connection" }
+      nil
+    rescue ex
+      log.error(exception: ex) { "Error while #{connection_info.remote_address} tried to establish AMQP 1.0 connection" }
+      nil
+    end
+
+    private def authenticate(socket, connection_info, log)
+      loopback = connection_info.loopback?
+      send_sasl_mechanisms(socket, anonymous: loopback)
+      mechanism, response = read_sasl_init(socket)
+      case mechanism
+      when "PLAIN"
+        username, password = plain_credentials(response)
+      when "ANONYMOUS"
+        unless loopback
+          send_sasl_outcome(socket, 1_u8)
+          return
+        end
+        username, password = Config.instance.default_user, ANONYMOUS_PASSWORD
+      else
+        send_sasl_outcome(socket, 1_u8)
+        return
+      end
+      context = Auth::Context.new(username, password, loopback: loopback)
+      if user = @authenticator.authenticate(context)
+        send_sasl_outcome(socket, 0_u8)
+        {user, mechanism}
+      else
+        log.info { "Authentication failure for user \"#{username}\"" }
+        send_sasl_outcome(socket, 1_u8)
+        nil
+      end
+    end
+
+    # A client that skips SASL is logged in like with SASL ANONYMOUS, so only
+    # on loopback connections. Others are answered with the SASL protocol
+    # header, as SASL is required, and disconnected.
+    private def authenticate_without_sasl(socket, connection_info, log)
+      if connection_info.loopback?
+        context = Auth::Context.new(Config.instance.default_user, ANONYMOUS_PASSWORD, loopback: true)
+        if user = @authenticator.authenticate(context)
+          socket.write PROTOCOL_HEADER
+          socket.flush
+          return user
+        end
+      end
+      socket.write SASL_HEADER
+      socket.flush
+      socket.close
+      log.warn { "AMQP 1.0 client attempted non-SASL transport, closing socket" }
+      nil
+    end
+
+    private def send_sasl_mechanisms(socket, anonymous : Bool)
+      mechanisms = [Value.symbol("PLAIN")]
+      mechanisms << Value.symbol("ANONYMOUS") if anonymous
+      fields = Array(Value).new(1)
+      fields << Value.array(mechanisms)
+      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_MECHANISMS, fields)
+    end
+
+    private def read_sasl_init(socket) : Tuple(String, Bytes)
+      frame = FrameReader.new(socket, MIN_MAX_FRAME_SIZE).read
+      raise DecodeError.new("expected SASL frame") unless frame.type == SASL_FRAME_TYPE
+      value = Codec.decode(frame.body_reader)
+      described = value.described? || raise DecodeError.new("expected sasl-init")
+      raise DecodeError.new("expected sasl-init") unless described.descriptor_code? == Descriptor::SASL_INIT
+      fields = described.value.list? || raise DecodeError.new("sasl-init fields must be list")
+      mechanism = fields[0]?.try(&.symbol?) || raise DecodeError.new("sasl-init missing mechanism")
+      response = fields[1]?.try(&.binary?) || Bytes.empty
+      {mechanism, response}
+    end
+
+    private def send_sasl_outcome(socket, code : UInt8)
+      fields = Array(Value).new(1)
+      fields << Value.ubyte(code)
+      FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_OUTCOME, fields)
+    end
+
+    # SASL PLAIN (RFC 4616): authzid NUL authcid NUL passwd. Split on the raw
+    # bytes; the response is opaque binary and need not be valid UTF-8.
+    private def plain_credentials(response : Bytes) : Tuple(String, Bytes)
+      first = response.index(0_u8) || raise DecodeError.new("invalid SASL PLAIN response")
+      second = response.index(0_u8, first + 1) || raise DecodeError.new("invalid SASL PLAIN response")
+      username = String.new(response[(first + 1)...second])
+      password = response[(second + 1)..].dup
+      {username, password}
+    end
+
+    private def confirm_transport_header(socket, log) : Bool
+      header = uninitialized UInt8[8]
+      socket.read_fully(header.to_slice)
+      if header.to_slice == PROTOCOL_HEADER
+        socket.write PROTOCOL_HEADER
+        socket.flush
+        true
+      else
+        log.warn { "AMQP 1.0 client did not send transport header after SASL" }
+        false
+      end
+    rescue IO::EOFError
+      log.warn { "AMQP 1.0 client did not send transport header after SASL" }
+      false
+    end
+
+    private def read_open(reader : FrameReader, log) : Open?
+      frame = reader.read
+      raise DecodeError.new("expected AMQP frame") unless frame.type == AMQP_FRAME_TYPE
+      open = Open.from_value(Codec.decode(frame.body_reader))
+      open
+    end
+
+    private def resolve_vhost(socket, open : Open, user, max_frame_size : UInt32, channel_max : UInt16,
+                              idle_timeout : UInt32?, log)
+      vhost_name = if hostname = open.hostname
+                     hostname.starts_with?("vhost:") ? hostname[6..] : "/"
+                   else
+                     "/"
+                   end
+      if vhost = @vhosts[vhost_name]?
+        if user.find_permission(vhost_name)
+          if vhost.max_connections.try { |max| vhost.connections_size >= max }
+            log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
+            refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_ALLOWED,
+              "access to vhost '#{vhost_name}' refused: connection limit is reached")
+            return
+          end
+          vhost
+        else
+          log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
+          refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::UNAUTHORIZED_ACCESS,
+            "'#{user.name}' does not have access to '#{vhost_name}'")
+          nil
+        end
+      else
+        log.warn { "VHost \"#{vhost_name}\" not found" }
+        refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_FOUND, "vhost not found")
+        nil
+      end
+    end
+
+    # Open MUST be the first frame either peer sends (spec 2.4.1), so a refused
+    # connection gets our Open followed by a Close carrying the error; clients
+    # only surface the Close's error once they have seen the Open.
+    private def refuse(socket, max_frame_size : UInt32, channel_max : UInt16, idle_timeout : UInt32?,
+                       condition, description)
+      open = Open.new(Client::SERVER_CONTAINER_ID, nil, max_frame_size, channel_max, idle_timeout)
+      FrameWriter.write_frame_header(socket, open.frame_size, AMQP_FRAME_TYPE, 0_u16)
+      open.write_body(socket)
+      fields = Array(Value).new(1)
+      fields << ErrorInfo.new(condition, description).to_value
+      FrameWriter.write_performative(socket, 0_u16, AMQP_FRAME_TYPE, Descriptor::CLOSE, fields)
+    end
+
+    # Derive the AMQP 1.0 idle-timeout (milliseconds) from the configured
+    # heartbeat, or nil to disable idle-timeout enforcement.
+    private def server_idle_timeout : UInt32?
+      heartbeat = Config.instance.heartbeat
+      heartbeat.zero? ? nil : heartbeat.to_u32 * 1000
+    end
+
+    # The highest session channel number the peer may use; 0 in the config
+    # means unlimited, as for 0-9-1.
+    private def server_channel_max : UInt16
+      channel_max = Config.instance.channel_max
+      channel_max.zero? ? UInt16::MAX : channel_max
+    end
+
+    # The max-frame-size we advertise and accept incoming frames up to: our
+    # frame_max, or with frame_max 0 (unlimited) the negotiated size, so the
+    # frame buffer never grows past what the peer sends.
+    private def local_frame_max(negotiated : UInt32) : UInt32
+      server = Config.instance.frame_max
+      server.zero? ? negotiated : server
+    end
+
+    private def negotiated_frame_max(client_frame_max) : UInt32
+      server = Config.instance.frame_max
+      if client_frame_max.zero?
+        server
+      elsif server.zero?
+        client_frame_max
+      else
+        Math.min(client_frame_max, server)
+      end
+    end
+  end
+end

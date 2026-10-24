@@ -56,6 +56,7 @@ module LavinMQ
     # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
     getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
+    getter flow_change = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
@@ -76,6 +77,7 @@ module LavinMQ
 
     def flow=(active : Bool)
       @flow.set(active, :release)
+      @flow_change.set(active)
     end
 
     def closed? : Bool
