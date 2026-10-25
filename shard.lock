@@ -14,7 +14,7 @@ shards:
 
   amqp10-protocol:
     git: https://github.com/cloudamqp/amqp10-protocol.cr.git
-    version: 0.1.0+git.commit.ca12f6b70f9e2b9d8d4d9a8586e974ee9c14b39e
+    version: 0.1.0+git.commit.2db2832aea59d301464b5a040acd7478f878d28d
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
