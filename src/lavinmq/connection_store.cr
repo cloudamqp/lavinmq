@@ -5,7 +5,7 @@ require "./logger"
 module LavinMQ
   class ConnectionStore
     def initialize
-      @connections = Array(Client).new(512)
+      @connections = Set(Client).new(512)
     end
 
     def add(client : Client)
@@ -21,7 +21,7 @@ module LavinMQ
     end
 
     def to_a : Array(Client)
-      @connections.dup
+      @connections.to_a
     end
 
     def size : Int32
