@@ -409,6 +409,16 @@ describe LavinMQ::Stats do
     end
   end
 
+  it "leaves a closed object without buffers to the GC instead of holding it for the stats loop" do
+    p = LavinMQ::StatsProbe.new
+    p.bump(5_u64, 3_u32); tick(p)
+    LavinMQ::Stats.retire(p).should be_false # declared and deleted within a tick
+    p.bump(10_u64, 3_u32); tick(p)
+    LavinMQ::Stats.retire(p).should be_true
+    LavinMQ::Stats.release_retired
+    p.constant?.should be_true
+  end
+
   it "relocates a buffer with its ring layout intact, so a reader's head and size still fit it" do
     orig = LavinMQ::Config.instance.stats_log_size
     begin

@@ -8,9 +8,12 @@ module LavinMQ
     @@retired = Array(Stats).new
     @@retired_lock = Mutex.new
 
-    # Closed objects queue here, so the stats loop releases their buffers, not the closer
-    def self.retire(object : Stats) : Nil
+    # Closed objects with buffers queue here, so the stats loop releases them, not the closer.
+    # One without is left to the GC, not held on the heap until the next tick
+    def self.retire(object : Stats) : Bool
+      return false unless object.stats_log_buffered?
       @@retired_lock.synchronize { @@retired << object }
+      true
     end
 
     def self.release_retired : Nil
@@ -22,6 +25,7 @@ module LavinMQ
       retired.each &.stats_release
     end
 
+    abstract def stats_log_buffered? : Bool
     abstract def stats_release : Nil
 
     # Columns share one ring and only take buffers while their values change
