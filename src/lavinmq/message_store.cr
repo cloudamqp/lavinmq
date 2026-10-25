@@ -24,6 +24,8 @@ module LavinMQ
     Log                  = LavinMQ::Log.for "message_store"
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
+    @deleted_cursor_seg = 0u32
+    @deleted_cursor = 0
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
@@ -785,12 +787,21 @@ module LavinMQ
       end
     end
 
+    # Reads come in position order, so the cursor from the last lookup is
+    # tried first and only a lookup behind it seeks anew
     private def deleted?(seg, pos) : Bool
-      if del = @deleted[seg]?
-        del.bsearch { |dpos| dpos >= pos } == pos
-      else
-        false
+      del = @deleted[seg]? || return false
+      idx = @deleted_cursor
+      if @deleted_cursor_seg != seg || idx > del.size || (idx > 0 && del[idx - 1] >= pos)
+        idx = 0
       end
+      idx += 1 if idx < del.size && del[idx] < pos
+      if idx < del.size && del[idx] < pos
+        idx = (idx...del.size).bsearch { |i| del[i] >= pos } || del.size
+      end
+      @deleted_cursor_seg = seg
+      @deleted_cursor = idx
+      idx < del.size && del[idx] == pos
     end
 
     private def meta_file_name(mfile : MFile) : String

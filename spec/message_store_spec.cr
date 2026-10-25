@@ -443,6 +443,43 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "acked positions after restart" do
+    # The store keeps the positions acked before a restart sorted per segment
+    # and steps a cursor through them as it reads, so the acked pattern here
+    # mixes runs of acked, runs of ready and single ready messages.
+    it "skips exactly the acked messages, in order" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        200.times { |i| store.push(LavinMQ::Message.new("e", "k", i.to_s)) }
+        envs = Array(LavinMQ::Envelope).new
+        200.times { envs << store.shift?.should_not be_nil }
+        ready = (0...200).select { |i| i % 7 == 0 || i % 11 == 0 || (60..80).covers?(i) }
+        envs.each_with_index { |env, i| store.delete(env.segment_position) unless ready.includes?(i) }
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq ready.size
+        bodies = Array(String).new
+        loop do
+          peeked = store.first?.try { |f| String.new(f.message.body) } if bodies.size % 5 == 0
+          env = store.shift? || break
+          body = String.new(env.message.body)
+          body.should eq peeked if peeked
+          bodies << body
+        end
+        bodies.should eq ready.map(&.to_s)
+        store.close
+
+        # Without the meta files the store scans every segment again
+        Dir.glob(File.join(dir, "meta.*")).each { |f| File.delete f }
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq ready.size
+        store.shift?.should_not be_nil
+        store.close
+      end
+    end
+  end
+
   describe "#purge_all" do
     it "acks requeued messages on disk so they don't come back after restart" do
       mktmpdir do |dir|
