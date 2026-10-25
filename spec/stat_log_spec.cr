@@ -31,6 +31,18 @@ private def const_view(value : Int, size : Int32) : LavinMQ::StatLogView
   LavinMQ::StatLogView.new(Pointer(UInt64).null, 0, size, value.to_u64)
 end
 
+# A window of *cap* samples, with the Deque semantics of the old update_rates: shift until
+# size < cap, then push. History starts with an object's second sample, so a sample that
+# follows a lone one (at birth, or after a reload left one) reads as itself.
+private def push_sample(q : Deque(T), v : T, cap : Int32) forall T
+  lone = q.size <= 1
+  while q.size >= cap
+    q.shift
+  end
+  q.push v
+  q[0] = v if lone && q.size > 1
+end
+
 # Own PRNG so the sequence is identical across Crystal versions.
 private class Xorshift
   def initialize(seed : UInt32)
@@ -196,11 +208,24 @@ describe LavinMQ::Stats do
     p.y_log.to_a.should eq [5_u32, 5_u32, 5_u32, 5_u32]
   end
 
+  it "starts history at the second sample, so a first interval's handshake buys no buffer" do
+    p = LavinMQ::StatsProbe.new
+    cap = LavinMQ::Config.instance.stats_log_size
+    used = LavinMQ::StatBlockPool.for(cap, UInt32).@used
+    p.bump(25_u64, 0_u32); p.update_rates # rate 5.0 over the first, partial interval
+    p.bump(0_u64, 0_u32); p.update_rates  # then nothing
+    p.constant?.should be_true
+    p.x_log.to_a.should eq [0.0, 0.0]
+    p.bump(0_u64, 0_u32); p.update_rates
+    p.x_log.to_a.should eq [0.0, 0.0, 0.0]
+    LavinMQ::StatBlockPool.for(cap, UInt32).@used.should eq used
+  end
+
   it "compacts buffered -> constant after a full constant window" do
     p = LavinMQ::StatsProbe.new
     cap = LavinMQ::Config.instance.stats_log_size
-    p.bump(5_u64, 1_u32); p.update_rates  # rate 1.0
-    p.bump(50_u64, 9_u32); p.update_rates # rate 10.0, y 9 -> materialize
+    2.times { p.bump(5_u64, 1_u32); p.update_rates } # rate 1.0
+    p.bump(50_u64, 9_u32); p.update_rates            # rate 10.0, y 9 -> materialize
     p.constant?.should be_false
     (cap + 2).times { p.bump(50_u64, 9_u32); p.update_rates } # steady -> compact
     p.constant?.should be_true
@@ -224,7 +249,7 @@ describe LavinMQ::Stats do
       narrow = LavinMQ::StatBlockPool.for(29, UInt32)
       wide = LavinMQ::StatBlockPool.for(29, UInt64)
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 0_u32, 5_u64); tick(p)
+      2.times { p.bump(5_u64, 0_u32, 5_u64); tick(p) }
       p.bump(10_u64, 0_u32, 5_u64); tick(p) # x changes, z_oct steady
       {narrow.@used, narrow.bytes, wide.@used}.should eq({1, 29 * 4, 0})
       p.bump(10_u64, 0_u32, 10_u64); tick(p)
@@ -282,10 +307,10 @@ describe LavinMQ::Stats do
     LavinMQ::Config.instance.stats_log_size = 8
     begin
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 0_u32); p.update_rates  # rate 1.0
-      p.bump(10_u64, 0_u32); p.update_rates # rate 2.0, buffered
+      2.times { p.bump(5_u64, 0_u32); p.update_rates } # rate 1.0
+      p.bump(10_u64, 0_u32); p.update_rates            # rate 2.0, buffered
       view = p.x_log
-      view.to_a.should eq [1.0, 2.0]
+      view.to_a.should eq [1.0, 1.0, 2.0]
 
       8.times { p.bump(10_u64, 0_u32); p.update_rates } # steady 2.0 until the buffers are dropped
       p.constant?.should be_true
@@ -294,8 +319,8 @@ describe LavinMQ::Stats do
       pool = LavinMQ::StatBlockPool.for(8, UInt32)
       garbage = Array(Pointer(UInt32)).new
       2000.times { garbage << pool.alloc(UInt32).tap { |b| Slice.new(b, 8).fill(99_u32) } }
-      view.to_a.should eq [2.0, 2.0] # the window it was taken from, all at the last value since
-      view.to_json.should eq "[2.0,2.0]"
+      view.to_a.should eq [2.0, 2.0, 2.0] # the window it was taken from, all at the last value since
+      view.to_json.should eq "[2.0,2.0,2.0]"
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -306,7 +331,7 @@ describe LavinMQ::Stats do
     begin
       LavinMQ::Config.instance.stats_log_size = 8
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 1_u32); p.update_rates
+      2.times { p.bump(5_u64, 1_u32); p.update_rates }
       p.bump(10_u64, 2_u32); p.update_rates # x and y buffered
       LavinMQ::Config.instance.stats_log_size = 5
       LavinMQ::StatBlockPool.fail_alloc = true
@@ -315,8 +340,8 @@ describe LavinMQ::Stats do
       p.constant?.should be_true
       p.bump(15_u64, 3_u32); p.update_rates
       p.bump(20_u64, 4_u32); p.update_rates
-      p.x_log.to_a.should eq [2.0, 2.0, 3.0, 4.0] # history dropped to the last value
-      p.y_log.to_a.should eq [2, 2, 3, 4]
+      p.x_log.to_a.should eq [2.0, 2.0, 2.0, 3.0, 4.0] # history dropped to the last value
+      p.y_log.to_a.should eq [2, 2, 2, 3, 4]
     ensure
       LavinMQ::StatBlockPool.fail_alloc = false
       LavinMQ::Config.instance.stats_log_size = orig
@@ -330,7 +355,7 @@ describe LavinMQ::Stats do
       pool = LavinMQ::StatBlockPool.for(37, UInt32)
       fillers = Array.new(50) { pool.alloc }
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 0_u32); p.update_rates
+      2.times { p.bump(5_u64, 0_u32); p.update_rates }
       p.bump(10_u64, 0_u32); p.update_rates
       p.@_stats_high[0].should be >= 50
 
@@ -338,7 +363,7 @@ describe LavinMQ::Stats do
       pool.trim
       p.bump(15_u64, 0_u32); p.update_rates
       p.@_stats_high[0].should eq 0
-      p.x_log.to_a.should eq [1.0, 2.0, 3.0]
+      p.x_log.to_a.should eq [1.0, 1.0, 2.0, 3.0]
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -364,7 +389,7 @@ describe LavinMQ::Stats do
       LavinMQ::Config.instance.stats_log_size = 47 # a pool of its own
       pool = LavinMQ::StatBlockPool.for(47, UInt32)
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 3_u32); tick(p)
+      2.times { p.bump(5_u64, 3_u32); tick(p) }
       p.bump(10_u64, 3_u32); tick(p) # x buffered, y constant
       pool.@used.should eq 1
 
@@ -388,7 +413,7 @@ describe LavinMQ::Stats do
       LavinMQ::Config.instance.stats_log_size = 37 # a pool of its own
       pool = LavinMQ::StatBlockPool.for(37, UInt32)
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 3_u32); tick(p)
+      2.times { p.bump(5_u64, 3_u32); tick(p) }
       p.bump(10_u64, 3_u32); tick(p)
       p.constant?.should be_false
       used = pool.@used
@@ -397,7 +422,7 @@ describe LavinMQ::Stats do
       LavinMQ::Stats.release_retired
       p.constant?.should be_true
       (used - pool.@used).should eq 1
-      p.x_log.to_a.should eq [2.0, 2.0]
+      p.x_log.to_a.should eq [2.0, 2.0, 2.0]
       LavinMQ::Stats.release_retired # a retired object whose buffers are gone is left alone
       (used - pool.@used).should eq 1
     ensure
@@ -411,7 +436,7 @@ describe LavinMQ::Stats do
       LavinMQ::Config.instance.stats_log_size = 31 # a pool of its own
       pool = LavinMQ::StatBlockPool.for(31, UInt32)
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 3_u32); tick(p)
+      2.times { p.bump(5_u64, 3_u32); tick(p) }
       p.bump(10_u64, 3_u32); tick(p)
       block = p.@x_rate_log.block
       (LavinMQ::StatBlockPool::LEASE * 2).times { LavinMQ::StatBlockPool.trim } # p isn't ticked, e.g. its vhost is being deleted
@@ -434,6 +459,7 @@ describe LavinMQ::Stats do
     p = LavinMQ::StatsProbe.new
     p.bump(5_u64, 3_u32); tick(p)
     LavinMQ::Stats.retire(p).should be_false # declared and deleted within a tick
+    p.bump(5_u64, 3_u32); tick(p)
     p.bump(10_u64, 3_u32); tick(p)
     LavinMQ::Stats.retire(p).should be_true
     LavinMQ::Stats.release_retired
@@ -476,7 +502,7 @@ describe LavinMQ::Stats do
         with_channel(s) do |ch|
           cq = ch.queue("retired")
           chans << vhost.connections.first.channels.first
-          [1, 2].each do |n|
+          [1, 1, 2].each do |n|
             n.times { cq.publish_confirm "m" }
             s.update_stats_rates
           end
@@ -490,7 +516,7 @@ describe LavinMQ::Stats do
         s.update_stats_rates
         q.stats_log_buffered?.should be_false
         chan.stats_log_buffered?.should be_false
-        q.publish_log.to_a.should eq [2.0, 2.0]
+        q.publish_log.to_a.should eq [2.0, 2.0, 2.0]
       end
     ensure
       LavinMQ::Config.instance.stats_interval = orig
@@ -521,11 +547,11 @@ describe LavinMQ::Stats do
     begin
       LavinMQ::Config.instance.stats_log_size = 8
       p = LavinMQ::StatsProbe.new
-      p.bump(5_u64, 0_u32); p.update_rates  # establish: rate 1.0
-      p.bump(10_u64, 0_u32); p.update_rates # rate 2.0 -> materialize
-      p.bump(15_u64, 0_u32); p.update_rates # rate 3.0
-      p.bump(20_u64, 0_u32); p.update_rates # rate 4.0
-      p.x_log.to_a.should eq [1.0, 2.0, 3.0, 4.0]
+      2.times { p.bump(5_u64, 0_u32); p.update_rates } # establish: rate 1.0
+      p.bump(10_u64, 0_u32); p.update_rates            # rate 2.0 -> materialize
+      p.bump(15_u64, 0_u32); p.update_rates            # rate 3.0
+      p.bump(20_u64, 0_u32); p.update_rates            # rate 4.0
+      p.x_log.to_a.should eq [1.0, 1.0, 2.0, 3.0, 4.0]
 
       LavinMQ::Config.instance.stats_log_size = 3 # shrink (SIGHUP reload)
       p.bump(25_u64, 0_u32); p.update_rates       # rate 5.0
@@ -769,11 +795,11 @@ describe "constant-encoding differential vs Deque oracle (deterministic, multi-c
             p.bump(da, db, dc, mv, nv)
             p.update_rates
 
-            orates[0].push rate_for(da, interval); orates[0].shift if orates[0].size > cap
-            orates[1].push rate_for(db, interval); orates[1].shift if orates[1].size > cap
-            orates[2].push rate_for(dc, interval); orates[2].shift if orates[2].size > cap
-            ocounts[0].push mv; ocounts[0].shift if ocounts[0].size > cap
-            ocounts[1].push nv; ocounts[1].shift if ocounts[1].size > cap
+            push_sample(orates[0], rate_for(da, interval), cap)
+            push_sample(orates[1], rate_for(db, interval), cap)
+            push_sample(orates[2], rate_for(dc, interval), cap)
+            push_sample(ocounts[0], mv, cap)
+            push_sample(ocounts[1], nv, cap)
 
             do_json = step % 16 == 0
             ok = check(p.a_log, orates[0], do_json) && check(p.b_log, orates[1], do_json) &&
@@ -838,20 +864,11 @@ describe "constant-encoding differential vs Deque oracle with stats_log_size rel
           p.bump(da, db, dc, mv, nv)
           p.update_rates
 
-          # Deque semantics of the old update_rates: shift until size < cap, then push
-          [{orates[0], rate_for(da, interval)}, {orates[1], rate_for(db, interval)},
-           {orates[2], rate_for(dc, interval)}].each do |q, v|
-            while q.size >= cap
-              q.shift
-            end
-            q.push v
-          end
-          [{ocounts[0], mv}, {ocounts[1], nv}].each do |q, v|
-            while q.size >= cap
-              q.shift
-            end
-            q.push v
-          end
+          push_sample(orates[0], rate_for(da, interval), cap)
+          push_sample(orates[1], rate_for(db, interval), cap)
+          push_sample(orates[2], rate_for(dc, interval), cap)
+          push_sample(ocounts[0], mv, cap)
+          push_sample(ocounts[1], nv, cap)
 
           ok = check(p.a_log, orates[0], false) && check(p.b_log, orates[1], false) &&
                check(p.c_log, orates[2], false) && check(p.m_log, ocounts[0], false) &&

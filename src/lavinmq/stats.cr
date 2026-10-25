@@ -139,7 +139,9 @@ module LavinMQ
         size = @_stats_log_size.get(:relaxed)
         tail = head + size
         tail -= cap if tail >= cap
-        established = size > 0 && cap > 1 # a one-sample log is its last value
+        # The first sample spans a partial interval (handshake, declare-time traffic), so history
+        # starts with the second; a one-sample log is its last value
+        established = size > 1 && cap > 1
         changed = false
 
         {% for c in rates %}

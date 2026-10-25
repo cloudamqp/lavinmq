@@ -61,12 +61,12 @@ describe "rate-history log visibility" do
           with_channel(s) do |ch|
             cq = ch.queue("logq")
             q = s.vhosts["/"].queue("logq")
-            [5, 10, 0].each do |n|
+            [5, 5, 10, 0].each do |n|
               n.times { cq.publish_confirm "m" }
               q.update_rates
             end
             details = JSON.parse(http.get("/api/queues/%2f/logq").body)
-            details["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 10.0, 0.0]
+            details["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 5.0, 10.0, 0.0]
           end
         end
       ensure
