@@ -466,6 +466,82 @@ private class AMQP10SpecClient
     @io.flush
   end
 
+  # Attaches a link to the transaction coordinator. A refused attach is
+  # followed by a detach for the caller to read.
+  def attach_coordinator(handle : UInt32, capabilities = ["amqp:local-transactions"]) : LavinMQ::AMQP10::Attach
+    fields = attach_fields("coordinator", handle, role_receiver: false,
+      source: LavinMQ::AMQP10::Source.new(nil).to_value,
+      target: LavinMQ::AMQP10::Coordinator.new(capabilities).to_value)
+    send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
+    attach = LavinMQ::AMQP10::Attach.from_value(read_value)
+    read_flow if attach.coordinator
+    attach
+  end
+
+  # Sends a declare or discharge to the coordinator, returning the state of
+  # the disposition answering it.
+  def coordinator_request(handle : UInt32, delivery_id : UInt32, request : LavinMQ::AMQP10::Value) : LavinMQ::AMQP10::Value
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, delivery_id.to_s.to_slice, false, false)
+    LavinMQ::AMQP10::Codec.write_value(payload,
+      LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE), request))
+    write_amqp_frame(payload.to_slice)
+    disposition = read_value
+    disposition.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::DISPOSITION
+    fields = disposition.described?.should_not(be_nil).value.list?.should_not(be_nil)
+    fields[1].uint?.should eq delivery_id
+    fields[3].bool?.should be_true
+    fields[4]
+  end
+
+  def declare(handle : UInt32, delivery_id : UInt32) : Bytes
+    request = LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::DECLARE),
+      LavinMQ::AMQP10::Value.list([] of LavinMQ::AMQP10::Value))
+    state = coordinator_request(handle, delivery_id, request)
+    state.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::DECLARED
+    state.described?.should_not(be_nil).value.list?.should_not(be_nil)[0].binary?.should_not(be_nil).dup
+  end
+
+  # The state answering the discharge: accepted, or rejected with an error
+  def discharge(handle : UInt32, delivery_id : UInt32, txn_id : Bytes, fail = false) : LavinMQ::AMQP10::Value
+    request = LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::DISCHARGE),
+      LavinMQ::AMQP10::Value.list([LavinMQ::AMQP10::Value.binary(txn_id), LavinMQ::AMQP10::Value.bool(fail)]))
+    coordinator_request(handle, delivery_id, request)
+  end
+
+  # Publishes in a transaction: the transfer's state is a transactional-state.
+  def publish_transactional(handle : UInt32, delivery_id : UInt32, body : String, txn_id : Bytes) : LavinMQ::AMQP10::TransferCodec::DispositionView
+    fields = [
+      LavinMQ::AMQP10::Value.uint(handle), LavinMQ::AMQP10::Value.uint(delivery_id),
+      LavinMQ::AMQP10::Value.binary(delivery_id.to_s.to_slice), LavinMQ::AMQP10::Value.uint(0_u32),
+      LavinMQ::AMQP10::Value.bool(false), LavinMQ::AMQP10::Value.bool(false), LavinMQ::AMQP10::Value.null,
+      transactional_state(txn_id),
+    ]
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::TRANSFER, fields)
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, body.to_slice)
+    write_amqp_frame(payload.to_slice)
+    read_disposition
+  end
+
+  # Acknowledges a delivery in a transaction, as Qpid JMS does: settled.
+  def settle_transactional(delivery_id : UInt32, txn_id : Bytes, outcome = LavinMQ::AMQP10::Descriptor::ACCEPTED) : Nil
+    outcome_value = LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(outcome),
+      LavinMQ::AMQP10::Value.list([] of LavinMQ::AMQP10::Value))
+    fields = [LavinMQ::AMQP10::Value.bool(true), LavinMQ::AMQP10::Value.uint(delivery_id), LavinMQ::AMQP10::Value.null,
+              LavinMQ::AMQP10::Value.bool(true), transactional_state(txn_id, outcome_value)]
+    send_performative(LavinMQ::AMQP10::Descriptor::DISPOSITION, fields)
+  end
+
+  private def transactional_state(txn_id : Bytes, outcome : LavinMQ::AMQP10::Value? = nil) : LavinMQ::AMQP10::Value
+    fields = [LavinMQ::AMQP10::Value.binary(txn_id)]
+    fields << outcome if outcome
+    LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::TRANSACTIONAL_STATE),
+      LavinMQ::AMQP10::Value.list(fields))
+  end
+
   private def write_amqp_frame(payload : Bytes) : Nil
     LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, (8 + payload.bytesize).to_u32,
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
@@ -2592,6 +2668,144 @@ describe LavinMQ::AMQP10 do
       client.detach
       should_eventually(be_nil) { s.vhosts["/"].queue?(queue_name) }
       client.close
+    end
+  end
+
+  describe "transactions" do
+    accepted = LavinMQ::AMQP10::Descriptor::ACCEPTED
+
+    it "attaches coordinators for local transactions only" do
+      with_amqp_server do |s|
+        client = AMQP10SpecClient.new(amqp_port(s))
+        attach = client.attach_coordinator(0_u32)
+        attach.role.should eq LavinMQ::AMQP10::Role::Receiver
+        attach.coordinator.should_not(be_nil).capabilities.should eq ["amqp:local-transactions"]
+        s.vhosts["/"].connections.first.channels.first.details_tuple[:transactional].should be_true
+
+        attach = client.attach_coordinator(1_u32, ["amqp:distributed-transactions"])
+        attach.coordinator.should be_nil
+        client.error_condition(client.read_value).should eq LavinMQ::AMQP10::ErrorCondition::NOT_IMPLEMENTED
+        client.close
+      end
+    end
+
+    it "publishes when the transaction is discharged without failure" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("amqp10-tx-publish", auto_delete: true)
+          queue = s.vhosts["/"].queue(q.name)
+          client = AMQP10SpecClient.new(amqp_port(s))
+          client.attach_coordinator(0_u32)
+          client.attach_sender("/queues/#{q.name}", handle: 1_u32)
+
+          txn = client.declare(0_u32, 1_u32)
+          disposition = client.publish_transactional(1_u32, 2_u32, "committed", txn)
+          disposition.txn_id.should eq txn
+          disposition.outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+          client.publish_transactional(1_u32, 3_u32, "committed too", txn)
+          queue.message_count.should eq 0
+          client.discharge(0_u32, 4_u32, txn).descriptor_code?.should eq accepted
+          queue.message_count.should eq 2
+
+          txn = client.declare(0_u32, 5_u32)
+          client.publish_transactional(1_u32, 6_u32, "rolled back", txn)
+          client.discharge(0_u32, 7_u32, txn, fail: true).descriptor_code?.should eq accepted
+          queue.message_count.should eq 2
+          client.close
+
+          q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "committed"
+          q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "committed too"
+        end
+      end
+    end
+
+    it "acknowledges when the transaction is discharged and requeues on rollback" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("amqp10-tx-ack", auto_delete: true)
+          q.publish("a")
+          q.publish("b")
+          queue = s.vhosts["/"].queue(q.name)
+          client = AMQP10SpecClient.new(amqp_port(s))
+          client.attach_coordinator(0_u32)
+          client.attach_receiver("/queues/#{q.name}", handle: 1_u32)
+          client.flow(handle: 1_u32, credit: 2_u32)
+          a, _ = client.read_delivery
+          b, _ = client.read_delivery
+
+          txn = client.declare(0_u32, 0_u32)
+          client.settle_transactional(a.delivery_id.should_not(be_nil), txn)
+          client.settle_transactional(b.delivery_id.should_not(be_nil), txn)
+          client.discharge(0_u32, 1_u32, txn, fail: true).descriptor_code?.should eq accepted
+          # Both were settled by the client, so the rollback requeues them
+          should_eventually(eq 2) { queue.message_count }
+
+          client.flow(handle: 1_u32, credit: 2_u32, delivery_count: 2_u32)
+          a, incoming = client.read_delivery
+          String.new(incoming.body).should eq "a"
+          client.read_delivery
+          txn = client.declare(0_u32, 2_u32)
+          client.settle_transactional(a.delivery_id.should_not(be_nil), txn)
+          queue.unacked_count.should eq 2
+          client.discharge(0_u32, 3_u32, txn).descriptor_code?.should eq accepted
+          queue.unacked_count.should eq 1
+          queue.message_count.should eq 0
+          client.close
+        end
+      end
+    end
+
+    it "rejects unknown transactions" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("amqp10-tx-unknown", auto_delete: true)
+          client = AMQP10SpecClient.new(amqp_port(s))
+          client.attach_coordinator(0_u32)
+          client.attach_sender("/queues/#{q.name}", handle: 1_u32)
+          unknown = Bytes[0, 0, 0, 0, 0, 0, 0, 99]
+
+          state = client.discharge(0_u32, 0_u32, unknown)
+          state.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::REJECTED
+          client.error_condition(state).should eq LavinMQ::AMQP10::ErrorCondition::TRANSACTION_UNKNOWN_ID
+          client.publish_transactional(1_u32, 1_u32, "lost", unknown).outcome.should eq LavinMQ::AMQP10::Outcome::Rejected
+
+          txn = client.declare(0_u32, 2_u32)
+          client.discharge(0_u32, 3_u32, txn).descriptor_code?.should eq accepted
+          # A discharged transaction is gone
+          client.error_condition(client.discharge(0_u32, 4_u32, txn)).should eq LavinMQ::AMQP10::ErrorCondition::TRANSACTION_UNKNOWN_ID
+          s.vhosts["/"].queue(q.name).message_count.should eq 0
+          client.close
+        end
+      end
+    end
+
+    it "rolls back open transactions when the coordinator detaches or the connection closes" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("amqp10-tx-detach") # not auto-delete: it outlives the consumer
+          q.publish("delivered")
+          queue = s.vhosts["/"].queue(q.name)
+          client = AMQP10SpecClient.new(amqp_port(s))
+          client.attach_coordinator(0_u32)
+          client.attach_sender("/queues/#{q.name}", handle: 1_u32)
+          txn = client.declare(0_u32, 1_u32)
+          client.publish_transactional(1_u32, 2_u32, "rolled back", txn)
+          client.detach(0_u32)
+          client.publish_transactional(1_u32, 3_u32, "unknown", txn).outcome.should eq LavinMQ::AMQP10::Outcome::Rejected
+          queue.message_count.should eq 1
+
+          client.attach_coordinator(0_u32)
+          client.attach_receiver("/queues/#{q.name}", handle: 2_u32)
+          client.flow(handle: 2_u32, credit: 1_u32)
+          delivery, _ = client.read_delivery
+          txn = client.declare(0_u32, 4_u32)
+          client.publish_transactional(1_u32, 5_u32, "rolled back", txn)
+          client.settle_transactional(delivery.delivery_id.should_not(be_nil), txn)
+          client.close
+          should_eventually(eq 1) { queue.message_count }
+          q.get(no_ack: true).should_not(be_nil).body_io.gets_to_end.should eq "delivered"
+        end
+      end
     end
   end
 

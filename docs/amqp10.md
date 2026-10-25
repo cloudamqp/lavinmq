@@ -86,6 +86,17 @@ A redelivered message carries a `header` section whose `delivery-count` is the n
 
 AMQP 1.0 consumers take part in [single active consumer](consumers.md), respect [paused queues](queues.md) and yield to 0-9-1 consumers with a higher priority (AMQP 1.0 consumers have priority 0). When the oldest unacknowledged delivery exceeds the [consumer timeout](consumers.md), the link is detached with `amqp:precondition-failed`; deleting the queue detaches it with `amqp:resource-deleted`. Sessions appear as channels and links as consumers in the management UI and API.
 
+## Transactions
+
+Local transactions are supported, as JMS transacted sessions use them: a link whose target is a `coordinator` declares and discharges transactions, and transfers and dispositions that carry a `transactional-state` with a transaction's id take part in it. Distributed transactions are refused with `amqp:not-implemented`.
+
+- A message published in a transaction is answered with a `transactional-state` holding `accepted` at once, and routed when the transaction is discharged without failure. A message unroutable by then is dropped.
+- An outcome applied to a delivery in a transaction takes effect when the transaction is discharged without failure.
+- Discharging with `fail` set, or detaching the coordinator link or closing the connection with the transaction open, rolls it back: its messages are dropped, and deliveries the client acknowledged and settled in it are requeued, as the client no longer holds them. Deliveries it left unsettled stay unacknowledged.
+- A transaction id that is not open is answered with `amqp:transaction:unknown-id`: a discharge or transfer is rejected with it, and a disposition ends the session with it.
+
+As with transactions in AMQP 0-9-1, a commit is not atomic across queues. Transactional acquisition (a `txn-id` in a flow's properties) is not supported; deliveries are acquired outside the transaction.
+
 ## Message Mapping
 
 Messages are stored in the AMQP 0-9-1 format. Sections and properties map as follows in both directions.
@@ -118,7 +129,6 @@ Details the 0-9-1 format has no field for are kept in headers prefixed `x-amqp10
 ## Not Supported
 
 - Link recovery (the `unsettled` map on attach), durable termini and source filters
-- Transactions
 - Management (`$management`) links
 - Direct reply-to via `amq.direct.reply-to` addresses
 - SASL mechanisms other than `PLAIN` and `ANONYMOUS`
