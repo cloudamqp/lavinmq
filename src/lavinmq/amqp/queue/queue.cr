@@ -82,6 +82,8 @@ module LavinMQ::AMQP
       # Set when the policy tightened limits that existing messages must be
       # checked against
       property? enforce_limits = false
+      # Set when x-delivery-limit came from the automatic retry default
+      property? delivery_limit_default = false
       getter effective_args = Array(String).new
 
       def initialize(@consumer_timeout = nil)
@@ -716,7 +718,10 @@ module LavinMQ::AMQP
     # policy delivery-limit also applies to queues relying on the default
     private def resolve_delayed_retry(settings : Settings) : Nil
       if settings.delayed_retry_min
-        settings.delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        if settings.delivery_limit.nil?
+          settings.delivery_limit = DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+          settings.delivery_limit_default = true
+        end
       else
         settings.delayed_retry_multiplier = nil
         settings.delayed_retry_max = nil
@@ -985,6 +990,25 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        delayed_retry:                delayed_retry_details,
+        primary_queue:                primary_queue_name,
+      }
+    end
+
+    def primary_queue_name : String?
+    end
+
+    private def delayed_retry_details
+      settings = self.settings
+      return unless min = settings.delayed_retry_min
+      {
+        min:                    min,
+        multiplier:             settings.delayed_retry_multiplier,
+        max:                    settings.delayed_retry_max,
+        delivery_limit:         settings.delivery_limit,
+        delivery_limit_default: settings.delivery_limit_default?,
+        messages_delayed:       @delayed_retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:            DelayedRetryQueue.queue_name(@name),
       }
     end
 
