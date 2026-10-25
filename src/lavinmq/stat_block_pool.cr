@@ -1,23 +1,34 @@
 module LavinMQ
   # Stat log buffers in mmap'd slabs outside the GC heap. Expired leases replace finalizers,
-  # and a new generation per handout lets readers detect reuse.
+  # and a new generation per handout lets readers detect reuse. A pool per block size, the
+  # sample width times the log capacity.
   class StatBlockPool
     SLAB_SIZE   = 1 << 20
     PAGE_SIZE   = LibC.getpagesize
-    HEADER      = 4 # UInt32 words: lease, generation, ordinal, capacity
+    HEADER      = 4 # UInt32 words: lease, generation, ordinal, bytes
     TRIM_TIME   = 2.milliseconds
     LEASE       = 64_u32 # ticks a block stays used without its owner renewing it
     SWEEP_TICKS =     32 # ticks to look at the leases of all used blocks in
 
     @@pools = Hash(Int32, StatBlockPool).new
     @@pools_lock = Mutex.new
+    # The two sample widths in use keep their pools at hand
     @@last : StatBlockPool? = nil
+    @@before : StatBlockPool? = nil
     @@tick = 0_u32
 
-    def self.for(capacity : Int32) : StatBlockPool
+    def self.for(capacity : Int32, type : T.class) : StatBlockPool forall T
+      self.for(capacity * sizeof(T))
+    end
+
+    def self.for(bytes : Int32) : StatBlockPool
       last = @@last
-      return last if last && last.capacity == capacity
-      @@last = @@pools_lock.synchronize { @@pools[capacity] ||= new(capacity) }
+      return last if last && last.bytes == bytes
+      before = @@before
+      return before if before && before.bytes == bytes
+      pool = @@pools_lock.synchronize { @@pools[bytes] ||= new(bytes) }
+      @@before = last
+      @@last = pool
     end
 
     # Stats ticks so far, advanced by `trim`
@@ -33,23 +44,23 @@ module LavinMQ
       pools.each &.trim(deadline, tick)
     end
 
-    def self.generation(data : Pointer(UInt64)) : UInt32
+    def self.generation(data : Pointer) : UInt32
       data.as(Pointer(UInt32))[-3]
     end
 
-    def self.ordinal(data : Pointer(UInt64)) : Int32
+    def self.ordinal(data : Pointer) : Int32
       data.as(Pointer(UInt32))[-2].to_i32
     end
 
-    def self.capacity(data : Pointer(UInt64)) : Int32
+    def self.bytes(data : Pointer) : Int32
       data.as(Pointer(UInt32))[-1].to_i32
     end
 
-    def self.renew(data : Pointer(UInt64), tick : UInt32) : Nil
+    def self.renew(data : Pointer, tick : UInt32) : Nil
       data.as(Pointer(UInt32))[-4] = tick
     end
 
-    getter capacity : Int32
+    getter bytes : Int32
     @stride : Int32
     @slab_blocks : Int32
     @slab_bytes : Int32
@@ -65,14 +76,18 @@ module LavinMQ
     @next_slab = 0  # where the next trim returns pages from
     @lock = Mutex.new
 
-    def initialize(@capacity : Int32)
-      raise ArgumentError.new("capacity must be positive") unless @capacity.positive?
-      @stride = (@capacity * sizeof(UInt64) + HEADER * sizeof(UInt32) + 7) & ~7
+    def self.new(capacity : Int32, type : T.class) forall T
+      new(capacity * sizeof(T))
+    end
+
+    def initialize(@bytes : Int32)
+      raise ArgumentError.new("bytes must be positive") unless @bytes.positive?
+      @stride = (@bytes + HEADER * sizeof(UInt32) + 7) & ~7
       @slab_blocks = Math.max(SLAB_SIZE // @stride, 1)
       @slab_bytes = (@slab_blocks * @stride + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
     end
 
-    def alloc : Pointer(UInt64)
+    def alloc : Pointer(UInt8)
       @lock.synchronize do
         loop do
           @slabs << Slab.new(@slab_blocks, @slab_bytes, @stride) if @first_free == @slabs.size
@@ -85,7 +100,11 @@ module LavinMQ
       end
     end
 
-    def release(data : Pointer(UInt64)) : Nil
+    def alloc(type : T.class) : Pointer(T) forall T
+      alloc.as(Pointer(T))
+    end
+
+    def release(data : Pointer) : Nil
       @lock.synchronize { free(StatBlockPool.ordinal(data)) }
     end
 
@@ -156,15 +175,15 @@ module LavinMQ
     end
 
     # Headed by a new generation, published before the owner fills the block
-    private def data(ordinal : Int32) : Pointer(UInt64)
+    private def data(ordinal : Int32) : Pointer(UInt8)
       slab_index, index = ordinal.divmod(@slab_blocks)
       block = @slabs[slab_index].block(index).as(Pointer(UInt32))
       block[0] = StatBlockPool.tick
       block[1] = @generation &+= 1
       block[2] = ordinal.to_u32
-      block[3] = @capacity.to_u32
+      block[3] = @bytes.to_u32
       Atomic.fence(:release)
-      (block + HEADER).as(Pointer(UInt64))
+      (block + HEADER).as(Pointer(UInt8))
     end
 
     private class Slab

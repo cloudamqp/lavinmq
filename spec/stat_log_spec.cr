@@ -5,7 +5,7 @@ private def block(cap : Int32) : Pointer(UInt64)
   raw = Pointer(UInt64).malloc(cap + LavinMQ::StatBlockPool::HEADER // 2)
   data = raw + LavinMQ::StatBlockPool::HEADER // 2
   data.as(Pointer(UInt32))[-3] = 1_u32 # generation, as the pool never hands out 0
-  data.as(Pointer(UInt32))[-1] = cap.to_u32
+  data.as(Pointer(UInt32))[-1] = (cap * sizeof(UInt64)).to_u32
   data
 end
 
@@ -103,12 +103,12 @@ describe LavinMQ::StatLogView do
   end
 
   it "serializes rates like the Float64 values they decode to" do
-    max = LavinMQ::RateLogView::MAX_TENTHS.to_u64
+    max = LavinMQ::RateLogView(UInt64).max_tenths.to_u64
     tenths = [0_u64, 1_u64, 9_u64, 10_u64, 11_u64, 99_u64, 100_u64, UInt32::MAX.to_u64 + 1, max - 1, max]
     rng = Xorshift.new(7_u32)
     200.times { tenths << ((rng.u32.to_u64 << 19 | rng.u32) >> rng.below(51)) }
     view = view(tenths, tenths.size)
-    LavinMQ::RateLogView.new(view).to_json.should eq tenths.map { |t| LavinMQ::RateLogView.decode(t) }.to_json
+    LavinMQ::RateLogView.new(view).to_json.should eq tenths.map { |t| LavinMQ::RateLogView(UInt64).decode(t) }.to_json
     LavinMQ::RateLogView.new(view).to_a.should eq tenths.map { |t| t / 10.0 }
   end
 end
@@ -118,7 +118,7 @@ describe LavinMQ::RateLogView do
   it "encodes a count delta to the same tenths as rounding the rate first" do
     same = ->(delta : UInt64, ms : Int32) do
       interval = ms / 1000.0
-      LavinMQ::RateLogView.encode_delta(delta, interval).should eq LavinMQ::RateLogView.encode((delta / interval).round(1))
+      LavinMQ::RateLogView(UInt64).encode_delta(delta, interval).should eq LavinMQ::RateLogView(UInt64).encode((delta / interval).round(1))
     end
     deltas = [0_u64, 1_u64, 5_u64, 15_u64, 25_u64, UInt32::MAX.to_u64, UInt64::MAX]
     intervals = [1, 7, 100, 250, 500, 1000, 5000, 60_000]
@@ -133,7 +133,7 @@ end
 module LavinMQ
   class StatsProbe
     include Stats
-    rate_stats({"x"}, {"y"})
+    rate_stats({"x", "z_oct"}, {"y"})
 
     @y = 0_u32
 
@@ -141,8 +141,9 @@ module LavinMQ
       @y
     end
 
-    def bump(dx : UInt64, yv : UInt32)
+    def bump(dx : UInt64, yv : UInt32, dz : UInt64 = 0_u64)
       @x_count.add(dx)
+      @z_oct_count.add(dz)
       @y = yv
     end
 
@@ -155,7 +156,7 @@ end
 class LavinMQ::StatBlockPool
   class_property? fail_alloc = false
 
-  def alloc : Pointer(UInt64)
+  def alloc : Pointer(UInt8)
     raise "alloc failed" if StatBlockPool.fail_alloc?
     previous_def
   end
@@ -207,13 +208,33 @@ describe LavinMQ::Stats do
     p.y_log.to_a.should eq Array.new(cap, 9_u32)
   end
 
-  it "keeps rates past 32-bit tenths and caps them where they still print exactly" do
+  it "keeps byte rates past 32-bit tenths and caps them where they still print exactly" do
     p = LavinMQ::StatsProbe.new
-    p.bump(1_000_000_000_u64 * 5, 0_u32); p.update_rates # 1 GB/s at the 5 s interval
-    p.x_log.to_a.should eq [1.0e9]
-    p.bump(UInt64::MAX // 2, 0_u32); p.update_rates
-    p.x_log.to_a.last.should eq LavinMQ::RateLogView::MAX_TENTHS / 10.0
-    p.current_stats_details[:x_details][:rate].should eq LavinMQ::RateLogView::MAX_TENTHS / 10.0
+    p.bump(0_u64, 0_u32, 1_000_000_000_u64 * 5); p.update_rates # 1 GB/s at the 5 s interval
+    p.z_oct_log.to_a.should eq [1.0e9]
+    p.bump(0_u64, 0_u32, UInt64::MAX // 2); p.update_rates
+    p.z_oct_log.to_a.last.should eq LavinMQ::RateLogView(UInt64).max_tenths / 10.0
+    p.current_stats_details[:z_oct_details][:rate].should eq LavinMQ::RateLogView(UInt64).max_tenths / 10.0
+  end
+
+  it "stores message rates as 4-byte samples, capped at 32-bit tenths, in a pool of their own" do
+    orig = LavinMQ::Config.instance.stats_log_size
+    begin
+      LavinMQ::Config.instance.stats_log_size = 29 # pools of their own
+      narrow = LavinMQ::StatBlockPool.for(29, UInt32)
+      wide = LavinMQ::StatBlockPool.for(29, UInt64)
+      p = LavinMQ::StatsProbe.new
+      p.bump(5_u64, 0_u32, 5_u64); tick(p)
+      p.bump(10_u64, 0_u32, 5_u64); tick(p) # x changes, z_oct steady
+      {narrow.@used, narrow.bytes, wide.@used}.should eq({1, 29 * 4, 0})
+      p.bump(10_u64, 0_u32, 10_u64); tick(p)
+      {narrow.@used, wide.@used, wide.bytes}.should eq({1, 1, 29 * 8})
+      p.bump(UInt64::MAX // 4, 0_u32, 10_u64); tick(p)
+      p.x_log.to_a.last.should eq UInt32::MAX / 10.0
+      p.x_log.to_json.should end_with ",429496729.5]"
+    ensure
+      LavinMQ::Config.instance.stats_log_size = orig
+    end
   end
 
   it "records a count-log change on an otherwise idle object" do
@@ -244,13 +265,13 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 1
-      used = LavinMQ::StatBlockPool.for(1).@used
+      used = LavinMQ::StatBlockPool.for(1, UInt32).@used
       p = LavinMQ::StatsProbe.new
       p.bump(5_u64, 0_u32); p.update_rates
       p.bump(10_u64, 0_u32); p.update_rates
       p.constant?.should be_true
       p.x_log.to_a.should eq [2.0]
-      LavinMQ::StatBlockPool.for(1).@used.should eq used
+      LavinMQ::StatBlockPool.for(1, UInt32).@used.should eq used
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -270,9 +291,9 @@ describe LavinMQ::Stats do
       p.constant?.should be_true
 
       # A released buffer would be handed out again by its pool
-      pool = LavinMQ::StatBlockPool.for(8)
-      garbage = Array(Pointer(UInt64)).new
-      2000.times { garbage << pool.alloc.tap { |b| Slice.new(b, 8).fill(99_u64) } }
+      pool = LavinMQ::StatBlockPool.for(8, UInt32)
+      garbage = Array(Pointer(UInt32)).new
+      2000.times { garbage << pool.alloc(UInt32).tap { |b| Slice.new(b, 8).fill(99_u32) } }
       view.to_a.should eq [2.0, 2.0] # the window it was taken from, all at the last value since
       view.to_json.should eq "[2.0,2.0]"
     ensure
@@ -306,17 +327,17 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 37 # a pool of its own
-      pool = LavinMQ::StatBlockPool.for(37)
+      pool = LavinMQ::StatBlockPool.for(37, UInt32)
       fillers = Array.new(50) { pool.alloc }
       p = LavinMQ::StatsProbe.new
       p.bump(5_u64, 0_u32); p.update_rates
       p.bump(10_u64, 0_u32); p.update_rates
-      p.@_stats_high.should be >= 50
+      p.@_stats_high[0].should be >= 50
 
       fillers.each { |b| pool.release(b) }
       pool.trim
       p.bump(15_u64, 0_u32); p.update_rates
-      p.@_stats_high.should eq 0
+      p.@_stats_high[0].should eq 0
       p.x_log.to_a.should eq [1.0, 2.0, 3.0]
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
@@ -341,7 +362,7 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 47 # a pool of its own
-      pool = LavinMQ::StatBlockPool.for(47)
+      pool = LavinMQ::StatBlockPool.for(47, UInt32)
       p = LavinMQ::StatsProbe.new
       p.bump(5_u64, 3_u32); tick(p)
       p.bump(10_u64, 3_u32); tick(p) # x buffered, y constant
@@ -349,13 +370,13 @@ describe LavinMQ::Stats do
 
       (LavinMQ::StatBlockPool::LEASE * 2).times { LavinMQ::StatBlockPool.trim } # p isn't updated
       pool.@used.should eq 0
-      reused = pool.alloc
-      Slice.new(reused, 47).fill(99_u64)
+      reused = pool.alloc(UInt32)
+      Slice.new(reused, 47).fill(99_u32)
 
       p.bump(10_u64, 3_u32); tick(p)
       p.constant?.should be_true
       p.x_log.to_a.uniq.should eq [2.0]
-      Slice.new(reused, 47).all?(99_u64).should be_true
+      Slice.new(reused, 47).all?(99_u32).should be_true
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -365,7 +386,7 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 37 # a pool of its own
-      pool = LavinMQ::StatBlockPool.for(37)
+      pool = LavinMQ::StatBlockPool.for(37, UInt32)
       p = LavinMQ::StatsProbe.new
       p.bump(5_u64, 3_u32); tick(p)
       p.bump(10_u64, 3_u32); tick(p)
@@ -388,22 +409,22 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 31 # a pool of its own
-      pool = LavinMQ::StatBlockPool.for(31)
+      pool = LavinMQ::StatBlockPool.for(31, UInt32)
       p = LavinMQ::StatsProbe.new
       p.bump(5_u64, 3_u32); tick(p)
       p.bump(10_u64, 3_u32); tick(p)
       block = p.@x_rate_log.block
       (LavinMQ::StatBlockPool::LEASE * 2).times { LavinMQ::StatBlockPool.trim } # p isn't ticked, e.g. its vhost is being deleted
-      reused = pool.alloc
+      reused = pool.alloc(UInt32)
       reused.should eq block
-      Slice.new(reused, 31).fill(99_u64)
+      Slice.new(reused, 31).fill(99_u32)
       used = pool.@used
       LavinMQ::Stats.retire(p)
       LavinMQ::Stats.release_retired
       p.constant?.should be_true
       pool.@used.should eq used
       LavinMQ::StatBlockPool.generation(reused).should_not eq 0
-      Slice.new(reused, 31).all?(99_u64).should be_true
+      Slice.new(reused, 31).all?(99_u32).should be_true
     ensure
       LavinMQ::Config.instance.stats_log_size = orig
     end
@@ -423,18 +444,18 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 6 # a pool of its own
-      pool = LavinMQ::StatBlockPool.for(6)
+      pool = LavinMQ::StatBlockPool.for(6, UInt32)
       fillers = Array.new(50) { pool.alloc }
       p = LavinMQ::StatsProbe.new
       8.times { |i| p.bump(5_u64 * (i + 1), 0_u32); p.update_rates }
       p.x_log.to_a.should eq [3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
       p.@_stats_log_head.get.should eq 2
-      p.@_stats_high.should be >= 50
+      p.@_stats_high[0].should be >= 50
 
       fillers.each { |b| pool.release(b) }
       pool.trim
       p.bump(45_u64, 0_u32); p.update_rates
-      p.@_stats_high.should eq 0
+      p.@_stats_high[0].should eq 0
       p.x_log.to_a.should eq [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
       p.@_stats_log_head.get.should eq 3
       Slice.new(p.@x_rate_log.block, 6).to_a.should eq [70, 80, 90, 40, 50, 60]
@@ -480,8 +501,8 @@ describe LavinMQ::Stats do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
       LavinMQ::Config.instance.stats_log_size = 8
-      pool = LavinMQ::StatBlockPool.for(20)
-      Array.new(4) { pool.alloc.tap { |b| Slice.new(b, 20).fill(99_u64) } }.each { |b| pool.release(b) }
+      pool = LavinMQ::StatBlockPool.for(20, UInt64)
+      Array.new(4) { pool.alloc(UInt64).tap { |b| Slice.new(b, 20).fill(99_u64) } }.each { |b| pool.release(b) }
       p = LavinMQ::StatsProbe.new
       12.times { |i| p.bump(0_u64, (i % 2 + 1).to_u32); p.update_rates } # full, head moved on
       head, size = p.@_stats_log_head.get, p.@_stats_log_size.get
@@ -560,24 +581,24 @@ end
 
 describe LavinMQ::StatBlockPool do
   it "hands out capacity-headed blocks outside the GC heap and reuses the lowest released one" do
-    pool = LavinMQ::StatBlockPool.new(8)
+    pool = LavinMQ::StatBlockPool.new(8, UInt64)
     a = pool.alloc
     b = pool.alloc
     c = pool.alloc
     b.should_not eq a
-    LavinMQ::StatBlockPool.capacity(a).should eq 8
+    LavinMQ::StatBlockPool.bytes(a).should eq 64
     LibGC.is_heap_ptr(a.as(Void*)).should eq 0
     pool.release(c)
     pool.release(a)
     pool.trim
     pool.alloc.should eq a
-    LavinMQ::StatBlockPool.capacity(a).should eq 8
+    LavinMQ::StatBlockPool.bytes(a).should eq 64
   end
 
   # MADV_DONTNEED drops private pages at once on Linux only
   {% if flag?(:linux) %}
     it "returns the pages of released blocks to the OS on trim" do
-      pool = LavinMQ::StatBlockPool.new(120)
+      pool = LavinMQ::StatBlockPool.new(120, UInt64)
       blocks = Array.new(100) { pool.alloc }
       blocks.all? { |b| resident?(b) }.should be_true
       blocks.each { |b| pool.release(b) }
@@ -586,7 +607,7 @@ describe LavinMQ::StatBlockPool do
     end
 
     it "spreads a large release over trims within their deadline, returning every page in the end" do
-      pool = LavinMQ::StatBlockPool.new(120)
+      pool = LavinMQ::StatBlockPool.new(120, UInt64)
       blocks = Array.new(20_000) { pool.alloc }
       blocks.each { |b| pool.release(b) }
       pool.trim(Time.instant) # no time left: a step only
@@ -602,13 +623,13 @@ describe LavinMQ::StatBlockPool do
     end
 
     it "keeps the pages a used block shares with released ones" do
-      pool = LavinMQ::StatBlockPool.new(120)
-      blocks = Array.new(100) { |i| pool.alloc.tap { |b| Slice.new(b, 120).fill(i.to_u64) } }
+      pool = LavinMQ::StatBlockPool.new(120, UInt64)
+      blocks = Array.new(100) { |i| pool.alloc(UInt64).tap { |b| Slice.new(b, 120).fill(i.to_u64) } }
       live = blocks.delete_at(50)
       blocks.each { |b| pool.release(b) }
       pool.trim
       Slice.new(live, 120).all?(50_u64).should be_true
-      LavinMQ::StatBlockPool.capacity(live).should eq 120
+      LavinMQ::StatBlockPool.bytes(live).should eq 960
       page = LibC.sysconf(LibC::SC_PAGESIZE).to_u64
       live_pages = ((live.as(Pointer(UInt32)) - LavinMQ::StatBlockPool::HEADER).address // page)..((live + 120).address - 1) // page
       blocks.reject { |b| live_pages.includes?(b.address // page) }.none? { |b| resident?(b) }.should be_true
@@ -616,7 +637,7 @@ describe LavinMQ::StatBlockPool do
   {% end %}
 
   it "asks the owners of scattered survivors to move below a watermark, within the free room there" do
-    pool = LavinMQ::StatBlockPool.new(16)
+    pool = LavinMQ::StatBlockPool.new(16, UInt64)
     blocks = Array.new(100) { pool.alloc }
     pool.trim
     blocks.none? { |b| pool.relocate?(LavinMQ::StatBlockPool.ordinal(b), 1) }.should be_true # dense
@@ -636,7 +657,7 @@ describe LavinMQ::StatBlockPool do
   end
 
   it "frees blocks whose lease has run out" do
-    pool = LavinMQ::StatBlockPool.new(8)
+    pool = LavinMQ::StatBlockPool.new(8, UInt64)
     now = LavinMQ::StatBlockPool.tick
     stale = pool.alloc
     renewed = pool.alloc
@@ -649,8 +670,8 @@ describe LavinMQ::StatBlockPool do
   end
 
   it "voids the generation of a released block, so a stale or new view reads its constant" do
-    pool = LavinMQ::StatBlockPool.new(8)
-    a = pool.alloc
+    pool = LavinMQ::StatBlockPool.new(8, UInt64)
+    a = pool.alloc(UInt64)
     8.times { |i| a[i] = 5_u64 }
     v = LavinMQ::StatLogView.new(a, 0, 8, 1_u64)
     v.to_a.should eq [5] * 8
@@ -661,7 +682,7 @@ describe LavinMQ::StatBlockPool do
   end
 
   it "hands out every block with a new generation, also a reused one" do
-    pool = LavinMQ::StatBlockPool.new(8)
+    pool = LavinMQ::StatBlockPool.new(8, UInt64)
     a = pool.alloc
     generation = LavinMQ::StatBlockPool.generation(a)
     pool.release(a)

@@ -3,18 +3,18 @@ require "../stdlib/json_builder"
 require "./stat_block_pool"
 
 module LavinMQ
-  # A stat's last value, plus a pooled ring buffer while it changes
-  struct StatColumn
-    getter last : UInt64
+  # A stat's last value, plus a pooled ring buffer of T samples while it changes
+  struct StatColumn(T)
+    getter last : T
     # Inverted so the conservative GC doesn't scan it as a pointer
     @hidden : UInt64 = UInt64::MAX
 
-    def initialize(@last : UInt64)
+    def initialize(@last : T)
     end
 
     @[AlwaysInline]
-    def block : Pointer(UInt64)
-      Pointer(UInt64).new(~@hidden)
+    def block : Pointer(T)
+      Pointer(T).new(~@hidden)
     end
 
     @[AlwaysInline]
@@ -24,7 +24,7 @@ module LavinMQ
 
     # Returns whether the value changed; takes a buffer on the first change
     @[AlwaysInline]
-    def record(value : UInt64, tail : Int32, established : Bool, & : UInt64 -> Pointer(UInt64)) : Bool
+    def record(value : T, tail : Int32, established : Bool, & : T -> Pointer(T)) : Bool
       buf = block
       if value == @last
         buf[tail] = value if buf
@@ -50,7 +50,7 @@ module LavinMQ
     # Same capacity: laid out as before, so readers pair *buf* with the unchanged head and size.
     # New capacity: compacted to the front and filled up with the last value, as a reader may
     # still pair *buf* with the old head and size
-    def move(buf : Pointer(UInt64), old_cap : Int32, head : Int32, size : Int32, new_cap : Int32) : Pointer(UInt64)
+    def move(buf : Pointer(T), old_cap : Int32, head : Int32, size : Int32, new_cap : Int32) : Pointer(T)
       old = block
       if new_cap == old_cap
         buf.copy_from(old, old_cap)
@@ -69,34 +69,34 @@ module LavinMQ
       old
     end
 
-    def drop : Pointer(UInt64)
+    def drop : Pointer(T)
       old = block
-      self.block = Pointer(UInt64).null
+      self.block = Pointer(T).null
       old
     end
 
-    private def block=(buf : Pointer(UInt64)) : Nil
+    private def block=(buf : Pointer(T)) : Nil
       @hidden = ~buf.address
     end
   end
 
   # Reads `const` once the buffer is handed out again, and never past its header's capacity
-  struct StatLogView
-    include Enumerable(UInt64)
+  struct StatLogView(T)
+    include Enumerable(T)
 
     @generation = 0_u32
     @capacity = 0
 
-    def initialize(@base : Pointer(UInt64), @head : Int32, @size : Int32, @const : UInt64)
+    def initialize(@base : Pointer(T), @head : Int32, @size : Int32, @const : T)
       if @base
         @generation = StatBlockPool.generation(@base)
-        @capacity = StatBlockPool.capacity(@base)
+        @capacity = StatBlockPool.bytes(@base) // sizeof(T)
         # A zeroed generation or capacity: the block was released, or its page given back to the OS
-        @base = Pointer(UInt64).null if @generation.zero? || @capacity.zero?
+        @base = Pointer(T).null if @generation.zero? || @capacity.zero?
       end
     end
 
-    getter const : UInt64
+    getter const : T
 
     def constant? : Bool
       @base.null?
@@ -106,7 +106,7 @@ module LavinMQ
       @base.null? ? @size : Math.min(@size, @capacity)
     end
 
-    def [](index : Int32) : UInt64
+    def [](index : Int32) : T
       raise IndexError.new if index < 0 || index >= size
       return @const if @base.null?
       value = @base[wrap(@head % @capacity + index, @capacity)]
@@ -116,13 +116,13 @@ module LavinMQ
     CHUNK = 64
 
     # Checks the generation once per chunk
-    def each(& : UInt64 ->) : Nil
+    def each(& : T ->) : Nil
       n = size
       if @base.null?
         n.times { yield @const }
         return
       end
-      chunk = uninitialized UInt64[CHUNK]
+      chunk = uninitialized T[CHUNK]
       i = @head % @capacity
       done = 0
       while done < n
@@ -144,8 +144,9 @@ module LavinMQ
 
     def to_json(json : JSON::Builder) : Nil
       if @base.null?
+        const = @const.to_u64
         cached = @@const_json
-        cached = @@const_json = ConstJson.new(@const, @size) unless cached && cached.for?(@const, @size)
+        cached = @@const_json = ConstJson.new(const, @size) unless cached && cached.for?(const, @size)
         json.raw(cached.json)
       else
         StatJson.array(json, self, tenths: false)
@@ -164,44 +165,49 @@ module LavinMQ
     end
   end
 
-  # Rates stored as tenths in UInt64 samples
-  struct RateLogView
+  # Rates stored as tenths in T samples: UInt32 holds 429 million per second, enough for
+  # messages, UInt64 for bytes
+  struct RateLogView(T)
     include Enumerable(Float64)
 
     # Rates up to here decode to Float64 exactly and print as one decimal
     MAX_TENTHS = (1_u64 << 51).to_f64
 
-    def self.encode(rate : Float64) : UInt64
-      (rate * 10).round.clamp(0.0, MAX_TENTHS).to_u64
+    def self.max_tenths : Float64
+      Math.min(T::MAX.to_f64, MAX_TENTHS)
+    end
+
+    def self.encode(rate : Float64) : T
+      T.new((rate * 10).round.clamp(0.0, max_tenths))
     end
 
     # Same as `encode((delta / interval).round(1))`, with one rounding
-    def self.encode_delta(delta : UInt64, interval : Float64) : UInt64
-      (delta / interval * 10).round.clamp(0.0, MAX_TENTHS).to_u64
+    def self.encode_delta(delta : UInt64, interval : Float64) : T
+      T.new((delta / interval * 10).round.clamp(0.0, max_tenths))
     end
 
-    def self.decode(tenths : UInt64) : Float64
+    def self.decode(tenths : Int) : Float64
       tenths / 10.0
     end
 
-    def initialize(@tenths : StatLogView)
+    def initialize(@tenths : StatLogView(T))
     end
 
     delegate size, to: @tenths
 
     def [](index : Int32) : Float64
-      RateLogView.decode(@tenths[index])
+      RateLogView(T).decode(@tenths[index])
     end
 
     def each(& : Float64 ->) : Nil
-      @tenths.each { |t| yield RateLogView.decode(t) }
+      @tenths.each { |t| yield RateLogView(T).decode(t) }
     end
 
     @@const_json : ConstJson(Float64)? = nil
 
     def to_json(json : JSON::Builder) : Nil
       if @tenths.constant?
-        rate = RateLogView.decode(@tenths.const)
+        rate = RateLogView(T).decode(@tenths.const)
         cached = @@const_json
         cached = @@const_json = ConstJson.new(rate, size) unless cached && cached.for?(rate, size)
         json.raw(cached.json)
@@ -232,7 +238,7 @@ module LavinMQ
             n += 1
           end
           first = false
-          n += tenths ? write_tenths(ptr + n, value) : write_digits(ptr + n, value)
+          n += tenths ? write_tenths(ptr + n, value.to_u64) : write_digits(ptr + n, value.to_u64)
         end
         ptr[n] = ']'.ord.to_u8
         io.write_string(Slice.new(ptr, n + 1))
