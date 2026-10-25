@@ -60,8 +60,7 @@ module LavinMQ
       end
 
       def bind_tcp(address, port)
-        tcp = HTTP.tcp_listener(address, port)
-        @http.bind(tcp)
+        tcp = HTTP.tcp_listener(address, port) { |socket| @http.bind(socket) }
         Log.info { "Bound to #{tcp.local_address}" }
         tcp.local_address
       end
