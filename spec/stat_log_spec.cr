@@ -32,15 +32,20 @@ private def const_view(value : Int, size : Int32) : LavinMQ::StatLogView
 end
 
 # A window of *cap* samples, with the Deque semantics of the old update_rates: shift until
-# size < cap, then push. History starts with an object's second sample, so a sample that
-# follows a lone one (at birth, or after a reload left one) reads as itself.
+# size < cap, then push. A rate's history starts with an object's second sample, so a sample
+# that follows a lone one (at birth, or after a reload left one) reads as itself.
 private def push_sample(q : Deque(T), v : T, cap : Int32) forall T
   lone = q.size <= 1
+  push_reading(q, v, cap)
+  q[0] = v if lone && q.size > 1
+end
+
+# A gauge keeps its first sample: a reading, not a rate over a partial interval
+private def push_reading(q : Deque(T), v : T, cap : Int32) forall T
   while q.size >= cap
     q.shift
   end
   q.push v
-  q[0] = v if lone && q.size > 1
 end
 
 # Own PRNG so the sequence is identical across Crystal versions.
@@ -219,6 +224,18 @@ describe LavinMQ::Stats do
     p.bump(0_u64, 0_u32); p.update_rates
     p.x_log.to_a.should eq [0.0, 0.0, 0.0]
     LavinMQ::StatBlockPool.for(cap, UInt32).@used.should eq used
+  end
+
+  it "keeps a gauge's first sample, a reading rather than a rate over a partial interval" do
+    p = LavinMQ::StatsProbe.new
+    cap = LavinMQ::Config.instance.stats_log_size
+    used = LavinMQ::StatBlockPool.for(cap, UInt64).@used
+    p.bump(0_u64, 5_u32); p.update_rates # declared with a backlog: no history to keep yet
+    p.constant?.should be_true
+    LavinMQ::StatBlockPool.for(cap, UInt64).@used.should eq used
+    p.bump(0_u64, 9_u32); p.update_rates # the reading moves: history starts with the first
+    p.y_log.to_a.should eq [5_u32, 9_u32]
+    p.x_log.to_a.should eq [0.0, 0.0]
   end
 
   it "compacts buffered -> constant after a full constant window" do
@@ -798,8 +815,8 @@ describe "constant-encoding differential vs Deque oracle (deterministic, multi-c
             push_sample(orates[0], rate_for(da, interval), cap)
             push_sample(orates[1], rate_for(db, interval), cap)
             push_sample(orates[2], rate_for(dc, interval), cap)
-            push_sample(ocounts[0], mv, cap)
-            push_sample(ocounts[1], nv, cap)
+            push_reading(ocounts[0], mv, cap)
+            push_reading(ocounts[1], nv, cap)
 
             do_json = step % 16 == 0
             ok = check(p.a_log, orates[0], do_json) && check(p.b_log, orates[1], do_json) &&
@@ -867,8 +884,8 @@ describe "constant-encoding differential vs Deque oracle with stats_log_size rel
           push_sample(orates[0], rate_for(da, interval), cap)
           push_sample(orates[1], rate_for(db, interval), cap)
           push_sample(orates[2], rate_for(dc, interval), cap)
-          push_sample(ocounts[0], mv, cap)
-          push_sample(ocounts[1], nv, cap)
+          push_reading(ocounts[0], mv, cap)
+          push_reading(ocounts[1], nv, cap)
 
           ok = check(p.a_log, orates[0], false) && check(p.b_log, orates[1], false) &&
                check(p.c_log, orates[2], false) && check(p.m_log, ocounts[0], false) &&

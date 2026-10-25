@@ -139,9 +139,11 @@ module LavinMQ
         size = @_stats_log_size.get(:relaxed)
         tail = head + size
         tail -= cap if tail >= cap
-        # The first sample spans a partial interval (handshake, declare-time traffic), so history
-        # starts with the second; a one-sample log is its last value
+        # A rate's first sample spans a partial interval (handshake, declare-time traffic), so its
+        # history starts with the second; a one-sample log is its last value. A gauge's first
+        # sample is a reading, kept once the next one differs
         established = size > 1 && cap > 1
+        sampled = size > 0 && cap > 1
         changed = false
 
         {% for c in rates %}
@@ -155,7 +157,7 @@ module LavinMQ
           changed = true if {{ c[:ivar] }}.record(tenths, tail, established) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
         {% end %}
         {% for c in gauges %}
-          changed = true if {{ c[:ivar] }}.record({{ c[:name] }}.to_u64, tail, established) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
+          changed = true if {{ c[:ivar] }}.record({{ c[:name] }}.to_u64, tail, sampled) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
         {% end %}
 
         buffered = @_stats_steady_run > 0 || (changed && stats_log_buffered?)
