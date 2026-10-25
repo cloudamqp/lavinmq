@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A cold start read each queue's last segment twice since 2.11.0-rc.1, once for the schema check and once to count its messages, as segments are mapped without readahead. The segment is now fetched in one readahead, bounded by what it occupies on disk, before the check, which halves the reads of a start with many queues
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 
 ## [2.11.0-rc.2] - 2026-10-23

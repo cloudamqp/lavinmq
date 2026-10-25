@@ -1033,12 +1033,30 @@ describe LavinMQ::MessageStore do
           store = AdviceOnLoadStore.new(dir, nil)
           store.size.should eq 4
           loads = AdviceOnLoadStore.advice_on_load
-          loads.map(&.first).should contain "produce_metadata" # the write segment has no meta file
-          loads.each do |_, flags|
-            flags.should contain "sr"
-            flags.should_not contain "rr"
+          loads.map(&.first).should eq ["read_metadata_file", "produce_metadata"]
+          loads.each do |load, flags|
+            if load == "read_metadata_file" # skips the acked message
+              flags.should contain "sr"
+              flags.should_not contain "rr"
+            else # the write segment has no meta file, it was fetched in one readahead when opened
+              flags.should contain "rr"
+            end
           end
           store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
+      it "reads only the allocated part of a last segment left at its capacity by a crash" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(LavinMQ::Message.new("ex", "rk", "body"))
+          store.close
+          path = Dir.glob(File.join(dir, "msgs.*")).first
+          File.open(path, "r+", &.truncate(LavinMQ::Config.instance.segment_size)) # only a graceful close shrinks it
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.size.should eq 1
+          cached_pages(path).should be < 64 # not the 2048 of the hole zero-filled
           store.close
         end
       end
