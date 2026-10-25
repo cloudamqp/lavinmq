@@ -108,6 +108,11 @@ module LavinMQ::AMQP
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
+    # Headers set on requeued messages (an AMQP 1.0 modified outcome's
+    # message-annotations), applied to their later deliveries. Kept in
+    # memory only, like delivery counts; allocated on first use.
+    @header_overrides : Hash(SegmentPosition, AMQ::Protocol::Table)? = nil
+    @header_overrides_lock = Mutex.new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
@@ -303,7 +308,7 @@ module LavinMQ::AMQP
     getter name, arguments, vhost
     getter? auto_delete, exclusive
     # The connection that declared this exclusive queue, told when the queue is deleted
-    property exclusive_owner : AMQP::Client?
+    property exclusive_owner : LavinMQ::Client?
     getter? closed = false
     getter state = QueueState::Running
     getter empty : BoolChannel
@@ -832,6 +837,7 @@ module LavinMQ::AMQP
         @msg_store.close
         @deliveries.clear
       end
+      @header_overrides_lock.synchronize { @header_overrides.try &.clear }
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -1221,6 +1227,7 @@ module LavinMQ::AMQP
           elsif delivery_count_from_header(env.message.properties.headers, settings)
             env = env.as_redelivered
           end
+          env = with_header_overrides(env) if @header_overrides
           sp = env.segment_position
           if no_ack
             begin
@@ -1260,6 +1267,13 @@ module LavinMQ::AMQP
       @basic_get_unacked.lock { |unacked| result.concat(unacked) }
     end
 
+    private def with_header_overrides(env) : Envelope
+      overrides = @header_overrides_lock.synchronize { @header_overrides.try(&.[env.segment_position]?) } || return env
+      headers = env.message.properties.headers || AMQP::Table.new
+      env.message.properties.headers = headers.merge!(overrides)
+      env
+    end
+
     private def with_delivery_count_header(env, settings : Settings) : Envelope
       sp = env.segment_position
       headers = env.message.properties.headers || AMQP::Table.new
@@ -1280,6 +1294,17 @@ module LavinMQ::AMQP
       headers.try &.["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
 
+    private def override_headers(sp : SegmentPosition, headers : AMQ::Protocol::Table) : Nil
+      @header_overrides_lock.synchronize do
+        overrides = (@header_overrides ||= Hash(SegmentPosition, AMQ::Protocol::Table).new)
+        if existing = overrides[sp]?
+          existing.merge!(headers)
+        else
+          overrides[sp] = headers
+        end
+      end
+    end
+
     def ack(sp : SegmentPosition) : Nil
       return if @closed
       @log.debug { "Acking #{sp}" }
@@ -1298,21 +1323,29 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
+      if overrides = @header_overrides
+        @header_overrides_lock.synchronize do
+          overrides.delete(sp)
+          @header_overrides = nil if overrides.empty? # so deliveries skip the lookup again
+        end
+      end
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)
       end
     end
 
-    # Consumer-initiated reject (basic.reject and basic.nack): delays via the retry queue if configured
-    def reject(sp : SegmentPosition, requeue : Bool)
+    # Consumer-initiated reject (basic.reject and basic.nack): delays via the retry queue if configured.
+    # `header_overrides` are set on the message for its later deliveries when
+    # it is requeued, replacing headers with the same keys.
+    def reject(sp : SegmentPosition, requeue : Bool, header_overrides : AMQ::Protocol::Table? = nil)
       return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        redeliver_message(sp, route_to_retry: true)
+        redeliver_message(sp, route_to_retry: true, header_overrides: header_overrides)
       else
         expire_msg(sp, :rejected)
       end
@@ -1336,7 +1369,8 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
+    private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool,
+                                  header_overrides : AMQ::Protocol::Table? = nil)
       # The message is a view into its segment, only valid while the lock is held
       expired = @msg_store_lock.synchronize { has_expired?(@msg_store[sp], requeue: true) }
       if expired # guarantee to not deliver expired messages
@@ -1360,6 +1394,7 @@ module LavinMQ::AMQP
           end
         end
       end
+      override_headers(sp, header_overrides) if header_overrides
       was_empty = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?

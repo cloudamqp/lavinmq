@@ -56,6 +56,7 @@ module LavinMQ
     # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
     getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
+    getter flow_change = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
@@ -76,6 +77,7 @@ module LavinMQ
 
     def flow=(active : Bool)
       @flow.set(active, :release)
+      @flow_change.set(active)
     end
 
     def closed? : Bool
@@ -222,15 +224,15 @@ module LavinMQ
 
     # Direct reply consumer accessors
 
-    def direct_reply_consumer?(consumer_tag : String) : Client::Channel?
+    def direct_reply_consumer?(consumer_tag : String) : AMQP::Channel?
       @direct_reply_consumers[consumer_tag]?
     end
 
-    def direct_reply_consumer_set(consumer_tag : String, channel : Client::Channel) : Nil
+    def direct_reply_consumer_set(consumer_tag : String, channel : AMQP::Channel) : Nil
       @direct_reply_consumers[consumer_tag] = channel
     end
 
-    def direct_reply_consumer_delete(consumer_tag : String) : Client::Channel?
+    def direct_reply_consumer_delete(consumer_tag : String) : AMQP::Channel?
       @direct_reply_consumers.delete(consumer_tag)
     end
 

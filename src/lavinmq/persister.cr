@@ -22,7 +22,21 @@ module LavinMQ
 
     # Receives publish confirms once the confirmed data is durable
     module ConfirmTarget
-      abstract def enqueue_confirm_ack(msgid : UInt64) : Nil
+      # The 1-slot mailbox a writer fiber of the target drains, nil until the
+      # target has asked for confirms
+      abstract def confirm_mailbox : ::Channel(UInt64)?
+
+      # Called from the Persister's thread with the highest persisted id.
+      # Non-blocking: ids are cumulative, so a stale one still waiting in the
+      # mailbox is replaced.
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = confirm_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
     end
 
     private class Batch
