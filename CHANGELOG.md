@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Every start rewrote each queue's `.queue` file and fsynced a rewrite of the MQTT retained-message index, which on ext4 forced the `.queue` writes out to disk inside the startup window and made starts with many queues slower than in 2.10, most of all on IOPS-limited disks. The `.queue` file is now written once, when the queue is declared, and the index only when it changed
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 
 ## [2.11.0-rc.2] - 2026-10-23

@@ -323,9 +323,11 @@ module LavinMQ::AMQP
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
       fresh = !File.exists?(dotqueue_file)
-      File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
-      if durable?
-        @vhost.replicator.try &.replace_file(dotqueue_file)
+      if fresh
+        File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
+        @vhost.replicator.try &.replace_file(dotqueue_file) if durable?
+      elsif durable?
+        @vhost.replicator.try &.register_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
