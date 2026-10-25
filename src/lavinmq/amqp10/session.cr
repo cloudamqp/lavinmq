@@ -44,19 +44,36 @@ module LavinMQ::AMQP10
     end
   end
 
-  class ReceiverLink < Link
-    include LavinMQ::Persister::ConfirmTarget
-
-    # Credit granted to the peer's sender at attach, topped up to the full
-    # amount again once half of it has been used so the link never runs dry.
+  # Credit granted to the peer's sender at attach, topped up to the full
+  # amount again once half of it has been used so the link never runs dry.
+  module IncomingCredit
     LINK_CREDIT = DEFAULT_WINDOW
 
     getter credit : UInt32 = LINK_CREDIT
+
+    # Each completed delivery (final or aborted transfer) consumes one credit;
+    # once half the grant is used up, re-grant the full amount.
+    private def delivery_completed : Nil
+      return if closed?
+      increment_delivery_count
+      @credit -= 1 if @credit > 0
+      if @credit <= LINK_CREDIT // 2
+        @credit = LINK_CREDIT
+        @session.client.send_flow(@session, self, @credit)
+      end
+    end
+  end
+
+  class ReceiverLink < Link
+    include LavinMQ::Persister::ConfirmTarget
+    include IncomingCredit
+
     @body_io = IO::Memory.new(Bytes.empty)
     @message_reader = IO::Memory.new(Bytes.empty)
     @partial_payload = IO::Memory.new
     @partial_delivery_id : UInt32?
     @partial_settled = false
+    @partial_txn_id : Bytes?
     # True while fragments of a multi-transfer delivery are being collected.
     getter? partial_active = false
     # rcv-settle-mode second: outcomes are sent unsettled and the delivery is
@@ -102,6 +119,7 @@ module LavinMQ::AMQP10
                                                else
                                                  {payload, transfer.delivery_id, transfer.settled}
                                                end
+      txn_id = @partial_txn_id || transfer.txn_id
 
       # Match the 0-9-1 publish path: refuse to write while flow control is off
       # (e.g. low disk space). Release so the sender can retry later.
@@ -118,6 +136,11 @@ module LavinMQ::AMQP10
       validate_user_id(incoming.properties.user_id)
       if incoming.body.bytesize > Config.instance.max_message_size
         raise ProtocolError.new("message size #{incoming.body.bytesize} larger than max size #{Config.instance.max_message_size}")
+      end
+
+      if txn_id
+        publish_in_transaction(txn_id, target, incoming, delivery_id, settled)
+        return
       end
 
       @body_io.reset(incoming.body)
@@ -143,15 +166,18 @@ module LavinMQ::AMQP10
       end
     end
 
-    # Each completed delivery (final or aborted transfer) consumes one credit;
-    # once half the grant is used up, re-grant the full amount.
-    private def delivery_completed : Nil
-      return if closed?
-      increment_delivery_count
-      @credit -= 1 if @credit > 0
-      if @credit <= LINK_CREDIT // 2
-        @credit = LINK_CREDIT
-        @session.client.send_flow(@session, self, @credit)
+    # The message is published when the transaction is discharged; the
+    # outcome sent now is provisional (4.4.2).
+    private def publish_in_transaction(txn_id : Bytes, target : PublishAddress, incoming : MessageCodec::Incoming,
+                                       delivery_id : UInt32?, settled : Bool) : Nil
+      if transaction = @session.client.transaction?(txn_id)
+        transaction.add_publish(@session, target, incoming.properties, incoming.body)
+        return if settled || delivery_id.nil?
+        @session.client.send_disposition(@session, delivery_id, Outcome::Accepted, settled: !@settle_second, txn_id: txn_id)
+      else
+        return if settled || delivery_id.nil?
+        error = ErrorInfo.new(ErrorCondition::TRANSACTION_UNKNOWN_ID, "unknown transaction")
+        @session.client.send_disposition(@session, delivery_id, Outcome::Rejected, settled: !@settle_second, error: error)
       end
     end
 
@@ -176,6 +202,8 @@ module LavinMQ::AMQP10
         @partial_settled = transfer.settled
         @partial_active = true
       end
+      # A view into the frame buffer, which the next frame reuses
+      @partial_txn_id ||= transfer.txn_id.try(&.dup)
       @partial_payload.write(payload)
       if @partial_payload.size > Config.instance.max_message_size
         raise ProtocolError.new("message size larger than max size #{Config.instance.max_message_size}")
@@ -187,6 +215,7 @@ module LavinMQ::AMQP10
       @partial_payload.clear
       @partial_delivery_id = nil
       @partial_settled = false
+      @partial_txn_id = nil
       @partial_active = false
     end
 
@@ -243,6 +272,125 @@ module LavinMQ::AMQP10
     def close : Nil
       super
       @confirm_mailbox.try &.close
+    end
+  end
+
+  # The receiving end of a link to the transaction coordinator (4.5.1): each
+  # message sent on it declares or discharges a transaction.
+  class CoordinatorLink < Link
+    include IncomingCredit
+
+    LOCAL_TRANSACTIONS = "amqp:local-transactions"
+    # Declare and discharge messages are small; larger ones are refused.
+    MAX_REQUEST_SIZE = 65_536
+
+    @partial_payload = IO::Memory.new
+    @partial_delivery_id : UInt32?
+
+    def initialize(session : Session, name : String, remote_handle : UInt32,
+                   local_handle : UInt32, initial_delivery_count : UInt32 = 0_u32)
+      super(session, name, remote_handle, local_handle, Role::Receiver)
+      @delivery_count.set(initial_delivery_count)
+    end
+
+    def receive(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
+      return if closed?
+      return @partial_payload.clear if transfer.aborted
+      @partial_delivery_id ||= transfer.delivery_id
+      if transfer.more || @partial_payload.size > 0
+        @partial_payload.write(payload) if @partial_payload.size <= MAX_REQUEST_SIZE
+        return if transfer.more
+        payload = @partial_payload.to_slice
+      end
+      delivery_id = @partial_delivery_id
+      settled = transfer.settled
+      begin
+        raise DecodeError.new("coordinator message too large") if payload.size > MAX_REQUEST_SIZE
+        handle_request(request(payload), delivery_id, settled)
+      rescue ex : DecodeError | LinkError
+        @session.client.log.warn { "AMQP 1.0 coordinator request rejected: #{ex.message}" }
+        condition = ex.is_a?(LinkError) ? ex.condition : ErrorCondition::DECODE_ERROR
+        reject(delivery_id, settled, ErrorInfo.new(condition, ex.message))
+      end
+    ensure
+      unless transfer.more
+        @partial_payload.clear
+        @partial_delivery_id = nil
+        delivery_completed
+      end
+    end
+
+    private def handle_request(request : Value, delivery_id : UInt32?, settled : Bool) : Nil
+      fields = request.described?.try(&.value.list?) || Array(Value).new
+      case descriptor_code(request)
+      when Descriptor::DECLARE
+        if fields[0]?.try { |global_id| !global_id.null? }
+          raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "distributed transactions are not supported")
+        end
+        # Without a disposition the client never learns the txn-id
+        return if settled || delivery_id.nil?
+        transaction = @session.client.declare_transaction(self)
+        @session.client.send_declared(@session, delivery_id, transaction.txn_id)
+      when Descriptor::DISCHARGE
+        txn_id = fields[0]?.try(&.binary?) || raise DecodeError.new("discharge without txn-id")
+        transaction = @session.client.transaction?(txn_id)
+        unless transaction && transaction.coordinator.same?(self)
+          raise LinkError.new(ErrorCondition::TRANSACTION_UNKNOWN_ID, "unknown transaction")
+        end
+        discharge(transaction, fail: fields[1]?.try(&.bool?) || false, delivery_id: delivery_id, settled: settled)
+      else
+        raise DecodeError.new("expected declare or discharge")
+      end
+    end
+
+    private def discharge(transaction : Transaction, fail : Bool, delivery_id : UInt32?, settled : Bool) : Nil
+      if fail
+        transaction.rollback
+      else
+        transaction.commit(@session.client.vhost)
+      end
+      accept(delivery_id, settled)
+    rescue ex : LavinMQ::Error | IO::Error
+      @session.client.log.error { "AMQP 1.0 transaction commit failed: #{ex.inspect}" }
+      transaction.rollback
+      reject(delivery_id, settled, ErrorInfo.new(ErrorCondition::TRANSACTION_ROLLBACK, ex.message))
+    ensure
+      @session.client.end_transaction(transaction)
+    end
+
+    # The amqp-value section holding the declare or discharge
+    private def request(payload : Bytes) : Value
+      reader = IO::Memory.new(payload, false)
+      while reader.pos < reader.bytesize
+        section = Codec.decode(reader)
+        if descriptor_code(section) == Descriptor::AMQP_VALUE
+          return section.described?.try(&.value) || raise DecodeError.new("empty amqp-value")
+        end
+      end
+      raise DecodeError.new("coordinator message without an amqp-value section")
+    end
+
+    # Descriptors may be symbolic (1.6)
+    private def descriptor_code(value : Value) : UInt64?
+      descriptor = value.described?.try(&.descriptor) || return
+      descriptor.uint? || descriptor.symbol?.try { |symbol| Codec::DESCRIPTOR_SYMBOLS[symbol]? }
+    end
+
+    private def accept(delivery_id : UInt32?, settled : Bool) : Nil
+      return if settled || delivery_id.nil?
+      @session.client.send_disposition(@session, delivery_id, Outcome::Accepted)
+    end
+
+    private def reject(delivery_id : UInt32?, settled : Bool, error : ErrorInfo) : Nil
+      return if settled || delivery_id.nil?
+      @session.client.send_disposition(@session, delivery_id, Outcome::Rejected, error: error)
+    end
+
+    # Transactions still open when the coordinator link closes are rolled
+    # back (4.4.3).
+    def close : Nil
+      return unless close_once
+      @session.client.rollback_transactions(self)
     end
   end
 
@@ -723,6 +871,8 @@ module LavinMQ::AMQP10
     @remote_window_lock = Mutex.new(:checked)
     @visited = Set(AMQP::Exchange).new
     @found_queues = Set(AMQP::Queue).new
+    # Set once a coordinator link is attached, like 0-9-1's tx.select
+    @transactional = false
 
     rate_stats({"ack", "publish", "deliver", "redeliver", "reject"})
 
@@ -745,7 +895,7 @@ module LavinMQ::AMQP10
         prefetch_count:          0,
         global_prefetch_count:   0,
         confirm:                 false,
-        transactional:           false,
+        transactional:           @transactional,
         messages_unacknowledged: unacked_count,
         connection_details:      @client.connection_details,
         state:                   @running ? "running" : "closed",
@@ -800,6 +950,10 @@ module LavinMQ::AMQP10
       end
       case frame.role
       in .sender?
+        if coordinator = frame.coordinator
+          attach_coordinator(frame, coordinator, local_handle)
+          return
+        end
         target, dynamic_queue, remote_target = attach_receiver(frame)
         link = ReceiverLink.new(self, frame.name, frame.handle, local_handle, target, dynamic_queue,
           frame.initial_delivery_count || 0_u32, frame.rcv_settle_mode)
@@ -819,6 +973,18 @@ module LavinMQ::AMQP10
       @detached_handles << frame.handle
       @client.send_rejected_attach(self, frame, local_handle)
       @client.send_detach(self, local_handle, true, ErrorInfo.new(condition, ex.message))
+    end
+
+    private def attach_coordinator(frame : Attach, coordinator : Coordinator, local_handle : UInt32) : Nil
+      capabilities = coordinator.capabilities
+      unless capabilities.empty? || capabilities.includes?(CoordinatorLink::LOCAL_TRANSACTIONS)
+        raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "only local transactions are supported")
+      end
+      link = CoordinatorLink.new(self, frame.name, frame.handle, local_handle, frame.initial_delivery_count || 0_u32)
+      @links[frame.handle] = link
+      @transactional = true
+      @client.send_attach(self, link, frame.source, Coordinator.new([CoordinatorLink::LOCAL_TRANSACTIONS]), frame)
+      @client.send_flow(self, link, link.credit)
     end
 
     private def attach_receiver(frame)
@@ -889,7 +1055,7 @@ module LavinMQ::AMQP10
         case link
         when SenderLink
           link.add_credit(frame.link_credit || 0_u32, frame.delivery_count, frame.drain, frame.echo)
-        when ReceiverLink
+        when ReceiverLink, CoordinatorLink
           # Credit is granted by us and topped up as deliveries complete, so a
           # flow from the sender only matters as an echo request.
           @client.send_flow(self, link, link.credit) if frame.echo
@@ -904,13 +1070,19 @@ module LavinMQ::AMQP10
       advance_incoming_window
       return if @detached_handles.includes?(transfer.handle)
       link = @links[transfer.handle]? || raise ProtocolError.new("unknown link handle #{transfer.handle}")
-      receiver = link.as?(ReceiverLink) || raise ProtocolError.new("transfer sent on non-receiver link")
-      # Only continuation frames may omit the delivery-id (2.7.5); without one
-      # on the first frame there is nothing a disposition could refer to.
-      if transfer.delivery_id.nil? && !receiver.partial_active?
-        raise ProtocolError.new("transfer on handle #{transfer.handle} is missing delivery-id")
+      case link
+      when ReceiverLink
+        # Only continuation frames may omit the delivery-id (2.7.5); without one
+        # on the first frame there is nothing a disposition could refer to.
+        if transfer.delivery_id.nil? && !link.partial_active?
+          raise ProtocolError.new("transfer on handle #{transfer.handle} is missing delivery-id")
+        end
+        link.receive(transfer, payload)
+      when CoordinatorLink
+        link.receive(transfer, payload)
+      else
+        raise ProtocolError.new("transfer sent on non-receiver link")
       end
-      receiver.receive(transfer, payload)
     end
 
     def disposition(frame : TransferCodec::DispositionView) : Nil
@@ -924,12 +1096,27 @@ module LavinMQ::AMQP10
         outcome = Outcome::Accepted
       end
       last = frame.last || frame.first
-      found = false
       annotations = frame.message_annotations if outcome.modified?
-      @sender_links.each { |link| found = true if link.settle(frame.first, last, outcome, annotations) }
+      if txn_id = frame.txn_id
+        # A transactional acknowledgement takes effect when the transaction
+        # is discharged (4.4.4).
+        if transaction = @client.transaction?(txn_id)
+          transaction.add_ack(self, frame.first, last, outcome, annotations, frame.settled)
+        else
+          @client.end_session(self, ErrorInfo.new(ErrorCondition::TRANSACTION_UNKNOWN_ID, "unknown transaction"))
+        end
+        return
+      end
+      settle_deliveries(frame.first, last, outcome, annotations, frame.settled)
+    end
+
+    # Applies an outcome to the deliveries first..last of the session's links.
+    def settle_deliveries(first : UInt32, last : UInt32, outcome : Outcome, annotations : Bytes?, settled : Bool) : Nil
+      found = false
+      @sender_links.each { |link| found = true if link.settle(first, last, outcome, annotations) }
       # A rcv-settle-mode second receiver keeps the delivery until we settle it,
       # so an unsettled disposition is answered with our settled one.
-      @client.send_settlement(self, frame.first, frame.last, outcome) if found && !frame.settled
+      @client.send_settlement(self, first, last == first ? nil : last, outcome) if found && !settled
     end
 
     def detach(frame : Detach) : Nil

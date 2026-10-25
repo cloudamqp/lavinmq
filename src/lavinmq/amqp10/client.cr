@@ -42,6 +42,11 @@ module LavinMQ::AMQP10
     #   @local_idle_timeout  — ours; we may drop the peer if it goes silent
     @remote_idle_timeout : UInt32?
     getter log : Logger
+    # Open transactions by id, and the file their published bodies are kept
+    # in until they are discharged; emptied once none are open.
+    @transactions = Hash(UInt64, Transaction).new
+    @last_transaction_id = 0_u64
+    @transaction_body_file : File?
 
     rate_stats({"send_oct", "recv_oct"})
 
@@ -236,7 +241,8 @@ module LavinMQ::AMQP10
       end
     end
 
-    def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
+    def send_attach(session : Session, link : Link, source : Source?, target : (Target | Coordinator)?,
+                    remote_attach : Attach? = nil) : Nil
       snd_mode, rcv_mode = settle_modes(link, remote_attach)
       write_attach(session, link.name, link.local_handle, link.role, snd_mode, rcv_mode, source, target, link.delivery_count)
     end
@@ -260,7 +266,8 @@ module LavinMQ::AMQP10
     end
 
     private def write_attach(session : Session, name : String, handle : UInt32, role : Role, snd_mode : UInt8,
-                             rcv_mode : UInt8, source : Source?, target : Target?, delivery_count : UInt32) : Nil
+                             rcv_mode : UInt8, source : Source?, target : (Target | Coordinator)?,
+                             delivery_count : UInt32) : Nil
       fields_size = Codec.string_size(name) + Codec.uint_size(handle) + 1 + 2 + 2 +
                     (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
       fields_count = 7
@@ -367,9 +374,49 @@ module LavinMQ::AMQP10
       end
     end
 
+    # With a txn_id the outcome is sent in a transactional-state.
     def send_disposition(session : Session, first : UInt32, outcome : Outcome, settled = true,
-                         last : UInt32? = nil) : Nil
-      write_locked { |io| TransferCodec.write_disposition(io, session.id, first, outcome, settled, Role::Receiver, last) }
+                         last : UInt32? = nil, txn_id : Bytes? = nil, error : ErrorInfo? = nil) : Nil
+      write_locked do |io|
+        TransferCodec.write_disposition(io, session.id, first, outcome, settled, Role::Receiver, last, txn_id, error)
+      end
+    end
+
+    def send_declared(session : Session, delivery_id : UInt32, txn_id : Bytes) : Nil
+      write_locked { |io| TransferCodec.write_declared(io, session.id, delivery_id, txn_id) }
+    end
+
+    def declare_transaction(coordinator : CoordinatorLink) : Transaction
+      id = @last_transaction_id &+= 1
+      @transactions[id] = Transaction.new(id, coordinator, transaction_body_file)
+    end
+
+    def transaction?(txn_id : Bytes) : Transaction?
+      return unless txn_id.size == 8
+      @transactions[IO::ByteFormat::NetworkEndian.decode(UInt64, txn_id)]?
+    end
+
+    def end_transaction(transaction : Transaction) : Nil
+      @transactions.delete(transaction.id)
+      if @transactions.empty?
+        @transaction_body_file.try &.truncate(0)
+      end
+    end
+
+    # Rolls back the transactions open on a coordinator link that is closing
+    def rollback_transactions(coordinator : CoordinatorLink) : Nil
+      @transactions.each_value.select(&.coordinator.same?(coordinator)).to_a.each do |transaction|
+        transaction.rollback
+        end_transaction(transaction)
+      end
+    end
+
+    private def transaction_body_file : File
+      @transaction_body_file ||= File.tempfile("amqp10-transaction.", nil, dir: @vhost.data_dir).tap do |f|
+        f.sync = true
+        f.read_buffering = false
+        f.delete
+      end
     end
 
     # Sender-side settlement of deliveries a rcv-settle-mode second receiver
@@ -638,6 +685,7 @@ module LavinMQ::AMQP10
       @running = false
       @sessions.each_value &.close
       @sessions.clear
+      @transaction_body_file.try &.close
       close_exclusive_queues
       case user = @user
       when Auth::OAuthUser
