@@ -51,6 +51,16 @@ describe LavinMQ::MessageStore::PublishOrderedRequeuedStore do
       store.shift?.should eq sp3
     end
 
+    it "should keep a position inserted twice once" do
+      store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
+      sp = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      store.insert(sp).should be_true
+      store.insert(sp).should be_false
+      store.size.should eq 1
+      store.shift?.should eq sp
+      store.shift?.should be_nil
+    end
+
     it "should handle multiple segments" do
       store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
       sp2_1 = LavinMQ::SegmentPosition.new(2u32, 1u32, 10u32)

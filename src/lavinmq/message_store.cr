@@ -72,7 +72,7 @@ module LavinMQ
     def requeue(sp : SegmentPosition)
       raise ClosedError.new if @closed
       was_empty = @size.zero?
-      @requeued.insert(sp)
+      return unless @requeued.insert(sp)
       @bytesize += sp.bytesize
       @size += 1
       @empty.set false if was_empty

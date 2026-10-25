@@ -35,7 +35,7 @@ module LavinMQ::AMQP
           Queue.time_to_expiration_wakeup(sp.expire_at)
         end
 
-        def insert(sp : SegmentPosition) : Nil
+        def insert(sp : SegmentPosition) : Bool
           raise "BUG: this insert overload should not be called"
         end
 

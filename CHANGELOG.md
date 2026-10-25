@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Requeued messages are kept in a B+tree instead of a sorted array, so requeueing a message no longer costs time proportional to the number already requeued, which stalled the broker when many consumers disconnected with unacked messages: 500 consumers holding 1000 each went from 57 s to 0.3 s
+- After a restart, a queue's reads step through the positions acked before it with a cursor instead of a binary search per message
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 
 ### Fixed

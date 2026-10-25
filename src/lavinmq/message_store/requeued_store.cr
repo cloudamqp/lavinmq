@@ -1,4 +1,4 @@
-require "deque"
+require "../btree_set"
 require "../segment_position"
 
 module LavinMQ
@@ -6,13 +6,14 @@ module LavinMQ
     abstract class RequeuedStore
       abstract def shift? : SegmentPosition?
       abstract def first? : SegmentPosition?
-      abstract def insert(sp : SegmentPosition) : Nil
+      # Returns false if `sp` was already in the store
+      abstract def insert(sp : SegmentPosition) : Bool
       abstract def size
       abstract def clear : Nil
     end
 
     class PublishOrderedRequeuedStore < RequeuedStore
-      @segment_positions = Deque(SegmentPosition).new
+      @segment_positions = BTreeSet(SegmentPosition).new
 
       def shift? : SegmentPosition?
         @segment_positions.shift?
@@ -22,12 +23,8 @@ module LavinMQ
         @segment_positions.first?
       end
 
-      def insert(sp : SegmentPosition) : Nil
-        if idx = @segment_positions.bsearch_index { |rsp| rsp > sp }
-          @segment_positions.insert(idx, sp)
-        else
-          @segment_positions.push(sp)
-        end
+      def insert(sp : SegmentPosition) : Bool
+        @segment_positions.insert(sp)
       end
 
       def size
@@ -35,7 +32,7 @@ module LavinMQ
       end
 
       def clear : Nil
-        @segment_positions = Deque(SegmentPosition).new
+        @segment_positions.clear
       end
     end
   end
