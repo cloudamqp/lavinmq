@@ -133,14 +133,15 @@ module LavinMQ
         }
       end
 
-      def update_rates : Nil
+      # *interval* is the seconds since the last update: what the stats loop slept, which a
+      # reload may have changed since
+      def update_rates(interval : Float64 = Config.instance.stats_interval / 1000.0) : Nil
         cap = Config.instance.stats_log_size
         size = @_stats_log_size.get(:relaxed)
         if @_stats_steady_run == 0 && cap == @_stats_log_capacity && _stats_idle?
           @_stats_log_size.set(size + 1, :release) if size < cap
           return
         end
-        interval = Config.instance.stats_interval / 1000.0
         _stats_keep_lease if stats_log_buffered?
         _stats_resize(cap) if cap != @_stats_log_capacity || _stats_scattered?
         head = @_stats_log_head.get(:relaxed)
