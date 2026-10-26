@@ -21,11 +21,12 @@ module LavinMQ
         @index_file = File.new(@index_file_name, "a+")
         @replicator.try &.register_file(@index_file)
         @lock = Mutex.new
-        # Set when the index file has lines the index doesn't, so it is
-        # compacted on close (see #write_index)
+        # Set when the index file has lines the index doesn't, by
+        # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
         if @index.empty?
-          write_index if restore_index(@index, @index_file)
+          restore_index(@index, @index_file)
+          write_index if @dirty
         end
       end
 
@@ -36,10 +37,10 @@ module LavinMQ
         end
       end
 
-      # Returns whether the index file needs compacting: lines it has that
+      # Marks the index file dirty when it needs compacting: lines it has that
       # weren't restored (dropped topics, repeated topics), or a last line a
       # crash left without its newline, which the next append would join
-      private def restore_index(index : IndexTree, index_file : ::IO) : Bool
+      private def restore_index(index : IndexTree, index_file : ::IO) : Nil
         Log.debug { "restoring index" }
         dir = @dir
         msg_count = 0u64
@@ -76,7 +77,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
-        torn || lines != index.size
+        @dirty = torn || lines != index.size
       end
 
       def retain(packet : Protocol::Publish) : Nil
