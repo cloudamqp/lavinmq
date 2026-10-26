@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Declaring a durable queue fsynced the vhost directory right away, and a priority queue fsynced its directory on every start, which made bulk declares, definition imports and starts with many priority queues slower than in 2.10. The directories are now fsynced once with the next publish confirm that depends on them [#2544](https://github.com/cloudamqp/lavinmq/pull/2544)
 - Every start rewrote each queue's `.queue` file and fsynced a rewrite of the MQTT retained-message index, which on ext4 forced the `.queue` writes out to disk inside the startup window and made starts with many queues slower than in 2.10, most of all on IOPS-limited disks. The `.queue` file is now written once, when the queue is declared, and the index only when it changed [#2550](https://github.com/cloudamqp/lavinmq/pull/2550)
+- A cold start read each queue's last segment twice since 2.11.0-rc.1, once for the schema check and once to count its messages, as segments are mapped without readahead. The segment is now fetched in one readahead, bounded by what it occupies on disk, before the check, which halves the reads of a start with many queues [#2551](https://github.com/cloudamqp/lavinmq/pull/2551)
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 
 ## [2.11.0-rc.2] - 2026-10-23
