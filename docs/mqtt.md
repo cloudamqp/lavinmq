@@ -18,7 +18,7 @@ Unix domain sockets are also supported via `unix_path` in the `[mqtt]` section. 
 |-----|-----------|----------|
 | 0 (at most once) | Yes | Fire and forget. Messages are not persisted for the session. |
 | 1 (at least once) | Yes | Incoming publishes are acknowledged with PUBACK after the affected durable data is synced, unless synchronization is disabled. |
-| 2 (exactly once) | Downgraded to QoS 1 | LavinMQ does not implement the full QoS 2 handshake. |
+| 2 (exactly once) | Yes | Four-step handshake: PUBLISH, PUBREC, PUBREL, PUBCOMP. |
 
 For incoming QoS 1 publishes, PUBACKs are sent in publish order after the broker finishes handling the publish and syncing its affected durable message and retained-message files. In a cluster, the broker also waits for the in-sync followers to acknowledge the replicated writes after synchronization. This uses the same persistence mechanism as [publisher confirms](publisher-confirms.md#durability-and-synchronization).
 
@@ -26,9 +26,37 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
+A message is delivered at the lower of the QoS it was published with and the QoS of the subscription that matched it. Publishing at QoS 2 to a QoS 0 subscriber delivers at QoS 0, and publishing at QoS 0 to a QoS 2 subscriber delivers at QoS 0 as well. Retained messages are the exception, see [Limitations](#limitations).
+
+### QoS 2 exactly-once
+
+Exactly-once rests on remembering packet IDs, not messages. It applies per subscription: a client whose subscriptions overlap gets one copy of a message for each subscription that matches it, as MQTT 3.1.1 allows.
+
+When a client publishes at QoS 2, LavinMQ records the packet ID, routes the message, and answers PUBREC once the message is persisted to disk, like a QoS 1 PUBACK. PUBACKs and PUBRECs are sent in the order the publishes arrived. A re-sent PUBLISH carrying an ID that is still recorded is answered with another PUBREC and is not routed a second time, which is what makes the delivery exactly-once. The client's PUBREL releases the ID and is answered with PUBCOMP. A PUBREL for an ID LavinMQ is not holding is answered with PUBCOMP as well, so a client whose PUBCOMP was lost can always complete the exchange.
+
+When LavinMQ delivers at QoS 2, the packet ID stays outstanding across both round trips. The message itself is released at PUBREC, since the subscriber owns it from that point and it must never be sent again; the ID alone is held until PUBCOMP. `max_inflight_messages` therefore bounds outstanding *packet IDs* rather than outstanding messages, and a QoS 2 subscriber reaches that bound at a lower message rate than a QoS 1 one.
+
+For durable sessions (`clean_session=false`) the QoS 2 packet IDs held in both directions are persisted in a per-session `packet_ids.log`, created the first time the session uses QoS 2, and replicated to followers, so an unfinished exchange resumes after a broker restart or a failover. The log stays memory-mapped while its session exists, so each durable session that has used QoS 2 counts once towards `vm.max_map_count`. Clean sessions keep this state in memory only. The persistence has a cost: an inbound PUBREC waits for two persister syncs (the routed message, then the packet ID record) and PUBCOMP waits for the release record. For a durable subscriber, an outbound PUBLISH waits for its packet ID record and PUBREL waits for the delete recorded at PUBREC. QoS 0 and QoS 1 are unaffected. With `sync = false` the waits still go through the persister and the in-sync followers but skip the fsync. Outbound QoS 2 deliveries to a durable session are recorded in batches of up to 128 that wait for one persister sync together, so the sync is not paid per message.
+
+The inbound packet ID is recorded only after the routed message is synced, so a power loss can never keep an ID without its message. The opposite can happen: if the broker process dies (for example `kill -9` or the OOM killer) after routing a QoS 2 publish but before recording its ID, the message survives and the ID does not. No PUBREC was sent, so the client re-sends the PUBLISH and it is routed a second time. The same happens when power is lost after the message is synced but before its ID is, and on a failover when the message reached the followers but its ID record did not. This applies to every QoS 2 publish routed but not yet recorded when the process died, which under a burst of publishes can be hundreds of messages. The client's QoS 2 in-flight limit bounds it: a client with at most 100 publishes awaiting PUBREC gets at most 100 duplicates per crash. A graceful shutdown records every routed ID first.
+
+A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBLISH and PUBREL. The default, 65535, is every packet ID, so a compliant client never reaches it. A lower value bounds the memory a publisher that never sends PUBREL can hold; going over it closes the connection. Set it no lower than the number of QoS 2 messages your clients keep in flight: a client re-sends its whole window on reconnect before it can send a PUBREL, so one with a larger window goes over the cap again on every reconnect and never gets back in.
+
+### Packet ID 0
+
+A QoS 1 or QoS 2 PUBLISH must carry a non-zero packet ID [MQTT-2.3.1-1]. One with packet ID 0 is a protocol violation: it is not routed, the connection is closed and the client's Will is published.
+
+### Acknowledging with the wrong packet type
+
+A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
+
+A PUBREC, PUBCOMP or PUBREL for a packet ID the session has no record of is treated differently: the connection stays open. A PUBREL is answered with PUBCOMP, as described above, and a PUBREC with PUBREL, the answers that let the client release the ID; a PUBCOMP is ignored. The ID of an unknown PUBREC is not reused until its PUBCOMP, but it does not count towards `max_inflight_messages`. A PUBREC for an ID that a requeued message is waiting to be re-sent under is not answered, since releasing that ID would make the client take the re-sent PUBLISH for a new message. For a durable session the QoS 2 IDs survive a broker restart, but the broker can still meet IDs it has no record of: for a clean session, for QoS 1 (whose IDs are not persisted), and for a session that no longer exists, for example one that was deleted. [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
+
 ## Sessions
 
-Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
+Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 and QoS 2 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state. MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
+
+Every connection has a session, which holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. A session becomes a queue only when it needs one: at its first SUBSCRIBE, or for a persistent session at its first QoS 2 PUBLISH, since its held packet IDs must survive a restart. A client that only publishes at QoS 0 or QoS 1, or a clean session that only publishes, creates no queue, files or memory mappings. Only a persistent session that became a queue is reported as present on reconnect [MQTT-3.1.2-4]; one that held no state is not. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session. A durable session that publishes at QoS 2 keeps its `packet_ids.log`, see [QoS 2 exactly-once](#qos-2-exactly-once).
 
 ### Clean Sessions
 
@@ -42,12 +70,15 @@ When a client connects with `clean_session=true`:
 
 When a client connects with `clean_session=false`:
 
-- The session persists across disconnections
+- The session persists across disconnections, once it is a queue, see [Sessions](#sessions)
 - Subscriptions are preserved
-- Unacknowledged QoS 1 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
+- Unacknowledged QoS 1 and QoS 2 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
+- QoS 2 deliveries that reached PUBREC but not PUBCOMP have no message left to resend, so their PUBREL is re-sent instead, under the original packet ID [MQTT-4.4.0-1]
 - The session queue is durable
 
-The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs. If a `max-length` policy or a purge discards a message the session still owes, its packet ID is forgotten along with it; the messages that remain keep theirs.
+QoS 1 packet IDs are not persisted. A QoS 1 message is re-sent under its original ID across a reconnect within the same process, but after a broker restart it is redelivered under a new ID. For a durable session the QoS 2 IDs are restored after a restart: an unacknowledged QoS 2 message is re-sent under its original ID with `dup` set, and one that is past PUBREC has its PUBREL re-sent. See [QoS 2 exactly-once](#qos-2-exactly-once). If a `max-length` policy or a purge discards a message the session still owes, a QoS 1 packet ID is forgotten along with it, while a QoS 2 one stays held and its PUBREL is sent, since the client may hold that ID until then; the messages that remain keep theirs.
+
+A persistent session whose state cannot be loaded at startup, for example an unreadable `packet_ids.log`, is closed and logged instead of stopping the rest of the vhost from loading. A persistent CONNECT to a closed session is answered with CONNACK return code 3 (server unavailable). A clean CONNECT, or deleting the session queue, replaces it with an empty session.
 
 ### Session Takeover
 
@@ -55,12 +86,14 @@ If a client connects with a client ID that already has an active connection, the
 
 ### Session Limits
 
-Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. A session is created on the client's first SUBSCRIBE, so CONNECT still succeeds when the vhost is at the limit, but the SUBSCRIBE is answered with a SUBACK where every topic filter gets return code `0x80` (failure). Clients that already have a session can keep subscribing, since reusing a session consumes no new resource.
+Sessions that are queues count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues: a clean one while its client is connected, a persistent one until it is deleted. A CONNECT is never refused for the limit. A SUBSCRIBE whose session would become a queue past it is answered with Failure (`0x80`) for every topic. A persistent session's first QoS 2 PUBLISH past the limit, or without that permission, closes the connection and publishes the client's Will, since MQTT 3.1.1 has no way to refuse a single publish. A persistent client reconnecting to its existing session, or a client taking over its own connection, consumes no new queue.
+
+AMQP clients and the HTTP API cannot create queues with the `mqtt.` prefix, but a definitions import can. If a queue that is not an MQTT session already has the name `mqtt.<client_id>`, a CONNECT with that client ID is answered with a CONNACK carrying return code 2 (identifier rejected) and the socket is closed, until that queue is removed.
 
 ### Message Delivery
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
-- QoS 1 messages are stored in the session queue and tracked with packet IDs
+- QoS 1 and QoS 2 messages are stored in the session queue and tracked with packet IDs
 - Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over, and keep their packet IDs for the redelivery. For clean sessions, unacknowledged messages are discarded.
 
 ## Connection Limits
@@ -110,7 +143,7 @@ queue.declare     name=sensor-readings  durable=true
 queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+/temp
 ```
 
-Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
+Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK or QoS 2 PUBREC is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
@@ -126,7 +159,8 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 | `port` | `[mqtt]` | `1883` | MQTT listen port |
 | `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
 | `unix_path` | `[mqtt]` | (empty) | Unix socket path |
-| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session, must be at least `1` |
+| `max_inflight_messages` | `[mqtt]` | `65535` | Max outstanding packet IDs per session, must be at least `1`. A QoS 2 delivery holds its ID until PUBCOMP |
+| `max_awaiting_pubrel` | `[mqtt]` | `65535` | Max QoS 2 packet IDs a publisher may hold between PUBLISH and PUBREL, must be at least `1`. The default is every packet ID, so only a lower value can be exceeded. Going over it closes the connection, as MQTT 3.1.1 has no way to reject a single publish |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
@@ -180,7 +214,7 @@ The client ID has no other role. Membership is decided by the authenticated user
 
 ### Enforcement
 
-- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged, and the connection stays open
+- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged with PUBACK and a QoS 2 one with PUBREC, and the connection stays open
 - Subscribe: always accepted. Read is enforced when a message is accepted into the session, so a subscription to a filter the user cannot read receives no messages. This matches Mosquitto
 - Will: the connection needs a write rule for the will topic, otherwise the will is dropped
 - Denials are logged at debug level
@@ -245,7 +279,7 @@ Definitions generated from a data directory include the groups in `mqtt_permissi
 ### Upgrading
 
 - A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
-- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it. A persistent session's first QoS 2 PUBLISH, which makes it a queue, needs the same write permission on `mqtt.<client_id>`, see [Session Limits](#session-limits)
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication
@@ -267,7 +301,11 @@ Note that connecting with a client_id already in use takes over that session, so
 ## Limitations
 
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
-- QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
+- QoS 2 state of a clean session is held in memory only, so it is lost with the session. For a durable session the packet IDs are persisted and replicated, see [QoS 2 exactly-once](#qos-2-exactly-once). The state is gone for a clean session and for a deleted session. In that case a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
+- A QoS 2 PUBLISH that was recorded but not yet sent when its subscriber reconnects is sent to the new connection with DUP=1, although it is its first send. Exactly-once still holds, since the subscriber dedupes on the packet ID. After a restart DUP=1 is correct: the broker cannot know whether a recorded PUBLISH went out.
+- A durable session's QoS 2 publishes can be routed twice if the broker process dies, power is lost or a failover happens between routing them and recording their packet IDs, up to every publish in flight at the time, see [QoS 2 exactly-once](#qos-2-exactly-once).
+- A subscriber that answers PUBREC and never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
+- Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full QoS 2 handshake when replayed to a QoS 2 subscriber, and for a durable session it also waits for its packet ID record.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding). Topics and topic filters can be at most 255 bytes, while MQTT allows 65535:

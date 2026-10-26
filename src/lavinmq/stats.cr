@@ -6,15 +6,21 @@ module LavinMQ
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
         @{{ name.id }}_count_prev = 0_u64
         @{{ name.id }}_rate = 0_f64
-        @{{ name.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
+        @{{ name.id }}_log = Deque(Float64).new(stats_log_capacity)
         def {{ name.id }}_count
           @{{ name.id }}_count.get(:relaxed)
         end
       {% end %}
       {% for name in log_keys %}
-        @{{ name.id }}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+        @{{ name.id }}_log = Deque(UInt32).new(stats_log_capacity)
         getter {{ name.id }}_log
       {% end %}
+
+      # The capacity the stats logs are created with: all of it, as
+      # update_rates fills them up to `stats_log_size`
+      protected def self.stats_log_capacity : Int32
+        Config.instance.stats_log_size
+      end
 
       def stats_details
         {

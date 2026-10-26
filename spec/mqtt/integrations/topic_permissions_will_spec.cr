@@ -74,7 +74,7 @@ module MqttSpecs
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
           subscribe(sub_io, topic_filters: mk_topic_filters({"#", 0}))
-          read_packet(sub_io).should be_nil
+          sub_io.should be_silent
         end
       end
     end

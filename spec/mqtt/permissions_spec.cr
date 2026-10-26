@@ -14,6 +14,22 @@ module MqttSpecs
         LavinMQ::Config.instance.mqtt_permission_check_enabled = false
       end
 
+      it "closes a durable QoS 2 publisher that may not write to its session queue" do
+        with_server do |server|
+          server.users.create("pub_only", "pass")
+          server.users.add_permission("pub_only", "/", /.*/, /.*/, /^mqtt\.default$/)
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "p", clean_session: false, username: "pub_only", password: "pass".to_slice)
+            publish(io, topic: "a/b", qos: 1u8).should be_a(MQTT::Protocol::PubAck)
+            # Its held ids would need the session queue
+            publish(io, topic: "a/b", qos: 2u8, packet_id: 2u16, expect_response: false)
+            io.should be_closed
+          end
+          server.vhosts["/"].session?("mqtt.p").should be_nil
+        end
+      end
+
       it "should block publish when user has no write permissions" do
         with_server do |server|
           server.users.create("no_write", "pass")

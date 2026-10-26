@@ -15,7 +15,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, clean_session: false, client_id: "pub")
-          publish(io, topic: "a/b/c", qos: 0u8)
+          publish(io, topic: "a/b/c", qos: 1u8)
         end
 
         with_client_io(server) do |io|

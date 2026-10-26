@@ -7,13 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MQTT QoS 2 (exactly once) in both directions, persisted and replicated for durable sessions, and the `max_awaiting_pubrel` setting. See `docs/mqtt.md` [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+
 ### Changed
 
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
+- An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, except retained messages [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1 [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT session becomes a queue at its first SUBSCRIBE, as before, or for a persistent session at its first QoS 2 PUBLISH. A persistent session's first QoS 2 PUBLISH past `max-queues`, or without write permission on `mqtt.<client_id>` when `permission_check_enabled` is set, closes the connection. A persistent client that only ever published at QoS 0 or 1 creates no queue and gets `session_present=0` on reconnect, as before. See `docs/mqtt.md` [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Deleting an MQTT session queue closes its client's connection. A CONNECT is refused with return code 2 when its `mqtt.<client_id>` name belongs to a queue that is not a session, and with return code 3 when its persistent session is closed, for example because its files could not be loaded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- Rolling back to an earlier version, or failing over to a node that runs one, disconnects MQTT clients that resume a QoS 2 exchange: earlier versions close the connection on a PUBREL. Upgrade every node in a cluster before clients use QoS 2. Downgrading after QoS 2 was used is not supported without deleting the MQTT sessions first: a later upgrade would load stale QoS 2 state, and an earlier version cannot remove a QoS 2 subscription for good [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- An MQTT SUBSCRIBE, UNSUBSCRIBE and the deletion of a session, which a subscribed clean session's disconnect does, no longer walk every subscription in the vhost, so their cost no longer grows with the number of subscriptions [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- When an MQTT delivery fails after the client has reconnected, the connection the delivery was written to is closed rather than the new one [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- A QoS 1 or QoS 2 MQTT PUBLISH with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and routed [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- An MQTT subscriber holding every outbound packet ID except the last one handed out no longer hangs the server. That ID was never tried, so delivery retried in a loop that never yielded [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
