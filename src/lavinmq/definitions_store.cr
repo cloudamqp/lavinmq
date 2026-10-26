@@ -218,10 +218,17 @@ module LavinMQ
         when AMQP::Frame::Queue::Delete
           if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
             unless @vhost.closed?
-              @exchanges.each_value do |ex|
-                ex.bindings_details.each do |binding|
-                  next unless binding.destination == q
-                  ex.unbind(q, binding.routing_key, binding.arguments)
+              if q.is_a?(MQTT::Session)
+                # Only the MQTT exchange binds a session, and the session
+                # knows its filters, so a session delete, which every clean
+                # disconnect does, doesn't walk every binding in the vhost
+                @mqtt_exchange.unbind_all(q)
+              else
+                @exchanges.each_value do |ex|
+                  ex.bindings_details.each do |binding|
+                    next unless binding.destination == q
+                    ex.unbind(q, binding.routing_key, binding.arguments)
+                  end
                 end
               end
             end
@@ -256,6 +263,13 @@ module LavinMQ
 
     def queue_bindings(queue : Queue)
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
+      if queue.is_a?(MQTT::Session)
+        bindings = [default_binding] of AMQP::BindingDetails | MQTT::SubscriptionDetails
+        queue.each_subscription do |filter, qos|
+          bindings << MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+        end
+        return bindings
+      end
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end

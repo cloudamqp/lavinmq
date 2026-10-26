@@ -69,14 +69,25 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        @tree.subscribe(routing_key, destination, MQTT.qos(arguments))
+        qos = MQTT.qos(arguments)
+        @tree.subscribe(routing_key, destination, qos)
+        destination.subscription_bound(routing_key, qos)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         @tree.unsubscribe(routing_key, destination)
+        destination.subscription_unbound(routing_key)
         delete if @auto_delete && @tree.empty?
         true
+      end
+
+      # For a session delete: walks the session's own filters rather than the
+      # tree, and changes the session's hash only after the walk
+      def unbind_all(session : MQTT::Session) : Nil
+        session.each_subscription { |filter, _qos| @tree.unsubscribe(filter, session) }
+        session.clear_subscriptions
+        delete if @auto_delete && @tree.empty?
       end
 
       def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
