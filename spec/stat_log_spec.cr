@@ -172,6 +172,7 @@ end
 
 class LavinMQ::StatBlockPool
   class_property? fail_alloc = false
+  setter generation
 
   def alloc : Pointer(UInt8)
     raise "alloc failed" if StatBlockPool.fail_alloc?
@@ -623,6 +624,15 @@ private def resident?(ptr : Pointer) : Bool
 end
 
 describe LavinMQ::StatBlockPool do
+  it "skips generation zero when its counter wraps, as zero marks a released block" do
+    pool = LavinMQ::StatBlockPool.new(8, UInt64)
+    pool.generation = UInt32::MAX
+    a = pool.alloc(UInt64)
+    a[0] = 42_u64
+    LavinMQ::StatBlockPool.generation(a).should_not eq 0
+    LavinMQ::StatLogView.new(a, 0, 1, 7_u64).to_a.should eq [42]
+  end
+
   it "hands out capacity-headed blocks outside the GC heap and reuses the lowest released one" do
     pool = LavinMQ::StatBlockPool.new(8, UInt64)
     a = pool.alloc

@@ -179,7 +179,9 @@ module LavinMQ
       slab_index, index = ordinal.divmod(@slab_blocks)
       block = @slabs[slab_index].block(index).as(Pointer(UInt32))
       block[0] = StatBlockPool.tick
-      block[1] = @generation &+= 1
+      @generation &+= 1
+      @generation = 1_u32 if @generation.zero? # zero marks a released block
+      block[1] = @generation
       block[2] = ordinal.to_u32
       block[3] = @bytes.to_u32
       Atomic.fence(:release)
