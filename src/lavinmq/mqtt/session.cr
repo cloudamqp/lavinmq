@@ -53,6 +53,10 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
+      # This session's topic filters and their QoS, kept by the MQTT exchange
+      # as it binds and unbinds them, so finding a session's subscriptions
+      # doesn't walk every subscription in the vhost
+      @subscriptions = Hash(String, UInt8).new
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -237,18 +241,37 @@ module LavinMQ
       # A concurrent API deletion can make the bind fail.
       # TODO: Check session identity under the definitions lock before binding.
       def subscribe(tf, qos) : Bool
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return true if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+        if current = @subscriptions[tf]?
+          return true if current == qos
+          unbind(tf, MQTT.qos_arguments(current))
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
       end
 
       def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
+        if qos = @subscriptions[tf]?
+          unbind(tf, MQTT.qos_arguments(qos))
         end
+      end
+
+      # Not for binding or unbinding from the block: the MQTT exchange changes
+      # the hash as it does
+      def each_subscription(& : String, UInt8 ->) : Nil
+        @subscriptions.each { |filter, qos| yield filter, qos }
+      end
+
+      # Called by the MQTT exchange for every binding, whether from a
+      # SUBSCRIBE, the HTTP API, a definitions import or a restore at startup
+      protected def subscription_bound(filter : String, qos : UInt8) : Nil
+        @subscriptions[filter] = qos
+      end
+
+      protected def subscription_unbound(filter : String) : Nil
+        @subscriptions.delete(filter)
+      end
+
+      protected def clear_subscriptions : Nil
+        @subscriptions.clear
       end
 
       def deliver(msg : Message, filter : String, ctx : PublishContext) : Bool
@@ -274,10 +297,6 @@ module LavinMQ
 
       def bindings
         @vhost.queue_bindings(self)
-      end
-
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
       end
 
       private def unbind(rk, arguments)
