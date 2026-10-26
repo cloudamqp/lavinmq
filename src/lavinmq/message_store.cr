@@ -646,16 +646,16 @@ module LavinMQ
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
     end
 
-    # Reads a segment through to count its messages. The last segment was
-    # fetched whole when it was opened (see #load_segments_from_disk) and
-    # isn't full yet, so it gets no metadata file. Any other one is read
-    # ahead here.
+    # Reads a segment through to count its messages, with readahead. The
+    # last segment was fetched when it was opened (see #open_last_segment),
+    # but only as far as it's allocated, which on a compressing filesystem is
+    # less than its data, so it's read ahead here too. It isn't full yet, so
+    # it gets no metadata file.
     private def count_messages(seg, mfile)
-      last = seg == @segments.last_key
-      mfile.advise(MFile::Advice::Sequential) unless last
+      mfile.advise(MFile::Advice::Sequential)
       produce_metadata(seg, mfile)
-      return if @closed || last
       mfile.advise(MFile::Advice::Random)
+      return if @closed || seg == @segments.last_key
       write_metadata_file(seg, mfile)
     end
 

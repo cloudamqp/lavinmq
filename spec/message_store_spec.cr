@@ -141,6 +141,8 @@ end
   # Records the advice segments have when the store starts loading them
   class AdviceOnLoadStore < LavinMQ::MessageStore
     class_getter advice_on_load = Array({String, Array(String)}).new
+    # Pages of each segment in the page cache when counting its messages starts
+    class_getter cached_on_load = Array(Int32).new
 
     private def read_metadata_file(seg, mfile)
       @@advice_on_load << {"read_metadata_file", vm_flags(mfile.path)}
@@ -149,6 +151,7 @@ end
 
     private def produce_metadata(seg, mfile)
       @@advice_on_load << {"produce_metadata", vm_flags(mfile.path)}
+      @@cached_on_load << cached_pages(mfile.path)
       super
     end
   end
@@ -1034,15 +1037,30 @@ describe LavinMQ::MessageStore do
           store.size.should eq 4
           loads = AdviceOnLoadStore.advice_on_load
           loads.map(&.first).should eq ["read_metadata_file", "produce_metadata"]
-          loads.each do |load, flags|
-            if load == "read_metadata_file" # skips the acked message
-              flags.should contain "sr"
-              flags.should_not contain "rr"
-            else # the write segment has no meta file, it was fetched in one readahead when opened
-              flags.should contain "rr"
-            end
+          # Skipping the acked message, and counting the messages of the write
+          # segment, which has no meta file: what its readahead when opened
+          # didn't fetch, on a compressing filesystem, is read ahead here
+          loads.each do |_, flags|
+            flags.should contain "sr"
+            flags.should_not contain "rr"
           end
           store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
+      it "fetches the last segment in one readahead before counting its messages" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          100.times { store.push(LavinMQ::Message.new("", "rk", "x" * 1000)) } # about 25 pages
+          store.close
+          evict_from_page_cache(Dir.glob(File.join(dir, "msgs.*")).first)
+          AdviceOnLoadStore.cached_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 100
+          # Without it, only the page the schema check faulted in
+          AdviceOnLoadStore.cached_on_load.size.should eq 1
+          AdviceOnLoadStore.cached_on_load.first.should be >= 20
           store.close
         end
       end
