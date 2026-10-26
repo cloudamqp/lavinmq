@@ -33,8 +33,8 @@ Addresses follow the [RabbitMQ AMQP 1.0 address format](https://www.rabbitmq.com
 | Address | Target (publish) | Source (consume) |
 |---------|------------------|------------------|
 | `/queues/{queue}` | Publish directly to the queue | Consume from the queue |
-| `/exchanges/{exchange}` | Publish to the exchange with an empty routing key | — |
-| `/exchanges/{exchange}/{routing-key}` | Publish to the exchange with the routing key | — |
+| `/exchanges/{exchange}` | Publish to the exchange with an empty routing key | Subscribe to the exchange with an empty binding key, see [Subscriptions](#subscriptions) |
+| `/exchanges/{exchange}/{routing-key}` | Publish to the exchange with the routing key | Subscribe to the exchange with the routing key as binding key |
 | *(no address)* | Anonymous terminus: each message carries its target in the `to` property | — |
 | *(dynamic)* | An exclusive, auto-delete queue is created and its `/queues/...` address returned in the `attach` | Same |
 
@@ -44,12 +44,12 @@ A refused attach is answered with an `attach` without a terminus followed by a `
 
 | Condition | When |
 |-----------|------|
-| `amqp:not-found` | The queue or exchange does not exist, or the address is not one of the formats above |
+| `amqp:not-found` | The queue or exchange does not exist, the address is not one of the formats above, or a receiving link without a source names no durable subscription |
 | `amqp:unauthorized-access` | The user lacks the permission, or the exchange is internal |
-| `amqp:resource-locked` | The queue is exclusive to another connection |
-| `amqp:resource-limit-exceeded` | A dynamic queue cannot be created: the vhost queue limit is reached or disk space is low |
-| `amqp:not-implemented` | `$management` addresses, durable termini, `dynamic-node-properties` other than `lifetime-policy: delete-on-close`, or source filters |
-| `amqp:invalid-field` | A dynamic terminus with an address, or a receiving link without a source address |
+| `amqp:resource-locked` | The queue is exclusive to another connection, or a subscription is in use (see [Subscriptions](#subscriptions)) |
+| `amqp:resource-limit-exceeded` | A dynamic or subscription queue cannot be created: the vhost queue limit is reached or disk space is low |
+| `amqp:not-implemented` | `$management` addresses, durable termini other than subscriptions, `dynamic-node-properties` other than `lifetime-policy: delete-on-close`, or source filters |
+| `amqp:invalid-field` | A dynamic terminus with an address, a receiving link with a source without an address, or a subscription name that is too long or not printable ASCII |
 
 Publishing requires write permission on the exchange (an empty exchange name for queue targets), consuming requires read permission on the queue. A `user-id` property must match the authenticated user unless the user may impersonate others.
 
@@ -70,6 +70,31 @@ LavinMQ offers the `ANONYMOUS-RELAY` capability in its `open`, so clients such a
 ## Request-Reply
 
 The requester sets `reply-to` to the address of a dynamic queue it consumes from (a JMS temporary queue), or of a pre-declared queue, and the responder publishes the reply to that address, over a link to it or an anonymous link with `to` set. Direct reply-to (`amq.direct.reply-to`) is not supported.
+
+## Subscriptions
+
+A receiving link whose source is an `/exchanges/` address subscribes to the exchange: LavinMQ binds a queue to the exchange, with the address's routing key as binding key, and the link consumes from it. This is how JMS topic subscribers work with Qpid JMS, given `jms.topicPrefix=/exchanges/amq.topic/` in the connection URI. Creating the queue needs configure permission on it, binding needs read permission on the exchange and write permission on the queue, and consuming needs read permission on the queue.
+
+The source's `expiry-policy` and `capabilities` select the kind of subscription, following the conventions of Qpid JMS:
+
+| Subscription | Source | Queue |
+|---|---|---|
+| Non-durable | any other `expiry-policy` | Server-named, exclusive to the connection, deleted with the link |
+| Durable | `expiry-policy` `never` | `amqp10.sub.{container-id}.{link name}`, durable |
+| Shared durable | `expiry-policy` `never`, capability `shared` | `amqp10.sub.{container-id}.{name}`, durable |
+| Global shared durable | `expiry-policy` `never`, capabilities `shared` and `global` | `amqp10.gsub.{name}`, durable |
+| Shared non-durable | capability `shared` | `amqp10.vsub.{container-id}.{name}`, deleted when its last link detaches |
+| Global shared non-durable | capabilities `shared` and `global` | `amqp10.gvsub.{name}`, deleted when its last link detaches |
+
+The container-id is the one the client sent in its `open` (the JMS client ID with Qpid JMS). The name of a shared subscription is its link name up to the first `|`, as Qpid JMS names the links of a shared subscription `{name}`, `{name}|2`, `{name}|global`, `{name}|volatile1` and so on. A global subscription is the same for every container in the vhost. The source LavinMQ answers with has `durable` set to `configuration` at most, as unsettled state is not kept across links.
+
+- A durable subscription keeps receiving messages while no link is attached. It is kept when its link detaches without closing, the session ends or the connection closes, and also across restarts.
+- A link that detaches with `closed` set unsubscribes: the subscription's queue is deleted, or, if other links still consume from it, the detach is answered with `amqp:resource-locked` and it is kept.
+- An unshared durable subscription takes one link at a time; another gets `amqp:resource-locked`, as does an unshared link to a subscription shared links consume from, and vice versa.
+- Attaching to a subscription with a different address replaces it, dropping its messages, as a JMS subscription changing its topic does. While links consume from it, that is refused with `amqp:resource-locked`.
+- A receiving link without a source whose link name is a durable subscription's (`{name}`, or `{name}|global` for a global one) attaches to it, and LavinMQ answers with its source. Qpid JMS looks up a subscription this way to unsubscribe from it, then detaches with `closed` set.
+
+LavinMQ offers the `SHARED-SUBS` capability in its `open`, as Qpid JMS requires to create shared subscriptions. Selectors (source filters), `no-local` and `distribution-mode` `copy` are not supported. Qpid JMS asks for `copy` on durable subscriptions; it is ignored, and makes no difference, since each subscription has a queue of its own.
 
 ## Consuming
 
@@ -128,7 +153,7 @@ Details the 0-9-1 format has no field for are kept in headers prefixed `x-amqp10
 
 ## Not Supported
 
-- Link recovery (the `unsettled` map on attach), durable termini and source filters
+- Link recovery (the `unsettled` map on attach), durable termini other than [subscriptions](#subscriptions), and source filters (JMS selectors)
 - Management (`$management`) links
 - Direct reply-to via `amq.direct.reply-to` addresses
 - SASL mechanisms other than `PLAIN` and `ANONYMOUS`

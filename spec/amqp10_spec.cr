@@ -10,7 +10,8 @@ private class AMQP10SpecClient
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
                  idle_timeout : UInt32? = nil, expect_open = true,
-                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, mechanism : String? = "PLAIN")
+                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, mechanism : String? = "PLAIN",
+                 @container_id = "spec-client")
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
@@ -133,6 +134,52 @@ private class AMQP10SpecClient
     detach = LavinMQ::AMQP10::Detach.from_value(detach_value)
     detach.handle.should eq attach.handle
     detach
+  end
+
+  # Attaches a receiver to an exchange source as Qpid JMS subscribes: a
+  # durable subscription has expiry-policy never, a shared one the shared
+  # capability.
+  def attach_subscriber(address : String, handle = 0_u32, name = "subscriber", durable = false,
+                        capabilities = [] of String) : LavinMQ::AMQP10::Attach
+    send_subscriber_attach(address, handle, name, durable, capabilities)
+    LavinMQ::AMQP10::Attach.from_value(read_value)
+  end
+
+  def attach_subscriber_detached(address : String, handle = 0_u32, name = "subscriber", durable = false,
+                                 capabilities = [] of String) : String?
+    send_subscriber_attach(address, handle, name, durable, capabilities)
+    attach = LavinMQ::AMQP10::Attach.from_value(read_value)
+    attach.source.should be_nil
+    @last_detach_condition = error_condition(read_value)
+  end
+
+  private def send_subscriber_attach(address, handle, name, durable, capabilities) : Nil
+    source = LavinMQ::AMQP10::Source.new(address, durable: durable ? 2_u32 : 0_u32,
+      expiry_policy: durable ? "never" : "link-detach", capabilities: capabilities).to_value
+    fields = attach_fields(name, handle, role_receiver: true, source: source, target: LavinMQ::AMQP10::Value.null)
+    send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
+  end
+
+  # Attaches a receiver without a source, as Qpid JMS looks up a durable
+  # subscription to unsubscribe. Returns the source the server answered with,
+  # nil if it refused (having read its detach too).
+  def attach_lookup(name : String, handle = 0_u32) : LavinMQ::AMQP10::Source?
+    fields = attach_fields(name, handle, role_receiver: true,
+      source: LavinMQ::AMQP10::Value.null, target: LavinMQ::AMQP10::Value.null)
+    send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
+    source = LavinMQ::AMQP10::Attach.from_value(read_value).source
+    @last_detach_condition = error_condition(read_value) unless source
+    source
+  end
+
+  # Detaches a link, closing it or not, and returns the error condition of
+  # the server's answering detach.
+  def detach_link(handle : UInt32, closed : Bool) : String?
+    fields = [LavinMQ::AMQP10::Value.uint(handle), LavinMQ::AMQP10::Value.bool(closed)]
+    send_performative(LavinMQ::AMQP10::Descriptor::DETACH, fields)
+    value = read_value
+    LavinMQ::AMQP10::Detach.from_value(value).closed.should eq closed
+    error_condition(value)
   end
 
   def flow(handle = 0_u32, credit = 1_u32, delivery_count = 0_u32, drain = false, echo = false) : Nil
@@ -381,7 +428,7 @@ private class AMQP10SpecClient
   end
 
   private def send_open(hostname, frame_max, idle_timeout : UInt32? = nil)
-    fields = [LavinMQ::AMQP10::Value.string("spec-client")]
+    fields = [LavinMQ::AMQP10::Value.string(@container_id)]
     fields << (hostname ? LavinMQ::AMQP10::Value.string(hostname) : LavinMQ::AMQP10::Value.null)
     fields << LavinMQ::AMQP10::Value.uint(frame_max)
     if idle_timeout
@@ -1565,7 +1612,7 @@ describe LavinMQ::AMQP10 do
     end
   end
 
-  it "offers the ANONYMOUS-RELAY capability" do
+  it "offers the ANONYMOUS-RELAY and SHARED-SUBS capabilities" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s), expect_open: false)
       value = client.read_value
@@ -1574,7 +1621,7 @@ describe LavinMQ::AMQP10 do
       open.max_frame_size.should eq LavinMQ::Config.instance.frame_max
       fields = value.described?.should_not(be_nil).value.list?.should_not(be_nil)
       capabilities = fields[7].list?.should_not(be_nil)
-      capabilities.map(&.symbol?).should eq ["ANONYMOUS-RELAY"]
+      capabilities.map(&.symbol?).should eq ["ANONYMOUS-RELAY", "SHARED-SUBS"]
       client.close
     end
   end
@@ -2902,6 +2949,243 @@ describe LavinMQ::AMQP10 do
       client.attach_sender_detached(nil, name: "durable-target", dynamic: true,
         durable: 1_u32).closed.should be_true
       client.close
+    end
+  end
+
+  describe "subscriptions" do
+    it "subscribes a link to an exchange with a temporary queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          client = AMQP10SpecClient.new(amqp_port(s))
+          attach = client.attach_subscriber("/exchanges/amq.topic/a.*")
+          source = attach.source.should_not be_nil
+          source.address.should eq "/exchanges/amq.topic/a.*"
+          source.expiry_policy.should eq "link-detach"
+          queues = s.vhosts["/"].queues.select(&.exclusive?)
+          queues.size.should eq 1
+          q = queues.first
+          client.flow(0_u32, 10_u32)
+          ch.basic_publish_confirm("other", "amq.topic", "c.d")
+          ch.basic_publish_confirm("match", "amq.topic", "a.b")
+          client.consume_one.should eq "match"
+          client.detach_link(0_u32, closed: true).should be_nil
+          wait_for { s.vhosts["/"].queue?(q.name).nil? }
+          client.close
+        end
+      end
+    end
+
+    it "subscribes to an exchange address without a routing key" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          client = AMQP10SpecClient.new(amqp_port(s))
+          client.attach_subscriber("/exchanges/amq.fanout").source.should_not be_nil
+          client.flow(0_u32, 1_u32)
+          ch.basic_publish_confirm("fanned", "amq.fanout", "any")
+          client.consume_one.should eq "fanned"
+          client.close
+        end
+      end
+    end
+
+    it "refuses subscriptions to missing exchanges or without permissions" do
+      with_amqp_server do |s|
+        s.users.create("amqp10-sub-limited", "pw")
+        s.users.add_permission("amqp10-sub-limited", "/", /^$/, /.*/, /.*/)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_subscriber_detached("/exchanges/missing/rk", durable: true)
+          .should eq LavinMQ::AMQP10::ErrorCondition::NOT_FOUND
+        client.close
+        limited = AMQP10SpecClient.new(amqp_port(s), username: "amqp10-sub-limited", password: "pw")
+        limited.attach_subscriber_detached("/exchanges/amq.topic/a", durable: true)
+          .should eq LavinMQ::AMQP10::ErrorCondition::UNAUTHORIZED_ACCESS
+        limited.attach_subscriber_detached("/exchanges/amq.topic/a", handle: 1_u32)
+          .should eq LavinMQ::AMQP10::ErrorCondition::UNAUTHORIZED_ACCESS
+        limited.close
+        s.vhosts["/"].queues.none?(&.name.starts_with?("amqp10.")).should be_true
+      end
+    end
+
+    it "keeps a durable subscription's messages across detaches and unsubscribes on a closing detach" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          source = client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true).source.should_not be_nil
+          source.durable.should eq 1_u32
+          source.expiry_policy.should eq "never"
+          q = s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should_not be_nil
+          q.durable?.should be_true
+          client.detach_link(0_u32, closed: false).should be_nil
+          ch.basic_publish_confirm("while-away", "amq.topic", "a")
+          q.message_count.should eq 1
+          client.close
+
+          client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true).source.should_not be_nil
+          client.flow(0_u32, 1_u32)
+          client.consume_one.should eq "while-away"
+          client.detach_link(0_u32, closed: true).should be_nil
+          s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should be_nil
+          client.close
+        end
+      end
+    end
+
+    it "keeps durable subscriptions of other containers apart and allows one link at a time" do
+      with_amqp_server do |s|
+        one = AMQP10SpecClient.new(amqp_port(s), container_id: "one")
+        one.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true).source.should_not be_nil
+        one.attach_subscriber_detached("/exchanges/amq.topic/a", handle: 1_u32, name: "sub", durable: true)
+          .should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+        two = AMQP10SpecClient.new(amqp_port(s), container_id: "two")
+        two.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true).source.should_not be_nil
+        s.vhosts["/"].queue?("amqp10.sub.one.sub").should_not be_nil
+        s.vhosts["/"].queue?("amqp10.sub.two.sub").should_not be_nil
+        one.close
+        two.close
+      end
+    end
+
+    it "recreates a durable subscription whose address changed unless it is in use" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true)
+          other = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          other.attach_subscriber_detached("/exchanges/amq.topic/b", name: "sub", durable: true)
+            .should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+          other.close
+          client.detach_link(0_u32, closed: false)
+          ch.basic_publish_confirm("old-topic", "amq.topic", "a")
+
+          client.attach_subscriber("/exchanges/amq.topic/b", handle: 1_u32, name: "sub", durable: true)
+          q = s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should_not be_nil
+          q.message_count.should eq 0
+          ch.basic_publish_confirm("old-topic", "amq.topic", "a")
+          ch.basic_publish_confirm("new-topic", "amq.topic", "b")
+          client.flow(1_u32, 1_u32)
+          client.consume_one.should eq "new-topic"
+          client.close
+        end
+      end
+    end
+
+    it "looks up a durable subscription by link name to unsubscribe" do
+      with_amqp_server do |s|
+        client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        client.attach_lookup("sub").should be_nil
+        client.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::NOT_FOUND
+        client.attach_subscriber("/exchanges/amq.topic/a", handle: 1_u32, name: "sub", durable: true)
+        client.detach_link(1_u32, closed: false)
+
+        source = client.attach_lookup("sub", handle: 2_u32).should_not be_nil
+        source.address.should eq "/exchanges/amq.topic/a"
+        client.detach_link(2_u32, closed: true).should be_nil
+        s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should be_nil
+        client.close
+      end
+    end
+
+    it "refuses to unsubscribe while the subscription is consumed from" do
+      with_amqp_server do |s|
+        client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true, capabilities: ["shared"])
+        other = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        other.attach_lookup("sub").should_not be_nil
+        other.detach_link(0_u32, closed: true).should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+        s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should_not be_nil
+        other.close
+        client.close
+      end
+    end
+
+    it "keeps a durable subscription across a restart" do
+      with_amqp_server do |s|
+        client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true)
+        client.close
+        restart_server(s)
+        with_channel(s) do |ch|
+          ch.basic_publish_confirm("after-restart", "amq.topic", "a")
+        end
+        client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true)
+        client.flow(0_u32, 1_u32)
+        client.consume_one.should eq "after-restart"
+        client.close
+      end
+    end
+
+    it "shares a subscription between links" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          one = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          two = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+          source = one.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true,
+            capabilities: ["topic", "shared"]).source.should_not be_nil
+          source.capabilities.should eq ["shared"]
+          two.attach_subscriber("/exchanges/amq.topic/a", name: "sub|2", durable: true,
+            capabilities: ["topic", "shared"]).source.should_not be_nil
+          q = s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should_not be_nil
+          q.consumer_count.should eq 2
+          one.flow(0_u32, 1_u32)
+          two.flow(0_u32, 1_u32)
+          ch.basic_publish_confirm("m1", "amq.topic", "a")
+          ch.basic_publish_confirm("m2", "amq.topic", "a")
+          [one.consume_one, two.consume_one].sort.should eq ["m1", "m2"]
+          one.detach_link(0_u32, closed: false)
+          two.detach_link(0_u32, closed: false)
+          s.vhosts["/"].queue?("amqp10.sub.jms-client.sub").should_not be_nil
+          one.close
+          two.close
+        end
+      end
+    end
+
+    it "names global shared subscriptions by link alone" do
+      with_amqp_server do |s|
+        one = AMQP10SpecClient.new(amqp_port(s), container_id: "one")
+        two = AMQP10SpecClient.new(amqp_port(s), container_id: "two")
+        one.attach_subscriber("/exchanges/amq.topic/a", name: "sub|global", durable: true,
+          capabilities: ["shared", "global"]).source.should_not be_nil
+        two.attach_subscriber("/exchanges/amq.topic/a", name: "sub|global2", durable: true,
+          capabilities: ["shared", "global"]).source.should_not be_nil
+        s.vhosts["/"].queue?("amqp10.gsub.sub").should_not(be_nil).consumer_count.should eq 2
+        one.detach_link(0_u32, closed: false)
+        two.detach_link(0_u32, closed: false)
+        two.attach_lookup("sub|global", handle: 1_u32).should_not be_nil
+        two.detach_link(1_u32, closed: true).should be_nil
+        s.vhosts["/"].queue?("amqp10.gsub.sub").should be_nil
+        one.close
+        two.close
+      end
+    end
+
+    it "deletes a non-durable shared subscription with its last link" do
+      with_amqp_server do |s|
+        one = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        two = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        one.attach_subscriber("/exchanges/amq.topic/a", name: "sub|volatile1", capabilities: ["shared"])
+        two.attach_subscriber("/exchanges/amq.topic/a", name: "sub|volatile2", capabilities: ["shared"])
+        q = s.vhosts["/"].queue?("amqp10.vsub.jms-client.sub").should_not be_nil
+        q.durable?.should be_false
+        q.consumer_count.should eq 2
+        one.detach_link(0_u32, closed: true).should be_nil
+        s.vhosts["/"].queue?("amqp10.vsub.jms-client.sub").should_not be_nil
+        two.close
+        wait_for { s.vhosts["/"].queue?("amqp10.vsub.jms-client.sub").nil? }
+        one.close
+      end
+    end
+
+    it "refuses an unshared link to a subscription shared links consume from" do
+      with_amqp_server do |s|
+        client = AMQP10SpecClient.new(amqp_port(s), container_id: "jms-client")
+        client.attach_subscriber("/exchanges/amq.topic/a", name: "sub", durable: true, capabilities: ["shared"])
+        client.attach_subscriber_detached("/exchanges/amq.topic/a", handle: 1_u32, name: "sub", durable: true)
+          .should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+        client.close
+      end
     end
   end
 end

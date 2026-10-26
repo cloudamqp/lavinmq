@@ -410,6 +410,11 @@ module LavinMQ::AMQP10
     getter delivery_tag_buffer : Bytes
     # snd-settle-mode == 1 (settled): deliver pre-settled, no dispositions expected.
     getter? settled : Bool
+    # The only consumer of its queue, as an unshared subscription's link is
+    getter? exclusive : Bool
+    # The queue of the durable subscription the link consumes, which a
+    # closing detach from the peer unsubscribes from
+    getter subscription : LavinMQ::AMQP::Queue?
     @unacked = Deque(Unack).new
     @unack_lock = Mutex.new(:checked)
     # Entries taken out of @unacked by a disposition, settled outside the lock
@@ -427,7 +432,8 @@ module LavinMQ::AMQP10
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
                    local_handle : UInt32, @queue : LavinMQ::AMQP::Queue,
-                   dynamic_queue : LavinMQ::AMQP::Queue? = nil, snd_settle_mode : UInt8? = nil)
+                   dynamic_queue : LavinMQ::AMQP::Queue? = nil, snd_settle_mode : UInt8? = nil,
+                   @exclusive : Bool = false, @subscription : LavinMQ::AMQP::Queue? = nil)
       super(session, name, remote_handle, local_handle, Role::Sender, dynamic_queue)
       @settled = snd_settle_mode == 1_u8
       # The exclusivity check is made atomically with the add
@@ -778,7 +784,7 @@ module LavinMQ::AMQP10
 
   class Consumer < LavinMQ::Client::Channel::Consumer
     getter tag, priority = 0, prefetch_count = 0_u16
-    getter? exclusive = false
+    getter? exclusive : Bool
     getter? no_ack = false
     getter queue
     # True while the link has credit, kept up to date by the link
@@ -787,6 +793,7 @@ module LavinMQ::AMQP10
 
     def initialize(@link : SenderLink, @queue : LavinMQ::AMQP::Queue)
       @tag = "amqp10.ctag-#{Random::Secure.urlsafe_base64(12)}"
+      @exclusive = @link.exclusive?
     end
 
     def ensure_deliver_loop
@@ -824,7 +831,7 @@ module LavinMQ::AMQP10
           vhost: @queue.vhost.name,
         },
         consumer_tag:    @tag,
-        exclusive:       false,
+        exclusive:       @exclusive,
         ack_required:    true,
         prefetch_count:  @prefetch_count,
         priority:        0,
@@ -961,11 +968,12 @@ module LavinMQ::AMQP10
         @client.send_attach(self, link, frame.source, remote_target, frame)
         @client.send_flow(self, link, link.credit)
       in .receiver?
-        queue, dynamic_queue, remote_source = attach_sender(frame)
-        link = SenderLink.new(self, frame.name, frame.handle, local_handle, queue, dynamic_queue, frame.snd_settle_mode)
+        source = attach_sender(frame)
+        link = SenderLink.new(self, frame.name, frame.handle, local_handle, source.queue, source.dynamic_queue,
+          frame.snd_settle_mode, source.exclusive, source.subscription)
         @links[frame.handle] = link
         @sender_links << link
-        @client.send_attach(self, link, remote_source, frame.target, frame)
+        @client.send_attach(self, link, source.remote, frame.target, frame)
       end
     rescue ex : ProtocolError
       @client.log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
@@ -1004,23 +1012,66 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def attach_sender(frame)
-      source = frame.source || raise LinkError.new(ErrorCondition::INVALID_FIELD, "source required")
-      reject_unsupported_terminus!(source)
+    # What a receiving link consumes from: its queue, the source we answer
+    # with, a queue to delete with the link and whether the link must be the
+    # queue's only consumer, and the durable subscription it unsubscribes from
+    # when the peer closes it.
+    private record AttachedSource, queue : LavinMQ::AMQP::Queue, remote : Source,
+      dynamic_queue : LavinMQ::AMQP::Queue? = nil, exclusive : Bool = false,
+      subscription : LavinMQ::AMQP::Queue? = nil
+
+    private def attach_sender(frame) : AttachedSource
+      source = frame.source
+      # Qpid JMS looks up a durable subscription to unsubscribe by attaching
+      # with its link name and no source; the answer carries its source.
+      if source.nil? || (source.address.nil? && !source.dynamic)
+        if found = @client.find_subscription(frame.name)
+          q, address = found
+          remote = Source.new(address, durable: 1_u32, expiry_policy: "never")
+          return AttachedSource.new(q, remote, subscription: q)
+        end
+        # Not found tells Qpid JMS there is no such subscription to unsubscribe
+        raise LinkError.new(ErrorCondition::NOT_FOUND, "no subscription for link '#{frame.name}'") unless source
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "source address required")
+      end
       if source.filter
         raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "source filters are not supported")
       end
+      address = source.address
+      if address && (exchange_source = Address.parse_exchange(address))
+        return attach_subscription(frame.name, source, address, *exchange_source)
+      end
+      reject_unsupported_terminus!(source)
       if source.dynamic
-        raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic source address must be empty") if source.address
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic source address must be empty") if address
         q = @client.declare_dynamic_queue(consume: true)
-        address = "/queues/#{q.name}"
-        {q, q, Source.new(address, dynamic: true)}
-      elsif address = source.address
-        q = @client.resolve_source(address)
-        {q, nil, source}
+        AttachedSource.new(q, Source.new("/queues/#{q.name}", dynamic: true), dynamic_queue: q)
+      elsif address
+        AttachedSource.new(@client.resolve_source(address), source)
       else
         raise LinkError.new(ErrorCondition::INVALID_FIELD, "source address required")
       end
+    end
+
+    # A source on an exchange subscribes the link to it (see Client#subscribe).
+    # Expiry-policy never makes the subscription durable; the source we answer
+    # with is durable for its configuration only, as unsettled state is not kept.
+    private def attach_subscription(link_name : String, source : Source, address : String,
+                                    exchange : String, binding_key : String) : AttachedSource
+      if source.dynamic || source.dynamic_node_properties
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic source address must be empty")
+      end
+      durable = source.expiry_policy == "never"
+      shared = source.capabilities.includes?("shared")
+      global = shared && source.capabilities.includes?("global")
+      sub = @client.subscribe(link_name, address, exchange, binding_key, durable, shared, global)
+      capabilities = shared ? (global ? ["shared", "global"] : ["shared"]) : [] of String
+      remote = Source.new(address, durable: durable ? 1_u32 : 0_u32,
+        expiry_policy: durable ? "never" : "link-detach", capabilities: capabilities)
+      AttachedSource.new(sub.queue, remote,
+        dynamic_queue: sub.temporary ? sub.queue : nil,
+        exclusive: !shared && durable,
+        subscription: sub.durable ? sub.queue : nil)
     end
 
     private def reject_unsupported_terminus!(terminus : Source | Target) : Nil
@@ -1126,8 +1177,17 @@ module LavinMQ::AMQP10
       if link = @links.delete(frame.handle)
         @sender_links.delete(link)
         link.close
-        @client.send_detach(self, link.local_handle, frame.closed)
+        error = unsubscribe(link) if frame.closed
+        @client.send_detach(self, link.local_handle, frame.closed, error)
       end
+    end
+
+    # A durable subscription's link closed by the peer ends the subscription
+    # (JMS unsubscribe), unless other links still consume from it.
+    private def unsubscribe(link : Link) : ErrorInfo?
+      q = link.as?(SenderLink).try(&.subscription) || return
+      return if @client.unsubscribe(q)
+      ErrorInfo.new(ErrorCondition::RESOURCE_LOCKED, "subscription '#{q.name}' has active consumers")
     end
 
     def publish(msg : Message) : LavinMQ::AMQP::Exchange::PublishResult

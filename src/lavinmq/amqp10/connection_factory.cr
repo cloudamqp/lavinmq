@@ -50,7 +50,7 @@ module LavinMQ::AMQP10
       local_open = Open.new(Client::SERVER_CONTAINER_ID, nil, local_max_frame_size, channel_max, local_idle_timeout)
       vhost = resolve_vhost(socket, open, user, local_open, log) || return
 
-      client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size, local_max_frame_size,
+      client = Client.new(socket, connection_info, vhost, user, mechanism, open.container_id, max_frame_size, local_max_frame_size,
         channel_max, open.idle_time_out, local_idle_timeout, reader)
       client.send_open
       client

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- AMQP 1.0 subscriptions: a receiving link with an `/exchanges/` source consumes from a queue bound to the exchange, which is durable for an `expiry-policy` of `never` and shared between links with the `shared` capability, so that JMS topic subscribers and durable and shared subscriptions work with Qpid JMS. Closing a durable subscription's link unsubscribes
+
 ### Changed
 
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)

@@ -22,7 +22,11 @@ module LavinMQ::AMQP10
     Log                 = LavinMQ::Log.for "amqp10.client"
     SERVER_CONTAINER_ID = "lavinmq"
 
-    getter vhost, user, name, connection_info, auth_mechanism
+    # The queue a receiving link subscribed to an exchange consumes from.
+    # A temporary one is deleted with the link, as a dynamic queue is.
+    record Subscription, queue : LavinMQ::AMQP::Queue, durable : Bool, shared : Bool, temporary : Bool
+
+    getter vhost, user, name, connection_info, auth_mechanism, container_id
     getter max_frame_size : UInt32
     getter client_properties = LavinMQ::AMQP::Table.new
 
@@ -57,6 +61,7 @@ module LavinMQ::AMQP10
                    @vhost : VHost,
                    @user : Auth::BaseUser,
                    @auth_mechanism : String,
+                   @container_id : String,
                    @max_frame_size : UInt32,
                    @local_max_frame_size : UInt32,
                    @channel_max : UInt16,
@@ -146,34 +151,157 @@ module LavinMQ::AMQP10
     # A dynamic source is consumed from and a dynamic target published to (via
     # the default exchange), so that access is required as well as configure.
     def declare_dynamic_queue(*, consume : Bool) : LavinMQ::AMQP::Queue
-      raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "Server low on disk space, can not create queue") unless @vhost.flow?
-      if @vhost.queue_limit_reached?
-        raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "queue limit in vhost '#{@vhost.name}' is reached")
-      end
-
       name = LavinMQ::AMQP::Queue.generate_name
-      unless @user.can_config?(@vhost.name, name)
-        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
-      end
+      check_can_create_queue!(name)
       if consume
-        unless @user.can_read?(@vhost.name, name)
-          raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
-        end
+        check_can_consume!(name)
       elsif !@user.can_write?(@vhost.name, "", @acl_write_cache)
         raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' not allowed to publish to exchange ''")
       end
-      frame = LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, false, true, true, false, LavinMQ::AMQP::Table.new)
-      @vhost.apply(frame)
-      q = @vhost.queue(name).as(LavinMQ::AMQP::Queue)
-      @exclusive_queues << q
-      q.exclusive_owner = self
-      q
+      declare_exclusive_queue(name)
     end
 
     def close_dynamic_queue(q : LavinMQ::AMQP::Queue?) : Nil
       return unless q
       @exclusive_queues.delete(q)
       q.close
+    end
+
+    # Argument of a subscription queue holding the address it was made for,
+    # telling it apart from other queues and giving back its source on lookup
+    SUBSCRIPTION_SOURCE_ARGUMENT = "x-amqp10-source"
+
+    # Subscribes a receiving link to an exchange, with a queue bound to it:
+    #   - shared (the `shared` capability) or not: a shared subscription's queue
+    #     is consumed by every link attached to it, an unshared one's by one
+    #   - durable (expiry-policy never) or not: a durable subscription's queue
+    #     outlives its links until unsubscribed, a non-durable unshared one is
+    #     deleted with its link and a non-durable shared one with its last link
+    #   - global (the `global` capability, with `shared`): the subscription is
+    #     named by the link alone instead of by container-id and link
+    # The names follow Qpid JMS, which appends `|<suffix>` to the subscription
+    # name in the link names of shared subscriptions.
+    def subscribe(link_name : String, address : String, exchange : String, binding_key : String,
+                  durable : Bool, shared : Bool, global : Bool) : Subscription
+      ex = @vhost.exchange?(exchange) || raise LinkError.new(ErrorCondition::NOT_FOUND, "exchange '#{exchange}' not found")
+      unless @user.can_read?(@vhost.name, exchange)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' doesn't have read permissions to exchange '#{exchange}'")
+      end
+      unless durable || shared
+        name = LavinMQ::AMQP::Queue.generate_name
+        check_can_create_queue!(name)
+        check_subscription_permissions!(name)
+        q = declare_exclusive_queue(name)
+        bind_subscription(q, ex, binding_key)
+        return Subscription.new(q, durable: false, shared: false, temporary: true)
+      end
+      subscription_name = shared ? link_name.partition('|').first : link_name
+      name = subscription_queue_name(subscription_name, durable, global && shared)
+      check_subscription_permissions!(name)
+      q = existing_subscription(name, address)
+      unless q
+        check_can_create_queue!(name)
+        arguments = LavinMQ::AMQP::Table.new({SUBSCRIPTION_SOURCE_ARGUMENT => address})
+        @vhost.declare_queue(name, durable, !durable, arguments)
+        q = @vhost.queue?(name).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::RESOURCE_DELETED, "queue '#{name}' was deleted")
+      end
+      bind_subscription(q, ex, binding_key)
+      Subscription.new(q, durable: durable, shared: shared, temporary: false)
+    end
+
+    # The durable subscription a link attached without a source names, as
+    # Qpid JMS attaches to unsubscribe: `<name>` is the subscription of this
+    # container, `<name>|global` a global shared one.
+    def find_subscription(link_name : String) : Tuple(LavinMQ::AMQP::Queue, String)?
+      name = if global_name = link_name.rchop?("|global")
+               subscription_queue_name(global_name, durable: true, global: true)
+             else
+               subscription_queue_name(link_name, durable: true, global: false)
+             end
+      q = @vhost.queue?(name).as?(LavinMQ::AMQP::Queue) || return
+      address = q.arguments[SUBSCRIPTION_SOURCE_ARGUMENT]?.as?(String) || return
+      check_can_consume!(name)
+      {q, address}
+    end
+
+    # Deletes a durable subscription's queue once no link consumes from it.
+    # Returns false, leaving it, while others still do.
+    def unsubscribe(q : LavinMQ::AMQP::Queue) : Bool
+      return false unless q.consumer_count.zero?
+      @vhost.delete_queue(q.name)
+      true
+    end
+
+    private def subscription_queue_name(subscription_name : String, durable : Bool, global : Bool) : String
+      name = case {durable, global}
+             when {true, false}  then "amqp10.sub.#{@container_id}.#{subscription_name}"
+             when {true, true}   then "amqp10.gsub.#{subscription_name}"
+             when {false, false} then "amqp10.vsub.#{@container_id}.#{subscription_name}"
+             else                     "amqp10.gvsub.#{subscription_name}"
+             end
+      unless name.bytesize <= UInt8::MAX && NameValidator.valid_entity_name?(name)
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "subscription name '#{subscription_name}' is too long or not printable ASCII")
+      end
+      name
+    end
+
+    # The subscription queue named, unless it is to be created: when there is
+    # none, or it was made for another address and nothing consumes from it,
+    # in which case it is deleted, as a subscription changing its topic is a
+    # new one.
+    private def existing_subscription(name : String, address : String) : LavinMQ::AMQP::Queue?
+      q = @vhost.queue?(name) || return
+      q = q.as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "queue '#{name}' is not a subscription")
+      source = q.arguments[SUBSCRIPTION_SOURCE_ARGUMENT]?.as?(String)
+      raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "queue '#{name}' is not a subscription") unless source
+      return q if source == address
+      unless q.consumer_count.zero?
+        raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "subscription '#{name}' is in use for '#{source}'")
+      end
+      @vhost.delete_queue(name)
+      nil
+    end
+
+    private def bind_subscription(q : LavinMQ::AMQP::Queue, ex : LavinMQ::Exchange, binding_key : String) : Nil
+      @vhost.bind_queue(q.name, ex.name, binding_key)
+    rescue err : LavinMQ::Exchange::AccessRefused
+      raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, err.message || "binding refused")
+    end
+
+    # As a 0-9-1 queue.declare, basic.consume and queue.bind would require
+    private def check_subscription_permissions!(name : String) : Nil
+      unless @user.can_config?(@vhost.name, name)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
+      end
+      check_can_consume!(name)
+      unless @user.can_write?(@vhost.name, name)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' doesn't have write permissions to queue '#{name}'")
+      end
+    end
+
+    private def check_can_create_queue!(name : String) : Nil
+      raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "Server low on disk space, can not create queue") unless @vhost.flow?
+      if @vhost.queue_limit_reached?
+        raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "queue limit in vhost '#{@vhost.name}' is reached")
+      end
+      unless @user.can_config?(@vhost.name, name)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
+      end
+    end
+
+    private def check_can_consume!(name : String) : Nil
+      unless @user.can_read?(@vhost.name, name)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
+      end
+    end
+
+    private def declare_exclusive_queue(name : String) : LavinMQ::AMQP::Queue
+      frame = LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, false, true, true, false, LavinMQ::AMQP::Table.new)
+      @vhost.apply(frame)
+      q = @vhost.queue(name).as(LavinMQ::AMQP::Queue)
+      @exclusive_queues << q
+      q.exclusive_owner = self
+      q
     end
 
     def resolve_publish_target(address : String) : PublishAddress
@@ -197,18 +325,17 @@ module LavinMQ::AMQP10
       queue_name = Address.parse_source(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid source address #{address}")
       q = @vhost.queue?(queue_name).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{queue_name}' not found")
       raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
-      unless @user.can_read?(@vhost.name, queue_name)
-        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{queue_name}'")
-      end
+      check_can_consume!(queue_name)
       q
     end
 
     # Open has no offered-capabilities field, so the frame is written here.
     # ANONYMOUS-RELAY tells clients such as Qpid JMS that a link without a
-    # target address routes each message by its `to` property.
+    # target address routes each message by its `to` property, SHARED-SUBS
+    # that subscriptions may be shared.
     def send_open : Nil
       idle = @local_idle_timeout
-      capabilities = [Value.symbol("ANONYMOUS-RELAY")]
+      capabilities = [Value.symbol("ANONYMOUS-RELAY"), Value.symbol("SHARED-SUBS")]
       fields_size = Codec.string_size(SERVER_CONTAINER_ID) + 1 + Codec.uint_size(@local_max_frame_size) + 3 +
                     (idle ? Codec.uint_size(idle) : 1) + 2 + Codec.encoded_size(Value.array(capabilities))
       frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size

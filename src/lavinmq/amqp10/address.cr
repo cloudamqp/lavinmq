@@ -11,7 +11,7 @@ module LavinMQ::AMQP10
     def parse_target(address : String) : PublishAddress?
       if queue = parse_source(address)
         PublishAddress.new("", queue)
-      elsif exchange = exchange_component(address)
+      elsif exchange = parse_exchange(address)
         PublishAddress.new(*exchange)
       end
     end
@@ -23,7 +23,9 @@ module LavinMQ::AMQP10
       URI.decode(encoded)
     end
 
-    private def exchange_component(address : String) : Tuple(String, String)?
+    # The exchange and routing key (empty if none) an /exchanges/ address
+    # names, published to by a target and subscribed to by a source
+    def parse_exchange(address : String) : Tuple(String, String)?
       rest = address.lchop?("/exchanges/") || return
       exchange, _, routing_key = rest.partition('/')
       return if exchange.empty?
