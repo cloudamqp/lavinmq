@@ -28,3 +28,12 @@ class HTTP::Server
     previous_def
   end
 end
+
+class HTTP::Server::Response
+  # IO#write_byte goes through the general write path with a one-byte slice.
+  # The buffered output appends a byte directly, and JSON::Builder writes
+  # every delimiter as one byte.
+  def write_byte(byte : UInt8) : Nil
+    @output.write_byte(byte)
+  end
+end
