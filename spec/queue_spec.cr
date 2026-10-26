@@ -1672,4 +1672,17 @@ describe LavinMQ::AMQP::DurableQueue do
       File.read(path).should eq "dotqueue_once"
     end
   end
+
+  it "rewrites a .queue name file that a crash left empty" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_empty", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_empty").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      s.stop
+      File.write(path, "")
+      restart_server(s)
+      File.read(path).should eq "dotqueue_empty"
+    end
+  end
 end
