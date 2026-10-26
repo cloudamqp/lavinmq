@@ -66,6 +66,8 @@ module LavinMQ
             next
           end
           @index.insert(topic, msg_file_name)
+          # Registered like the index, or a follower drops it in a full sync
+          @replicator.try &.register_file(File.join(dir, msg_file_name))
           Log.debug { "restored #{topic}" }
           msg_count += 1
         end
