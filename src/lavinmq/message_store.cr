@@ -424,6 +424,18 @@ module LavinMQ
       mfile
     end
 
+    # The last segment isn't full, so it's mapped with room to write to, and
+    # it has no metadata file, so it's read through to count its messages
+    # (see #load_stats_from_segments): fetch it in one readahead instead of
+    # a page fault at a time. A segment a crash left at its capacity is
+    # sparse past its data, so the readahead is bounded by what's allocated.
+    private def open_last_segment(path : String) : MFile
+      mfile = open_segment(path, Config.instance.segment_size)
+      length = Math.min(mfile.size, mfile.allocated_size)
+      mfile.advise(MFile::Advice::WillNeed, length: length) unless length.zero?
+      mfile
+    end
+
     # A reader that got through its previous segment at least this fast gets
     # readahead for its next one. A slower reader isn't waiting on the disk,
     # so readahead wouldn't speed it up. Reading a segment a page per fault,
@@ -554,12 +566,7 @@ module LavinMQ
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         path = File.join(@msg_dir, filename)
-        file = if idx == last_idx
-                 # expand the last segment
-                 open_segment(path, Config.instance.segment_size)
-               else
-                 open_segment(path)
-               end
+        file = idx == last_idx ? open_last_segment(path) : open_segment(path)
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
@@ -612,18 +619,22 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
-        # Counting a segment's messages reads it through, as does skipping
-        # its acked messages, in order. Without readahead (see #open_segment)
-        # that would fault it in a page at a time.
-        mfile.advise(MFile::Advice::Sequential)
-        begin
-          read_metadata_file(seg, mfile)
-        rescue File::NotFoundError | MetadataError
-          produce_metadata(seg, mfile)
-          break if @closed
-          write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
+        if File.exists?(meta_file_name(mfile))
+          # Skipping the acked messages reads the segment in order. Without
+          # readahead (see #open_segment) that would fault it in a page at
+          # a time.
+          skips_acked = @deleted.has_key?(seg)
+          mfile.advise(MFile::Advice::Sequential) if skips_acked
+          begin
+            read_metadata_file(seg, mfile)
+          rescue MetadataError
+            count_messages(seg, mfile)
+          end
+          mfile.advise(MFile::Advice::Random) if skips_acked
+        else
+          count_messages(seg, mfile)
         end
-        mfile.advise(MFile::Advice::Random)
+        break if @closed
 
         counter &+= 1
         if is_long_queue
@@ -633,6 +644,19 @@ module LavinMQ
         end
       end
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
+    end
+
+    # Reads a segment through to count its messages. The last segment was
+    # fetched whole when it was opened (see #load_segments_from_disk) and
+    # isn't full yet, so it gets no metadata file. Any other one is read
+    # ahead here.
+    private def count_messages(seg, mfile)
+      last = seg == @segments.last_key
+      mfile.advise(MFile::Advice::Sequential) unless last
+      produce_metadata(seg, mfile)
+      return if @closed || last
+      mfile.advise(MFile::Advice::Random)
+      write_metadata_file(seg, mfile)
     end
 
     private def read_metadata_file(seg, mfile)
