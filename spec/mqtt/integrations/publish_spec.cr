@@ -219,6 +219,36 @@ module MqttSpecs
       end
     end
 
+    it "routes to other subscribers and acks when a subscriber's session closes mid fan-out" do
+      with_server do |server|
+        with_client_io(server) do |early|
+          connect(early, client_id: "early")
+          subscribe(early, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          with_client_io(server) do |closing_io|
+            connect(closing_io, client_id: "closing")
+            subscribe(closing_io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+            closing = server.vhosts["/"].session("mqtt.closing")
+            lock = closing.@msg_store_lock
+            with_client_io(server) do |pub|
+              connect(pub, client_id: "pub")
+              lock.lock
+              publish(pub, topic: "a/b", payload: "1".to_slice, qos: 1u8, expect_response: false)
+              sleep 100.milliseconds # the publisher is parked on the store lock
+              lock.unlock
+              # Closed before the parked publisher runs, as nothing here yields
+              closing.close
+              read_publish(early).payload.should eq "1".to_slice
+              # A failed fan-out closes the publisher without a PUBACK, and its
+              # re-send is routed again to the subscribers that had it
+              read_packet(pub).should be_a(MQTT::Protocol::PubAck)
+              disconnect(pub)
+            end
+          end
+          disconnect(early)
+        end
+      end
+    end
+
     it "doesn't resend buffered data when disconnecting a subscriber that doesn't read" do
       LavinMQ::Config.instance.tcp_send_timeout = 1
       with_server do |server|
