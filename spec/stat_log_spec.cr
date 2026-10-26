@@ -251,6 +251,29 @@ describe LavinMQ::Stats do
     p.y_log.to_a.should eq Array.new(cap, 9_u32)
   end
 
+  it "drops a column's buffer once its window is one value, while another column keeps changing" do
+    orig = LavinMQ::Config.instance.stats_log_size
+    begin
+      LavinMQ::Config.instance.stats_log_size = 8
+      pool = LavinMQ::StatBlockPool.for(8, UInt64)
+      used = pool.@used
+      p = LavinMQ::StatsProbe.new
+      2.times { p.bump(5_u64, 1_u32); p.update_rates }
+      p.bump(10_u64, 9_u32); p.update_rates # x and y both change: a buffer each
+      6.times { |i| p.bump((i + 3).to_u64 * 5, 9_u32); p.update_rates }
+      p.y_log.to_a.should eq [1_u64, 9_u64, 9_u64, 9_u64, 9_u64, 9_u64, 9_u64, 9_u64] # seven 9s so far
+      pool.@used.should eq used + 1
+      p.bump(50_u64, 9_u32); p.update_rates
+      p.y_log.constant?.should be_true
+      pool.@used.should eq used
+      p.stats_log_buffered?.should be_true # x goes on
+      p.y_log.to_a.should eq [9_u64] * 8
+      p.x_log.to_a.should eq [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]
+    ensure
+      LavinMQ::Config.instance.stats_log_size = orig
+    end
+  end
+
   it "keeps byte rates past 32-bit tenths and caps them where they still print exactly" do
     p = LavinMQ::StatsProbe.new
     p.bump(0_u64, 0_u32, 1_000_000_000_u64 * 5); p.update_rates # 1 GB/s at the 5 s interval

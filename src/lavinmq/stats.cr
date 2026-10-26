@@ -47,7 +47,6 @@ module LavinMQ
       @_stats_log_capacity : Int32 = Config.instance.stats_log_size
       @_stats_log_head = Atomic(Int32).new(0) # read by views on any thread
       @_stats_log_size = Atomic(Int32).new(0)
-      @_stats_steady_run : Int32 = 0 # trailing samples without a change; 0 while no column is buffered
 
       {% for c in rates %}
         @{{ c[:name] }}_count = Atomic(UInt64).new(0_u64)
@@ -138,7 +137,7 @@ module LavinMQ
       def update_rates(interval : Float64 = Config.instance.stats_interval / 1000.0) : Nil
         cap = Config.instance.stats_log_size
         size = @_stats_log_size.get(:relaxed)
-        if @_stats_steady_run == 0 && cap == @_stats_log_capacity && _stats_idle?
+        if !stats_log_buffered? && cap == @_stats_log_capacity && _stats_idle?
           @_stats_log_size.set(size + 1, :release) if size < cap
           return
         end
@@ -153,7 +152,6 @@ module LavinMQ
         # sample is a reading, kept once the next one differs
         established = size > 1 && cap > 1
         sampled = size > 0 && cap > 1
-        changed = false
 
         {% for c in rates %}
           count = @{{ c[:name] }}_count.get(:relaxed)
@@ -163,28 +161,50 @@ module LavinMQ
             @{{ c[:name] }}_count_prev = count
             tenths = RateLogView({{ c[:type] }}).encode_delta(delta, interval)
           end
-          changed = true if {{ c[:ivar] }}.record(tenths, tail, established) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
+          {{ c[:ivar] }}.record(tenths, tail, established) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
         {% end %}
         {% for c in gauges %}
-          changed = true if {{ c[:ivar] }}.record({{ c[:name] }}.to_u64, tail, sampled) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
+          {{ c[:ivar] }}.record({{ c[:name] }}.to_u64, tail, sampled) { |fill| _stats_alloc(fill, cap, {{ c[:slot] }}) }
         {% end %}
 
-        buffered = @_stats_steady_run > 0 || (changed && stats_log_buffered?)
-        unless buffered
-          @_stats_log_size.set(size + 1, :release) if size < cap
-          return
-        end
-
-        @_stats_steady_run = changed ? 1 : @_stats_steady_run + 1
-        if @_stats_steady_run >= cap
-          _stats_drop_buffers(cap)
-        elsif size < cap
+        if size < cap
           @_stats_log_size.set(size + 1, :release)
-        else
+        elsif stats_log_buffered?
           head += 1
           head -= cap if head >= cap
           @_stats_log_head.set(head, :release)
         end
+        _stats_reclaim(cap) if stats_log_buffered?
+      end
+
+      # A column whose whole window is its last value reads the same without its buffer
+      private def _stats_reclaim(cap : Int32) : Nil
+        reclaimed = false
+        {% for c in columns %}
+          if {{ c[:ivar] }}.steady?(cap)
+            block = {{ c[:ivar] }}.drop
+            Atomic.fence(:release)
+            StatBlockPool.for(cap, {{ c[:type] }}).release(block)
+            @_stats_blocks[{{ c[:slot] }}] -= 1
+            reclaimed = true
+          end
+        {% end %}
+        return unless reclaimed
+        if stats_log_buffered?
+          _stats_mark_high
+        else
+          _stats_drop_buffers(cap)
+        end
+      end
+
+      # The highest ordinal among the buffers in each pool, which relocation goes by
+      private def _stats_mark_high : Nil
+        @_stats_high.fill(-1)
+        {% for c in columns %}
+          if block = {{ c[:ivar] }}.block
+            @_stats_high[{{ c[:slot] }}] = Math.max(@_stats_high[{{ c[:slot] }}], StatBlockPool.ordinal(block))
+          end
+        {% end %}
       end
 
       @[AlwaysInline]
@@ -225,7 +245,6 @@ module LavinMQ
         @_stats_high.fill(-1)
         @_stats_log_head.set(0, :release)
         @_stats_log_size.set(size, :release)
-        @_stats_steady_run = 0
       end
 
       # A move takes every column along: the other width's blocks land at the lowest free
@@ -262,13 +281,12 @@ module LavinMQ
             @_stats_log_capacity = cap
             raise ex
           end
-          @_stats_high.fill(-1)
           {% for c, i in columns %}
             if block = blocks[{{ i }}].as(Pointer({{ c[:type] }}))
-              @_stats_high[{{ c[:slot] }}] = Math.max(@_stats_high[{{ c[:slot] }}], StatBlockPool.ordinal(block))
               StatBlockPool.for(old_cap, {{ c[:type] }}).release({{ c[:ivar] }}.move(block, old_cap, head, size, cap))
             end
           {% end %}
+          _stats_mark_high
           @_stats_lease = StatBlockPool.tick
         end
         return if cap == @_stats_log_capacity

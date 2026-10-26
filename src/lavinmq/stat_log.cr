@@ -6,6 +6,7 @@ module LavinMQ
   # A stat's last value, plus a pooled ring buffer of T samples while it changes
   struct StatColumn(T)
     getter last : T
+    @run : Int32 = 0 # samples since the value last changed; in the padding of a 4-byte T
     # Inverted so the conservative GC doesn't scan it as a pointer
     @hidden : UInt64 = UInt64::MAX
 
@@ -22,13 +23,16 @@ module LavinMQ
       @hidden != UInt64::MAX
     end
 
-    # Returns whether the value changed; takes a buffer on the first change
+    # Takes a buffer on the first change
     @[AlwaysInline]
-    def record(value : T, tail : Int32, established : Bool, & : T -> Pointer(T)) : Bool
+    def record(value : T, tail : Int32, established : Bool, & : T -> Pointer(T)) : Nil
       buf = block
       if value == @last
-        buf[tail] = value if buf
-        return false
+        if buf
+          buf[tail] = value
+          @run += 1
+        end
+        return
       end
       if buf
         buf[tail] = value
@@ -37,8 +41,13 @@ module LavinMQ
         buf[tail] = value
         self.block = buf
       end
+      @run = 1
       @last = value
-      true
+    end
+
+    # Whether the whole window is the last value, so the buffer reads the same without it
+    def steady?(cap : Int32) : Bool
+      buffered? && @run >= cap
     end
 
     def renew(tick : UInt32) : Nil
