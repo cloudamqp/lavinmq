@@ -24,6 +24,23 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "GET /api/livelog" do
+    it "sends the response headers before the event stream" do
+      with_http_server do |http, _|
+        ::HTTP::Client.new(URI.parse http.test_uri("")) do |client|
+          client.read_timeout = 5.seconds
+          client.get("/api/livelog", headers: http.test_headers) do |response|
+            response.status_code.should eq 200
+            response.headers["Content-Type"].should eq "text/event-stream"
+            entry = ::Log::Entry.new("spec", :warn, "livelog", ::Log::Metadata.empty, nil)
+            ::Log::InMemoryBackend.instance.write(entry)
+            response.body_io.gets.not_nil!.should start_with "id: "
+          end
+        end
+      end
+    end
+  end
+
   describe "GET /api/overview" do
     it "is sent with Content-Length instead of chunked" do
       with_http_server do |http, _|
