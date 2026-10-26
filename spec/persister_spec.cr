@@ -58,6 +58,19 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "fsyncs the vhost directory for a new durable MQTT session with the next confirm" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("confirmed")
+        q.publish_confirm "first" # syncs what earlier declares marked
+        s.vhosts["/"].declare_queue("#{LavinMQ::MQTT::SESSION_PREFIX}client1", true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        q.publish_confirm "second"
+        last_sync(s).paths.should contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
   it "doesn't fsync the vhost directory for queues loaded on start" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

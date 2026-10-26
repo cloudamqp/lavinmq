@@ -69,7 +69,14 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        FileSystem.mkdir_p(data_dir)
+        if durable? && !Dir.exists?(data_dir)
+          Dir.mkdir_p(data_dir)
+          # Like a queue's, the directory's entry is fsynced with the next
+          # confirm, see Queue#make_data_dir
+          @vhost.persister.mark_dirty(@vhost.data_dir)
+        else
+          Dir.mkdir_p(data_dir)
+        end
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         @metadata_file = File.join(data_dir, ".metadata")
