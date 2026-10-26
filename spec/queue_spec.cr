@@ -1655,3 +1655,41 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 end
+
+describe "Deleting a durable queue" do
+  it "fsyncs the vhost directory when the queue had messages" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("delete_with_messages", durable: true)
+        q.publish_confirm "m"
+        LavinMQ::FileSystem.clear_fsynced_dirs
+        q.delete
+        LavinMQ::FileSystem.fsynced_dirs.should contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "fsyncs the vhost directory when the queue's only message is unacked" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("delete_with_unacked", durable: true)
+        q.publish_confirm "m"
+        q.get(no_ack: false).should_not be_nil
+        LavinMQ::FileSystem.clear_fsynced_dirs
+        q.delete
+        LavinMQ::FileSystem.fsynced_dirs.should contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "doesn't fsync the vhost directory when the queue was empty" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("delete_empty", durable: true)
+        LavinMQ::FileSystem.clear_fsynced_dirs
+        q.delete
+        LavinMQ::FileSystem.fsynced_dirs.should_not contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+end

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deleting a durable queue that still had messages and declaring it again could bring the deleted messages back after a crash, on filesystems that don't persist the directory removal with the declare, such as btrfs. The removal is now fsynced when the queue had messages [#2553](https://github.com/cloudamqp/lavinmq/pull/2553)
 - Declaring a durable queue fsynced the vhost directory right away, and a priority queue fsynced its directory on every start, which made bulk declares, definition imports and starts with many priority queues slower than in 2.10. The directories are now fsynced once with the next publish confirm that depends on them [#2544](https://github.com/cloudamqp/lavinmq/pull/2544)
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 
