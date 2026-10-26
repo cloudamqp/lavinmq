@@ -416,6 +416,7 @@ describe LavinMQ::Stats do
       reused = pool.alloc(UInt32)
       Slice.new(reused, 47).fill(99_u32)
 
+      p.x_log.to_a.uniq.should eq [2.0] # a view taken before p notices must not read the new owner
       p.bump(10_u64, 3_u32); tick(p)
       p.constant?.should be_true
       p.x_log.to_a.uniq.should eq [2.0]

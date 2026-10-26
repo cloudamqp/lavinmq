@@ -77,12 +77,20 @@ module LavinMQ
       # Hands the buffers back; the log stays its last value. Past the lease the pool may have
       # taken them back already, so they're only forgotten
       def stats_release : Nil
-        release = StatBlockPool.tick &- @_stats_lease <= StatBlockPool::LEASE
-        _stats_drop_buffers(@_stats_log_size.get(:relaxed), release: release)
+        _stats_drop_buffers(@_stats_log_size.get(:relaxed), release: !_stats_expired?)
       end
 
-      # Retries if the column changed block while the view read its header
+      # Past the lease the pool may have handed the blocks out again
+      private def _stats_expired? : Bool
+        StatBlockPool.tick &- @_stats_lease > StatBlockPool::LEASE
+      end
+
+      # Retries if the column changed block while the view read its header. An expired log
+      # reads its last value, as its block may hold another object's samples by now
       private def _stats_view(last : T, & : -> Pointer(T)) : StatLogView(T) forall T
+        if stats_log_buffered? && _stats_expired?
+          return StatLogView.new(Pointer(T).null, 0, @_stats_log_size.get(:acquire), last)
+        end
         loop do
           block = yield
           Atomic.fence(:acquire)
