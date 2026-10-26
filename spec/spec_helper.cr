@@ -571,6 +571,21 @@ Spec.around_each do |example|
   end
 end
 
+lib LibC
+  fun mincore(addr : Void*, length : SizeT, vec : UInt8*) : Int
+end
+
+# Pages of the file at `path` that are in the page cache
+def cached_pages(path : String) : Int32
+  page_size = LibC.sysconf(LibC::SC_PAGESIZE)
+  MFile.open(path) do |mfile|
+    slice = mfile.to_slice
+    vec = Bytes.new((slice.size + page_size - 1) // page_size)
+    raise "mincore failed" unless LibC.mincore(slice.to_unsafe, slice.size, vec).zero?
+    vec.count { |b| b & 1 == 1 }
+  end
+end
+
 # The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
 # mapping of the file at `path`
 def vm_flags(path : String) : Array(String)

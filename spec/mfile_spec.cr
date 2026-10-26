@@ -180,3 +180,22 @@ describe MFile do
     end
   end
 end
+
+describe MFile do
+  describe "#allocated_size" do
+    it "is what a sparse file occupies, not its size" do
+      path = File.tempname("mfile_spec")
+      begin
+        File.write(path, "hello")
+        File.open(path, "r+", &.truncate(1 << 20))
+        mfile = MFile.new(path)
+        mfile.size.should eq 1 << 20
+        mfile.allocated_size.should be >= 5
+        mfile.allocated_size.should be < 1 << 20
+        mfile.close
+      ensure
+        File.delete?(path)
+      end
+    end
+  end
+end
