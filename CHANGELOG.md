@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Large JSON API responses serialize about 15% faster: the HTTP response passes single bytes straight to its buffered output instead of wrapping each in a slice [#2549](https://github.com/cloudamqp/lavinmq/pull/2549)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 
 ### Fixed
