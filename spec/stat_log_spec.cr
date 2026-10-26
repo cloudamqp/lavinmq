@@ -488,9 +488,10 @@ describe LavinMQ::Stats do
   it "relocates a buffer with its ring layout intact, so a reader's head and size still fit it" do
     orig = LavinMQ::Config.instance.stats_log_size
     begin
-      LavinMQ::Config.instance.stats_log_size = 6 # a pool of its own
+      LavinMQ::Config.instance.stats_log_size = 6 # shared with cap 3 UInt64, so go by the first filler
       pool = LavinMQ::StatBlockPool.for(6, UInt32)
       fillers = Array.new(50) { pool.alloc }
+      first = LavinMQ::StatBlockPool.ordinal(fillers.first)
       p = LavinMQ::StatsProbe.new
       8.times { |i| p.bump(5_u64 * (i + 1), 0_u32); p.update_rates }
       p.x_log.to_a.should eq [3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
@@ -500,7 +501,7 @@ describe LavinMQ::Stats do
       fillers.each { |b| pool.release(b) }
       pool.trim
       p.bump(45_u64, 0_u32); p.update_rates
-      p.@_stats_high[0].should eq 0
+      p.@_stats_high[0].should eq first
       p.x_log.to_a.should eq [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
       p.@_stats_log_head.get.should eq 3
       Slice.new(p.@x_rate_log.block, 6).to_a.should eq [70, 80, 90, 40, 50, 60]
