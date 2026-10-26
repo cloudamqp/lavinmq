@@ -431,5 +431,24 @@ module MqttSpecs
         end
       end
     end
+
+    it "closes a publisher that sends a QoS 1 PUBLISH with packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "subscriber")
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "publisher")
+            publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8,
+              packet_id: 0u16, expect_response: false)
+            io.should be_closed
+          end
+
+          sub_io.should be_drained
+          disconnect(sub_io)
+        end
+      end
+    end
   end
 end
