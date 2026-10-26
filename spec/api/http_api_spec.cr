@@ -34,7 +34,7 @@ describe LavinMQ::HTTP::Server do
             response.headers["Content-Type"].should eq "text/event-stream"
             entry = ::Log::Entry.new("spec", :warn, "livelog", ::Log::Metadata.empty, nil)
             ::Log::InMemoryBackend.instance.write(entry)
-            response.body_io.gets.not_nil!.should start_with "id: "
+            response.body_io.read_line.should start_with "id: "
           end
         end
       end
