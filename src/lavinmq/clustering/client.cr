@@ -59,13 +59,16 @@ module LavinMQ
       # Files this client created whose directory entry isn't fsynced yet,
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
+      # Parents of directories this client created, whose new entries aren't
+      # fsynced yet, fsynced with the next fsync request (see #make_dirs)
+      @created_dirs = Set(String).new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
-          FileSystem.mkdir_p File.dirname(path)
+          make_dirs File.dirname(path)
           @created_files << k unless File.exists?(path)
           h[k] = File.open(path, "a").tap &.sync = true
         end
@@ -206,6 +209,7 @@ module LavinMQ
           # Fsync requests only cover what's streamed after this, so make
           # everything received so far durable before acking anything
           sync_to_disk
+          @created_dirs.clear
         end
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
       end
@@ -219,6 +223,7 @@ module LavinMQ
         @files.each_value &.close
         @files.clear
         @created_files.clear
+        @created_dirs.clear
       end
 
       # Adopt the running digests as the files' checksums and stop tracking them.
@@ -430,7 +435,7 @@ module LavinMQ
       private def file_from_socket(filename, lz4)
         Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
-        FileSystem.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
@@ -525,11 +530,30 @@ module LavinMQ
         Log.debug { "Fsync requested for #{filename.empty? ? "data dir" : filename}" }
         if filename.empty?
           @acks.send ""
+          @created_dirs.clear # the syncfs covers them
           return
         end
         path = File.join(@data_dir, filename)
         @acks.send path
         @acks.send File.dirname(path) if @created_files.delete(filename)
+        # Whatever the request covers may sit in a directory created since the
+        # last one, so their entries are made durable before the ack too
+        @created_dirs.each { |dir| @acks.send dir }
+        @created_dirs.clear
+      end
+
+      # Like FileSystem.mkdir_p, but the parent of each directory it creates
+      # is fsynced with the next fsync request, before the ack that makes
+      # anything in it durable, not inline on the replication stream
+      private def make_dirs(dir : String) : Nil
+        return if Dir.exists?(dir)
+        make_dirs(File.dirname(dir))
+        begin
+          Dir.mkdir(dir)
+        rescue File::AlreadyExistsError
+          return
+        end
+        @created_dirs << File.dirname(dir)
       end
 
       private def delete(filename)
@@ -584,7 +608,7 @@ module LavinMQ
         sha1 = Digest::SHA1.new
 
         path = File.join(@data_dir, "#{filename}.tmp")
-        FileSystem.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
         @created_files.delete(filename)
         File.open(path, "w") do |f|
           f.sync = true

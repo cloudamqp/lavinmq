@@ -969,15 +969,19 @@ module ClientSyncSpec
           write_fsync_request(lz4_writer, filename)
           expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
           read_acks(leader_io, expected).should eq expected
-          client.fsynced_paths.should eq [File.join(data_dir, filename), File.join(data_dir, "vhost/queue")]
+          # The file, its directory's entry for it, and the entries of the
+          # directories created for it, which weren't fsynced when created
+          client.fsynced_paths.sort.should eq [
+            data_dir, File.join(data_dir, filename), File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"),
+          ].sort
           client.syncs_started.should eq 0
 
-          # The dir entry is durable now, only the file needs fsyncs from here
+          # The dir entries are durable now, only the file needs fsyncs from here
           write_append(lz4_writer, filename, payload)
           write_fsync_request(lz4_writer, filename)
           read_acks(leader_io, expected).should eq expected
           client.fsynced_paths.last(1).should eq [File.join(data_dir, filename)]
-          client.fsynced_paths.size.should eq 3
+          client.fsynced_paths.size.should eq 5
           File.read(File.join(data_dir, filename)).should eq payload * 2
           client_socket.close
         end
