@@ -157,7 +157,7 @@ module LavinMQ
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@unacked` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      # [MQTT-2.3.1-1]. Both fall back to a fresh id.
       private def delivery_id(sp : SegmentPosition) : UInt16?
         if id = @msg_store.packet_id?(sp)
           return id unless id.zero? || @unacked.has_key?(id)
@@ -406,15 +406,14 @@ module LavinMQ
 
       private def next_id : UInt16?
         return if @unacked.size == Config.instance.max_inflight_messages
-        start_id = @count
-        next_id : UInt16 = start_id &+ 1_u16
-        while @unacked.has_key?(next_id)
-          next_id &+= 1u16
-          next_id = 1u16 if next_id == 0
-          return if next_id == start_id
+        next_id = @count
+        # Tries each of 1..65535 once, `@count` itself last, as it can be the
+        # only id left. Packet id 0 is illegal [MQTT-2.3.1-1].
+        UInt16::MAX.times do
+          next_id = next_id == UInt16::MAX ? 1u16 : next_id + 1u16
+          next if @unacked.has_key?(next_id)
+          return @count = next_id
         end
-        @count = next_id
-        next_id
       end
 
       private def delete_message(sp : SegmentPosition) : Nil
