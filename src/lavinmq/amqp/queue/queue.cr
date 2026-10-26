@@ -850,6 +850,10 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
+      # If a crash undid the removal of the directory, a declare of the same
+      # name would load it, and messages deleted with the queue would be back.
+      # An empty directory coming back is harmless, so only then is it fsynced.
+      fsync_removal = durable? && !(empty? && unacked_count.zero?)
       @retry_queue_lock.synchronize do
         if retry_queue = @delayed_retry_queue
           @delayed_retry_queue = nil
@@ -861,6 +865,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
+      FileSystem.fsync_dir(@vhost.data_dir) if fsync_removal
       if durable?
         @vhost.replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")

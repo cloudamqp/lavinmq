@@ -19,8 +19,25 @@ module LavinMQ
       {% end %}
     end
 
+    {% unless flag?(:release) %}
+      # Spec instrumentation: the directories fsynced
+      @@fsynced_dirs = Array(String).new
+      @@fsynced_dirs_lock = Mutex.new
+
+      def self.fsynced_dirs : Array(String)
+        @@fsynced_dirs_lock.synchronize { @@fsynced_dirs.dup }
+      end
+
+      def self.clear_fsynced_dirs : Nil
+        @@fsynced_dirs_lock.synchronize { @@fsynced_dirs.clear }
+      end
+    {% end %}
+
     def self.fsync_dir(path : String) : Nil
       return unless Config.instance.sync?
+      {% unless flag?(:release) %}
+        @@fsynced_dirs_lock.synchronize { @@fsynced_dirs << path }
+      {% end %}
       File.open(path, &.fsync)
     end
 
