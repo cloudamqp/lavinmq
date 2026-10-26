@@ -322,8 +322,10 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
-      fresh = !File.exists?(dotqueue_file)
-      if fresh
+      dotqueue_info = File.info?(dotqueue_file)
+      fresh = dotqueue_info.nil?
+      # It isn't fsynced, so a crash can leave it empty
+      if dotqueue_info.nil? || dotqueue_info.size != @name.bytesize
         File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
         @vhost.replicator.try &.replace_file(dotqueue_file) if durable?
       elsif durable?

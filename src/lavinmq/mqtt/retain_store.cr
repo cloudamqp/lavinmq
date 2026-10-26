@@ -131,7 +131,6 @@ module LavinMQ
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
-        @dirty = true
         @index.insert topic, file_name
         line = "#{topic}\n".to_slice
         offset = @index_file.size.to_i64
