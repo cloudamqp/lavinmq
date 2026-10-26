@@ -1065,6 +1065,24 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "loads a segment with acks and a corrupt record as closed instead of raising" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.close
+          first = Dir.glob(File.join(dir, "msgs.*")).sort.first
+          # The first record's bodysize: after the schema version, timestamp,
+          # exchange, routing key and properties
+          bodysize_pos = 4 + 8 + 1 + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize
+          File.open(first, "r+") { |f| f.seek(bodysize_pos); f.write_bytes(UInt64::MAX) }
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.closed.should be_true
+        end
+      end
+
       it "reads only the allocated part of a last segment left at its capacity by a crash" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
@@ -1074,7 +1092,7 @@ describe LavinMQ::MessageStore do
           File.open(path, "r+", &.truncate(LavinMQ::Config.instance.segment_size)) # only a graceful close shrinks it
           store = LavinMQ::MessageStore.new(dir, nil)
           store.size.should eq 1
-          cached_pages(path).should be < 64 # not the 2048 of the hole zero-filled
+          cached_pages(path).should be < 64 # not the whole hole zero-filled, 128 pages in specs
           store.close
         end
       end

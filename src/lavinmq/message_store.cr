@@ -630,6 +630,7 @@ module LavinMQ
           rescue MetadataError
             count_messages(seg, mfile)
           end
+          break if @closed # a corrupt segment closed the store and unmapped it
           mfile.advise(MFile::Advice::Random) if skips_acked
         else
           count_messages(seg, mfile)
@@ -654,9 +655,9 @@ module LavinMQ
     private def count_messages(seg, mfile)
       mfile.advise(MFile::Advice::Sequential)
       produce_metadata(seg, mfile)
+      return if @closed # a corrupt segment closed the store and unmapped it
       mfile.advise(MFile::Advice::Random)
-      return if @closed || seg == @segments.last_key
-      write_metadata_file(seg, mfile)
+      write_metadata_file(seg, mfile) unless seg == @segments.last_key
     end
 
     private def read_metadata_file(seg, mfile)

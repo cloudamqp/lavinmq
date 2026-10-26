@@ -458,8 +458,12 @@ module LavinMQ::AMQP
       rescue IO::EOFError
         # Old metadata format without last_ts, scan segment to find it
         @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
-        @segment_last_ts[seg] = scan_last_ts(@segments[seg])
-        write_metadata_file(seg, @segments[seg])
+        mfile = @segments[seg]
+        # Read through, without readahead it would fault a page at a time
+        mfile.advise(MFile::Advice::Sequential)
+        @segment_last_ts[seg] = scan_last_ts(mfile)
+        mfile.advise(MFile::Advice::Random)
+        write_metadata_file(seg, mfile)
       end
 
       # Validate and fix (possibly) incorrect offsets from existing metadata
