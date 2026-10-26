@@ -25,7 +25,7 @@ module LavinMQ
         # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
         if @index.empty?
-          restore_index(@index, @index_file)
+          restore_index
           write_index if @dirty
         end
       end
@@ -40,7 +40,7 @@ module LavinMQ
       # Marks the index file dirty when it needs compacting: lines it has that
       # weren't restored (dropped topics, repeated topics), or a last line a
       # crash left without its newline, which the next append would join
-      private def restore_index(index : IndexTree, index_file : ::IO) : Nil
+      private def restore_index : Nil
         Log.debug { "restoring index" }
         dir = @dir
         msg_count = 0u64
@@ -52,7 +52,7 @@ module LavinMQ
         )
 
         torn = false
-        while line = index_file.gets(chomp: false)
+        while line = @index_file.gets(chomp: false)
           lines += 1
           torn = !line.ends_with?('\n')
           topic = line.chomp
@@ -65,7 +65,7 @@ module LavinMQ
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }
             next
           end
-          index.insert(topic, msg_file_name)
+          @index.insert(topic, msg_file_name)
           Log.debug { "restored #{topic}" }
           msg_count += 1
         end
@@ -77,7 +77,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
-        @dirty = torn || lines != index.size
+        @dirty = torn || lines != @index.size
       end
 
       def retain(packet : Protocol::Publish) : Nil
