@@ -573,6 +573,15 @@ end
 
 lib LibC
   fun mincore(addr : Void*, length : SizeT, vec : UInt8*) : Int
+  fun posix_fadvise(fd : Int, offset : OffT, len : OffT, advice : Int) : Int
+end
+
+# Drops the pages of the file at `path` from the page cache, as on a cold start
+def evict_from_page_cache(path : String) : Nil
+  File.open(path) do |file|
+    file.fsync                                                                     # dirty pages aren't dropped
+    raise "posix_fadvise failed" unless LibC.posix_fadvise(file.fd, 0, 0, 4).zero? # POSIX_FADV_DONTNEED
+  end
 end
 
 # Pages of the file at `path` that are in the page cache
