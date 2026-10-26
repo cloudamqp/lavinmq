@@ -265,6 +265,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
+          # Again under the lock: the fiber that held it can close the session
+          # before this one runs, and raising here would fail the whole fan-out
+          return false if closed?
           @msg_store.push(msg)
           drop_overflow
         end
