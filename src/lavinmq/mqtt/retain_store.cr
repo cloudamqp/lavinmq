@@ -55,6 +55,8 @@ module LavinMQ
             next
           end
           index.insert(topic, msg_file_name)
+          # A follower's full sync deletes the files the leader hasn't registered
+          @replicator.try &.register_file(File.join(dir, msg_file_name))
           Log.debug { "restored #{topic}" }
           msg_count += 1
         end

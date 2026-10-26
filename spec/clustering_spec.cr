@@ -338,6 +338,24 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "registers the retained messages it restores, so a follower's full sync keeps them" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "retain_store")
+    store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+    store.retain(MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
+      packet_id: nil, dup: false, qos: 0u8, retain: true))
+    store.close
+    msg_file = Dir.children(dir).find!(&.ends_with?(".msg"))
+    with_clustering do |cluster|
+      store = LavinMQ::MQTT::RetainStore.new(dir, cluster.replicator)
+      files = cluster.replicator.@file_index.shared { |f, _| f.keys }
+      files.should contain "retain_store/#{msg_file}"
+    ensure
+      store.try &.close
+    end
+  ensure
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "replicates and streams retained messages to followers" do
     with_clustering do |cluster|
       replicator = cluster.replicator
