@@ -969,8 +969,9 @@ module ClientSyncSpec
           write_fsync_request(lz4_writer, filename)
           expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
           read_acks(leader_io, expected).should eq expected
-          # The file, its directory's entry for it, and the entries of the
-          # directories created for it, which weren't fsynced when created
+          # Fsynced before the ack: the file, vhost/queue for the new file's
+          # entry, and vhost and the data dir for the entries of the new
+          # vhost/queue and vhost directories
           client.fsynced_paths.sort.should eq [
             data_dir, File.join(data_dir, filename), File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"),
           ].sort
