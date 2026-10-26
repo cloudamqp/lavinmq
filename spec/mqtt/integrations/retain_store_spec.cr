@@ -261,6 +261,20 @@ module MqttSpecs
       File.read(index_path).should eq "topic\n"
     end
 
+    it "compacts an index whose last line a crash left without its newline" do
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store.retain(publish_packet(topic: "topic1", payload: "body".to_slice, retain: true))
+      store.close
+      index_path = "tmp/retain_store/index"
+      File.write(index_path, "topic1") # a torn append
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store.retain(publish_packet(topic: "topic2", payload: "body".to_slice, retain: true))
+      store.@index_file.close # a crash, no compaction on close
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      File.read(index_path).should eq "topic1\ntopic2\n"
+      store.close
+    end
+
     it "subscribing to topic with retained message does not crash" do
       with_server(clean_dir: false) do |server|
         # First, publish a retained message

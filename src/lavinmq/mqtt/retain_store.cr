@@ -37,7 +37,8 @@ module LavinMQ
       end
 
       # Returns whether the index file needs compacting: lines it has that
-      # weren't restored (dropped topics, repeated topics)
+      # weren't restored (dropped topics, repeated topics), or a last line a
+      # crash left without its newline, which the next append would join
       private def restore_index(index : IndexTree, index_file : ::IO) : Bool
         Log.debug { "restoring index" }
         dir = @dir
@@ -49,8 +50,11 @@ module LavinMQ
           end
         )
 
-        while topic = index_file.gets
+        torn = false
+        while line = index_file.gets(chomp: false)
           lines += 1
+          torn = !line.ends_with?('\n')
+          topic = line.chomp
           if topic.bytesize > MAX_TOPIC_BYTESIZE
             Log.warn { "dropping retained message, topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
             next
@@ -72,7 +76,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
-        lines != index.size
+        torn || lines != index.size
       end
 
       def retain(packet : Protocol::Publish) : Nil
