@@ -660,6 +660,8 @@ module LavinMQ
       write_metadata_file(seg, mfile) unless seg == @segments.last_key
     end
 
+    # Overridden by specs to see how a segment is advised and cached as its
+    # load starts (AdviceOnLoadStore in spec/message_store_spec.cr)
     private def read_metadata_file(seg, mfile)
       metafile = meta_file_name(mfile)
       count = File.open(metafile) do |file|
@@ -756,6 +758,7 @@ module LavinMQ
       @acks[seg] = open_ack_file(seg)
     end
 
+    # Overridden by specs, like #read_metadata_file
     private def produce_metadata(seg, mfile)
       count = 0u32
       mfile.pos = 4
