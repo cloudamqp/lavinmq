@@ -1655,3 +1655,21 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 end
+
+describe LavinMQ::AMQP::DurableQueue do
+  it "writes the .queue name file when declared, not on every start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_once", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_once").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      File.read(path).should eq "dotqueue_once"
+      before = File.info(path)
+      s.stop
+      sleep 10.milliseconds # so a rewrite would move the mtime
+      restart_server(s)
+      File.info(path).modification_time.should eq before.modification_time
+      File.read(path).should eq "dotqueue_once"
+    end
+  end
+end

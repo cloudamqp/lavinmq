@@ -21,23 +21,28 @@ module LavinMQ
         @index_file = File.new(@index_file_name, "a+")
         @replicator.try &.register_file(@index_file)
         @lock = Mutex.new
+        # Set when the index file has lines the index doesn't, so it is
+        # compacted on close (see #write_index)
+        @dirty = false
         if @index.empty?
-          restore_index(@index, @index_file)
-          write_index
+          write_index if restore_index(@index, @index_file)
         end
       end
 
       def close
         @lock.synchronize do
-          write_index
+          write_index if @dirty
           @index_file.close
         end
       end
 
-      private def restore_index(index : IndexTree, index_file : ::IO)
+      # Returns whether the index file needs compacting: lines it has that
+      # weren't restored (dropped topics, repeated topics)
+      private def restore_index(index : IndexTree, index_file : ::IO) : Bool
         Log.debug { "restoring index" }
         dir = @dir
         msg_count = 0u64
+        lines = 0
         msg_file_segments = Set(String).new(
           Dir[Path[dir, "*#{MESSAGE_FILE_SUFFIX}"]].compact_map do |fname|
             File.basename(fname)
@@ -45,6 +50,7 @@ module LavinMQ
         )
 
         while topic = index_file.gets
+          lines += 1
           if topic.bytesize > MAX_TOPIC_BYTESIZE
             Log.warn { "dropping retained message, topic is #{topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}" }
             next
@@ -66,6 +72,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
+        lines != index.size
       end
 
       def retain(packet : Protocol::Publish) : Nil
@@ -120,9 +127,11 @@ module LavinMQ
         FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
+        @dirty = false
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
+        @dirty = true
         @index.insert topic, file_name
         line = "#{topic}\n".to_slice
         offset = @index_file.size.to_i64
@@ -133,6 +142,7 @@ module LavinMQ
 
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
+          @dirty = true
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
           file_path = File.join(@dir, file_name)
           File.delete? file_path

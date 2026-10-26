@@ -248,6 +248,17 @@ module MqttSpecs
       end
     end
 
+    it "does not rewrite a compact index on start or close" do
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store.retain(publish_packet(topic: "topic", payload: "body".to_slice, retain: true))
+      store.close
+      index_path = "tmp/retain_store/index"
+      before = File.info(index_path)
+      sleep 10.milliseconds # so a rewrite would move the mtime
+      LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil).close
+      File.info(index_path).modification_time.should eq before.modification_time
+    end
+
     it "subscribing to topic with retained message does not crash" do
       with_server(clean_dir: false) do |server|
         # First, publish a retained message
