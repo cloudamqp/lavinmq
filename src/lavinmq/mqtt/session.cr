@@ -265,6 +265,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
+          # Again under the lock: the fiber that held it can close the session
+          # before this one runs, and raising here would fail the whole fan-out
+          return false if closed?
           @msg_store.push(msg)
           drop_overflow
         end
@@ -308,6 +311,7 @@ module LavinMQ
               end
               delete_message(sp)
             else
+              booked = false
               begin
                 id = delivery_id(sp)
                 unless id
@@ -320,6 +324,11 @@ module LavinMQ
                   return false
                 end
                 packet = build_packet(env, id)
+                # Booked before the send, which yields: the client can ack
+                # before it returns, and an ack that finds no entry closes the
+                # connection.
+                @unacked[id] = sp
+                booked = true
                 @unacked_count.add(1, :relaxed)
                 @unacked_bytesize.add(sp.bytesize, :relaxed)
                 yield packet, sp.bytesize
@@ -329,13 +338,18 @@ module LavinMQ
                   @deliver_count.add(1, :relaxed)
                   @deliver_get_count.add(1, :relaxed)
                 end
-                @unacked[id] = sp
                 @msg_store.forget_packet_id(sp)
                 refresh_capacity
               rescue ex # requeue failed delivery
-                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                @unacked_count.sub(1, :relaxed)
-                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                # Nothing to unbook if the client already acked it: the message
+                # is deleted and the counters are settled.
+                if !booked
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                elsif @unacked.delete(id)
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  @unacked_count.sub(1, :relaxed)
+                  @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                end
                 raise ex
               end
             end

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- An MQTT subscriber that acknowledged a QoS 1 message while it was still being sent, such as a large message to a fast client, had its PUBACK rejected and was disconnected, publishing its will [#2557](https://github.com/cloudamqp/lavinmq/pull/2557)
+- An MQTT publish was not acknowledged, and its retry was delivered again to subscribers that already had it, when a subscriber's session closed while the message was being routed to it [#2557](https://github.com/cloudamqp/lavinmq/pull/2557)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
