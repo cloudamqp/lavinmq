@@ -769,6 +769,22 @@ describe LavinMQ::Config do
       end
     end
 
+    it "parses a broken [sni:] section when TLS is not configured" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        config = LavinMQ::Config.new
+        # No TLS listener can use the section, so it must not stop startup
+        config.parse(["-c", config_file.path])
+        config.sni_manager.get_host("foobar.localhost").should_not be_nil
+      ensure
+        File.delete?(config_file.path)
+      end
+    end
+
     it "applies SNI changes on a successful reload" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
@@ -843,31 +859,27 @@ describe LavinMQ::Config do
   end
 
   # [main] parses booleans through parse_value, which downcases first; the
-  # [sni:] branch calls true? on the raw value. Anything but all-lowercase is
-  # silently off under SNI while it is on in [main], so a host meant to pin the
-  # server's cipher order quietly negotiates the client's instead.
-  describe "tls_prefer_server_ciphers" do
+  # [sni:] branch calls true? on the raw value. Anything but all-lowercase
+  # silently off under SNI would leave mTLS disabled on a host meant to
+  # require client certificates.
+  describe "tls_verify_peer under [sni:]" do
     {% for value in ["true", "TRUE", "True", "YES"] %}
-      it "is on in both [main] and [sni:] when the value is {{ value.id }}" do
+      it "is on when the value is {{ value.id }}" do
         config_file = File.tempfile do |file|
           file.print <<-CONFIG
-            [main]
-            tls_prefer_server_ciphers = {{ value.id }}
-
             [sni:foobar.localhost]
             tls_cert = spec/resources/foobar_localhost_certificate.pem
             tls_key = spec/resources/foobar_localhost_key.pem
-            tls_prefer_server_ciphers = {{ value.id }}
-            mqtt_tls_prefer_server_ciphers = {{ value.id }}
+            tls_verify_peer = {{ value.id }}
+            mqtt_tls_verify_peer = {{ value.id }}
             CONFIG
         end
         begin
           config = LavinMQ::Config.new
           config.parse(["-c", config_file.path])
-          config.tls_prefer_server_ciphers?.should be_true
           host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
-          host.tls_prefer_server_ciphers?.should be_true
-          host.mqtt_tls_prefer_server_ciphers.should be_true
+          host.tls_verify_peer?.should be_true
+          host.mqtt_tls_verify_peer.should be_true
         ensure
           File.delete?(config_file.path)
         end
@@ -875,24 +887,20 @@ describe LavinMQ::Config do
     {% end %}
 
     {% for value in ["false", "FALSE"] %}
-      it "is off in both [main] and [sni:] when the value is {{ value.id }}" do
+      it "is off when the value is {{ value.id }}" do
         config_file = File.tempfile do |file|
           file.print <<-CONFIG
-            [main]
-            tls_prefer_server_ciphers = {{ value.id }}
-
             [sni:foobar.localhost]
             tls_cert = spec/resources/foobar_localhost_certificate.pem
             tls_key = spec/resources/foobar_localhost_key.pem
-            tls_prefer_server_ciphers = {{ value.id }}
+            tls_verify_peer = {{ value.id }}
             CONFIG
         end
         begin
           config = LavinMQ::Config.new
           config.parse(["-c", config_file.path])
-          config.tls_prefer_server_ciphers?.should be_false
           host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
-          host.tls_prefer_server_ciphers?.should be_false
+          host.tls_verify_peer?.should be_false
         ensure
           File.delete?(config_file.path)
         end
@@ -930,7 +938,7 @@ ensure
   tcp_server.try &.close
 end
 
-private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : String?
+private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server, servername = "localhost") : String?
   tcp_server = TCPServer.new("127.0.0.1", 0)
   port = tcp_server.local_address.port
   spawn do
@@ -948,7 +956,7 @@ private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : Stri
   tcp_client = TCPSocket.new("127.0.0.1", port)
   client_ctx = OpenSSL::SSL::Context::Client.new
   client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
-  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "localhost")
+  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: servername)
   cipher = ssl_client.cipher
   ssl_client.close
   tcp_client.close
@@ -1107,6 +1115,90 @@ describe LavinMQ::Launcher do
         chain.backends.size.should eq 1
       ensure
         server.try &.close
+      end
+    end
+
+    it "applies the listener's cipher settings to SNI hosts' handshakes" do
+      with_launcher(<<-INI) do |launcher, _config, _config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_min_version = 1.3
+        tls_ciphersuites = TLS_AES_256_GCM_SHA384
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        # The host gets its own certificate, the listener's cipher settings
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+        negotiated_cipher(amqp_ctx, "foobar.localhost").should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "loads the key from the certificate file when a per-protocol key override is empty" do
+      combined = File.tempfile("combined-cert", ".pem")
+      File.write(combined.path, File.read("spec/resources/foobar_localhost_certificate.pem") +
+                                File.read("spec/resources/foobar_localhost_key.pem"))
+      with_launcher(<<-INI) do |launcher, _config, _config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = #{combined.path}
+        tls_key = spec/resources/server_key.pem
+        amqp_tls_key =
+        mqtt_tls_key =
+        http_tls_key =
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        # The empty overrides keep the host's tls_key out of the contexts, so
+        # the key is read from the combined certificate file.
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+      end
+    ensure
+      combined.try &.delete
+    end
+
+    it "refuses to start when an SNI host's certificate can't be read" do
+      expect_raises(LavinMQ::Config::Error, /SNI host 'foobar.localhost'/) do
+        with_launcher(<<-INI) { }
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+      end
+    end
+
+    it "keeps the running configuration when a reload brings an unreadable SNI certificate" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        launcher.reload!
+        # The invalid reload is refused as a whole; the old certificate still serves
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
       end
     end
 

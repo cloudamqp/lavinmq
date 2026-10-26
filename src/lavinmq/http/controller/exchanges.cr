@@ -65,9 +65,6 @@ module LavinMQ
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
               end
-              if e.internal?
-                bad_request(context, "Not allowed to publish to internal exchange")
-              end
               context.response.status_code = 204
             elsif NameValidator.reserved_prefix?(name)
               bad_request(context, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
@@ -111,6 +108,9 @@ module LavinMQ
             end
             if e.internal?
               bad_request(context, "Not allowed to publish to internal exchange")
+            end
+            unless vhost.flow?
+              precondition_failed(context, "Server low on disk space")
             end
             body = parse_body(context)
             properties = body["properties"]?

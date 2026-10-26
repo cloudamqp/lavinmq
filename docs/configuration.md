@@ -155,21 +155,18 @@ Per-hostname TLS configuration. Create a section for each hostname.
 |-----|-------------|
 | `tls_cert` | Certificate file (host is dropped with a warning if this is missing) |
 | `tls_key` | Private key file. If empty, the cert file is expected to contain both. |
-| `tls_min_version` | Minimum TLS version |
-| `tls_ciphers` | Allowed cipher list, TLS 1.2 and below |
-| `tls_ciphersuites` | Allowed TLS 1.3 ciphersuite list |
-| `tls_prefer_server_ciphers` | Use the server's cipher order instead of the client's preference |
 | `tls_verify_peer` | Require client certificate (mTLS) |
 | `tls_ca_cert` | CA bundle for verifying client certs (mTLS) |
 | `tls_keylog_file` | TLS key log file for debugging |
 
 Each key can be prefixed with `amqp_`, `mqtt_`, or `http_` to apply only to that protocol. For example, `amqp_tls_cert` overrides the certificate for AMQP connections to that hostname only.
 
+The TLS version and cipher settings (`tls_min_version`, `tls_ciphers`, `tls_ciphersuites`, `tls_prefer_server_ciphers`) cannot be set per hostname; the `[main]` values apply to every SNI host. LavinMQ logs a warning for those keys in an SNI section.
+
 ```ini
 [sni:example.com]
 tls_cert = /path/to/example.com.crt
 tls_key = /path/to/example.com.key
-tls_min_version = 1.3
 tls_verify_peer = true
 tls_ca_cert = /path/to/ca.pem
 ```

@@ -52,49 +52,6 @@ describe LavinMQ::SNIHost do
     # HTTP should NOT have peer verification
     http_ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
   end
-
-  it "does not prefer server ciphers by default" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-
-    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
-  end
-
-  it "creates TLS contexts that prefer the server cipher order" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_prefer_server_ciphers = true
-    # MQTT opts out of the default
-    host.mqtt_tls_prefer_server_ciphers = false
-
-    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
-    host.http_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
-    host.mqtt_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
-  end
-
-  it "restricts the TLS 1.3 ciphersuites, per protocol" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_min_version = "1.3"
-    host.tls_ciphersuites = "TLS_AES_128_GCM_SHA256"
-    host.mqtt_tls_ciphersuites = "TLS_AES_256_GCM_SHA384"
-
-    negotiated_cipher(host.amqp_tls_context).should eq "TLS_AES_128_GCM_SHA256"
-    negotiated_cipher(host.http_tls_context).should eq "TLS_AES_128_GCM_SHA256"
-    negotiated_cipher(host.mqtt_tls_context).should eq "TLS_AES_256_GCM_SHA384"
-  end
-
-  it "raises on an unknown TLS 1.3 ciphersuite" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_ciphersuites = "TLS_NO_SUCH_SUITE"
-
-    expect_raises(OpenSSL::Error) { host.amqp_tls_context }
-  end
 end
 
 describe LavinMQ::SNIManager do
@@ -178,7 +135,6 @@ describe LavinMQ::Config do
       [sni:example.com]
       tls_cert = spec/resources/server_certificate.pem
       tls_key = spec/resources/server_key.pem
-      tls_min_version = 1.2
       tls_verify_peer = false
 
       [sni:mtls.example.com]
@@ -202,7 +158,6 @@ describe LavinMQ::Config do
             case key
             when "tls_cert"             then host.tls_cert = value
             when "tls_key"              then host.tls_key = value
-            when "tls_min_version"      then host.tls_min_version = value
             when "tls_verify_peer"      then host.tls_verify_peer = {"true", "yes", "y", "1"}.includes?(value)
             when "tls_ca_cert"          then host.tls_ca_cert = value
             when "http_tls_verify_peer" then host.http_tls_verify_peer = {"true", "yes", "y", "1"}.includes?(value)
@@ -259,6 +214,36 @@ describe LavinMQ::Config do
       # Runtime lookup: exact match takes precedence over wildcard
       config.sni_manager.get_host("test.example.com").should eq(exact)
       config.sni_manager.get_host("foo.example.com").should eq(wildcard)
+    ensure
+      File.delete(config_file)
+    end
+  end
+
+  it "warns on TLS version and cipher keys in an SNI section and keeps the host" do
+    io = IO::Memory.new
+    config = LavinMQ::Config.new(io)
+    config_content = <<-INI
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
+
+      [sni:example.com]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_ciphersuites = TLS_AES_128_GCM_SHA256
+      amqp_tls_min_version = 1.3
+      INI
+
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+
+    begin
+      config.parse(["-c", config_file])
+
+      output = io.to_s
+      output.should contain "'sni:example.com/tls_ciphersuites' is not supported"
+      output.should contain "'sni:example.com/amqp_tls_min_version' is not supported"
+      # The host itself is still registered with its certificate
+      config.sni_manager.get_host("example.com").should_not be_nil
     ensure
       File.delete(config_file)
     end
@@ -491,31 +476,4 @@ describe "SNI end-to-end" do
     tcp_server.close
     server_done.receive
   end
-end
-
-private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : String?
-  tcp_server = TCPServer.new("127.0.0.1", 0)
-  port = tcp_server.local_address.port
-  spawn do
-    if client = tcp_server.accept?
-      begin
-        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
-      rescue
-        # ignore handshake errors, the client assertion will surface them
-      ensure
-        client.close rescue nil
-      end
-    end
-  end
-  Fiber.yield
-  tcp_client = TCPSocket.new("127.0.0.1", port)
-  client_ctx = OpenSSL::SSL::Context::Client.new
-  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
-  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "example.com")
-  cipher = ssl_client.cipher
-  ssl_client.close
-  tcp_client.close
-  cipher
-ensure
-  tcp_server.try &.close
 end
