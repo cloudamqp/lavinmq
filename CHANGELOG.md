@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
+
 ### Fixed
 
 - Declaring a durable queue fsynced the vhost directory right away, and a priority queue fsynced its directory on every start, which made bulk declares, definition imports and starts with many priority queues slower than in 2.10. The directories are now fsynced once with the next publish confirm that depends on them [#2544](https://github.com/cloudamqp/lavinmq/pull/2544)
@@ -53,6 +57,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Fixed
 
+- An HTTP re-PUT of an existing internal exchange, such as any `x-mqtt-topic` exchange, answered 400 "Not allowed to publish to internal exchange". An identical redeclare now answers 204, like an AMQP redeclare [#2541](https://github.com/cloudamqp/lavinmq/pull/2541)
 - Removing an entry with overridden settings from a `federation-upstream-set` left its federation queue and exchange on the upstream broker, where the queue kept collecting messages. The resources are now deleted when no entry in the updated set reuses them [#2531](https://github.com/cloudamqp/lavinmq/pull/2531)
 - Deleting a federated exchange deleted the link's queue and exchange on the upstream broker while holding the vhost's definitions lock. With an unreachable upstream, every declare, delete and binding in the vhost waited up to 60 seconds per link. Upstream resources are now deleted in the background [#2531](https://github.com/cloudamqp/lavinmq/pull/2531)
 - Any policy or parameter change in a vhost restarted every federation link in it, and for exchange federation the restart deleted the link's queue and exchange on the upstream broker, with the messages buffered there. A policy re-apply now keeps an unchanged link running, and replacing an upstream parameter keeps the resources on the upstream broker for the new links to reuse, as long as the new config names the same resources, where credentials and query options in the URI don't count. A re-created upstream also stays in the named upstream sets that reference it. Previously the sets lost the entry, and federation through them silently stopped until the set was re-PUT [#2509](https://github.com/cloudamqp/lavinmq/pull/2509)
