@@ -608,6 +608,10 @@ module LavinMQ
           # The record's final ack tells the leader the replace is durable, so
           # it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
+          # The ack doesn't cover a directory created for the file here: that's
+          # fsynced with the next fsync request (see #make_dirs). The only such
+          # replace is a new queue's .queue file, which the leader doesn't fsync
+          # either, and its directory is recreated from the definitions if lost.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           # Fsync the content before the rename, so that a crash can't leave
           # a partially written file under the final name
