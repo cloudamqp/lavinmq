@@ -542,18 +542,11 @@ module LavinMQ
         @created_dirs.clear
       end
 
-      # Like FileSystem.mkdir_p, but the parent of each directory it creates
-      # is fsynced with the next fsync request, before the ack that makes
-      # anything in it durable, not inline on the replication stream
+      # The parent of each directory this creates is fsynced with the next
+      # fsync request, before the ack that makes anything in it durable, not
+      # inline on the replication stream
       private def make_dirs(dir : String) : Nil
-        return if Dir.exists?(dir)
-        make_dirs(File.dirname(dir))
-        begin
-          Dir.mkdir(dir)
-        rescue File::AlreadyExistsError
-          return
-        end
-        @created_dirs << File.dirname(dir)
+        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent }
       end
 
       private def delete(filename)
