@@ -370,6 +370,7 @@ class MFile < IO
     WillNeed   = 3
     DontNeed   = 4
     {% if flag?(:linux) %}
+      Remove   =  9
       DontDump = 16
     {% else %}
       DontDump = 8 # is called NoCore in BSD/Darwin
@@ -389,7 +390,7 @@ class MFile < IO
     {% if flag?(:linux) %}
       offset = (from + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
       return if offset >= @capacity
-      LibC.madvise(@buffer + offset, @capacity - offset, 9) # MADV_REMOVE
+      LibC.madvise(@buffer + offset, @capacity - offset, Advice::Remove)
     {% end %}
   end
 
