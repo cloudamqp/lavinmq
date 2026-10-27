@@ -1,6 +1,12 @@
 require "./socket_read_nonblock"
 require "./io_buffered_discard"
 
+lib LibC
+  {% if flag?(:linux) %}
+    TCP_CORK = 3
+  {% end %}
+end
+
 # A pool of reusable byte buffers for IO::Buffered.
 #
 # Most connections are idle most of the time. By returning read/write buffers
@@ -183,8 +189,6 @@ module IO::Buffered
     count
   end
 
-  # Set while a write that didn't fit the buffer writes it out
-  @overflowing = false
   # TCP_CORK is set, see #write
   @corked = false
 
@@ -206,17 +210,17 @@ module IO::Buffered
       return
     end
     cork
-    @overflowing = true
-    begin
-      if count > 0
-        slice[0, space].copy_to(out_buffer + count, space)
-        @out_count = @buffer_size
-        slice += space
-        flush
-      end
-      previous_def(slice)
-    ensure
-      @overflowing = false
+    if count > 0
+      slice[0, space].copy_to(out_buffer + count, space)
+      @out_count = @buffer_size
+      slice += space
+      write_out_buffer
+    end
+    if slice.size >= @buffer_size
+      unbuffered_write(slice)
+    else
+      slice.copy_to(out_buffer, slice.size)
+      @out_count = slice.size
     end
   end
 
@@ -229,6 +233,7 @@ module IO::Buffered
   end
 
   private def uncork : Nil
+    return unless @corked
     @corked = false
     if socket = self.as?(TCPSocket)
       set_tcp_cork(socket, 0)
@@ -237,8 +242,16 @@ module IO::Buffered
 
   private def set_tcp_cork(socket : TCPSocket, value : Int32) : Nil
     {% if flag?(:linux) %}
-      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, 3, pointerof(value), sizeof(Int32)) # TCP_CORK
+      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), sizeof(Int32))
     {% end %}
+  end
+
+  def flush : self
+    return previous_def unless @buffer_pool
+    write_out_buffer
+    unbuffered_flush
+    uncork
+    self
   end
 
   # The write buffer is detached before writing, so that a concurrent flush or
@@ -246,21 +259,18 @@ module IO::Buffered
   # that may already be back in the pool and in use by another connection.
   # On a failed write the buffered data is dropped, the connection is
   # abandoned then anyway.
-  def flush : self
-    return previous_def unless pool = @buffer_pool
-    if out_buf = @out_buffer
-      count = @out_count
-      @out_buffer = Pointer(UInt8).null
-      @out_count = 0
-      begin
-        unbuffered_write(Slice.new(out_buf, count)) if count > 0
-      ensure
-        pool.release(out_buf)
-      end
+  private def write_out_buffer : Nil
+    pool = @buffer_pool || return
+    out_buf = @out_buffer
+    return if out_buf.null?
+    count = @out_count
+    @out_buffer = Pointer(UInt8).null
+    @out_count = 0
+    begin
+      unbuffered_write(Slice.new(out_buf, count)) if count > 0
+    ensure
+      pool.release(out_buf)
     end
-    unbuffered_flush
-    uncork if @corked && !@overflowing
-    self
   end
 
   def discard_write_buffer : Nil

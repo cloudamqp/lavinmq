@@ -302,13 +302,12 @@ describe IO::Buffered do
       io.@out_buffer.null?.should be_true
     end
 
-    it "resets the overflow state when a write that doesn't fit fails" do
+    it "drops the buffered data when a write that doesn't fit fails" do
       io = RecordingIO.new
       io.buffer_pool = IO::BufferPool.new(1024)
       io.write Bytes.new(100)
       io.fail_writes = true
       expect_raises(IO::Error) { io.write Bytes.new(2000) }
-      io.@overflowing.should be_false
       io.fail_writes = false
       io.flush
       io.writes.should be_empty
@@ -524,7 +523,7 @@ end
 def tcp_cork?(socket : TCPSocket) : Bool
   value = 0
   len = LibC::SocklenT.new(sizeof(Int32))
-  LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, 3, pointerof(value), pointerof(len)) # TCP_CORK
+  LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), pointerof(len))
   value != 0
 end
 
