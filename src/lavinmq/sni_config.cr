@@ -4,7 +4,7 @@ module LavinMQ
   # Configuration for a specific SNI hostname. Only the certificate and mTLS
   # settings can differ per host: the TLS version is selected before the
   # servername callback swaps the context, and the listener's cipher settings
-  # are passed in when a context is built, as TLS 1.2 picks its cipher after.
+  # are set when the contexts are built, as TLS 1.2 picks its cipher after.
   class SNIHost
     Log = LavinMQ::Log.for "sni"
 
@@ -38,16 +38,18 @@ module LavinMQ
     property http_tls_ca_cert : String? = nil
     property http_tls_keylog_file : String? = nil
 
-    @amqp_tls_context : OpenSSL::SSL::Context::Server?
-    @mqtt_tls_context : OpenSSL::SSL::Context::Server?
-    @http_tls_context : OpenSSL::SSL::Context::Server?
+    # Built by build_tls_contexts; reading one before that raises
+    getter! amqp_tls_context : OpenSSL::SSL::Context::Server
+    getter! mqtt_tls_context : OpenSSL::SSL::Context::Server
+    getter! http_tls_context : OpenSSL::SSL::Context::Server
 
     def initialize(@hostname : String)
     end
 
-    # Get or create the TLS context for AMQP
-    def amqp_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
-      @amqp_tls_context ||= create_tls_context(
+    # Builds the TLS context for every protocol, with the listener's cipher
+    # settings. Config runs this when it parses the SNI sections.
+    def build_tls_contexts(ciphers : String, ciphersuites : String) : Nil
+      @amqp_tls_context = create_tls_context(
         pick(@amqp_tls_cert, @tls_cert),
         pick(@amqp_tls_key, @tls_key),
         {@amqp_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
@@ -55,11 +57,7 @@ module LavinMQ
         pick(@amqp_tls_keylog_file, @tls_keylog_file),
         ciphers, ciphersuites
       )
-    end
-
-    # Get or create the TLS context for MQTT
-    def mqtt_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
-      @mqtt_tls_context ||= create_tls_context(
+      @mqtt_tls_context = create_tls_context(
         pick(@mqtt_tls_cert, @tls_cert),
         pick(@mqtt_tls_key, @tls_key),
         {@mqtt_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
@@ -67,11 +65,7 @@ module LavinMQ
         pick(@mqtt_tls_keylog_file, @tls_keylog_file),
         ciphers, ciphersuites
       )
-    end
-
-    # Get or create the TLS context for HTTP
-    def http_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
-      @http_tls_context ||= create_tls_context(
+      @http_tls_context = create_tls_context(
         pick(@http_tls_cert, @tls_cert),
         pick(@http_tls_key, @tls_key),
         {@http_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
@@ -81,11 +75,11 @@ module LavinMQ
       )
     end
 
-    def tls_context(protocol : Symbol, ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
+    def tls_context(protocol : Symbol) : OpenSSL::SSL::Context::Server
       case protocol
-      when :amqp then amqp_tls_context(ciphers, ciphersuites)
-      when :mqtt then mqtt_tls_context(ciphers, ciphersuites)
-      when :http then http_tls_context(ciphers, ciphersuites)
+      when :amqp then amqp_tls_context
+      when :mqtt then mqtt_tls_context
+      when :http then http_tls_context
       else            raise ArgumentError.new("unknown protocol #{protocol}")
       end
     end
