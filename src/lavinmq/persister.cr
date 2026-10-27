@@ -161,7 +161,11 @@ module LavinMQ
       end
       begin
         if Config.instance.sync?
-          paths ? fsync_paths(batch.files, batch.paths, dirs) : syncfs_data_dir
+          if paths
+            syncfs = fsync_paths(batch.files, batch.paths, dirs)
+          else
+            syncfs_data_dir
+          end
         end
       rescue ex
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
@@ -186,7 +190,8 @@ module LavinMQ
       batch.waiters.each &.close
     end
 
-    private def fsync_paths(files, paths, dirs) : Nil
+    # Returns whether it fell back to syncing the whole filesystem
+    private def fsync_paths(files, paths, dirs) : Bool
       files.each &.fsync
       paths.each do |path|
         File.open(path, &.fsync)
@@ -196,6 +201,16 @@ module LavinMQ
         File.open(dir, &.fsync)
       rescue File::NotFoundError
       end
+      false
+    rescue ex : IO::Error | RuntimeError
+      raise ex unless FileSystem.out_of_file_descriptors?(ex)
+      # Opening a path to fsync it needs a free descriptor, and so does the
+      # event loop the first open on this thread creates. The data dir fd is
+      # already open, so sync everything through it rather than exit: out of
+      # descriptors is a condition the broker is supposed to ride out.
+      Log.warn { "Out of file descriptors, syncing the whole data dir instead: #{ex.message}" }
+      syncfs_data_dir
+      true
     end
 
     private def syncfs_data_dir : Nil

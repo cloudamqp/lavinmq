@@ -8,6 +8,15 @@ private def last_sync(s : LavinMQ::Server) : LavinMQ::Persister::SyncRecord
   s.persister.last_sync.should_not be_nil
 end
 
+private class ConfirmReceiver
+  include LavinMQ::Persister::ConfirmTarget
+  getter confirms = Channel(UInt64).new(1)
+
+  def enqueue_confirm_ack(msgid : UInt64) : Nil
+    @confirms.send msgid
+  end
+end
+
 describe LavinMQ::Persister do
   it "syncs the segments of confirmed publishes, not of other publishes" do
     with_amqp_server do |s|
@@ -79,6 +88,32 @@ describe LavinMQ::Persister do
         ch.confirm_select
         x.publish_confirm "to all", ""
         last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      target = ConfirmReceiver.new
+      # A new segment, whose directory the drain fsyncs by opening it
+      segment = MFile.new(File.join(data_dir, "msgs.0000000001"), 1024)
+      begin
+        segment.write "m".to_slice
+        persister.mark_dirty(segment)
+        without_free_file_descriptors do
+          persister.enqueue_ack(target, 1u64)
+          select
+          when id = target.confirms.receive
+            id.should eq 1u64
+          when timeout(2.seconds)
+            fail "the publish was never confirmed"
+          end
+        end
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+      ensure
+        segment.close
+        persister.close
       end
     end
   end
