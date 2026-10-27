@@ -847,6 +847,7 @@ module LavinMQ
       private def declare_new_queue(frame)
         unless @vhost.flow?
           send_precondition_failed(frame, "Server low on disk space, can not create queue")
+          return
         end
         if frame.queue_name.empty?
           frame.queue_name = AMQP::Queue.generate_name
