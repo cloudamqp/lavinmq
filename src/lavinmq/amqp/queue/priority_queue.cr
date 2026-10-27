@@ -135,6 +135,14 @@ module LavinMQ::AMQP
         size.zero?
       end
 
+      def write_readahead_active? : Bool
+        @stores.any? &.write_readahead_active?
+      end
+
+      def drop_idle_write_readahead(now = RoughTime.instant) : Nil
+        @stores.each &.drop_idle_write_readahead(now)
+      end
+
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         prio = msg.properties.priority || 0u8
