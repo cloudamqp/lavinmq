@@ -34,8 +34,6 @@ module LavinMQ
       getter acks = Hash(ConfirmTarget, UInt64).new
       getter files = Array(MFile).new
       getter paths = Set(String).new
-      # Set instead of adding to paths once they reach the syncfs threshold,
-      # which bounds them on a server that rarely confirms
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
@@ -44,11 +42,13 @@ module LavinMQ
         !acks.empty? || !waiters.empty?
       end
 
+      # Past the syncfs threshold a drain syncs the whole filesystem and
+      # doesn't look at the paths, so they stop being collected there, which
+      # bounds them on a server that rarely confirms
       def add_path(path : String) : Nil
         if paths.size < Config.instance.syncfs_threshold || paths.includes?(path)
           paths.add(path)
         else
-          # Past the threshold the drain syncs the whole filesystem anyway
           @syncfs = true
         end
       end
