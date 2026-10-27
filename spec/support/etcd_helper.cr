@@ -19,22 +19,23 @@ def with_etcd(&)
     "--advertise-client-urls=http://127.0.0.1:12379",
   }, output: STDOUT, error: STDERR)
 
-  client = HTTP::Client.new("127.0.0.1", 12379)
-  i = 0
-  loop do
-    sleep 0.02.seconds
-    response = client.get("/version")
-    if response.status.ok?
-      next if response.body.includes? "not_decided"
-      break
-    end
-  rescue e : Socket::ConnectError
-    i += 1
-    raise "Can't connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
-    next
-  end
-  client.close
   begin
+    client = HTTP::Client.new("127.0.0.1", 12379)
+    i = 0
+    loop do
+      sleep 0.02.seconds
+      response = client.get("/version")
+      if response.status.ok?
+        next if response.body.includes? "not_decided"
+        break
+      end
+    rescue e : IO::Error
+      client.close
+      i += 1
+      raise "Can't connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
+      next
+    end
+    client.close
     yield
   ensure
     p.terminate(graceful: false) rescue nil
