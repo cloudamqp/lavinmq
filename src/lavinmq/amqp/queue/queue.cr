@@ -201,6 +201,13 @@ module LavinMQ::AMQP
 
     getter? internal = false
 
+    # See MessageStore#drop_idle_write_readahead
+    def drop_idle_write_readahead(now = RoughTime.instant) : Nil
+      @delayed_retry_queue.try &.drop_idle_write_readahead(now)
+      return unless @msg_store.write_readahead_active?
+      @msg_store_lock.synchronize { @msg_store.drop_idle_write_readahead(now) }
+    end
+
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do

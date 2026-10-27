@@ -1233,6 +1233,51 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "drops the write segment's readahead once the store wasn't written for 30 seconds" do
+        with_write_readahead do
+          with_datadir do |dir|
+            store = LavinMQ::MessageStore.new(dir, nil)
+            store.push(LavinMQ::Message.new("", "rk", "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
+            vm_flags(store.@wfile.path).should_not contain "rr"
+            store.drop_idle_write_readahead(RoughTime.instant + 29.seconds)
+            vm_flags(store.@wfile.path).should_not contain "rr"
+            store.drop_idle_write_readahead(RoughTime.instant + 31.seconds)
+            vm_flags(store.@wfile.path).should contain "rr"
+            store.close
+          end
+        end
+      end
+
+      it "drops the pages read ahead of the writes of an idle store, also when it's not durable" do
+        with_write_readahead do
+          [true, false].each do |durable|
+            with_datadir do |dir|
+              store = LavinMQ::MessageStore.new(dir, nil, durable)
+              body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+              store.push(LavinMQ::Message.new("", "rk", body)) # fast, gets readahead
+              store.push(LavinMQ::Message.new("", "rk", body)) # faults with readahead
+              wfile = store.@wfile
+              cached = cached_pages_after(wfile, wfile.size)
+              store.drop_idle_write_readahead(RoughTime.instant + 31.seconds)
+              cached_pages_after(wfile, wfile.size).should eq 0
+              cached.should be > 0 unless tmpfs?(dir)
+              store.close
+            end
+          end
+        end
+      end
+
+      it "skips a closed store" do
+        with_write_readahead do
+          with_datadir do |dir|
+            store = LavinMQ::MessageStore.new(dir, nil)
+            store.push(LavinMQ::Message.new("", "rk", "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
+            store.close
+            store.drop_idle_write_readahead(RoughTime.instant + 31.seconds)
+          end
+        end
+      end
+
       it "reads the write segment ahead for confirmed publishes when sync is disabled" do
         LavinMQ::Config.instance.sync = false
         with_write_readahead do

@@ -388,6 +388,19 @@ class MFile < IO
     advise(Advice::DontNeed)
   end
 
+  # Punches a hole from *from*, rounded up to a page, to the capacity, which
+  # drops those pages from the page cache, like pages read ahead into the
+  # unwritten rest of a segment. Works on unlinked files too. Nothing may
+  # be written there yet. Failures, like a file system that can't punch
+  # holes, are ignored.
+  def remove_after(from : Int64) : Nil
+    {% if flag?(:linux) %}
+      offset = (from + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
+      return if offset >= @capacity
+      LibC.madvise(@buffer + offset, @capacity - offset, 9) # MADV_REMOVE
+    {% end %}
+  end
+
   # Resize the file, so that read operations can't happen beyond `new_size`
   # this does not change the actual file size on disk
   # and you can still write beyond `new_size`
