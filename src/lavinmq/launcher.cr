@@ -45,7 +45,7 @@ module LavinMQ
       end
       Dir.mkdir_p @config.data_dir
       acquire_data_dir_lock if @config.data_dir_lock?
-      print_data_dir_read_ahead
+      check_data_dir_read_ahead
 
       @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
 
@@ -149,12 +149,16 @@ module LavinMQ
       {% end %}
     end
 
-    READ_AHEAD_WARN_KB = 1024
+    READ_AHEAD_WARN_KB     = 1024
+    WRITE_READAHEAD_MAX_KB =  512
 
     # The first write fault in a new segment reads ahead up to read_ahead_kb
     # of it synchronously, in the publish path, which with a large readahead
     # and a full page cache stalls publishers at every segment rollover.
-    private def print_data_dir_read_ahead
+    # Segments being written fast only get readahead with a small one (see
+    # MessageStore#check_write_rate), a large one caches megabytes of the
+    # empty rest of every such segment, which costs more than it saves.
+    private def check_data_dir_read_ahead
       {% if flag?(:linux) %}
         device, read_ahead_kb = data_dir_read_ahead || return
         Log.info { "Data directory read ahead: #{read_ahead_kb} KiB (#{device})" }
@@ -162,6 +166,7 @@ module LavinMQ
           Log.warn { "The read ahead of the data directory's block device is large, it can cause latency spikes on segment rollover." }
           Log.warn { "Consider lowering it, e.g. to the kernel default: echo 128 > /sys/block/#{device}/queue/read_ahead_kb" }
         end
+        MessageStore.write_readahead = read_ahead_kb <= WRITE_READAHEAD_MAX_KB
       {% end %}
     end
 
