@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A follower that synced from a leader after the leader's start deleted every MQTT retained message stored before that start, as the leader only registered the retained-message index with the replicator, not the message files. A failover to that follower lost the retained messages [#2552](https://github.com/cloudamqp/lavinmq/pull/2552)
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 - Importing definitions that contain a `federation-upstream-set` parameter failed with 400 "Cast from Array(JSON::Any) to Hash(K, V) failed", so the broker's own export couldn't be imported [#2536](https://github.com/cloudamqp/lavinmq/pull/2536)
 
