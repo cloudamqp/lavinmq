@@ -58,15 +58,19 @@ describe LavinMQ::Persister do
     end
   end
 
-  it "fsyncs the vhost directory for a new durable MQTT session with the next confirm" do
+  it "fsyncs the directory entries and .metadata of a new durable MQTT session with the next confirm" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("confirmed")
         q.publish_confirm "first" # syncs what earlier declares marked
-        s.vhosts["/"].declare_queue("#{LavinMQ::MQTT::SESSION_PREFIX}client1", true, false,
+        session_name = "#{LavinMQ::MQTT::SESSION_PREFIX}client1"
+        s.vhosts["/"].declare_queue(session_name, true, false,
           LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
         q.publish_confirm "second"
-        last_sync(s).paths.should contain s.vhosts["/"].data_dir
+        paths = last_sync(s).paths
+        paths.should contain s.vhosts["/"].data_dir
+        paths.should contain queue_dir(s, session_name)
+        paths.should contain File.join(queue_dir(s, session_name), ".metadata")
       end
     end
   end
