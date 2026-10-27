@@ -138,16 +138,23 @@ module LavinMQ
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
           client = @client
+          if @msg_store.empty?
+            client.try &.flush
+            next @msg_store.empty.when_false.receive?
+          end
           next @has_client.when_true.receive? if client.nil?
-          next @has_capacity.when_true.receive? unless @has_capacity.value
+          unless @has_capacity.value
+            client.flush
+            next @has_capacity.when_true.receive?
+          end
           get_packet do |pub_packet, bytesize|
-            client.send(pub_packet)
+            client.send(pub_packet, flush: false)
             delivered_bytes &+= bytesize
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
+            client.flush
             Fiber.yield
           end
         rescue ex
