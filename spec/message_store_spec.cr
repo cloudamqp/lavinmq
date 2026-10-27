@@ -1013,9 +1013,9 @@ describe LavinMQ::MessageStore do
           store = LavinMQ::MessageStore.new(dir, nil)
           vm_flags(store.@wfile.path).should contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
-          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          3.times { store.push(synced_message(large)) }
           store.@wfile_id.should_not eq 1
-          vm_flags(store.@wfile.path).should contain "rr"
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
           store.close
           store = LavinMQ::MessageStore.new(dir, nil)
           store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
@@ -1127,7 +1127,7 @@ describe LavinMQ::MessageStore do
           vm_flags(first).should contain "rr" # no read before it to go by
           vm_flags(second).should_not contain "rr"
           vm_flags(second).should contain "sr"
-          vm_flags(third).should contain "rr" # the write segment
+          vm_flags(third).should_not contain "sr" # the write segment, readers leave it be
           store.close
         end
       end
@@ -1155,6 +1155,44 @@ describe LavinMQ::MessageStore do
           env = store.shift?.should_not be_nil
           store.delete(env.segment_position)
           vm_flags(store.@acks[env.segment_position.segment].path).should contain "rr"
+          store.close
+        end
+      end
+
+      it "reads the write segment ahead while the store is written fast" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          2.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should_not contain "rr"   # the next one too
+          vm_flags(store.@segments[1].path).should contain "rr" # the written one
+          store.close
+        end
+      end
+
+      it "keeps random access for the write segment of a store that's written slowly" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          sleep 1.1.seconds # more than a second for the first 64 KiB
+          store.push(LavinMQ::Message.new("", "rk", "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
+        end
+      end
+
+      it "keeps random access for the write segment of a store that syncs" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+          store.push(LavinMQ::Message.new("", "rk", body))
+          store.push(synced_message(body))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should contain "rr"
           store.close
         end
       end
