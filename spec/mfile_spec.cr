@@ -73,6 +73,23 @@ describe MFile do
     end
   end
 
+  it "reads one byte at a time" do
+    file = File.tempfile "mfile_spec"
+    file.print "ab"
+    file.flush
+    begin
+      MFile.open(file.path) do |mfile|
+        mfile.read_byte.should eq 'a'.ord
+        mfile.pos.should eq 1
+        mfile.read_byte.should eq 'b'.ord
+        mfile.read_byte.should be_nil
+        mfile.pos.should eq 2
+      end
+    ensure
+      file.delete
+    end
+  end
+
   describe "madvise chunking" do
     # madvise(MADV_DONTNEED) over PMD_SIZE or more lets the kernel reclaim the
     # page table and flush at the wrong address on Linux 7.0.0-rc1 through
