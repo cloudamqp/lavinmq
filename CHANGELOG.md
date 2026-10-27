@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 - Since 2.11.0-rc.1, reading an AMQP frame from a connection's pooled socket buffer went through a read that isn't inlined for every field, about 3% lower throughput with 16-byte messages. A read served from the buffer now copies from it directly [#2578](https://github.com/cloudamqp/lavinmq/pull/2578)
 - Since 2.11.0-rc.1, the clock was read for every received frame and every delivered message to track heartbeats, about 3% lower throughput with 16-byte messages. It's now read once per socket read and once per socket flush [#2579](https://github.com/cloudamqp/lavinmq/pull/2579)
+- Publishing messages took up to twice the CPU per message of 2.10 once the queue's segment was written fast, for example 30-45% lower throughput with one publisher and one consumer of 1-64 KiB messages, as message store segments have been mapped without readahead since 2.11.0-rc.1. The segment being written now gets readahead while each 64 KiB is written to the queue within a second, and the queue has had no publish that needed a sync
 
 ## [2.11.0-rc.2] - 2026-10-23
 
