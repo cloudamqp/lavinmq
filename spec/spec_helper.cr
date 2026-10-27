@@ -523,6 +523,9 @@ end
 
 private SPEC_TIMEOUT = 15.seconds
 
+# A Launcher enables it for small device readaheads, see Launcher#check_data_dir_read_ahead
+Spec.after_each { LavinMQ::MessageStore.write_readahead = false }
+
 Spec.around_each do |example|
   done = Channel(Exception?).new
 
