@@ -252,15 +252,14 @@ module MqttSpecs
       with_server(clean_dir: false) do |server|
         # First, publish a retained message
         with_client_io(server) do |io|
-          connect(io, client_id: "publisher")
+          connect(io, client_id: "publisher", clean_session: true)
           # Use a larger payload to increase chances of triggering copy_file_range
-          subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
-          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
           # Should receive the retained message without crashing. The broker
@@ -279,15 +278,14 @@ module MqttSpecs
       with_server do |server|
         # First, publish a retained message
         with_client_io(server) do |io|
-          connect(io, client_id: "publisher")
+          connect(io, client_id: "publisher", clean_session: true)
           # Use a larger payload to increase chances of triggering copy_file_range
-          subscribe(io, topic_filters: [subtopic("test/retain")])
           large_payload = "retained_message_" + ("x" * 8192)
-          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")], expect_response: false)
 
           # Should receive the retained message without crashing. The broker
