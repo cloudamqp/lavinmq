@@ -248,6 +248,44 @@ describe LavinMQ::Config do
       File.delete(config_file)
     end
   end
+
+  it "copies the listener's cipher settings to SNI hosts when a reload removes tls_cert" do
+    config = LavinMQ::Config.new
+    with_tls = <<-INI
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_ciphers = ECDHE-RSA-AES128-GCM-SHA256
+      tls_ciphersuites = TLS_AES_128_GCM_SHA256
+
+      [sni:example.com]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      INI
+    without_tls = with_tls.sub("tls_cert = spec/resources/server_certificate.pem", "tls_cert =")
+
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, with_tls)
+    begin
+      config.parse(["-c", config_file])
+      host = config.sni_manager.get_host("example.com").should_not be_nil
+      host.listener_ciphers.should eq "ECDHE-RSA-AES128-GCM-SHA256"
+
+      # The launcher refuses to disable TLS on reload and keeps serving with
+      # the running TLS contexts, so the fresh SNI hosts built by the reload
+      # still need the listener's cipher settings
+      File.write(config_file, without_tls)
+      config.reload
+      config.tls_configured?.should be_false
+      host = config.sni_manager.get_host("example.com").should_not be_nil
+      host.listener_ciphers.should eq "ECDHE-RSA-AES128-GCM-SHA256"
+      host.listener_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
+    ensure
+      File.delete(config_file)
+      Log.setup(:fatal) # config.reload reconfigures logging
+    end
+  end
 end
 
 describe OpenSSL::SSL::Context::Server do

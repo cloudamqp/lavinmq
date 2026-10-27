@@ -106,14 +106,18 @@ module LavinMQ
     # later. The contexts are memoized on the hosts, so the servername
     # callback reuses what is built here.
     private def validate_sni_tls!
+      hosts = @sni_manager.hosts.values + @sni_manager.wildcard_hosts.values
+      # Copied even without a TLS listener: a reload can't disable a running
+      # TLS listener, so its SNI contexts, built lazily, still need these
+      hosts.each do |host|
+        host.listener_ciphers = @tls_ciphers
+        host.listener_ciphersuites = @tls_ciphersuites
+      end
       return unless tls_configured? # without a TLS listener no SNI host is used
-      @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
-      @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
+      hosts.each { |host| validate_sni_host!(host) }
     end
 
     private def validate_sni_host!(host : SNIHost) : Nil
-      host.listener_ciphers = @tls_ciphers
-      host.listener_ciphersuites = @tls_ciphersuites
       host.amqp_tls_context
       host.mqtt_tls_context
       host.http_tls_context
@@ -268,8 +272,9 @@ module LavinMQ
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
              .ends_with?("tls_ciphersuites"), .ends_with?("tls_prefer_server_ciphers")
-          # OpenSSL selects the TLS version and cipher before the SNI switch,
-          # so these were silently ignored per host since 2.7.0
+          # Removed in 2.11: a per-host tls_min_version never took effect,
+          # but TLS 1.2 picks its cipher from the swapped-in context, so
+          # per-host cipher settings did apply to TLS 1.2 until 2.10.x
           @io.puts "WARNING: 'sni:#{hostname}/#{config}' is not supported, " \
                    "the listener's TLS version and cipher settings apply to all SNI hosts"
         else
