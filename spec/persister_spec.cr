@@ -103,6 +103,17 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "doesn't fsync the directory of a transient priority queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("transient_prio", durable: false, args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
+        ch.queue("confirmed").publish_confirm "first"
+        transient_dir = File.join(s.vhosts["/"].data_dir, "transient", Digest::SHA1.hexdigest("transient_prio"))
+        last_sync(s).paths.should_not contain transient_dir
+      end
+    end
+  end
+
   it "doesn't sync the ack files consumers append to" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

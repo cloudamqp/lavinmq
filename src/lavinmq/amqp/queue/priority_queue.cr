@@ -29,7 +29,7 @@ module LavinMQ::AMQP
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata, persister: @vhost.persister)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     class PriorityMessageStore < MessageStore
@@ -44,7 +44,7 @@ module LavinMQ::AMQP
         @max_priority : UInt8,
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
-        @durable : Bool = true,
+        @durable : Bool,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
         @persister : Persister? = nil,
       )
