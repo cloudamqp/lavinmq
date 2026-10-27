@@ -429,10 +429,15 @@ module LavinMQ
     # (see #load_stats_from_segments): fetch it in one readahead instead of
     # a page fault at a time. A segment a crash left at its capacity is
     # sparse past its data, so the readahead is bounded by what's allocated.
+    # Only on Linux: APFS allocates a segment's whole capacity on its first
+    # msync, so there the bound doesn't hold, and the readahead made stops
+    # and starts after a crash slower on macOS.
     private def open_last_segment(path : String) : MFile
       mfile = open_segment(path, Config.instance.segment_size)
-      length = Math.min(mfile.size, mfile.allocated_size)
-      mfile.advise(MFile::Advice::WillNeed, length: length) unless length.zero?
+      {% if flag?(:linux) %}
+        length = Math.min(mfile.size, mfile.allocated_size)
+        mfile.advise(MFile::Advice::WillNeed, length: length) unless length.zero?
+      {% end %}
       mfile
     end
 
