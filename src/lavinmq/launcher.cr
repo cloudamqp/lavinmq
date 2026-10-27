@@ -67,6 +67,7 @@ module LavinMQ
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
+      GCPauseRecorder.install
     end
 
     private def start : self
