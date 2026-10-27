@@ -183,6 +183,64 @@ module IO::Buffered
     count
   end
 
+  # Set while a write that didn't fit the buffer writes it out
+  @overflowing = false
+  # TCP_CORK is set, see #write
+  @corked = false
+
+  # A write that doesn't fit what's left of the buffer tops the buffer up
+  # first, so that the buffered bytes go out with the start of it instead of
+  # as a small write of their own. Those writes happen before the caller's
+  # flush, and with TCP_NODELAY each would be sent as a TCP segment of its
+  # own, so a TCP socket is corked until that flush, which sends whatever is
+  # left right away. A write that fits the buffer doesn't cork.
+  def write(slice : Bytes) : Nil
+    return previous_def if @buffer_pool.nil? || sync? || flush_on_newline?
+    check_open
+    return if slice.empty?
+    count = @out_count
+    space = @buffer_size - count
+    if slice.size <= space
+      slice.copy_to(out_buffer + count, slice.size)
+      @out_count = count + slice.size
+      return
+    end
+    cork
+    @overflowing = true
+    begin
+      if count > 0
+        slice[0, space].copy_to(out_buffer + count, space)
+        @out_count = @buffer_size
+        slice += space
+        flush
+      end
+      previous_def(slice)
+    ensure
+      @overflowing = false
+    end
+  end
+
+  private def cork : Nil
+    return if @corked
+    if socket = self.as?(TCPSocket)
+      set_tcp_cork(socket, 1)
+      @corked = true
+    end
+  end
+
+  private def uncork : Nil
+    @corked = false
+    if socket = self.as?(TCPSocket)
+      set_tcp_cork(socket, 0)
+    end
+  end
+
+  private def set_tcp_cork(socket : TCPSocket, value : Int32) : Nil
+    {% if flag?(:linux) %}
+      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, 3, pointerof(value), sizeof(Int32)) # TCP_CORK
+    {% end %}
+  end
+
   # The write buffer is detached before writing, so that a concurrent flush or
   # close sees nothing to write, instead of writing (or releasing) a buffer
   # that may already be back in the pool and in use by another connection.
@@ -201,6 +259,7 @@ module IO::Buffered
       end
     end
     unbuffered_flush
+    uncork if @corked && !@overflowing
     self
   end
 
