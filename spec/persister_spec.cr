@@ -174,4 +174,23 @@ describe LavinMQ::Persister do
       end
     end
   end
+
+  it "stops collecting paths at the threshold and syncs the whole filesystem instead" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.syncfs_threshold = 4
+      with_channel(s) do |ch|
+        # Transient, so its confirms mark no segment and only the flag can
+        # make the drain sync the whole filesystem
+        q = ch.queue("confirmed", durable: false)
+        q.publish_confirm "first" # syncs what earlier declares marked
+        # Never confirmed, like on a server with QoS 0 only
+        10.times do |i|
+          s.vhosts["/"].declare_queue("prio#{i}", true, false, LavinMQ::AMQP::Table.new({"x-max-priority": 2}))
+        end
+        s.persister.@pending.lock(&.paths.size).should eq 4
+        q.publish_confirm "second"
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
 end
