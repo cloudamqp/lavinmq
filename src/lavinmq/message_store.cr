@@ -416,7 +416,7 @@ module LavinMQ
       @bytes_written &+= msg.bytesize
       if msg.needs_sync?
         random_access_for_sync(wfile) unless @synced_writes
-      elsif !@synced_writes && @bytes_written - @write_rate_from >= WRITE_READAHEAD_BYTES
+      elsif MessageStore.write_readahead? && !@synced_writes && @bytes_written - @write_rate_from >= WRITE_READAHEAD_BYTES
         check_write_rate(wfile)
       end
       @segment_msg_count[wfile_id] += 1
@@ -472,6 +472,10 @@ module LavinMQ
     # folio then fills within 2 s, long before its dirty pages are written
     # back (after 30 s by default), so it's written back about once.
     WRITE_READAHEAD_BYTES = 64 * 1024
+
+    # Off unless the data dir's readahead is known to be small, see
+    # Launcher#check_data_dir_read_ahead
+    class_property? write_readahead = false
 
     private def check_write_rate(wfile : MFile) : Nil
       now = RoughTime.instant
