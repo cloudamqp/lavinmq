@@ -34,11 +34,23 @@ module LavinMQ
       getter acks = Hash(ConfirmTarget, UInt64).new
       getter files = Array(MFile).new
       getter paths = Set(String).new
+      getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty?
+      end
+
+      # Past the syncfs threshold a drain syncs the whole filesystem and
+      # doesn't look at the paths, so they stop being collected there, which
+      # bounds them on a server that rarely confirms
+      def add_path(path : String) : Nil
+        if paths.size < Config.instance.syncfs_threshold || paths.includes?(path)
+          paths.add(path)
+        else
+          @syncfs = true
+        end
       end
     end
 
@@ -84,9 +96,11 @@ module LavinMQ
       @pending.lock &.files.push(mfile)
     end
 
-    # Like mark_dirty(MFile), for regular (non-mmapped) files
+    # Like mark_dirty(MFile), for regular (non-mmapped) files and for
+    # directories with new entries. Marks are deduplicated until the next
+    # drain, so many new entries in one directory cost one fsync.
     def mark_dirty(path : String) : Nil
-      @pending.lock &.paths.add(path)
+      @pending.lock &.add_path(path)
     end
 
     # Block until everything written so far is durable, on the leader and on
@@ -142,7 +156,7 @@ module LavinMQ
       batch.files.each &.clear_needs_msync!
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
-      syncfs = !batch.waiters.empty? ||
+      syncfs = batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator

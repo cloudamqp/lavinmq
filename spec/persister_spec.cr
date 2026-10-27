@@ -46,6 +46,74 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "fsyncs the vhost directory once with the first confirm after queues are declared" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        3.times { |i| ch.queue("declared#{i}") }
+        ch.queue("declared0").publish_confirm "first"
+        last_sync(s).paths.count(s.vhosts["/"].data_dir).should eq 1
+        ch.queue("declared0").publish_confirm "second"
+        last_sync(s).paths.should_not contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "fsyncs the directory entries and .metadata of a new durable MQTT session with the next confirm" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("confirmed")
+        q.publish_confirm "first" # syncs what earlier declares marked
+        session_name = "#{LavinMQ::MQTT::SESSION_PREFIX}client1"
+        s.vhosts["/"].declare_queue(session_name, true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        q.publish_confirm "second"
+        paths = last_sync(s).paths
+        paths.should contain s.vhosts["/"].data_dir
+        paths.should contain queue_dir(s, session_name)
+        paths.should contain File.join(queue_dir(s, session_name), ".metadata")
+      end
+    end
+  end
+
+  it "doesn't fsync the vhost directory for queues loaded on start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("loaded").publish_confirm "before restart"
+      end
+      restart_server(s)
+      with_channel(s) do |ch|
+        ch.queue("loaded").publish_confirm "after restart"
+        last_sync(s).paths.should_not contain s.vhosts["/"].data_dir
+      end
+    end
+  end
+
+  it "fsyncs the directory of a new priority queue's sub stores with the first confirm, not after a restart" do
+    with_amqp_server do |s|
+      args = AMQP::Client::Arguments.new({"x-max-priority" => 2})
+      with_channel(s) do |ch|
+        ch.queue("prio", args: args).publish_confirm "before restart"
+        last_sync(s).paths.should contain queue_dir(s, "prio")
+      end
+      restart_server(s)
+      with_channel(s) do |ch|
+        ch.queue("prio", args: args).publish_confirm "after restart"
+        last_sync(s).paths.should_not contain queue_dir(s, "prio")
+      end
+    end
+  end
+
+  it "doesn't fsync the directory of a transient priority queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("transient_prio", durable: false, args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
+        ch.queue("confirmed").publish_confirm "first"
+        transient_dir = File.join(s.vhosts["/"].data_dir, "transient", Digest::SHA1.hexdigest("transient_prio"))
+        last_sync(s).paths.should_not contain transient_dir
+      end
+    end
+  end
+
   it "doesn't sync the ack files consumers append to" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -114,6 +182,25 @@ describe LavinMQ::Persister do
       ensure
         segment.close
         persister.close
+      end
+    end
+  end
+
+  it "stops collecting paths at the threshold and syncs the whole filesystem instead" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.syncfs_threshold = 4
+      with_channel(s) do |ch|
+        # Transient, so its confirms mark no segment and only the flag can
+        # make the drain sync the whole filesystem
+        q = ch.queue("confirmed", durable: false)
+        q.publish_confirm "first" # syncs what earlier declares marked
+        # Never confirmed, like on a server with QoS 0 only
+        10.times do |i|
+          s.vhosts["/"].declare_queue("prio#{i}", true, false, LavinMQ::AMQP::Table.new({"x-max-priority": 2}))
+        end
+        s.persister.@pending.lock(&.paths.size).should eq 4
+        q.publish_confirm "second"
+        last_sync(s).syncfs.should be_true
       end
     end
   end
