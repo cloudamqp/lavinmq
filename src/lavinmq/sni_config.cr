@@ -4,7 +4,7 @@ module LavinMQ
   # Configuration for a specific SNI hostname. Only the certificate and mTLS
   # settings can differ per host: the TLS version is selected before the
   # servername callback swaps the context, and the listener's cipher settings
-  # are copied onto each host's contexts, as TLS 1.2 picks its cipher after.
+  # are passed in when a context is built, as TLS 1.2 picks its cipher after.
   class SNIHost
     Log = LavinMQ::Log.for "sni"
 
@@ -31,10 +31,6 @@ module LavinMQ
     property mqtt_tls_ca_cert : String? = nil
     property mqtt_tls_keylog_file : String? = nil
 
-    # The listener's cipher settings, copied in by Config#validate_sni_tls!
-    property listener_ciphers : String = ""
-    property listener_ciphersuites : String = ""
-
     # HTTP-specific overrides (nil/empty means use the default)
     property http_tls_cert : String? = nil
     property http_tls_key : String? = nil
@@ -50,43 +46,46 @@ module LavinMQ
     end
 
     # Get or create the TLS context for AMQP
-    def amqp_tls_context : OpenSSL::SSL::Context::Server
+    def amqp_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
       @amqp_tls_context ||= create_tls_context(
         pick(@amqp_tls_cert, @tls_cert),
         pick(@amqp_tls_key, @tls_key),
         {@amqp_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
         pick(@amqp_tls_ca_cert, @tls_ca_cert),
-        pick(@amqp_tls_keylog_file, @tls_keylog_file)
+        pick(@amqp_tls_keylog_file, @tls_keylog_file),
+        ciphers, ciphersuites
       )
     end
 
     # Get or create the TLS context for MQTT
-    def mqtt_tls_context : OpenSSL::SSL::Context::Server
+    def mqtt_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
       @mqtt_tls_context ||= create_tls_context(
         pick(@mqtt_tls_cert, @tls_cert),
         pick(@mqtt_tls_key, @tls_key),
         {@mqtt_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
         pick(@mqtt_tls_ca_cert, @tls_ca_cert),
-        pick(@mqtt_tls_keylog_file, @tls_keylog_file)
+        pick(@mqtt_tls_keylog_file, @tls_keylog_file),
+        ciphers, ciphersuites
       )
     end
 
     # Get or create the TLS context for HTTP
-    def http_tls_context : OpenSSL::SSL::Context::Server
+    def http_tls_context(ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
       @http_tls_context ||= create_tls_context(
         pick(@http_tls_cert, @tls_cert),
         pick(@http_tls_key, @tls_key),
         {@http_tls_verify_peer, @tls_verify_peer}.find(&.is_a?(Bool)),
         pick(@http_tls_ca_cert, @tls_ca_cert),
-        pick(@http_tls_keylog_file, @tls_keylog_file)
+        pick(@http_tls_keylog_file, @tls_keylog_file),
+        ciphers, ciphersuites
       )
     end
 
-    def tls_context(protocol : Symbol) : OpenSSL::SSL::Context::Server
+    def tls_context(protocol : Symbol, ciphers : String, ciphersuites : String) : OpenSSL::SSL::Context::Server
       case protocol
-      when :amqp then amqp_tls_context
-      when :mqtt then mqtt_tls_context
-      when :http then http_tls_context
+      when :amqp then amqp_tls_context(ciphers, ciphersuites)
+      when :mqtt then mqtt_tls_context(ciphers, ciphersuites)
+      when :http then http_tls_context(ciphers, ciphersuites)
       else            raise ArgumentError.new("unknown protocol #{protocol}")
       end
     end
@@ -96,13 +95,13 @@ module LavinMQ
       override || base
     end
 
-    private def create_tls_context(cert_path, key_path, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
+    private def create_tls_context(cert_path, key_path, verify_peer, ca_cert, keylog_file, ciphers, ciphersuites) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
 
       # TLS 1.2 picks its cipher after the servername callback, from this
       # context, so it must not keep OpenSSL's default cipher list
-      context.ciphers = @listener_ciphers unless @listener_ciphers.empty?
-      context.cipher_suites = @listener_ciphersuites unless @listener_ciphersuites.empty?
+      context.ciphers = ciphers unless ciphers.empty?
+      context.cipher_suites = ciphersuites unless ciphersuites.empty?
 
       # Set certificate and key
       context.certificate_chain = cert_path

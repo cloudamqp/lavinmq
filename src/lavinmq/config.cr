@@ -106,21 +106,15 @@ module LavinMQ
     # later. The contexts are memoized on the hosts, so the servername
     # callback reuses what is built here.
     private def validate_sni_tls!
-      hosts = @sni_manager.hosts.values + @sni_manager.wildcard_hosts.values
-      # Copied even without a TLS listener: a reload can't disable a running
-      # TLS listener, so its SNI contexts, built lazily, still need these
-      hosts.each do |host|
-        host.listener_ciphers = @tls_ciphers
-        host.listener_ciphersuites = @tls_ciphersuites
-      end
       return unless tls_configured? # without a TLS listener no SNI host is used
-      hosts.each { |host| validate_sni_host!(host) }
+      @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
+      @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
     end
 
     private def validate_sni_host!(host : SNIHost) : Nil
-      host.amqp_tls_context
-      host.mqtt_tls_context
-      host.http_tls_context
+      host.amqp_tls_context(@tls_ciphers, @tls_ciphersuites)
+      host.mqtt_tls_context(@tls_ciphers, @tls_ciphersuites)
+      host.http_tls_context(@tls_ciphers, @tls_ciphersuites)
     rescue ex
       raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}")
     end

@@ -7,9 +7,9 @@ describe LavinMQ::SNIHost do
     host.tls_cert = "spec/resources/server_certificate.pem"
     host.tls_key = "spec/resources/server_key.pem"
 
-    host.amqp_tls_context.should be_a(OpenSSL::SSL::Context::Server)
-    host.mqtt_tls_context.should be_a(OpenSSL::SSL::Context::Server)
-    host.http_tls_context.should be_a(OpenSSL::SSL::Context::Server)
+    host.amqp_tls_context("", "").should be_a(OpenSSL::SSL::Context::Server)
+    host.mqtt_tls_context("", "").should be_a(OpenSSL::SSL::Context::Server)
+    host.http_tls_context("", "").should be_a(OpenSSL::SSL::Context::Server)
   end
 
   it "creates TLS contexts with mTLS settings" do
@@ -20,9 +20,9 @@ describe LavinMQ::SNIHost do
     host.tls_ca_cert = "spec/resources/ca_certificate.pem"
 
     # All protocols should have mTLS by default
-    host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
-    host.mqtt_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
-    host.http_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+    host.amqp_tls_context("", "").verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+    host.mqtt_tls_context("", "").verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+    host.http_tls_context("", "").verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
   end
 
   it "creates separate TLS contexts with protocol-specific overrides" do
@@ -37,9 +37,9 @@ describe LavinMQ::SNIHost do
     # HTTP: disable mTLS
     host.http_tls_verify_peer = false
 
-    amqp_ctx = host.amqp_tls_context
-    mqtt_ctx = host.mqtt_tls_context
-    http_ctx = host.http_tls_context
+    amqp_ctx = host.amqp_tls_context("", "")
+    mqtt_ctx = host.mqtt_tls_context("", "")
+    http_ctx = host.http_tls_context("", "")
 
     # All contexts should be different objects
     amqp_ctx.should_not eq(mqtt_ctx)
@@ -248,44 +248,6 @@ describe LavinMQ::Config do
       File.delete(config_file)
     end
   end
-
-  it "copies the listener's cipher settings to SNI hosts when a reload removes tls_cert" do
-    config = LavinMQ::Config.new
-    with_tls = <<-INI
-      [main]
-      data_dir = /tmp/lavinmq-sni-spec
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      tls_ciphers = ECDHE-RSA-AES128-GCM-SHA256
-      tls_ciphersuites = TLS_AES_128_GCM_SHA256
-
-      [sni:example.com]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
-    without_tls = with_tls.sub("tls_cert = spec/resources/server_certificate.pem", "tls_cert =")
-
-    config_file = File.tempname("lavinmq", ".ini")
-    File.write(config_file, with_tls)
-    begin
-      config.parse(["-c", config_file])
-      host = config.sni_manager.get_host("example.com").should_not be_nil
-      host.listener_ciphers.should eq "ECDHE-RSA-AES128-GCM-SHA256"
-
-      # The launcher refuses to disable TLS on reload and keeps serving with
-      # the running TLS contexts, so the fresh SNI hosts built by the reload
-      # still need the listener's cipher settings
-      File.write(config_file, without_tls)
-      config.reload
-      config.tls_configured?.should be_false
-      host = config.sni_manager.get_host("example.com").should_not be_nil
-      host.listener_ciphers.should eq "ECDHE-RSA-AES128-GCM-SHA256"
-      host.listener_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
-    ensure
-      File.delete(config_file)
-      Log.setup(:fatal) # config.reload reconfigures logging
-    end
-  end
 end
 
 describe OpenSSL::SSL::Context::Server do
@@ -340,7 +302,7 @@ describe "SNI end-to-end" do
     # Set up SNI callback
     default_ctx.on_server_name do |hostname|
       if sni_host = sni_manager.get_host(hostname)
-        sni_host.amqp_tls_context
+        sni_host.amqp_tls_context("", "")
       end
     end
 
@@ -431,7 +393,7 @@ describe "SNI end-to-end" do
       listener_ctx.private_key = "spec/resources/server_key.pem"
       listener_ctx.ciphers = config.tls_ciphers
       listener_ctx.on_server_name do |hostname|
-        config.sni_manager.get_host(hostname).try(&.amqp_tls_context)
+        config.sni_manager.get_host(hostname).try(&.amqp_tls_context(config.tls_ciphers, config.tls_ciphersuites))
       end
 
       tcp_server = TCPServer.new("127.0.0.1", 0)
@@ -439,7 +401,7 @@ describe "SNI end-to-end" do
       server_done = Channel(Nil).new
 
       spawn do
-        3.times do
+        5.times do
           if client = tcp_server.accept?
             begin
               ssl_socket = OpenSSL::SSL::Socket::Server.new(client, listener_ctx)
@@ -485,10 +447,31 @@ describe "SNI end-to-end" do
         ssl_client.close
       end
 
+      # A reload that removes tls_cert is refused by the launcher, which keeps
+      # serving, so SNI contexts built after it must still get the ciphers
+      File.write(config_file, config_content.sub("tls_cert = spec/resources/server_certificate.pem", "tls_cert ="))
+      config.reload
+      config.tls_configured?.should be_false
+
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call, hostname: "sni.localhost")
+        end
+      end
+
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        allowed_ctx = OpenSSL::SSL::Context::Client.new
+        allowed_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        allowed_ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        allowed_ctx.ciphers = "ECDHE-RSA-AES128-GCM-SHA256"
+        OpenSSL::SSL::Socket::Client.new(tcp, allowed_ctx, hostname: "sni.localhost").close
+      end
+
       tcp_server.close
       server_done.receive
     ensure
       File.delete(config_file)
+      Log.setup(:fatal) # config.reload reconfigures logging
     end
   end
 
@@ -501,7 +484,7 @@ describe "SNI end-to-end" do
     mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
     sni_manager.add_host(mtls_host)
 
-    mtls_host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+    mtls_host.amqp_tls_context("", "").verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
 
     default_ctx = OpenSSL::SSL::Context::Server.new
     default_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
@@ -509,7 +492,7 @@ describe "SNI end-to-end" do
     default_ctx.private_key = "spec/resources/server_key.pem"
 
     default_ctx.on_server_name do |hostname|
-      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+      sni_manager.get_host(hostname).try(&.amqp_tls_context("", ""))
     end
 
     tcp_server = TCPServer.new("127.0.0.1", 0)
@@ -561,7 +544,7 @@ describe "SNI end-to-end" do
     default_ctx.private_key = "spec/resources/server_key.pem"
 
     default_ctx.on_server_name do |hostname|
-      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+      sni_manager.get_host(hostname).try(&.amqp_tls_context("", ""))
     end
 
     tcp_server = TCPServer.new("127.0.0.1", 0)
