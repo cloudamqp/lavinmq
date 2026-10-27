@@ -342,9 +342,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     with_clustering do |cluster|
       replicator = cluster.replicator
       retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.config.data_dir}/retain_store", replicator)
-      # This wait is needed for the initial replace of index to be synced.
-      # If we don't do this data may have been appended to the file before it's
-      # written to socket, meaning that the lag_size has changed.
+      # Let the follower catch up before appending. If we don't, data may have
+      # been appended to the file before it's written to socket, meaning that
+      # the lag_size has changed.
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
       pub1 = MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
