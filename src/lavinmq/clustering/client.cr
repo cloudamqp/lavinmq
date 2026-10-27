@@ -530,7 +530,6 @@ module LavinMQ
         Log.debug { "Fsync requested for #{filename.empty? ? "data dir" : filename}" }
         if filename.empty?
           @acks.send ""
-          @created_dirs.clear # the syncfs covers them
           return
         end
         path = File.join(@data_dir, filename)
@@ -676,6 +675,9 @@ module LavinMQ
             item = acks.try_receive? || break
           end
           if syncfs || fsync_paths.size > @config.syncfs_threshold
+            # The syncfs covers them. Cleared before it, as #make_dirs can run
+            # while it blocks.
+            @created_dirs.clear
             sync_to_disk
           else
             fsync_to_disk(fsync_paths)
