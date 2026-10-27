@@ -1065,6 +1065,26 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "recounts a segment with acks and a corrupt meta file with readahead, then random access" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.close
+          File.write(Dir.glob(File.join(dir, "meta.*")).sort.first, "x") # too short for its count
+          AdviceOnLoadStore.advice_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 4
+          loads = AdviceOnLoadStore.advice_on_load
+          loads.map(&.first).should eq ["read_metadata_file", "produce_metadata", "produce_metadata"]
+          loads.each { |_, flags| flags.should contain "sr" }
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+        end
+      end
+
       it "loads a segment with acks and a corrupt record as closed instead of raising" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)

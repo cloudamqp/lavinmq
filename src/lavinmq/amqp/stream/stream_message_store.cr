@@ -460,9 +460,7 @@ module LavinMQ::AMQP
         @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
         mfile = @segments[seg]
         # Read through, without readahead it would fault a page at a time
-        mfile.advise(MFile::Advice::Sequential)
-        @segment_last_ts[seg] = scan_last_ts(mfile)
-        mfile.advise(MFile::Advice::Random)
+        @segment_last_ts[seg] = with_advice(mfile, MFile::Advice::Sequential) { scan_last_ts(mfile) }
         write_metadata_file(seg, mfile)
       end
 

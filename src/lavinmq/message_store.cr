@@ -620,22 +620,22 @@ module LavinMQ
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
         if File.exists?(meta_file_name(mfile))
-          # Skipping the acked messages reads the segment in order. Without
-          # readahead (see #open_segment) that would fault it in a page at
-          # a time.
-          skips_acked = @deleted.has_key?(seg)
-          mfile.advise(MFile::Advice::Sequential) if skips_acked
           begin
-            read_metadata_file(seg, mfile)
+            if @deleted.has_key?(seg)
+              # Skipping the acked messages reads the segment in order.
+              # Without readahead (see #open_segment) that would fault it in
+              # a page at a time.
+              with_advice(mfile, MFile::Advice::Sequential) { read_metadata_file(seg, mfile) }
+            else
+              read_metadata_file(seg, mfile)
+            end
           rescue MetadataError
             count_messages(seg, mfile)
           end
-          break if @closed # a corrupt segment closed the store and unmapped it
-          mfile.advise(MFile::Advice::Random) if skips_acked
         else
           count_messages(seg, mfile)
         end
-        break if @closed
+        break if @closed # a corrupt segment closed the store and unmapped it
 
         counter &+= 1
         if is_long_queue
@@ -653,11 +653,19 @@ module LavinMQ
     # less than its data, so it's read ahead here too. It isn't full yet, so
     # it gets no metadata file.
     private def count_messages(seg, mfile)
-      mfile.advise(MFile::Advice::Sequential)
-      produce_metadata(seg, mfile)
+      with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
       return if @closed # a corrupt segment closed the store and unmapped it
-      mfile.advise(MFile::Advice::Random)
       write_metadata_file(seg, mfile) unless seg == @segments.last_key
+    end
+
+    # Advises *mfile* for the block, then back to random access (see
+    # #open_segment), also when the block raises. A segment a corrupt record
+    # closed is unmapped, so it's left alone.
+    private def with_advice(mfile : MFile, advice : MFile::Advice, &)
+      mfile.advise(advice)
+      yield
+    ensure
+      mfile.advise(MFile::Advice::Random) unless mfile.closed?
     end
 
     # Overridden by specs to see how a segment is advised and cached as its
