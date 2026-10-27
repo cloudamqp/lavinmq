@@ -73,18 +73,27 @@ describe "Delayed Message Exchange" do
 
     it "should route messages that are overdue at startup" do
       with_amqp_server do |s|
+        delay = 500.milliseconds
         with_channel(s) do |ch|
           x = ch.exchange(x_name, "topic", args: x_args)
           q = ch.queue("overdue_q", durable: true)
           q.bind(x.name, "#")
-          hdrs = AMQP::Client::Arguments.new({"x-delay" => 200})
+          # Publishing must finish before the delay expires, or messages are
+          # released before the stop, so batch the confirms
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => delay.total_milliseconds.to_i})
+          ch.confirm_select
           100.times do
-            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           end
+          ch.wait_for_confirms
           s.vhosts["/"].queue(delay_q_name).message_count.should eq 100
         end
+        overdue_at = Time.instant + delay
         s.stop
-        sleep 300.milliseconds
+        # Only sleep out what's left of the delay, all messages must be overdue before the restart
+        if (remaining = overdue_at - Time.instant) > Time::Span.zero
+          sleep remaining
+        end
         restart_server(s)
         wait_for { s.vhosts["/"].queue("overdue_q").message_count == 100 }
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
