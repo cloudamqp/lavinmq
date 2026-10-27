@@ -896,6 +896,7 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_amqp_server do |s|
         with_channel(s) do |ch|
           s.flow(false)
@@ -904,6 +905,8 @@ describe LavinMQ::AMQP::Queue do
           end
         end
       end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
   end
 
