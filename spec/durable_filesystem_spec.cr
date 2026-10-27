@@ -67,5 +67,20 @@ describe LavinMQ::FileSystem do
         Dir.exists?(path).should be_true
       end
     end
+
+    it "yields the parent of each directory it creates, outermost first" do
+      with_datadir do |data_dir|
+        Dir.mkdir(File.join(data_dir, "a"))
+        path = File.join(data_dir, "a", "b", "c")
+        parents = [] of String
+        LavinMQ::FileSystem.mkdir_p(path) { |parent| parents << parent }
+        parents.should eq [File.join(data_dir, "a"), File.join(data_dir, "a", "b")]
+        Dir.exists?(path).should be_true
+
+        parents.clear
+        LavinMQ::FileSystem.mkdir_p(path) { |parent| parents << parent }
+        parents.should be_empty
+      end
+    end
   end
 end

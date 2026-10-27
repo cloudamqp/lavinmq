@@ -61,14 +61,27 @@ module LavinMQ
 
     # Like `Dir.mkdir_p`, but also fsyncs the parent of each created directory
     def self.mkdir_p(path : String) : Nil
+      mkdir_p(path) { |parent| fsync_dir(parent) }
+    end
+
+    # Like `Dir.mkdir_p`, but yields the parent of each created directory,
+    # outermost first, for the caller to make its new entry durable
+    def self.mkdir_p(path : String, & : String ->) : Nil
       return if Dir.exists?(path)
-      mkdir_p(File.dirname(path))
-      begin
-        Dir.mkdir(path)
-      rescue File::AlreadyExistsError
-        return
+      missing = [path]
+      parent = File.dirname(path)
+      until Dir.exists?(parent)
+        missing << parent
+        parent = File.dirname(parent)
       end
-      fsync_dir(File.dirname(path))
+      missing.reverse_each do |dir|
+        begin
+          Dir.mkdir(dir)
+        rescue File::AlreadyExistsError
+          next
+        end
+        yield File.dirname(dir)
+      end
     end
 
     private def self.fsync_rename_dirs(source : String, destination : String) : Nil
