@@ -29,8 +29,8 @@ module LavinMQ
     @closed = false
     # When the reader moved into @rfile, see #read_fast?
     @rfile_since : Time::Instant = RoughTime.instant
-    # Set once a publish to this store needed a sync (publish confirm,
-    # tx.commit or MQTT QoS 1), see #write_to_disk
+    # Set once a publish to this store was synced (publish confirm, tx.commit
+    # or MQTT QoS 1), see #write_to_disk
     @synced_writes = false
     # Whether the write segment has readahead, see #check_write_rate
     @write_readahead = false
@@ -414,7 +414,7 @@ module LavinMQ
         persister.mark_dirty(wfile)
       end
       @bytes_written &+= msg.bytesize
-      if msg.needs_sync?
+      if (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
         random_access_for_sync(wfile) unless @synced_writes
       elsif MessageStore.write_readahead? && !@synced_writes && @bytes_written - @write_rate_from >= WRITE_READAHEAD_BYTES
         check_write_rate(wfile)
@@ -462,15 +462,16 @@ module LavinMQ
     # that is held back by the disk still gets it.
     READAHEAD_MIN_BYTES_PER_SECOND = 1024 * 1024
 
-    # With readahead the write segment is cached in large folios, and a page
-    # fault maps a whole folio instead of a page, which halves the CPU time
-    # of writing it. But an msync writes whole folios, the folio a slow
+    # With readahead the write segment is cached in large folios, and the
+    # writes take fewer and cheaper page faults, about half the kernel CPU
+    # time of writing it. But a sync writes whole folios, the folio a slow
     # writer is in is written back again and again as it fills, and the
     # readahead window ahead of the writes is cached too. So the write
-    # segment only gets readahead while each WRITE_READAHEAD_BYTES written to
-    # the store takes less than a second, and never once it syncs. A 128 KiB
-    # folio then fills within 2 s, long before its dirty pages are written
-    # back (after 30 s by default), so it's written back about once.
+    # segment only gets readahead while the store is written at
+    # WRITE_READAHEAD_BYTES per second or more, checked every
+    # WRITE_READAHEAD_BYTES, and never once it was synced. A 128 KiB folio
+    # then fills within 2 s, long before its dirty pages are written back
+    # (after 30 s by default), so it's written back about once.
     WRITE_READAHEAD_BYTES = 64 * 1024
 
     # Off unless the data dir's readahead is known to be small, see
@@ -479,7 +480,8 @@ module LavinMQ
 
     private def check_write_rate(wfile : MFile) : Nil
       now = RoughTime.instant
-      fast = now - @write_rate_since < 1.second
+      bytes = @bytes_written - @write_rate_from
+      fast = bytes >= WRITE_READAHEAD_BYTES * (now - @write_rate_since).total_seconds
       @write_rate_from = @bytes_written
       @write_rate_since = now
       return if fast == @write_readahead
