@@ -88,6 +88,16 @@ describe LavinMQ::Auth::OAuthAuthenticator do
   end
 
   describe "JWKS refresh loop" do
+    it "doesn't fetch when cleaned up before it has started" do
+      with_stub_idp_server do |addr, request_count|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        fetcher.start_refresh_loop
+        authenticator.cleanup
+        sleep 50.milliseconds
+        request_count.call.should eq 0
+      end
+    end
+
     it "stops on cleanup while it is retrying an unreachable provider" do
       with_stub_idp_server(healthy: false) do |addr, request_count|
         authenticator, fetcher = authenticator_for_idp(addr)
