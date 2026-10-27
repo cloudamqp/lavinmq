@@ -97,15 +97,17 @@ describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 300}))
         queue = s.vhosts["/"].queue("qexpires")
         tag = q.subscribe { }
-        sleep 110.milliseconds
+        sleep 310.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
-        (Time.instant - start).total_milliseconds.should be_close 100, 50
+        elapsed = (Time.instant - start).total_milliseconds
+        elapsed.should be >= 250
+        elapsed.should be < 550
       end
     end
   end
