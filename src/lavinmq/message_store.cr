@@ -34,8 +34,8 @@ module LavinMQ
     @synced_writes = false
     # Whether the write segment has readahead, see #check_write_rate
     @write_readahead = false
-    @bytes_written = 0i64
-    @write_rate_from = 0i64
+    # Written since the last write rate check
+    @unchecked_bytes = 0i64
     @write_rate_since : Time::Instant = RoughTime.instant
     getter closed
     getter bytesize = 0u64
@@ -413,11 +413,12 @@ module LavinMQ
       if msg.needs_sync? && (persister = @persister)
         persister.mark_dirty(wfile)
       end
-      @bytes_written &+= msg.bytesize
-      if (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
-        random_access_for_sync(wfile) unless @synced_writes
-      elsif MessageStore.write_readahead? && !@synced_writes && @bytes_written - @write_rate_from >= WRITE_READAHEAD_BYTES
-        check_write_rate(wfile)
+      unless @synced_writes
+        if (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
+          random_access_for_sync(wfile)
+        elsif MessageStore.write_readahead? && (@unchecked_bytes += msg.bytesize) >= WRITE_READAHEAD_BYTES
+          check_write_rate(wfile)
+        end
       end
       @segment_msg_count[wfile_id] += 1
       sp
@@ -480,9 +481,8 @@ module LavinMQ
 
     private def check_write_rate(wfile : MFile) : Nil
       now = RoughTime.instant
-      bytes = @bytes_written - @write_rate_from
-      fast = bytes >= WRITE_READAHEAD_BYTES * (now - @write_rate_since).total_seconds
-      @write_rate_from = @bytes_written
+      fast = @unchecked_bytes >= WRITE_READAHEAD_BYTES * (now - @write_rate_since).total_seconds
+      @unchecked_bytes = 0
       @write_rate_since = now
       return if fast == @write_readahead
       @write_readahead = fast
