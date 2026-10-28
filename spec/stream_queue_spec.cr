@@ -1807,6 +1807,25 @@ describe LavinMQ::AMQP::Stream do
         end
       end
 
+      it "gives a segment that was written fast random access when it's full" do
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |data_dir|
+          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+          size = LavinMQ::Config.instance.segment_size.to_u64 // 2
+          3.times do
+            store.push(LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+              AMQ::Protocol::Properties.new, size, IO::Memory.new("a" * size)))
+          end
+          first = store.@segments.first_value
+          store.@wfile.should_not eq first
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          vm_flags(first.path).should contain "rr"
+          store.close
+        end
+      ensure
+        LavinMQ::MessageStore.write_readahead = false
+      end
+
       it "keeps random access on a segment being read when it's full" do
         queue_name = Random::Secure.hex
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
