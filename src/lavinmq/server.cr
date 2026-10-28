@@ -58,6 +58,31 @@ module LavinMQ
       end
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+      spawn housekeeping_loop, name: "Server#housekeeping_loop"
+    end
+
+    HOUSEKEEPING_INTERVAL = 10.seconds
+
+    # Periodic upkeep of queues that isn't about stats
+    private def housekeeping_loop
+      until closed?
+        sleep HOUSEKEEPING_INTERVAL
+        break if closed?
+        next unless MessageStore.write_readahead?
+        begin
+          drop_idle_write_readahead
+        rescue ex
+          Log.error(exception: ex) { "Housekeeping failed" }
+        end
+      end
+    end
+
+    # See MessageStore#drop_idle_write_readahead
+    def drop_idle_write_readahead(now = RoughTime.instant) : Nil
+      @vhosts.each_value do |vhost|
+        vhost.each_queue(&.drop_idle_write_readahead(now))
+        vhost.each_session(&.drop_idle_write_readahead(now))
+      end
     end
 
     getter persister : Persister

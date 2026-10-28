@@ -29,6 +29,14 @@ module LavinMQ
     @closed = false
     # When the reader moved into @rfile, see #read_fast?
     @rfile_since : Time::Instant = RoughTime.instant
+    # Set once a publish to this store was synced (publish confirm, tx.commit
+    # or MQTT QoS 1), see #write_to_disk
+    @synced_writes = false
+    # Whether the write segment has readahead, see #check_write_rate
+    @write_readahead = false
+    # Written since the last write rate check
+    @unchecked_bytes = 0i64
+    @write_rate_since : Time::Instant = RoughTime.instant
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -405,6 +413,13 @@ module LavinMQ
       if msg.needs_sync? && (persister = @persister)
         persister.mark_dirty(wfile)
       end
+      unless @synced_writes
+        if (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
+          random_access_for_sync(wfile)
+        elsif MessageStore.write_readahead? && (@unchecked_bytes += msg.bytesize) >= WRITE_READAHEAD_BYTES
+          check_write_rate(wfile)
+        end
+      end
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -415,9 +430,9 @@ module LavinMQ
     # reader the part it hasn't reached yet, kept for as long as the queue is
     # written to or read, which with many queues adds up to gigabytes. It also
     # keeps the page cache in page sized folios, so an msync only writes the
-    # pages that changed. Writing faults once per page with or without
-    # readahead. Fast readers get readahead back, see #read_fast?, and so
-    # does loading at startup, see #load_stats_from_segments.
+    # pages that changed. Fast readers get readahead back, see #read_fast?,
+    # and so do fast writers, see #check_write_rate, and loading at startup,
+    # see #load_stats_from_segments.
     private def open_segment(path : String, capacity : Int? = nil) : MFile
       mfile = MFile.new(path, capacity)
       mfile.advise(MFile::Advice::Random)
@@ -448,6 +463,60 @@ module LavinMQ
     # that is held back by the disk still gets it.
     READAHEAD_MIN_BYTES_PER_SECOND = 1024 * 1024
 
+    # With readahead the write segment is cached in large folios, and the
+    # writes take fewer and cheaper page faults, about half the kernel CPU
+    # time of writing it. But a sync writes whole folios, the folio a slow
+    # writer is in is written back again and again as it fills, and the
+    # readahead window ahead of the writes is cached too. So the write
+    # segment only gets readahead while the store is written at
+    # WRITE_READAHEAD_BYTES per second or more, checked every
+    # WRITE_READAHEAD_BYTES, and never once it was synced. A 128 KiB folio
+    # then fills within 2 s, long before its dirty pages are written back
+    # (after 30 s by default), so it's written back about once.
+    WRITE_READAHEAD_BYTES = 64 * 1024
+
+    # Off unless the data dir's readahead is known to be small, see
+    # Launcher#check_data_dir_read_ahead
+    class_property? write_readahead = false
+
+    private def check_write_rate(wfile : MFile) : Nil
+      now = RoughTime.instant
+      fast = @unchecked_bytes >= WRITE_READAHEAD_BYTES * (now - @write_rate_since).total_seconds
+      @unchecked_bytes = 0
+      @write_rate_since = now
+      return if fast == @write_readahead
+      @write_readahead = fast
+      wfile.advise(fast ? MFile::Advice::Normal : MFile::Advice::Random)
+    end
+
+    # A store written fast and then not for this long, not even 64 KiB, gets
+    # random access back for its write segment, and the pages read ahead of
+    # its writes are dropped from the page cache, see #check_write_rate
+    WRITE_READAHEAD_IDLE = 30.seconds
+
+    def write_readahead_active? : Bool
+      @write_readahead
+    end
+
+    # Called periodically, see Server#housekeeping_loop
+    def drop_idle_write_readahead(now = RoughTime.instant) : Nil
+      return if @closed || !@write_readahead
+      return if now - @write_rate_since < WRITE_READAHEAD_IDLE
+      @write_readahead = false
+      wfile = @wfile
+      wfile.advise(MFile::Advice::Random)
+      wfile.remove_after(wfile.size)
+    end
+
+    # Folios already in the page cache keep their size, so the first syncs
+    # after this can still write large folios, see #check_write_rate
+    private def random_access_for_sync(wfile : MFile) : Nil
+      @synced_writes = true
+      return unless @write_readahead
+      @write_readahead = false
+      wfile.advise(MFile::Advice::Random)
+    end
+
     private def read_fast?(segment : MFile, since : Time::Instant) : Bool
       segment.size >= READAHEAD_MIN_BYTES_PER_SECOND * (RoughTime.instant - since).total_seconds
     end
@@ -462,11 +531,14 @@ module LavinMQ
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
       end
+      # Its readahead was for writing it, readers get their own
+      @wfile.advise(MFile::Advice::Random) if @write_readahead
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
       wfile = open_segment(path, capacity)
+      wfile.advise(MFile::Advice::Normal) if @write_readahead
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile

@@ -4,11 +4,12 @@ describe "Transactions" do
   describe "publishes" do
     {% if flag?(:linux) %}
       it "advises the segments they're written to for random access" do
+        LavinMQ::MessageStore.write_readahead = true
         with_amqp_server do |s|
           with_channel(s) do |ch|
             ch.tx_select
             q = ch.queue("tx_random_access")
-            q.publish "m"
+            4.times { q.publish "m" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES } # written fast
             ch.tx_commit
             queue = s.vhosts["/"].queue("tx_random_access").as(LavinMQ::AMQP::Queue)
             vm_flags(queue.@msg_store.@wfile.path).should contain "rr"
