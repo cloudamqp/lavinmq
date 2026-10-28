@@ -61,6 +61,26 @@ test.describe('exchange', _ => {
     expect(clipped).toEqual([])
   })
 
+  test('rates legend value column keeps its width while hovering shorter values', async ({ page }) => {
+    // Only the latest sample is busy, so hovering earlier ones shows "0 msgs/s".
+    await page.route(`**/${apiPath}`, async route => {
+      const json = await (await route.fetch()).json()
+      for (const details of Object.values(json.message_stats)) {
+        if (details?.log) details.log = details.log.map((_, i, log) => i === log.length - 1 ? 123456.7 : 0)
+      }
+      await route.fulfill({ json })
+    })
+    await page.goto(pagePath)
+    const value = page.locator('#chart .u-legend-value').first()
+    await expect(value).toHaveText('123,456.7 msgs/s')
+    const before = (await value.boundingBox()).width
+    const plot = page.locator('#chart .u-over')
+    const box = await plot.boundingBox()
+    await plot.hover({ position: { x: box.width * 0.2, y: box.height / 2 } })
+    await expect(value).toHaveText('0 msgs/s')
+    expect((await value.boundingBox()).width).toBe(before)
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 

@@ -272,6 +272,9 @@ function initChart (handle) {
 
   handle.uplot = new UPlot(opts, data, el)
   el.append(handle.legendEl)
+  // uPlot's first legend update ran before the legend was in the page,
+  // too early to measure the value column.
+  updateLegend(handle, null)
   alignLegend(handle)
   initChartObservers(handle)
 }

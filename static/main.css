@@ -2049,6 +2049,14 @@ fieldset.inline {
   padding-right: 0;
 }
 
+/* --legend-value-width holds the widest value so far, see holdValueWidth.
+   It sits on the span since the label's width: 100% squeezes the cell to
+   its min-content width, which a width on the cell doesn't raise. */
+.u-legend-table .u-legend-value > span {
+  display: inline-block;
+  min-width: var(--legend-value-width, 0);
+}
+
 .u-legend-hidden .u-legend-marker {
   opacity: 0.4;
 }
