@@ -122,7 +122,9 @@ function addLegendItem (handle, seriesIdx, color) {
 
   const valueNode = document.createElement('td')
   valueNode.className = 'u-legend-value'
-  valueNode.textContent = '--'
+  const valueText = document.createElement('span')
+  valueText.textContent = '--'
+  valueNode.append(valueText)
 
   const markerCell = document.createElement('td')
   markerCell.className = 'u-legend-marker-cell'
@@ -155,7 +157,7 @@ function addLegendItem (handle, seriesIdx, color) {
   })
 
   handle.legendGrid.append(item)
-  handle.legendItems[seriesIdx] = { valueSpan: valueNode, item }
+  handle.legendItems[seriesIdx] = { valueSpan: valueText, item }
 }
 
 function updateLegend (handle, idx) {
@@ -181,13 +183,39 @@ function updateLegend (handle, idx) {
     byteIdx = helpers.byteUnitIndex(maxV)
   }
 
+  let longest = 0
   for (let i = 1; i <= handle.seriesKeys.length; i++) {
     const li = handle.legendItems[i]
     if (!li) continue
     const v = resolveIdx != null && data[i] ? data[i][resolveIdx] : null
-    li.valueSpan.textContent = formatLegendValue(v, handle.config.unit, byteIdx)
+    const text = formatLegendValue(v, handle.config.unit, byteIdx)
+    li.valueSpan.textContent = text
     li.valueSpan.title = formatLegendTitle(v, handle.config.unit)
+    longest = Math.max(longest, text.length)
   }
+  holdValueWidth(handle, longest)
+}
+
+// The value column sizes to its values but never shrinks, so hovering or a
+// quieter poll doesn't move the labels. Only a value longer than any so far
+// costs a layout read.
+function holdValueWidth (handle, longest) {
+  if (!handle.legendEl.isConnected || longest <= (handle.valueChars || 0)) return
+  handle.valueChars = longest
+  let width = handle.valueWidth || 0
+  for (const li of handle.legendItems) {
+    if (li) width = Math.max(width, li.valueSpan.getBoundingClientRect().width)
+  }
+  handle.valueWidth = width
+  handle.legendEl.style.setProperty('--legend-value-width', width + 'px')
+}
+
+// Drop the held width so the next update measures afresh, e.g. once the web
+// font has replaced the fallback font the first measurement used.
+function resetValueWidth (handle) {
+  handle.valueChars = 0
+  handle.valueWidth = 0
+  if (handle.legendEl) handle.legendEl.style.removeProperty('--legend-value-width')
 }
 
 function alignLegend (handle) {
@@ -200,6 +228,6 @@ function alignLegend (handle) {
 }
 
 export {
-  buildLegend, addLegendItem, updateLegend, alignLegend,
+  buildLegend, addLegendItem, updateLegend, alignLegend, resetValueWidth,
   formatLabel, formatDigits, isByteUnit, timeFormatter
 }

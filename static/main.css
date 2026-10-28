@@ -2010,7 +2010,6 @@ fieldset.inline {
   border-collapse: collapse;
   margin-top: 6px;
   font-variant-numeric: tabular-nums;
-  table-layout: fixed;
   border-top: 1px solid var(--color-border-primary);
 }
 
@@ -2033,7 +2032,10 @@ fieldset.inline {
   padding-right: 0;
 }
 
+/* The label takes what the values leave, and ellipsizes past that. */
 .u-legend-table .u-legend-label {
+  width: 100%;
+  max-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2041,11 +2043,18 @@ fieldset.inline {
 }
 
 .u-legend-table .u-legend-value {
-  width: 19ch;
   text-align: right;
   font-weight: 500;
   white-space: nowrap;
   padding-right: 0;
+}
+
+/* --legend-value-width holds the widest value so far, see holdValueWidth.
+   It sits on the span since the label's width: 100% squeezes the cell to
+   its min-content width, which a width on the cell doesn't raise. */
+.u-legend-table .u-legend-value > span {
+  display: inline-block;
+  min-width: var(--legend-value-width, 0);
 }
 
 .u-legend-hidden .u-legend-marker {

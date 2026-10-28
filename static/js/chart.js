@@ -4,7 +4,7 @@ import * as helpers from './helpers.js'
 import * as Poller from './poller.js'
 import { statsInterval } from './http.js'
 import {
-  buildLegend, addLegendItem, updateLegend, alignLegend,
+  buildLegend, addLegendItem, updateLegend, alignLegend, resetValueWidth,
   formatLabel, formatDigits, isByteUnit, timeFormatter
 } from './chart-legend.js'
 
@@ -26,6 +26,17 @@ Poller.events.addEventListener('change', () => {
   for (const h of handles) refreshLegend(h)
 })
 
+// On an uncached load the legends can be measured before Inter has loaded.
+// WebKit doesn't fire loadingdone for CSS fonts, hence fonts.ready as well.
+function remeasureLegends () {
+  for (const h of handles) {
+    resetValueWidth(h)
+    refreshLegend(h)
+  }
+}
+document.fonts.ready.then(remeasureLegends)
+document.fonts.addEventListener('loadingdone', remeasureLegends)
+
 function toPoint (v) {
   if (v == null) return null
   if (typeof v === 'object') v = v.rate
@@ -43,8 +54,11 @@ function makeSeriesDef (handle, key, color, filled) {
   }
 }
 
+// Below this a narrow card leaves too little plot for more than one y tick.
+const MIN_CHART_HEIGHT = 180
+
 function chartHeight (width) {
-  return Math.round(width / 2.5)
+  return Math.max(MIN_CHART_HEIGHT, Math.round(width / 2.5))
 }
 
 const SCALE_STEPS = [1, 1.5, 2, 3, 5, 7.5, 10]
@@ -269,6 +283,9 @@ function initChart (handle) {
 
   handle.uplot = new UPlot(opts, data, el)
   el.append(handle.legendEl)
+  // uPlot's first legend update ran before the legend was in the page,
+  // too early to measure the value column.
+  updateLegend(handle, null)
   alignLegend(handle)
   initChartObservers(handle)
 }
