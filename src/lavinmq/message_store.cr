@@ -414,7 +414,7 @@ module LavinMQ
         persister.mark_dirty(wfile)
       end
       unless @synced_writes
-        if (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
+        if msg.needs_sync? && @durable && Config.instance.sync?
           random_access_for_sync(wfile)
         elsif MessageStore.write_readahead? && (@unchecked_bytes += msg.bytesize) >= WRITE_READAHEAD_BYTES
           check_write_rate(wfile)

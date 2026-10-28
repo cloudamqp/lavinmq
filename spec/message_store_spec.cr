@@ -131,13 +131,6 @@ def setup_orphaned_ack_scenario(dir)
   end
 end
 
-private def with_write_readahead(&)
-  LavinMQ::MessageStore.write_readahead = true
-  yield
-ensure
-  LavinMQ::MessageStore.write_readahead = false
-end
-
 private def synced_message(body) : LavinMQ::Message
   msg = LavinMQ::Message.new("", "rk", body)
   msg.needs_sync = true
@@ -1167,19 +1160,18 @@ describe LavinMQ::MessageStore do
       end
 
       it "reads the write segment ahead while the store is written fast" do
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
-            store.push(LavinMQ::Message.new("", "rk", body))
-            vm_flags(store.@wfile.path).should_not contain "rr"
-            large = "x" * (LavinMQ::Config.instance.segment_size // 2)
-            2.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-            store.@wfile_id.should_not eq 1
-            vm_flags(store.@wfile.path).should_not contain "rr"   # the next one too
-            vm_flags(store.@segments[1].path).should contain "rr" # the written one
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          2.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should_not contain "rr"   # the next one too
+          vm_flags(store.@segments[1].path).should contain "rr" # the written one
+          store.close
         end
       end
 
@@ -1193,72 +1185,67 @@ describe LavinMQ::MessageStore do
       end
 
       it "keeps random access for the write segment of a store that's written slowly" do
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            sleep 1.1.seconds # more than a second for the first 64 KiB
-            store.push(LavinMQ::Message.new("", "rk", "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
-            vm_flags(store.@wfile.path).should contain "rr"
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          sleep 1.1.seconds # more than a second for the first 64 KiB
+          store.push(LavinMQ::Message.new("", "rk", "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
         end
       end
 
       it "goes back to random access for the write segment when the writes slow down" do
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
-            store.push(LavinMQ::Message.new("", "rk", body))
-            vm_flags(store.@wfile.path).should_not contain "rr"
-            sleep 1.1.seconds # 64 KiB in more than a second
-            store.push(LavinMQ::Message.new("", "rk", body))
-            vm_flags(store.@wfile.path).should contain "rr"
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          sleep 1.1.seconds # 64 KiB in more than a second
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
         end
       end
 
       it "measures the write rate, not the time between checks" do
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            large = "x" * (LavinMQ::MessageStore::WRITE_READAHEAD_BYTES * 4)
-            store.push(LavinMQ::Message.new("", "rk", large))
-            sleep 1.1.seconds # 256 KiB in 1.1 s is above 64 KiB/s
-            store.push(LavinMQ::Message.new("", "rk", large))
-            vm_flags(store.@wfile.path).should_not contain "rr"
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          large = "x" * (LavinMQ::MessageStore::WRITE_READAHEAD_BYTES * 4)
+          store.push(LavinMQ::Message.new("", "rk", large))
+          sleep 1.1.seconds # 256 KiB in 1.1 s is above 64 KiB/s
+          store.push(LavinMQ::Message.new("", "rk", large))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
         end
       end
 
       it "reads the write segment ahead for confirmed publishes when sync is disabled" do
         LavinMQ::Config.instance.sync = false
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            store.push(synced_message("x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
-            vm_flags(store.@wfile.path).should_not contain "rr"
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(synced_message("x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
         end
       ensure
         LavinMQ::Config.instance.sync = true
       end
 
       it "keeps random access for the write segment of a store that syncs" do
-        with_write_readahead do
-          with_datadir do |dir|
-            store = LavinMQ::MessageStore.new(dir, nil)
-            body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
-            store.push(LavinMQ::Message.new("", "rk", body))
-            store.push(synced_message(body))
-            vm_flags(store.@wfile.path).should contain "rr"
-            store.push(LavinMQ::Message.new("", "rk", body))
-            vm_flags(store.@wfile.path).should contain "rr"
-            store.close
-          end
+        LavinMQ::MessageStore.write_readahead = true
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES
+          store.push(LavinMQ::Message.new("", "rk", body))
+          store.push(synced_message(body))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.push(LavinMQ::Message.new("", "rk", body))
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
         end
       end
     end

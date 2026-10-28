@@ -1822,8 +1822,6 @@ describe LavinMQ::AMQP::Stream do
           vm_flags(first.path).should contain "rr"
           store.close
         end
-      ensure
-        LavinMQ::MessageStore.write_readahead = false
       end
 
       it "keeps random access on a segment being read when it's full" do
