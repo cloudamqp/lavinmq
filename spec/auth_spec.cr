@@ -5,9 +5,9 @@ require "../src/lavinmq/auth/authenticators/local"
 class MockVerifier < LavinMQ::Auth::JWT::TokenVerifier
   def initialize(config : LavinMQ::Config, @username : String, @tags : Array(LavinMQ::Tag)?,
                  @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
-    uri = config.oauth_issuer_url || URI.new
-    jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
-    super(config, jwks_fetcher)
+    provider = config.oauth_provider || LavinMQ::OAuthProviderConfig.new(URI.new)
+    jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
+    super(provider, jwks_fetcher)
   end
 end
 
@@ -22,8 +22,8 @@ end
 
 class SimpleMockVerifier < LavinMQ::Auth::JWT::TokenVerifier
   def initialize(config : LavinMQ::Config = LavinMQ::Config.new)
-    config.oauth_issuer_url = URI.new if config.oauth_issuer_url.nil?
-    super(config, MockJWKSFetcher.new)
+    provider = config.oauth_provider || LavinMQ::OAuthProviderConfig.new(URI.new)
+    super(provider, MockJWKSFetcher.new)
   end
 end
 

@@ -11,7 +11,7 @@ module LavinMQ
         expires_at : Time
 
       class TokenParser
-        def initialize(@config : Config)
+        def initialize(@provider : OAuthProviderConfig)
         end
 
         def parse(token : JWT::Token) : TokenClaim
@@ -24,7 +24,7 @@ module LavinMQ
         end
 
         private def extract_username(payload : JWT::Payload) : String
-          claims = @config.oauth_preferred_username_claims
+          claims = @provider.preferred_username_claims
           claims.each do |claim|
             # Check standard JWT properties first
             username = case claim
@@ -48,7 +48,7 @@ module LavinMQ
         private def parse_roles(payload : JWT::Payload)
           scopes = [] of String
 
-          if server_id = @config.oauth_resource_server_id
+          if server_id = @provider.resource_server_id
             if resource_access = payload.resource_access
               if server_roles = resource_access[server_id]?
                 if roles = server_roles.roles
@@ -62,7 +62,7 @@ module LavinMQ
             scopes.concat(scope_str.split)
           end
 
-          @config.oauth_additional_scopes_keys.each do |scopes_key|
+          @provider.additional_scopes_keys.each do |scopes_key|
             if claim = payload[scopes_key]?
               scopes.concat(extract_scopes_from_claim(claim))
             end
@@ -80,7 +80,7 @@ module LavinMQ
           case claim
           when .as_h?
             claim.as_h.flat_map do |key, value|
-              if !@config.oauth_resource_server_id || key == @config.oauth_resource_server_id
+              if !@provider.resource_server_id || key == @provider.resource_server_id
                 extract_scopes_from_claim(value)
               end
             end.compact
@@ -96,9 +96,9 @@ module LavinMQ
         end
 
         private def filter_scopes(scopes : Array(String)) : Array(String)
-          prefix = @config.oauth_scope_prefix
-          if !prefix && @config.oauth_resource_server_id
-            prefix = "#{@config.oauth_resource_server_id}."
+          prefix = @provider.scope_prefix
+          if !prefix && @provider.resource_server_id
+            prefix = "#{@provider.resource_server_id}."
           end
 
           return scopes unless prefix

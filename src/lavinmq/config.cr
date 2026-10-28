@@ -8,6 +8,7 @@ require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
+require "./config/oauth_provider_config"
 
 module LavinMQ
   class Config
@@ -58,6 +59,21 @@ module LavinMQ
         puts LavinMQ::BUILD_INFO
         exit 0
       end
+    end
+
+    # The OAuth provider configured in the [oauth] section, or nil if no
+    # issuer is set.
+    def oauth_provider : OAuthProviderConfig?
+      return unless issuer_url = @oauth_issuer_url
+      OAuthProviderConfig.new(
+        issuer_url: issuer_url,
+        resource_server_id: @oauth_resource_server_id,
+        preferred_username_claims: @oauth_preferred_username_claims,
+        additional_scopes_keys: @oauth_additional_scopes_keys,
+        scope_prefix: @oauth_scope_prefix,
+        verify_aud: @oauth_verify_aud,
+        audience: @oauth_audience,
+        jwks_cache_ttl: @oauth_jwks_cache_ttl)
     end
 
     def oauth_mgmt_ui_enabled? : Bool
