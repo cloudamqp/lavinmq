@@ -173,7 +173,7 @@ def amqp_tls_port(s)
   tls_listeners.first.local_address.port
 end
 
-def with_raw_amqp_connection(s, &)
+def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
 
@@ -188,7 +188,7 @@ def with_raw_amqp_connection(s, &)
   io.flush
   tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
   io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
-    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: heartbeat),
     IO::ByteFormat::NetworkEndian
   io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
   io.flush
