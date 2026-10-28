@@ -1,5 +1,28 @@
 require "../spec_helper.cr"
 
+# A connection replaced mid-delivery: its send swaps the session over to the
+# replacement, as a takeover does, then fails like the replaced socket.
+private class ReplacedClient < LavinMQ::MQTT::Client
+  getter closed_reason : String?
+  @owner : LavinMQ::MQTT::Session
+  @replacement : LavinMQ::MQTT::Client
+
+  def initialize(@owner, @replacement, broker, user)
+    addr = Socket::IPAddress.new("127.0.0.1", 1)
+    super(MQTT::Protocol::IO.new(IO::Memory.new), LavinMQ::ConnectionInfo.new(addr, addr), user, broker, "swap",
+      LavinMQ::MQTT::ProtocolVersion::V3_1_1)
+  end
+
+  def send(packet, flush = true)
+    @owner.client = @replacement
+    raise IO::Error.new("Closed stream")
+  end
+
+  def close(reason = "")
+    @closed_reason = reason
+  end
+end
+
 module SessionResumeHelpers
   include MqttHelpers
 
@@ -39,6 +62,28 @@ module MqttSpecs
   extend SessionResumeHelpers
 
   describe "session resume" do
+    it "keeps the replacing client when a send to the replaced one fails" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "swap", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          vhost = server.vhosts["/"]
+          session = vhost.session("mqtt.swap")
+          replacement = session.client.should be_a(LavinMQ::MQTT::Client)
+          replaced = ReplacedClient.new(session, replacement, vhost.mqtt_broker, server.users["guest"])
+          session.client = replaced
+
+          publish_from(server, "a/b", ["first"])
+          wait_for { replaced.closed_reason }
+          session.client.should be(replacement)
+
+          publish_from(server, "a/b", ["second"])
+          read_publishes(io, 2).map { |p| String.new(p.payload) }.should eq ["first", "second"]
+          disconnect(io)
+        end
+      end
+    end
+
     it "resends an unacked qos1 publish with its original packet id [MQTT-4.4.0-1]" do
       with_server do |server|
         sent = deliver_unacked(server, ["1"]).first
