@@ -17,6 +17,7 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 - No allocations, per-message fibers, or polling in hot paths (publish, delivery, MessageStore).
 - Message data is mmap'd segments exposed as raw Pointers; reading after the mmap closes segfaults rather than raising.
 - New code and refactors must be thread safe: avoid unprotected shared mutable state. Do not copy the single-thread assumptions that some existing code still has.
+- A call on an `IO`-typed value is a type switch. Per-byte code (JSON, metrics, frames) writes to `context.response.output` or an `IO::Memory`; IO wrappers forward `read_byte`/`write_byte`.
 
 ## Specs
 - Add specs for behavior that could plausibly break (protocol semantics, persistence/recovery, concurrency, edge cases); bug fixes get a regression spec that fails before the fix.
