@@ -182,6 +182,16 @@ module IO::Buffered
   end
 
   def read(slice : Bytes) : Int32
+    # Frames are decoded a few bytes at a time, so most reads are served from
+    # the buffer and leave data in it, then there's nothing to release. This
+    # is what the stdlib's read does then, without calling it, as previous_def
+    # isn't inlined.
+    if slice.size < @in_buffer_rem.size
+      check_open
+      slice.copy_from(@in_buffer_rem.to_unsafe, slice.size)
+      @in_buffer_rem += slice.size
+      return slice.size
+    end
     return previous_def unless @buffer_pool
     # A buffer emptied by read_byte, peek or skip is returned before a read
     # that may wait for data
