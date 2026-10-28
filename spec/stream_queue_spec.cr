@@ -1780,7 +1780,7 @@ describe LavinMQ::AMQP::Stream do
         end
       end
 
-      it "gives readahead to a full segment a consumer moves into after reading the previous one fast" do
+      it "restores readahead on a full segment when a consumer starts reading it" do
         queue_name = Random::Secure.hex
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         with_amqp_server do |s|
@@ -1788,26 +1788,42 @@ describe LavinMQ::AMQP::Stream do
             q = ch.queue(queue_name, args: stream_queue_args)
             3.times { q.publish_confirm data }
             store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
-            first, second, third = store.@segments.values
-            third.should eq store.@wfile
-            store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+            first_seg, first = store.@segments.first
+            first.should_not eq store.@wfile
+            # Confirmed publishes made the segment random access when it was written
+            vm_flags(first.path).should contain "rr"
 
-            received = Channel(Nil).new(3)
             ch.prefetch 1
-            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
-              msg.ack
-              received.send nil
-            end
-            3.times { received.receive }
-            vm_flags(first.path).should contain "rr" # no read before it to go by
-            vm_flags(second.path).should_not contain "rr"
-            vm_flags(second.path).should_not contain "sr"
-            vm_flags(third.path).should contain "rr" # the write segment
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
+            wait_for { store.@segment_readers.has_key?(first_seg) }
+            vm_flags(first.path).should_not contain "rr"
+            vm_flags(first.path).should_not contain "sr"
           end
         end
       end
 
-      it "keeps random access on a segment being read when it's full" do
+      it "maps a full segment no consumer is reading without readahead" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
+            3.times { q.publish data } # not confirmed, so not synced
+            wait_for { store.@segments.size == 3 }
+            first_seg, first = store.@segments.first
+            vm_flags(first.path).should contain "rr"
+            vm_flags(store.@wfile.path).should_not contain "rr"
+
+            ch.prefetch 1
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
+            wait_for { store.@segment_readers.has_key?(first_seg) }
+            vm_flags(first.path).should_not contain "rr"
+          end
+        end
+      end
+
+      it "restores readahead on a segment being read when it's full" do
         queue_name = Random::Secure.hex
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         with_amqp_server do |s|
@@ -1816,12 +1832,16 @@ describe LavinMQ::AMQP::Stream do
             q.publish_confirm "m"
             store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
             first_seg, first = store.@segments.first
+            vm_flags(first.path).should contain "rr"
+
             ch.prefetch 1
             q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
             wait_for { store.@segment_readers.has_key?(first_seg) }
+            vm_flags(first.path).should contain "rr" # still the write segment
             2.times { q.publish_confirm data }
             store.@wfile.should_not eq first
-            vm_flags(first.path).should contain "rr"
+            vm_flags(first.path).should_not contain "rr"
+            vm_flags(first.path).should_not contain "sr"
           end
         end
       end

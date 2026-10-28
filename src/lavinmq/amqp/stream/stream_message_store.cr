@@ -82,11 +82,17 @@ module LavinMQ::AMQP
       return if consumer.segment_acquired?
       consumer.segment_acquired = true
       seg = consumer.segment
-      @segment_readers[seg] = (@segment_readers[seg]? || 0u32) + 1
+      if count = @segment_readers[seg]?
+        @segment_readers[seg] = count + 1
+      else
+        @segment_readers[seg] = 1u32
+        @segments[seg]?.try { |mfile| read_ahead(mfile) }
+      end
     end
 
-    # Readahead for a fast consumer reading a full segment, segments are
-    # otherwise mapped without it (see MessageStore#open_segment).
+    # Readahead for reading a full segment, which can still be advised random
+    # from when it was written (see MessageStore#random_access_for_sync), or
+    # from when no consumer read it (see MessageStore#open_segment).
     # Normal rather than sequential advice: several consumers can read the
     # same segment, and the kernel evicts pages read through a sequential
     # mapping early, possibly before the next consumer has read them.
@@ -117,7 +123,7 @@ module LavinMQ::AMQP
       return if @segment_readers.has_key?(seg)
       mfile = @segments[seg]? || return
       return if mfile == @wfile
-      mfile.dontneed
+      unuse_segment(mfile)
     end
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
@@ -296,13 +302,11 @@ module LavinMQ::AMQP
 
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
-        fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
-        consumer.segment_since = RoughTime.instant
         acquire_segment(consumer)
-        @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
+        @segments[seg_id]
       end
     end
 
@@ -318,7 +322,11 @@ module LavinMQ::AMQP
 
     # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      mfile.dontneed unless @segment_readers.has_key?(seg)
+      if @segment_readers.has_key?(seg)
+        mfile.advise(MFile::Advice::Normal) # see #read_ahead, still @wfile here
+      else
+        unuse_segment(mfile)
+      end
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
