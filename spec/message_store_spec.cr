@@ -131,6 +131,18 @@ def setup_orphaned_ack_scenario(dir)
   end
 end
 
+{% if flag?(:linux) %}
+  private def random_access_except_write_segment(store)
+    store.@segments.each do |id, segment|
+      if id == store.@wfile_id
+        vm_flags(segment.path).should_not contain "rr"
+      else
+        vm_flags(segment.path).should contain "rr"
+      end
+    end
+  end
+{% end %}
+
 private def synced_message(body) : LavinMQ::Message
   msg = LavinMQ::Message.new("", "rk", body)
   msg.needs_sync = true
@@ -1008,19 +1020,61 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
-      it "advises every segment random access" do
+      it "advises every segment random access, except the one being written" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
-          vm_flags(store.@wfile.path).should contain "rr"
+          vm_flags(store.@wfile.path).should_not contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
           store.@wfile_id.should_not eq 1
-          vm_flags(store.@wfile.path).should contain "rr"
+          random_access_except_write_segment(store)
           store.close
           store = LavinMQ::MessageStore.new(dir, nil)
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          random_access_except_write_segment(store)
           store.close
         end
+      end
+
+      it "advises the write segment once a publish needs a sync" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          wfile = store.@wfile.path
+          store.push(LavinMQ::Message.new("", "rk", "not synced"))
+          vm_flags(wfile).should_not contain "rr"
+          store.push(synced_message("synced"))
+          vm_flags(wfile).should contain "rr"
+          store.close
+          persister.close
+        end
+      end
+
+      it "advises segments opened after a synced publish" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("synced"))
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
+          persister.close
+        end
+      end
+
+      it "doesn't advise the write segment when sync is disabled" do
+        LavinMQ::Config.instance.sync = false
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("not synced, sync is disabled"))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
+          persister.close
+        end
+      ensure
+        LavinMQ::Config.instance.sync = true
       end
 
       it "reads segments with readahead while loading them at startup" do
@@ -1044,7 +1098,7 @@ describe LavinMQ::MessageStore do
             flags.should contain "sr"
             flags.should_not contain "rr"
           end
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          random_access_except_write_segment(store)
           store.close
         end
       end
@@ -1080,7 +1134,7 @@ describe LavinMQ::MessageStore do
           loads = AdviceOnLoadStore.advice_on_load
           loads.map(&.first).should eq ["read_metadata_file", "produce_metadata", "produce_metadata"]
           loads.each { |_, flags| flags.should contain "sr" }
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          random_access_except_write_segment(store)
           store.close
         end
       end
@@ -1127,7 +1181,7 @@ describe LavinMQ::MessageStore do
           vm_flags(first).should contain "rr" # no read before it to go by
           vm_flags(second).should_not contain "rr"
           vm_flags(second).should contain "sr"
-          vm_flags(third).should contain "rr" # the write segment
+          vm_flags(third).should_not contain "rr" # the write segment
           store.close
         end
       end
