@@ -2,6 +2,7 @@ require "http/server"
 require "../../stdlib/http_server"
 require "json"
 require "./constants"
+require "./listener"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
@@ -72,15 +73,19 @@ module LavinMQ
       end
 
       def bind_tcp(address, port)
-        addr = @http.bind_tcp address, port
-        Log.info { "Bound to #{addr}" }
-        addr
+        tcp = HTTP.tcp_listener(address, port) { |socket| @http.bind(socket) }
+        Log.info { "Bound to #{tcp.local_address}" }
+        tcp.local_address
       end
 
       def bind_tls(address, port, ctx)
-        addr = @http.bind_tls address, port, ctx
-        Log.info { "Bound on #{addr}" }
-        addr
+        tcp = HTTP.tcp_listener(address, port) do |socket|
+          tls = OpenSSL::SSL::Server.new(socket, ctx)
+          tls.start_immediately = false
+          @http.bind(tls)
+        end
+        Log.info { "Bound on #{tcp.local_address}" }
+        tcp.local_address
       end
 
       def bind_unix(path)
