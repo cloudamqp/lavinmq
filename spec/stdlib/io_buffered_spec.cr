@@ -329,6 +329,7 @@ describe IO::Buffered do
     {% if flag?(:linux) %}
       it "uncorks on the next flush after a write that doesn't fit failed" do
         server = TCPServer.new("127.0.0.1", 0)
+        server.recv_buffer_size = 16384
         writer = TCPSocket.new("127.0.0.1", server.local_address.port)
         reader = server.accept
         writer.buffer_pool = IO::BufferPool.new(1024)
@@ -528,16 +529,23 @@ def tcp_cork?(socket : TCPSocket) : Bool
 end
 
 # Fills the socket's send buffer, so that its next write blocks until the
-# peer reads. Returns the number of bytes written.
+# peer reads. Returns the number of bytes written. Data still on its way to
+# the peer's receive buffer frees up space when it gets there, so it fills
+# again after a pause until nothing more fits.
 def fill_send_buffer(socket : Socket) : Int64
   total = 0_i64
-  {4096, 512, 1}.each do |size|
-    buf = Bytes.new(size)
-    while (n = LibC.send(socket.fd, buf, buf.size, LibC::MSG_DONTWAIT)) > 0
-      total += n
+  loop do
+    filled = 0_i64
+    {4096, 512, 1}.each do |size|
+      buf = Bytes.new(size)
+      while (n = LibC.send(socket.fd, buf, buf.size, LibC::MSG_DONTWAIT)) > 0
+        filled += n
+      end
     end
+    return total if filled.zero?
+    total += filled
+    sleep 50.milliseconds
   end
-  total
 end
 
 describe Socket do
