@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage shovels</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-shovel-dialog">+ Add a new shovel</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -45,11 +48,15 @@
           </table>
         </div>
       </section>
-      <form method="put" id="createShovel" class="form card">
-        <h3>
-          <span class="when-create">Add a new shovel</span>
-          <span class="when-edit">Edit shovel</span>
-        </h3>
+      <dialog id="add-shovel-dialog" class="dialog" closedby="any">
+        <form method="put" id="createShovel" class="form">
+        <div class="dialog-header">
+          <h3>
+            <span class="when-create">Add a new shovel</span>
+            <span class="when-edit">Edit shovel</span>
+          </h3>
+          <button type="button" class="dialog-close" command="close" commandfor="add-shovel-dialog" aria-label="Close">&#x2715;</button>
+        </div>
         <label class="when-create">
           <span>Virtual host</span>
           <select class="dropdown" name="vhost" required></select>
@@ -132,12 +139,15 @@
             <option value="no-ack">No ack</option>
           </select>
         </label>
-        <button type="submit" class="btn btn-green when-create">Add shovel</button>
-        <div class="when-edit flex gap-2">
-          <button type="submit" class="btn btn-green">Update</button>
-          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        <div class="dialog-footer">
+          <button type="submit" class="btn btn-green btn-inline when-create">Add shovel</button>
+          <div class="when-edit flex gap-2">
+            <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+            <button type="submit" class="btn btn-green btn-inline">Update</button>
+          </div>
         </div>
-      </form>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>

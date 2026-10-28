@@ -44,7 +44,10 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   })
 
   const editBtn = DOM.button.edit({
-    click: function () { Form.editItem('#createUpstream', item) }
+    click: function () {
+      Form.editItem('#createUpstream', item)
+      document.getElementById('add-upstream-dialog').showModal()
+    }
   })
 
   buttons.append(editBtn, deleteBtn)
@@ -90,6 +93,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       upstreamsTable.reload()
       evt.target.reset()
       DOM.toast(`Upstream ${name} saved`)
+      document.getElementById('add-upstream-dialog').close()
     })
     .catch(() => {})
 })

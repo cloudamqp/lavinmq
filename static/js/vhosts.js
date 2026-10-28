@@ -39,6 +39,7 @@ document.querySelector('#createVhost').addEventListener('submit', function (evt)
     .then(() => {
       vhostTable.reload()
       evt.target.reset()
+      document.getElementById('add-vhost-dialog').close()
     })
     .catch(() => {})
 })
