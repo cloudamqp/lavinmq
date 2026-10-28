@@ -61,8 +61,8 @@ test.describe('exchange', _ => {
     expect(clipped).toEqual([])
   })
 
-  test('rates legend value column keeps its width while hovering shorter values', async ({ page }) => {
-    // Only the latest sample is busy, so hovering earlier ones shows "0 msgs/s".
+  // Only the latest sample is busy, so hovering earlier ones shows "0 msgs/s".
+  async function routeBusyLatestSample (page) {
     await page.route(`**/${apiPath}`, async route => {
       const json = await (await route.fetch()).json()
       for (const details of Object.values(json.message_stats)) {
@@ -70,7 +70,9 @@ test.describe('exchange', _ => {
       }
       await route.fulfill({ json })
     })
-    await page.goto(pagePath)
+  }
+
+  async function expectValueWidthHeldOnHover (page) {
     const value = page.locator('#chart .u-legend-value').first()
     await expect(value).toHaveText('123,456.7 msgs/s')
     const before = (await value.boundingBox()).width
@@ -79,6 +81,30 @@ test.describe('exchange', _ => {
     await plot.hover({ position: { x: box.width * 0.2, y: box.height / 2 } })
     await expect(value).toHaveText('0 msgs/s')
     expect((await value.boundingBox()).width).toBe(before)
+  }
+
+  test('rates legend value column keeps its width while hovering shorter values', async ({ page }) => {
+    await routeBusyLatestSample(page)
+    await page.goto(pagePath)
+    await expectValueWidthHeldOnHover(page)
+  })
+
+  test('rates legend value column keeps its width when the web font loads late', async ({ page }) => {
+    // On an uncached load the stats can arrive before Inter, so the legend
+    // is first measured in the fallback font.
+    let releaseFonts
+    const fontsHeld = new Promise(resolve => { releaseFonts = resolve })
+    await page.route('**/fonts/*.woff2', async route => {
+      await fontsHeld
+      await route.continue()
+    })
+    await routeBusyLatestSample(page)
+    // The load event waits for the held fonts.
+    await page.goto(pagePath, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('#chart .u-legend-value').first()).toHaveText('123,456.7 msgs/s')
+    releaseFonts()
+    await page.waitForFunction(() => [...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded') && document.fonts.status === 'loaded')
+    await expectValueWidthHeldOnHover(page)
   })
 
   test('navigates to another exchange via binding link', async ({ page }) => {

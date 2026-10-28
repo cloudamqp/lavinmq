@@ -4,7 +4,7 @@ import * as helpers from './helpers.js'
 import * as Poller from './poller.js'
 import { statsInterval } from './http.js'
 import {
-  buildLegend, addLegendItem, updateLegend, alignLegend,
+  buildLegend, addLegendItem, updateLegend, alignLegend, resetValueWidth,
   formatLabel, formatDigits, isByteUnit, timeFormatter
 } from './chart-legend.js'
 
@@ -25,6 +25,17 @@ function refreshLegend (handle) {
 Poller.events.addEventListener('change', () => {
   for (const h of handles) refreshLegend(h)
 })
+
+// On an uncached load the legends can be measured before Inter has loaded.
+// WebKit doesn't fire loadingdone for CSS fonts, hence fonts.ready as well.
+function remeasureLegends () {
+  for (const h of handles) {
+    resetValueWidth(h)
+    refreshLegend(h)
+  }
+}
+document.fonts.ready.then(remeasureLegends)
+document.fonts.addEventListener('loadingdone', remeasureLegends)
 
 function toPoint (v) {
   if (v == null) return null

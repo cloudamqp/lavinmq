@@ -210,6 +210,14 @@ function holdValueWidth (handle, longest) {
   handle.legendEl.style.setProperty('--legend-value-width', width + 'px')
 }
 
+// Drop the held width so the next update measures afresh, e.g. once the web
+// font has replaced the fallback font the first measurement used.
+function resetValueWidth (handle) {
+  handle.valueChars = 0
+  handle.valueWidth = 0
+  if (handle.legendEl) handle.legendEl.style.removeProperty('--legend-value-width')
+}
+
 function alignLegend (handle) {
   if (!handle.uplot || !handle.legendEl) return
   const plotLeft = Math.round(handle.uplot.bbox.left / window.devicePixelRatio)
@@ -220,6 +228,6 @@ function alignLegend (handle) {
 }
 
 export {
-  buildLegend, addLegendItem, updateLegend, alignLegend,
+  buildLegend, addLegendItem, updateLegend, alignLegend, resetValueWidth,
   formatLabel, formatDigits, isByteUnit, timeFormatter
 }
