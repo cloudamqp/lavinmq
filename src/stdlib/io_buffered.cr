@@ -4,6 +4,8 @@ require "./io_buffered_discard"
 lib LibC
   {% if flag?(:linux) %}
     TCP_CORK = 3
+  {% elsif flag?(:freebsd) || flag?(:darwin) %}
+    TCP_NOPUSH = 4
   {% end %}
 end
 
@@ -189,7 +191,7 @@ module IO::Buffered
     count
   end
 
-  # TCP_CORK is set, see #write
+  # TCP_CORK (TCP_NOPUSH on FreeBSD and macOS) is set, see #write
   @corked = false
 
   # A write that doesn't fit what's left of the buffer tops the buffer up
@@ -237,12 +239,21 @@ module IO::Buffered
     @corked = false
     if socket = self.as?(TCPSocket)
       set_tcp_cork(socket, 0)
+      {% if flag?(:darwin) %}
+        send_held_back_data(socket)
+      {% end %}
     end
+  end
+
+  private def send_held_back_data(socket : TCPSocket) : Nil
+    LibC.send(socket.fd, Pointer(Void).null, 0, 0)
   end
 
   private def set_tcp_cork(socket : TCPSocket, value : Int32) : Nil
     {% if flag?(:linux) %}
       LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), sizeof(Int32))
+    {% elsif flag?(:freebsd) || flag?(:darwin) %}
+      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_NOPUSH, pointerof(value), sizeof(Int32))
     {% end %}
   end
 

@@ -326,7 +326,7 @@ describe IO::Buffered do
       io.writes.first[100, 924].should eq Bytes.new(924, 2_u8)
     end
 
-    {% if flag?(:linux) %}
+    {% if flag?(:linux) || flag?(:freebsd) || flag?(:darwin) %}
       it "uncorks on the next flush after a write that doesn't fit failed" do
         server = TCPServer.new("127.0.0.1", 0)
         server.recv_buffer_size = 16384
@@ -354,6 +354,7 @@ describe IO::Buffered do
         writer.buffer_pool = IO::BufferPool.new(1024)
         writer.sync = false
         writer.tcp_nodelay = true
+        reader.read_timeout = 1.second
         writer.write Bytes.new(100, 1_u8)
         tcp_cork?(writer).should be_false
         writer.write Bytes.new(4000, 2_u8)
@@ -520,11 +521,15 @@ class RecordingIO < IO
   end
 end
 
-# TCP_CORK, Linux only
+# TCP_CORK on Linux, TCP_NOPUSH on FreeBSD and macOS
 def tcp_cork?(socket : TCPSocket) : Bool
   value = 0
   len = LibC::SocklenT.new(sizeof(Int32))
-  LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), pointerof(len))
+  {% if flag?(:freebsd) || flag?(:darwin) %}
+    LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_NOPUSH, pointerof(value), pointerof(len))
+  {% else %}
+    LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), pointerof(len))
+  {% end %}
   value != 0
 end
 
