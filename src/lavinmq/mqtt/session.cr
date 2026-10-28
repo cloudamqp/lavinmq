@@ -159,8 +159,8 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          client.try &.close("Server force closed client")
+          self.client = nil if @client.same?(client)
         end
       end
 
