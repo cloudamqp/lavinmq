@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
 - Importing definitions that contain a `federation-upstream-set` parameter failed with 400 "Cast from Array(JSON::Any) to Hash(K, V) failed", so the broker's own export couldn't be imported [#2536](https://github.com/cloudamqp/lavinmq/pull/2536)
 - A TLS 1.2 connection that sent a servername bypassed the listener's `tls_ciphers` when any `[sni:host]` section was configured: OpenSSL picks the TLS 1.2 cipher after the servername callback, and the swapped-in SNI context carried OpenSSL's default cipher list. The listener's `tls_ciphers` and `tls_ciphersuites` now apply to every SNI context [#2540](https://github.com/cloudamqp/lavinmq/pull/2540)
+- A broker shutdown or vhost delete didn't wait for federation links that were still connecting, or for the deletion of the upstream queue and exchange of links that a policy or parameter change had just removed, so the process could exit before that cleanup finished. It now waits up to 5 seconds for them [#2575](https://github.com/cloudamqp/lavinmq/pull/2575)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
