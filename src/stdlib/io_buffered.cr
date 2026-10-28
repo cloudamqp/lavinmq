@@ -1,6 +1,14 @@
 require "./socket_read_nonblock"
 require "./io_buffered_discard"
 
+lib LibC
+  {% if flag?(:linux) %}
+    TCP_CORK = 3
+  {% elsif flag?(:freebsd) || flag?(:darwin) %}
+    TCP_NOPUSH = 4
+  {% end %}
+end
+
 # A pool of reusable byte buffers for IO::Buffered.
 #
 # Most connections are idle most of the time. By returning read/write buffers
@@ -183,25 +191,97 @@ module IO::Buffered
     count
   end
 
+  # TCP_CORK (TCP_NOPUSH on FreeBSD and macOS) is set, see #write
+  @corked = false
+
+  # A write that doesn't fit what's left of the buffer tops the buffer up
+  # first, so that the buffered bytes go out with the start of it instead of
+  # as a small write of their own. Those writes happen before the caller's
+  # flush, and with TCP_NODELAY each would be sent as a TCP segment of its
+  # own, so a TCP socket is corked until that flush, which sends whatever is
+  # left right away. A write that fits the buffer doesn't cork.
+  def write(slice : Bytes) : Nil
+    return previous_def if @buffer_pool.nil? || sync? || flush_on_newline?
+    check_open
+    return if slice.empty?
+    count = @out_count
+    space = @buffer_size - count
+    if slice.size <= space
+      slice.copy_to(out_buffer + count, slice.size)
+      @out_count = count + slice.size
+      return
+    end
+    cork
+    if count > 0
+      slice[0, space].copy_to(out_buffer + count, space)
+      @out_count = @buffer_size
+      slice += space
+      write_out_buffer
+    end
+    if slice.size >= @buffer_size
+      unbuffered_write(slice)
+    else
+      slice.copy_to(out_buffer, slice.size)
+      @out_count = slice.size
+    end
+  end
+
+  private def cork : Nil
+    return if @corked
+    if socket = self.as?(TCPSocket)
+      set_tcp_cork(socket, 1)
+      @corked = true
+    end
+  end
+
+  private def uncork : Nil
+    return unless @corked
+    @corked = false
+    if socket = self.as?(TCPSocket)
+      set_tcp_cork(socket, 0)
+      {% if flag?(:darwin) %}
+        send_held_back_data(socket)
+      {% end %}
+    end
+  end
+
+  private def send_held_back_data(socket : TCPSocket) : Nil
+    LibC.send(socket.fd, Pointer(Void).null, 0, 0)
+  end
+
+  private def set_tcp_cork(socket : TCPSocket, value : Int32) : Nil
+    {% if flag?(:linux) %}
+      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), sizeof(Int32))
+    {% elsif flag?(:freebsd) || flag?(:darwin) %}
+      LibC.setsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_NOPUSH, pointerof(value), sizeof(Int32))
+    {% end %}
+  end
+
+  def flush : self
+    return previous_def unless @buffer_pool
+    write_out_buffer
+    unbuffered_flush
+    uncork
+    self
+  end
+
   # The write buffer is detached before writing, so that a concurrent flush or
   # close sees nothing to write, instead of writing (or releasing) a buffer
   # that may already be back in the pool and in use by another connection.
   # On a failed write the buffered data is dropped, the connection is
   # abandoned then anyway.
-  def flush : self
-    return previous_def unless pool = @buffer_pool
-    if out_buf = @out_buffer
-      count = @out_count
-      @out_buffer = Pointer(UInt8).null
-      @out_count = 0
-      begin
-        unbuffered_write(Slice.new(out_buf, count)) if count > 0
-      ensure
-        pool.release(out_buf)
-      end
+  private def write_out_buffer : Nil
+    pool = @buffer_pool || return
+    out_buf = @out_buffer
+    return if out_buf.null?
+    count = @out_count
+    @out_buffer = Pointer(UInt8).null
+    @out_count = 0
+    begin
+      unbuffered_write(Slice.new(out_buf, count)) if count > 0
+    ensure
+      pool.release(out_buf)
     end
-    unbuffered_flush
-    self
   end
 
   def discard_write_buffer : Nil
