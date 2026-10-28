@@ -6,6 +6,9 @@ module LavinMQ
     class UpstreamStore
       include Enumerable(Upstream)
       Log = LavinMQ::Log.for "federation.upstream_store"
+      # How long #stop_all waits for links to stop and upstream cleanups to
+      # finish, e.g. for a link still connecting to an unreachable upstream
+      STOP_TIMEOUT = 5.seconds
 
       # A retired exchange link, the broker and queue its delete removes, and
       # the channel closed once the delete is done
@@ -29,6 +32,9 @@ module LavinMQ
       @change_lock = Mutex.new
       # Upstream resource deletes in flight, by broker and queue name
       @pending_deletes = Hash({String, String}, Array(Channel(Nil))).new
+      # Link stops and deletes running in their own fibers, each closes its
+      # channel when done
+      @in_flight = Array(Channel(Nil)).new
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
@@ -314,26 +320,69 @@ module LavinMQ
 
       private def finish(retired : Retired)
         retired.stops.each do |link|
-          spawn link.stop, name: "Federation link stop vhost=#{@vhost.name}"
+          in_flight("Federation link stop vhost=#{@vhost.name}") do
+            link.stop
+            link.wait_stopped
+          end
         end
         retired.deletes.each do |link, key, done|
-          spawn(name: "Federation cleanup vhost=#{@vhost.name} queue=#{key[1]}") do
-            link.delete
-          ensure
-            @change_lock.synchronize do
-              if pending = @pending_deletes[key]?
-                pending.delete(done)
-                @pending_deletes.delete(key) if pending.empty?
+          in_flight("Federation cleanup vhost=#{@vhost.name} queue=#{key[1]}") do
+            begin
+              link.delete
+            ensure
+              @change_lock.synchronize do
+                if pending = @pending_deletes[key]?
+                  pending.delete(done)
+                  @pending_deletes.delete(key) if pending.empty?
+                end
               end
+              done.close
             end
-            done.close
+            link.wait_stopped
           end
         end
       end
 
-      def stop_all
-        @upstreams.each_value &.close
-        @upstream_sets.values.flatten.each &.close
+      # Runs a link's stop or delete in its own fiber, which #stop_all waits for
+      private def in_flight(name : String, &block : ->) : Nil
+        done = Channel(Nil).new
+        @change_lock.synchronize { @in_flight << done }
+        spawn(name: name) do
+          block.call
+        ensure
+          @change_lock.synchronize { @in_flight.delete(done) }
+          done.close
+        end
+      end
+
+      # Stops all links, and waits up to *timeout* for them and for the stops
+      # and deletes in flight, so that no upstream connection outlives a
+      # broker shutdown. A link still connecting to an unreachable upstream
+      # is left behind then.
+      def stop_all(timeout : Time::Span = STOP_TIMEOUT) : Nil
+        deadline = Time.instant + timeout
+        links = Array(Upstream::Link).new
+        @change_lock.synchronize do
+          each_linked_upstream { |upstream| links.concat upstream.take_links }
+        end
+        links.each do |link|
+          in_flight("Federation link stop vhost=#{@vhost.name}") do
+            link.stop
+            link.wait_stopped
+          end
+        end
+        pending = @change_lock.synchronize { @in_flight.dup }
+        pending.each do |done|
+          select
+          when done.receive?
+          when timeout({deadline - Time.instant, Time::Span.zero}.max)
+            left = pending.reject(&.closed?)
+            @log.warn { "Gave up waiting for #{left.size} federation link stops and upstream cleanups" }
+            # So that a later call, e.g. from VHost#close, doesn't wait for them again
+            @change_lock.synchronize { left.each { |d| @in_flight.delete(d) } }
+            break
+          end
+        end
       end
     end
   end

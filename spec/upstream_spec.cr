@@ -2019,5 +2019,63 @@ describe LavinMQ::Federation::Upstream do
         logs.empty
       end
     end
+
+    it "waits for a connecting link and an upstream cleanup in flight" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        UpstreamSpecHelpers.with_gated_proxy(s) do |proxy_url, accepted, gate|
+          store.create_upstream("a", JSON.parse(%({"uri": "#{proxy_url}"})))
+          vhost.declare_exchange("downstream_ex", "topic", false, false)
+          upstream = store.get_set?("all").should_not(be_nil).find! { |u| u.name == "a" }
+          link = upstream.link(vhost.exchange("downstream_ex"))
+          accepted.receive # the link is parked in its connect
+          store.delete_upstream("a")
+          accepted.receive # the cleanup of its upstream resources is parked in its connect
+
+          stopped = Channel(Nil).new
+          spawn do
+            store.stop_all
+            stopped.close
+          end
+          select
+          when stopped.receive?
+            fail "stop_all returned while the link connected and its cleanup was in flight"
+          when timeout(100.milliseconds)
+          end
+
+          gate.close
+          select
+          when stopped.receive?
+          when timeout(5.seconds)
+            fail "stop_all didn't return once the link and the cleanup could finish"
+          end
+          link.state.terminated?.should be_true
+        end
+      end
+    end
+
+    it "gives up on a link that doesn't stop in time" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams
+        UpstreamSpecHelpers.with_gated_proxy(s) do |proxy_url, accepted, gate|
+          store.create_upstream("a", JSON.parse(%({"uri": "#{proxy_url}"})))
+          vhost.declare_exchange("downstream_ex", "topic", false, false)
+          upstream = store.get_set?("all").should_not(be_nil).find! { |u| u.name == "a" }
+          link = upstream.link(vhost.exchange("downstream_ex"))
+          accepted.receive # the link is parked in its connect
+
+          start = Time.instant
+          store.stop_all(timeout: 100.milliseconds)
+          (Time.instant - start).should be < 1.second
+          link.state.terminated?.should be_false
+
+          # Let it finish before the server closes
+          gate.close
+          wait_for { link.state.terminated? }
+        end
+      end
+    end
   end
 end
