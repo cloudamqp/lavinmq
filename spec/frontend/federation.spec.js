@@ -42,6 +42,11 @@ test.describe("federation", _ => {
     await expect(page.locator('#links-count')).toHaveText('1')
   })
 
+  test('links show their upstream', async ({ page }) => {
+    const upstreamCell = page.locator('#linksTable tbody tr').first().locator('td').nth(1)
+    await expect(upstreamCell).toHaveText(linksResponse.items[0].upstream)
+  })
+
   test('upstream can be deleted', async ({ page }) => {
     const upstream = upstreamsResponse.items[0]
     const deleteRequest = helpers.waitForPathRequest(
