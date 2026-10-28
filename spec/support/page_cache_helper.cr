@@ -25,31 +25,6 @@ def cached_pages(path : String) : Int32
   end
 end
 
-# Pages of *mfile* from *from* to its capacity that are in the page cache
-def cached_pages_after(mfile : MFile, from : Int64) : Int32
-  page = LibC.sysconf(LibC::SC_PAGESIZE).to_i64
-  start = (from + page - 1) // page * page
-  pages = ((mfile.capacity - start + page - 1) // page).to_i32
-  return 0 if pages <= 0
-  vec = Bytes.new(pages)
-  LibC.mincore(mfile.to_slice.to_unsafe + start, mfile.capacity - start, vec.to_unsafe).should eq 0
-  vec.count { |v| v & 1 == 1 }
-end
-
-# tmpfs doesn't read ahead
-def tmpfs?(path : String) : Bool
-  {% if flag?(:linux) %}
-    {% if flag?(:musl) %}
-      LibC.statfs(path, out buf).should eq 0
-    {% else %}
-      LibC.statfs64(path, out buf).should eq 0
-    {% end %}
-    buf.type == 0x01021994
-  {% else %}
-    false
-  {% end %}
-end
-
 # The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
 # mapping of the file at `path`
 def vm_flags(path : String) : Array(String)

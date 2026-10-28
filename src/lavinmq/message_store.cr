@@ -489,25 +489,6 @@ module LavinMQ
       wfile.advise(fast ? MFile::Advice::Normal : MFile::Advice::Random)
     end
 
-    # A store written fast and then not for this long, not even 64 KiB, gets
-    # random access back for its write segment, and the pages read ahead of
-    # its writes are dropped from the page cache, see #check_write_rate
-    WRITE_READAHEAD_IDLE = 30.seconds
-
-    def write_readahead_active? : Bool
-      @write_readahead
-    end
-
-    # Called periodically, see Server#housekeeping_loop
-    def drop_idle_write_readahead(now = RoughTime.instant) : Nil
-      return if @closed || !@write_readahead
-      return if now - @write_rate_since < WRITE_READAHEAD_IDLE
-      @write_readahead = false
-      wfile = @wfile
-      wfile.advise(MFile::Advice::Random)
-      wfile.remove_after(wfile.size)
-    end
-
     # Folios already in the page cache keep their size, so the first syncs
     # after this can still write large folios, see #check_write_rate
     private def random_access_for_sync(wfile : MFile) : Nil

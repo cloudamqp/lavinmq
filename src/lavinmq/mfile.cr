@@ -378,7 +378,6 @@ class MFile < IO
     WillNeed   = 3
     DontNeed   = 4
     {% if flag?(:linux) %}
-      Remove   =  9
       DontDump = 16
     {% else %}
       DontDump = 8 # is called NoCore in BSD/Darwin
@@ -387,19 +386,6 @@ class MFile < IO
 
   def dontneed
     advise(Advice::DontNeed)
-  end
-
-  # Punches a hole from *from*, rounded up to a page, to the capacity, which
-  # drops those pages from the page cache, like pages read ahead into the
-  # unwritten rest of a segment. Works on unlinked files too. Nothing may
-  # be written there yet. Failures, like a file system that can't punch
-  # holes, are ignored.
-  def remove_after(from : Int64) : Nil
-    {% if flag?(:linux) %}
-      offset = (from + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
-      return if offset >= @capacity
-      LibC.madvise(@buffer + offset, @capacity - offset, Advice::Remove)
-    {% end %}
   end
 
   # Resize the file, so that read operations can't happen beyond `new_size`

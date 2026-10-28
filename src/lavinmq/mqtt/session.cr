@@ -36,13 +36,6 @@ module LavinMQ
       @max_length_bytes : Int64? = nil
       @msg_store_lock = Mutex.new(:reentrant)
       @msg_store : SessionMessageStore
-
-      # See MessageStore#drop_idle_write_readahead
-      def drop_idle_write_readahead(now = RoughTime.instant) : Nil
-        return unless @msg_store.write_readahead_active?
-        @msg_store_lock.synchronize { @msg_store.drop_idle_write_readahead(now) }
-      end
-
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
       @deleted = false

@@ -3,41 +3,6 @@ require "benchmark"
 require "log/spec"
 
 describe LavinMQ::Server do
-  {% if flag?(:linux) %}
-    it "drops the write readahead of queues that weren't written for 30 seconds" do
-      LavinMQ::MessageStore.write_readahead = true
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue("readahead_idle")
-          4.times { q.publish "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES } # written fast
-          wfile = s.vhosts["/"].queue("readahead_idle").as(LavinMQ::AMQP::Queue).@msg_store.@wfile
-          wait_for { !vm_flags(wfile.path).includes?("rr") }
-          s.drop_idle_write_readahead(RoughTime.instant + 29.seconds)
-          vm_flags(wfile.path).should_not contain "rr"
-          s.drop_idle_write_readahead(RoughTime.instant + 31.seconds)
-          vm_flags(wfile.path).should contain "rr"
-        end
-      end
-    end
-  {% end %}
-
-  {% if flag?(:linux) %}
-    it "drops the write readahead of priority queues that weren't written for 30 seconds" do
-      LavinMQ::MessageStore.write_readahead = true
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue("readahead_idle_prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 1}))
-          4.times { q.publish "x" * LavinMQ::MessageStore::WRITE_READAHEAD_BYTES } # written fast
-          store = s.vhosts["/"].queue("readahead_idle_prio").as(LavinMQ::AMQP::Queue).@msg_store
-          wfile = store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore).@stores[0].@wfile
-          wait_for { !vm_flags(wfile.path).includes?("rr") }
-          s.drop_idle_write_readahead(RoughTime.instant + 31.seconds)
-          vm_flags(wfile.path).should contain "rr"
-        end
-      end
-    end
-  {% end %}
-
   it "closes idempotently" do
     server = LavinMQ::Server.new(LavinMQ::Config.instance)
     server.close
