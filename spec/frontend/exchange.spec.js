@@ -35,6 +35,14 @@ test.describe('exchange', _ => {
     await expect(page.locator('#e-type')).toHaveText('topic')
   })
 
+  test('rates chart keeps a readable plot in its narrow card', async ({ page }) => {
+    await page.goto(pagePath)
+    const plot = page.locator('#chart .u-over')
+    await expect(plot).toBeVisible()
+    const { height } = await plot.boundingBox()
+    expect(height).toBeGreaterThanOrEqual(100)
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 

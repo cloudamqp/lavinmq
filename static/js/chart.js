@@ -43,8 +43,11 @@ function makeSeriesDef (handle, key, color, filled) {
   }
 }
 
+// Below this a narrow card leaves too little plot for more than one y tick.
+const MIN_CHART_HEIGHT = 180
+
 function chartHeight (width) {
-  return Math.round(width / 2.5)
+  return Math.max(MIN_CHART_HEIGHT, Math.round(width / 2.5))
 }
 
 const SCALE_STEPS = [1, 1.5, 2, 3, 5, 7.5, 10]
