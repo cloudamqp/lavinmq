@@ -83,6 +83,8 @@ module LavinMQ
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
+    AUTH_BACKENDS = {"local", "oauth"}
+
     protected def validate!
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
@@ -96,6 +98,11 @@ module LavinMQ
       # closing the connection, forever
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
+      # Checked here, not only when the auth chain is built, so a reload with an
+      # unsupported backend keeps the running config
+      if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
+        raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
       end
       validate_sni_tls!
     end

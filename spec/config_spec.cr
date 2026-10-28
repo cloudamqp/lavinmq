@@ -10,6 +10,10 @@ class LavinMQ::Launcher
   def reload!
     reload_server
   end
+
+  # `start` creates the server, but also binds listeners
+  def server=(@server : LavinMQ::Server)
+  end
 end
 
 describe LavinMQ::Config do
@@ -121,7 +125,7 @@ describe LavinMQ::Config do
           max_deleted_definitions = 16384
           consumer_timeout = 3600
           consumer_timeout_loop_interval = 120
-          auth_backends = ldap,basic
+          auth_backends = oauth,local
           default_consumer_prefetch = 1000
           default_password_hash = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
           default_user = admin
@@ -211,7 +215,7 @@ describe LavinMQ::Config do
     config.max_deleted_definitions.should eq 16384
     config.consumer_timeout.should eq 3600
     config.consumer_timeout_loop_interval.should eq 120
-    config.auth_backends.should eq ["ldap", "basic"]
+    config.auth_backends.should eq ["oauth", "local"]
     config.default_consumer_prefetch.should eq 1000
     config.default_user.should eq "admin"
     config.default_user_only_loopback?.should be_false
@@ -664,6 +668,21 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "auth_backends" do
+    it "rejects an unsupported backend" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          auth_backends = local,ldap
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /auth_backends.*ldap/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
   describe "max_inflight_messages" do
     it "rejects zero" do
       config_file = File.tempfile do |file|
@@ -1083,6 +1102,41 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "applies auth_backends changes to the running server's auth chain" do
+      with_launcher("[main]\nauth_backends = local\n") do |launcher, config, config_file|
+        server = LavinMQ::Server.new(config)
+        launcher.server = server
+        chain = server.authenticator.as(LavinMQ::Auth::Chain)
+        chain.oauth_authenticator.should be_nil
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,oauth
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        oauth = chain.oauth_authenticator.should_not be_nil
+
+        # An invalid config is rejected as a whole, the chain is unchanged
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,ldap
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        chain.oauth_authenticator.should be oauth
+
+        File.write(config_file.path, "[main]\nauth_backends = local\n")
+        launcher.reload!
+        chain.oauth_authenticator.should be_nil
+        chain.backends.size.should eq 1
+      ensure
+        server.try &.close
       end
     end
 

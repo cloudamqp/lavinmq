@@ -11,17 +11,37 @@ module LavinMQ
       Log = LavinMQ::Log.for "auth.chain"
       property backends : Array(Authenticator)
 
-      def initialize(@backends : Array(Authenticator))
+      def initialize(@backends : Array(Authenticator), @users : UserStore? = nil)
       end
 
       def self.create(config : Config, users : UserStore) : Chain
+        new(build_backends(config, users, [] of Authenticator), users)
+      end
+
+      # Rebuilds the backends from auth_backends, reusing (and reloading) the
+      # ones still configured. The new list is swapped in with one assignment,
+      # so authentications in progress see either the old or the new chain.
+      # Removed backends are cleaned up; a removed OAuthAuthenticator rejects
+      # token refreshes from connections it already authenticated.
+      def reload(config : Config) : Nil
+        backends = self.class.build_backends(config, @users, @backends)
+        removed = @backends.reject { |b| backends.any? &.same?(b) }
+        @backends = backends
+        removed.each &.cleanup
+      end
+
+      protected def self.build_backends(config : Config, users : UserStore?,
+                                        current : Array(Authenticator)) : Array(Authenticator)
         authenticators = [] of Authenticator
         config.auth_backends.each do |backend|
           case backend
           when "local"
-            authenticators << LocalAuthenticator.new(users)
+            local(users, current).try { |a| authenticators << a }
           when "oauth"
-            if uri = config.oauth_issuer_url
+            if existing = current.find(&.is_a?(OAuthAuthenticator))
+              existing.reload(config)
+              authenticators << existing
+            elsif uri = config.oauth_issuer_url
               jwks_fetcher = Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
               verifier = Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
               verifier.fetcher.start_refresh_loop
@@ -35,9 +55,27 @@ module LavinMQ
         end
         if authenticators.empty?
           # Default to local auth if no backends configured
-          authenticators << LocalAuthenticator.new(users)
+          local(users, current).try { |a| authenticators << a }
         end
-        new(authenticators)
+        authenticators
+      end
+
+      private def self.local(users : UserStore?, current : Array(Authenticator)) : Authenticator?
+        if existing = current.find(&.is_a?(LocalAuthenticator))
+          existing
+        elsif users
+          LocalAuthenticator.new(users)
+        else
+          Log.error { "local authenticator added but no user store to authenticate against" }
+          nil
+        end
+      end
+
+      # The OAuth backend currently in the chain, if any
+      def oauth_authenticator : OAuthAuthenticator?
+        @backends.each do |backend|
+          return backend if backend.is_a?(OAuthAuthenticator)
+        end
       end
 
       def cleanup

@@ -102,6 +102,52 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
   end
 
+  describe "#reload" do
+    it "fetches keys from the new issuer after the issuer changes" do
+      with_stub_idp_server do |addr_a, _request_count_a|
+        with_stub_idp_server do |addr_b, request_count_b|
+          authenticator, old_fetcher = authenticator_for_idp(addr_a)
+          config = create_test_config
+          config.oauth_issuer_url = URI.parse("http://#{addr_b}")
+          authenticator.reload(config)
+          ctx = LavinMQ::Auth::Context.new("", well_formed_jwt.to_slice, loopback: true)
+          authenticator.authenticate(ctx)
+          request_count_b.call.should be > 0
+          authenticator.token_verifier.fetcher.should_not be old_fetcher
+          authenticator.token_verifier.fetcher.public_keys.empty?.should be_false
+          old_fetcher.@stopped.value.should be_true
+        ensure
+          authenticator.try &.cleanup
+        end
+      end
+    end
+
+    it "keeps the current keys when the issuer and jwks_cache_ttl are unchanged" do
+      with_stub_idp_server do |addr, _request_count|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        config = create_test_config
+        config.oauth_issuer_url = URI.parse("http://#{addr}/")
+        config.oauth_scope_prefix = "mq."
+        authenticator.reload(config)
+        authenticator.token_verifier.fetcher.should be fetcher
+      end
+    end
+
+    it "keeps the fetcher and its keys when only jwks_cache_ttl changes" do
+      with_stub_idp_server do |addr, _request_count|
+        authenticator, fetcher = authenticator_for_idp(addr)
+        fetcher.ensure_keys
+        config = create_test_config
+        config.oauth_issuer_url = URI.parse("http://#{addr}")
+        config.oauth_jwks_cache_ttl = 5.minutes
+        authenticator.reload(config)
+        authenticator.token_verifier.fetcher.should be fetcher
+        fetcher.default_cache_ttl.should eq 5.minutes
+        fetcher.public_keys.empty?.should be_false
+      end
+    end
+  end
+
   describe "#authenticate with invalid tokens" do
     it "rejects tokens that don't start with 'ey'" do
       authenticator = create_test_authenticator

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 
 ### Fixed

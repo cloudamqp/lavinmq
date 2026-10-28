@@ -319,12 +319,19 @@ module LavinMQ
       Log.warn { "Invalid configuration, keeping the running configuration: #{ex.message}" }
     else
       reload_tls
+      reload_authenticator
     end
 
     private def reload_tls
       reload_tls_context
     rescue ex
       Log.error { "Could not apply TLS changes on reload, a restart is required: #{ex.message}" }
+    end
+
+    private def reload_authenticator
+      @server.try &.authenticator.reload(@config)
+    rescue ex
+      Log.error(exception: ex) { "Could not apply authentication changes on reload, a restart is required: #{ex.message}" }
     end
 
     private def shutdown_server
