@@ -43,6 +43,24 @@ test.describe('exchange', _ => {
     expect(height).toBeGreaterThanOrEqual(100)
   })
 
+  test('rates legend labels fit in the narrow card', async ({ page }) => {
+    // Busy rates make the widest values, e.g. "123,456.7 msgs/s".
+    await page.route(`**/${apiPath}`, async route => {
+      const json = await (await route.fetch()).json()
+      for (const details of Object.values(json.message_stats)) {
+        if (details?.log) details.log = details.log.map(() => 123456.7)
+      }
+      await route.fulfill({ json })
+    })
+    await page.goto(pagePath)
+    await expect(page.locator('#chart .u-legend-value').first()).toHaveText('123,456.7 msgs/s')
+    const labels = page.locator('#chart .u-legend-label')
+    await expect(labels.first()).toBeVisible()
+    const clipped = await labels.evaluateAll(els =>
+      els.filter(el => el.scrollWidth > el.clientWidth).map(el => el.textContent))
+    expect(clipped).toEqual([])
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 
