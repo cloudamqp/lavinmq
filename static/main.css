@@ -852,15 +852,17 @@ footer .logo {
   height: 20px;
 }
 
+/* Each column is a subgrid over the same three rows (header, counter,
+   footer), so counters and footers line up even when only some footer
+   links wrap. */
 .overview-card {
-  justify-content: space-around;
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: repeat(7, auto);
+  grid-auto-rows: auto 1fr auto;
   font-size: 14px;
   line-height: 24px;
   border-radius: 0.75rem;
   padding: 0;
-  align-items: stretch;
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border-separator);
   overflow: hidden;
@@ -870,10 +872,9 @@ footer .logo {
   text-align: left;
   padding: 1rem;
   border-right: 1px solid var(--color-border-separator);
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
 }
 
 #overview>div:last-child {
@@ -888,12 +889,7 @@ footer .logo {
   padding: 0.75rem 1rem;
   background: var(--color-bg-tr-hover);
   border-top: 1px solid var(--color-border-separator);
-  margin: auto -1rem -1rem -1rem;
-  margin-top: 1.5rem;
-
-  &.uptime-footer {
-    margin-top: 1rem;
-  }
+  margin: 1.5rem -1rem -1rem -1rem;
 }
 
 #overview .counter {
@@ -903,8 +899,9 @@ footer .logo {
   font-weight: 600;
 }
 
+/* Uptime has no header, so it takes the header and counter rows. */
 #overview #uptime {
-  flex-grow: 1;
+  grid-row: span 2;
   align-content: center;
 }
 
@@ -3084,11 +3081,10 @@ html[data-reachability="stale"] .refresh-ring {
   }
 
   #overview {
-    flex-wrap: wrap;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   #overview>div {
-    flex: 50%;
     font-size: 12px;
     text-align: left;
 
@@ -3098,6 +3094,7 @@ html[data-reachability="stale"] .refresh-ring {
   }
 
   #overview>div:last-child {
+    grid-column: span 2;
     text-align: center;
   }
 
