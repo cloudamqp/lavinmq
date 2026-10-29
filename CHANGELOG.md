@@ -45,6 +45,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Changed
 
+- Less memory for stats history: all rate and gauge logs (queues, channels, connections, exchanges, vhosts and the node's CPU, IO, memory and disk) are kept in shared column stores outside the GC heap, and a series only takes space while it has been non-zero within the last `stats_log_size` intervals. Memory of idle and deleted objects is returned to the OS. Rates are logged as exact per-interval increases, and logs are serialized to JSON straight from the store, so the stats of 10k queues serialize in 47 ms instead of 530 ms without allocating. `deliver_get` is derived from `deliver`, `deliver_no_ack`, `get` and `get_no_ack`, and the overview's message count history is kept per vhost instead of per queue. `stats_log_size` must be at least 1 [#2342](https://github.com/cloudamqp/lavinmq/pull/2342)
 - Downgrading to 2.10.x after using new 2.11 features needs care. 2.10.x doesn't know the `x-mqtt-topic` exchange type: it logs "unknown exchange type", skips those exchanges and their bindings, and starts anyway; the next time 2.10.x compacts its definitions file they're removed for good. 2.10.x also doesn't create the retry queues of queues with `x-delayed-retry-min`, so messages waiting for a retry are neither shown nor delivered until the node runs 2.11 again [#2532](https://github.com/cloudamqp/lavinmq/pull/2532)
 - The "Add queue" form on the queues page opens as an overlay dialog from a button in the queue list card [#2207](https://github.com/cloudamqp/lavinmq/pull/2207)
 - No Debian packages are built for Debian 11, which is past end of LTS [#2464](https://github.com/cloudamqp/lavinmq/pull/2464)
@@ -64,6 +65,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Fixed
 
+- Reading a stream from the HTTP API counts the messages as `get_no_ack`, not only in `deliver_get` [#2342](https://github.com/cloudamqp/lavinmq/pull/2342)
 - An HTTP re-PUT of an existing internal exchange, such as any `x-mqtt-topic` exchange, answered 400 "Not allowed to publish to internal exchange". An identical redeclare now answers 204, like an AMQP redeclare [#2541](https://github.com/cloudamqp/lavinmq/pull/2541)
 - A confirmed publish that created a new segment file, like the first publish to a queue or a segment rollover, while the process was out of file descriptors stopped the broker: the persister exited when it couldn't open the directory it had to fsync, and a follower did the same for the leader's fsync requests. Both now sync the whole data dir through the already open data dir descriptor instead, and the broker stays up, as the accept loops already do since [#2422](https://github.com/cloudamqp/lavinmq/pull/2422) [#2542](https://github.com/cloudamqp/lavinmq/pull/2542)
 - Removing an entry with overridden settings from a `federation-upstream-set` left its federation queue and exchange on the upstream broker, where the queue kept collecting messages. The resources are now deleted when no entry in the updated set reuses them [#2531](https://github.com/cloudamqp/lavinmq/pull/2531)
@@ -129,6 +131,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 
 ## [2.11.0-rc.1] - 2026-10-16
 

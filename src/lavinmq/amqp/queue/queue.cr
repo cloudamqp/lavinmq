@@ -1186,7 +1186,6 @@ module LavinMQ::AMQP
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
-      @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
@@ -1206,7 +1205,6 @@ module LavinMQ::AMQP
           @redeliver_count.add(1, :relaxed)
         else
           no_ack ? @deliver_no_ack_count.add(1, :relaxed) : @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
         end
       end
     end

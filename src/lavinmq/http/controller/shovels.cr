@@ -1,11 +1,8 @@
 require "../controller.cr"
-require "../stats_helper"
 
 module LavinMQ
   module HTTP
     class ShovelsController < Controller
-      include StatsHelpers
-
       private def register_routes
         get "/api/shovels" do |context, _params|
           refuse_unless_policymaker(context, user(context))
