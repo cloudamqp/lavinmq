@@ -36,7 +36,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            e.to_json(context.response)
+            e.to_json(context.response.output)
           end
         end
 
@@ -152,7 +152,7 @@ module LavinMQ
             # signal a publisher-confirms client would: any queue that didn't
             # store the message turns the publish into "not routed", even if
             # other bound queues accepted.
-            {routed: result.routed? && !result.rejected?}.to_json(context.response)
+            {routed: result.routed? && !result.rejected?}.to_json(context.response.output)
           end
         end
       end

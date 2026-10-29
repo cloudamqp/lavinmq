@@ -40,7 +40,7 @@ module LavinMQ
             u = user(context, params, "user")
             perm = u.permissions[vhost.name]?
             not_found(context) unless perm
-            u.permissions_details(vhost.name, perm).to_json(context.response)
+            u.permissions_details(vhost.name, perm).to_json(context.response.output)
           end
         end
 

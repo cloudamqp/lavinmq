@@ -34,7 +34,7 @@ module LavinMQ
         end
         items = sort(items, context)
         columns = params["columns"]?.try(&.split(','))
-        JSON.build(context.response) do |json|
+        JSON.build(context.response.output) do |json|
           if page = params["page"]?.try(&.to_i)
             json.object do
               item_count, filtered_count = json.field("items") do
@@ -227,7 +227,7 @@ module LavinMQ
 
       private def halt(context, status_code, body = nil)
         context.response.status_code = status_code
-        body.try &.to_json(context.response)
+        body.try &.to_json(context.response.output)
         raise HaltRequest.new(body.try { |b| b[:reason] })
       end
 
