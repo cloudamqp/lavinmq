@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.4] - 2026-10-29
+
+### Added
+
+- `[clustering] etcd_lease_ttl` (`--clustering-etcd-lease-ttl`, `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL`) sets the etcd lease TTL, default 10 seconds as before. The lease is kept alive every TTL/3, so a pause longer than about 2/3 of the TTL loses leadership; a higher TTL lets large nodes survive longer GC pauses, at the cost of slower failover on crashes [#2582](https://github.com/cloudamqp/lavinmq/pull/2582)
+
+### Changed
+
+- Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
+
+### Fixed
+
+- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
+
 ## [2.10.3] - 2026-10-21
 
 ### Fixed
