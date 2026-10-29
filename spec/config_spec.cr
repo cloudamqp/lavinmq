@@ -116,8 +116,8 @@ describe LavinMQ::Config do
       config.parse(["-c", config_file.path])
       fibers_before = fiber_count
       3.times { config.reload }
-      # The old backends' dispatcher fibers exit once they get to run
-      wait_for { fiber_count == fibers_before }
+      # <= since fibers left by other specs may exit meanwhile
+      wait_for { fiber_count <= fibers_before }
     ensure
       File.delete(config_file.path) if File.exists?(config_file.path)
       log_file.delete
