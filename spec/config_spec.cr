@@ -1233,6 +1233,19 @@ describe LavinMQ::Launcher do
 end
 
 describe LavinMQ::LogBackend do
+  it "closes the log file it opened but not a given io" do
+    log_file = File.tempfile("lavinmq-backend", ".log")
+    file_backend = LavinMQ::LogBackend.new(log_file.path, formatter: ::Log::ShortFormat)
+    io = IO::Memory.new
+    io_backend = LavinMQ::LogBackend.new(io)
+    file_backend.close
+    io_backend.close
+    file_backend.io.closed?.should be_true
+    io.closed?.should be_false
+  ensure
+    log_file.try &.delete
+  end
+
   it "drops entries from fibers blocked in logging when closed" do
     reader, writer = IO.pipe
     backend = LavinMQ::LogBackend.new(io: writer)

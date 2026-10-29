@@ -403,13 +403,14 @@ module LavinMQ
     end
 
     private def setup_logger
-      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if journald_stream?
-                  LogBackend.new(io: log_file, formatter: JournalLogFormat)
+      backend = if path = @log_file
+                  LogBackend.new(path, formatter: StdoutLogFormat)
+                elsif journald_stream?
+                  LogBackend.new(formatter: JournalLogFormat)
                 else
-                  LogBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  LogBackend.new(formatter: StdoutLogFormat)
                 end
+      broadcast_backend = ::Log::BroadcastBackend.new
 
       broadcast_backend.append(backend, @log_level)
 
@@ -424,18 +425,11 @@ module LavinMQ
       # federation/shovel layers (lmq.*), so keep the library's redundant
       # connection log out of the broker log.
       ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
-      close_log_backend
+      # Closed once the new backend is bound so no entry in flight is lost
+      @log_backend.try &.close
       @log_backend = backend
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
-    end
-
-    # The backend of the previous setup, with its dispatcher fiber and log file,
-    # closed once the new one is bound so no entry in flight is lost
-    private def close_log_backend
-      return unless old = @log_backend
-      old.close
-      old.io.close unless old.io.same?(STDOUT)
     end
 
     def journald_stream? : Bool
