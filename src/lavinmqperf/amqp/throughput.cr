@@ -347,12 +347,15 @@ module LavinMQPerf
           ch = a.channel
           queues = queue_names
           queues.each do |queue_name|
-            begin
-              ch.queue queue_name, durable: !queue_name.empty?, auto_delete: queue_name.empty?, args: @queue_args
+            next if queue_name.empty?
+            next if !@queue_pattern && @exchange.empty? && @routing_key != queue_name
+            q = begin
+              ch.queue queue_name, durable: true, auto_delete: false, args: @queue_args
             rescue
               ch = a.channel
               ch.queue(queue_name, passive: true)
             end
+            q.bind(@exchange, @queue_pattern ? queue_name : @routing_key) unless @exchange.empty?
           end
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
