@@ -92,6 +92,9 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
+      unless @clustering_etcd_lease_ttl.positive?
+        raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
+      end
     end
 
     private def parse_config_from_cli(argv)

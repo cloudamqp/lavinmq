@@ -8,6 +8,7 @@ class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  @lease : Etcd::Lease? = nil
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -27,7 +28,7 @@ class LavinMQ::Clustering::Controller
   # The method is blocking.
 
   def run(&)
-    lease = @lease = @etcd.lease_grant(id: @id)
+    lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
