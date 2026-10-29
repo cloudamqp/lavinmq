@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- `lavinmqperf amqp throughput` with `-y 0` published only to queues that were never declared, so every message was dropped; publishers now declare (and bind, when using a non-default exchange) the queues they actually route to [#2580](https://github.com/cloudamqp/lavinmq/pull/2580)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
