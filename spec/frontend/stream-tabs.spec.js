@@ -73,12 +73,14 @@ test.describe('stream tabs', _ => {
     total_bytes: 0,
     messages_persistent: 0,
     ready: 0,
-    messages_ready: 0,
+    messages_ready: 132,
+    messages_ready_details: { log: [120, 128, 132] },
     ready_bytes: 0,
     message_bytes_ready: 0,
     ready_avg_bytes: 0,
     unacked: 0,
     messages_unacknowledged: 0,
+    messages_unacknowledged_details: { log: [0, 0, 0] },
     unacked_bytes: 0,
     message_bytes_unacknowledged: 0,
     unacked_avg_bytes: 0,
@@ -182,11 +184,13 @@ test.describe('stream tabs', _ => {
     }))
     await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/${queueName}`, async route => {
       const limit = Number(new URL(route.request().url()).searchParams.get('consumer_list_length'))
-      await route.fulfill({ json: {
-        ...queueResponse,
-        consumers: total,
-        consumer_details: allConsumers.slice(0, Math.min(limit, total))
-      } })
+      await route.fulfill({
+        json: {
+          ...queueResponse,
+          consumers: total,
+          consumer_details: allConsumers.slice(0, Math.min(limit, total))
+        }
+      })
     })
     // beforeEach already loaded the page, so a goto would only change the
     // hash; reload so the queue is fetched through the route above
@@ -223,5 +227,12 @@ test.describe('stream tabs', _ => {
 
   test('the bindings tab badge mirrors the bindings count', async ({ page }) => {
     await expect(badge(page, 'bindings')).toHaveText(bindingResponse.items.length.toString())
+  })
+
+  test('messages in stream chart shows current count', async ({ page }) => {
+    const legend = page.locator('#msgChart .u-legend-item')
+    await expect(legend).toHaveCount(1)
+    await expect(legend).toContainText('Total')
+    await expect(legend).toContainText('132 msgs')
   })
 })

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The queue and stream pages chart queued messages above the rates, from the new `messages_ready_details.log` and `messages_unacknowledged_details.log` on `GET /api/queues/{vhost}/{name}` [#2581](https://github.com/cloudamqp/lavinmq/pull/2581)
+
 ### Changed
 
 - Lower CPU usage when scanning message segments at startup [#2559](https://github.com/cloudamqp/lavinmq/pull/2559)

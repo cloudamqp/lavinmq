@@ -499,8 +499,18 @@ module LavinMQ
       def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
         json.object do
           details_tuple.each do |k, v|
+            next if k == :message_stats # rewritten below with the rate-history log
             json.field(k, v) unless v.nil?
           end
+          json.field("message_stats") do
+            json.object do
+              stats_details.each do |k, v|
+                json.field(k, v) unless v.nil?
+              end
+            end
+          end
+          json.field("messages_ready_details", {log: message_count_log})
+          json.field("messages_unacknowledged_details", {log: unacked_count_log})
         end
       end
 
