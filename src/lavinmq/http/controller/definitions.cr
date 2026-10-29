@@ -8,7 +8,7 @@ module LavinMQ
       private def register_routes
         get "/api/definitions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          GlobalDefinitions.new(@server).export(context.response)
+          GlobalDefinitions.new(@server).export(context.response.output)
           context
         end
 
@@ -39,7 +39,7 @@ module LavinMQ
         get "/api/definitions/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_administrator(context, user(context))
-            VHostDefinitions.new(@server, vhost).export(context.response)
+            VHostDefinitions.new(@server, vhost).export(context.response.output)
           end
         end
 

@@ -45,7 +45,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             consumer_limit = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
-            JSON.build(context.response) do |json|
+            JSON.build(context.response.output) do |json|
               find_queue(context, params, vhost).to_json(json, consumer_limit)
             end
           end
@@ -189,7 +189,7 @@ module LavinMQ
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
-            JSON.build(context.response) do |j|
+            JSON.build(context.response.output) do |j|
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
@@ -258,7 +258,7 @@ module LavinMQ
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
             reader = q.reader(offset)
-            JSON.build(context.response) do |j|
+            JSON.build(context.response.output) do |j|
               j.array do
                 reader.each do |env|
                   break if count.zero?

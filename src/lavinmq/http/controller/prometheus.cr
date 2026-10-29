@@ -6,7 +6,47 @@ require "../../clustering/client"
 
 module LavinMQ
   module HTTP
+    # Formats into a buffer, whose writes are direct calls, and hands the
+    # output full buffers: the output is typed `IO`, so every write through it
+    # is a type switch, paid once per buffer instead of once per token.
     class PrometheusWriter
+      BUFFER_SIZE = 32 * 1024
+
+      private class Buffer < IO
+        def initialize(@output : IO)
+          @buffer = Bytes.new(BUFFER_SIZE)
+          @pos = 0
+        end
+
+        def read(slice : Bytes) : NoReturn
+          raise IO::Error.new("Write-only")
+        end
+
+        def write(slice : Bytes) : Nil
+          if slice.size > @buffer.size - @pos
+            flush
+            return @output.write(slice) if slice.size > @buffer.size
+          end
+          slice.copy_to(@buffer.to_unsafe + @pos, slice.size)
+          @pos += slice.size
+        end
+
+        def write_string(slice : Bytes) : Nil
+          write(slice)
+        end
+
+        def write_byte(byte : UInt8) : Nil
+          flush if @pos == @buffer.size
+          @buffer.to_unsafe[@pos] = byte
+          @pos += 1
+        end
+
+        def flush : Nil
+          @output.write(@buffer[0, @pos]) if @pos > 0
+          @pos = 0
+        end
+      end
+
       alias MetricValue = UInt16 | Int32 | UInt32 | UInt64 | Int64 | Float64
       alias MetricLabels = Hash(String, String) |
                            NamedTuple(name: String) |
@@ -23,9 +63,23 @@ module LavinMQ
                      NamedTuple(name: String, value: MetricValue, help: String, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, type: String, help: String, labels: MetricLabels)
 
-      getter prefix
+      property prefix : String
 
-      def initialize(@io : IO, @prefix : String)
+      private def initialize(output : IO, @prefix : String)
+        @io = Buffer.new(output)
+      end
+
+      def self.open(output : IO, prefix : String, & : PrometheusWriter ->) : Nil
+        writer = new(output, prefix)
+        begin
+          yield writer
+        ensure
+          writer.flush
+        end
+      end
+
+      def flush : Nil
+        @io.flush
       end
 
       private def write_labels(io, labels)
@@ -90,24 +144,26 @@ module LavinMQ
     end
 
     module Prometheus
-      def report(io, &)
-        mem = 0
-        elapsed = Time.measure do
-          mem = Benchmark.memory do
-            yield
-          rescue ex
-            Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+      def report(output : IO, prefix : String, & : PrometheusWriter ->)
+        PrometheusWriter.open(output, prefix) do |writer|
+          mem = 0
+          elapsed = Time.measure do
+            mem = Benchmark.memory do
+              yield writer
+            rescue ex
+              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+            end
           end
+          writer.prefix = "telemetry"
+          writer.write({name:  "scrape_duration_seconds",
+                        type:  "gauge",
+                        value: elapsed.total_seconds,
+                        help:  "Duration for metrics collection in seconds"})
+          writer.write({name:  "scrape_mem",
+                        type:  "gauge",
+                        value: mem,
+                        help:  "Memory used for metrics collections in bytes"})
         end
-        writer = PrometheusWriter.new(io, "telemetry")
-        writer.write({name:  "scrape_duration_seconds",
-                      type:  "gauge",
-                      value: elapsed.total_seconds,
-                      help:  "Duration for metrics collection in seconds"})
-        writer.write({name:  "scrape_mem",
-                      type:  "gauge",
-                      value: mem,
-                      help:  "Memory used for metrics collections in bytes"})
       end
 
       def gc_metrics(writer)
@@ -183,8 +239,7 @@ module LavinMQ
             raise Controller::HaltRequest.new(reason)
           end
 
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             gc_metrics(writer)
             cluster_metrics(writer)
           end
@@ -195,7 +250,7 @@ module LavinMQ
         # scrape telemetry so Prometheus doesn't mark `/metrics/detailed` targets as failed.
         get "/metrics/detailed" do |context, _|
           context.response.content_type = "text/plain"
-          report(context.response) { }
+          report(context.response.output, "lavinmq") { }
           context
         end
       end
@@ -236,8 +291,7 @@ module LavinMQ
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           vhosts = target_vhosts(context)
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
@@ -253,8 +307,7 @@ module LavinMQ
           bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           families = context.request.query_params.fetch_all("family")
           vhosts = target_vhosts(context)
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             families.each do |family|
               case family
               when "connection_churn_metrics"

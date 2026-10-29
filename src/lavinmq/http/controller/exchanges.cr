@@ -36,7 +36,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            e.to_json(context.response)
+            e.to_json(context.response.output)
           end
         end
 
@@ -151,7 +151,7 @@ module LavinMQ
             # Report overflow as not-routed so HTTP callers see the same signal a
             # publisher-confirms client would: any reject-publish overflow turns
             # the publish into "not routed", even if other bound queues accepted.
-            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
+            {routed: result.routed? && !result.overflowed?}.to_json(context.response.output)
           end
         end
       end

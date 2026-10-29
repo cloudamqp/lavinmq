@@ -80,7 +80,7 @@ module LavinMQ
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             props = params["props"]
-            binding_for_props(context, e, q, props).to_json(context.response)
+            binding_for_props(context, e, q, props).to_json(context.response.output)
           end
         end
 
@@ -161,7 +161,7 @@ module LavinMQ
             destination = exchange(context, params, vhost, "destination")
             props = params["props"]
             binding = binding_for_props(context, source, destination, props)
-            binding.to_json(context.response)
+            binding.to_json(context.response.output)
           end
         end
 
