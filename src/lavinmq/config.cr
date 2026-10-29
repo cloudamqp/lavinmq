@@ -97,6 +97,9 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      unless @clustering_etcd_lease_ttl.positive?
+        raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
+      end
       validate_sni_tls!
     end
 
