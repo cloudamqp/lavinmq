@@ -451,9 +451,9 @@ module LavinMQ
     end
 
     # The servername callback swaps in the SNI host's context, which carries
-    # the certificate and mTLS settings. TLS version and cipher settings
-    # cannot ride on that switch: OpenSSL selects them before the callback
-    # runs, so the listener's settings apply to every SNI host.
+    # the certificate and mTLS settings. The TLS version comes from the
+    # listener, and the listener's cipher settings are set when Config builds
+    # the SNI contexts, so the listener's TLS settings apply to every SNI host.
     private def setup_sni_callbacks_for(ctx : OpenSSL::SSL::Context::Server?, protocol : Symbol, label : String) : Nil
       return unless ctx
       ctx.on_server_name do |hostname|

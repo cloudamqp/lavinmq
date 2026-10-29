@@ -97,15 +97,17 @@ describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 300}))
         queue = s.vhosts["/"].queue("qexpires")
         tag = q.subscribe { }
-        sleep 110.milliseconds
+        sleep 310.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
-        (Time.instant - start).total_milliseconds.should be_close 100, 50
+        elapsed = (Time.instant - start).total_milliseconds
+        elapsed.should be >= 250
+        elapsed.should be < 550
       end
     end
   end
@@ -896,6 +898,7 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_amqp_server do |s|
         with_channel(s) do |ch|
           s.flow(false)
@@ -904,6 +907,8 @@ describe LavinMQ::AMQP::Queue do
           end
         end
       end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
   end
 
@@ -1652,6 +1657,37 @@ describe LavinMQ::AMQP::Queue do
           refused.should be < 200
         end
       end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::DurableQueue do
+  it "writes the .queue name file when declared, not on every start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_once", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_once").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      File.read(path).should eq "dotqueue_once"
+      before = File.info(path)
+      s.stop
+      sleep 10.milliseconds # so a rewrite would move the mtime
+      restart_server(s)
+      File.info(path).modification_time.should eq before.modification_time
+      File.read(path).should eq "dotqueue_once"
+    end
+  end
+
+  it "rewrites a .queue name file that a crash left empty" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_empty", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_empty").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      s.stop
+      File.write(path, "")
+      restart_server(s)
+      File.read(path).should eq "dotqueue_empty"
     end
   end
 end

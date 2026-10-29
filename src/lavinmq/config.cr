@@ -103,20 +103,19 @@ module LavinMQ
     # Builds every SNI host's TLS contexts, so an unreadable certificate or
     # key fails startup with a clear error, and is refused on reload with the
     # running configuration kept, instead of failing that host's handshakes
-    # later. The contexts are memoized on the hosts, so the servername
-    # callback reuses what is built here.
+    # later. This is the only place that builds them, so the servername
+    # callback always reads contexts that carry the listener's ciphers.
+    # Without a TLS listener no SNI host is used, so a bad one only warns.
     private def validate_sni_tls!
-      return unless tls_configured? # without a TLS listener no SNI host is used
       @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
       @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
     end
 
     private def validate_sni_host!(host : SNIHost) : Nil
-      host.amqp_tls_context
-      host.mqtt_tls_context
-      host.http_tls_context
+      host.build_tls_contexts(@tls_ciphers, @tls_ciphersuites)
     rescue ex
-      raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}")
+      raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}") if tls_configured?
+      @io.puts "WARNING: Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}"
     end
 
     private def parse_config_from_cli(argv)
@@ -266,8 +265,9 @@ module LavinMQ
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
              .ends_with?("tls_ciphersuites"), .ends_with?("tls_prefer_server_ciphers")
-          # OpenSSL selects the TLS version and cipher before the SNI switch,
-          # so these were silently ignored per host since 2.7.0
+          # Removed in 2.11: a per-host tls_min_version never took effect,
+          # but TLS 1.2 picks its cipher from the swapped-in context, so
+          # per-host cipher settings did apply to TLS 1.2 until 2.10.x
           @io.puts "WARNING: 'sni:#{hostname}/#{config}' is not supported, " \
                    "the listener's TLS version and cipher settings apply to all SNI hosts"
         else

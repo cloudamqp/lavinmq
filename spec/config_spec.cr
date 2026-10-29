@@ -750,16 +750,38 @@ describe LavinMQ::Config do
       end
     end
 
-    it "parses a broken [sni:] section when TLS is not configured" do
+    it "refuses a broken [sni:] section when TLS is configured" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /SNI host 'foobar.localhost'/) do
+          config.parse(["-c", config_file.path])
+        end
+      ensure
+        File.delete?(config_file.path)
+      end
+    end
+
+    it "warns on a broken [sni:] section when TLS is not configured" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
         File.write(config_file.path, <<-INI)
           [sni:foobar.localhost]
           tls_cert = spec/resources/no_such_certificate.pem
           INI
-        config = LavinMQ::Config.new
+        io = IO::Memory.new
+        config = LavinMQ::Config.new(io)
         # No TLS listener can use the section, so it must not stop startup
         config.parse(["-c", config_file.path])
+        io.to_s.should contain "Invalid TLS settings for SNI host 'foobar.localhost'"
         config.sni_manager.get_host("foobar.localhost").should_not be_nil
       ensure
         File.delete?(config_file.path)
