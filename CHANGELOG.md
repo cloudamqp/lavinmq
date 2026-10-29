@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
 - Lower CPU usage when scanning message segments at startup [#2559](https://github.com/cloudamqp/lavinmq/pull/2559)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 - Use amq-protocol 1.3.2, which parses incoming AMQP frames with less CPU [#TBD](https://github.com/cloudamqp/lavinmq/pull/2577)

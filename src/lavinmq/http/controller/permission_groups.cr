@@ -70,7 +70,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            PermissionGroupSummaryView.new(group).to_json(context.response)
+            PermissionGroupSummaryView.new(group).to_json(context.response.output)
           end
         end
 
@@ -146,7 +146,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            group.rules.to_json(context.response)
+            group.rules.to_json(context.response.output)
           end
         end
 
