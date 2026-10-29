@@ -501,6 +501,39 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "grants its lease with the configured TTL" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5681"
+      config.clustering_etcd_lease_ttl = 30
+      controller = LavinMQ::Clustering::Controller.new(config)
+      lease_id = File.read(File.join(data_dir, ".clustering_id")).to_i(36)
+
+      elected = Channel(Nil).new
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      spawn do
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+      rescue SpecExit
+      end
+      spawn do
+        controller.run { }
+      rescue SpecExit
+      end
+      begin
+        select
+        when elected.receive?
+        when timeout(5.seconds)
+          fail("controller was not elected leader")
+        end
+        etcd.lease_ttl(lease_id).should be > 10
+      ensure
+        controller.stop
+      end
+    end
+  end
+
   it "will release lease on shutdown", tags: "slow" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"

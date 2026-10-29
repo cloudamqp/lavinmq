@@ -420,6 +420,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"
 
+      @[CliOpt("", "--clustering-etcd-lease-ttl=SECONDS", "TTL of the etcd lease, leadership is lost if not renewed within it (default: 10)", section: "clustering")]
+      @[IniOpt(ini_name: etcd_lease_ttl, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")]
+      property clustering_etcd_lease_ttl = 10
+
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far
       # a follower may lag is governed by the leader's ack deadline, not this.
