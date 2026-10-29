@@ -905,6 +905,8 @@ describe LavinMQ::AMQP::Queue do
           expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
             ch.queue("test_queue_flow", durable: true)
           end
+          ch.@connection.channel
+          s.vhosts["/"].queue?("test_queue_flow").should be_nil
         end
       end
     ensure
