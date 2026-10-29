@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lower CPU usage when scanning message segments at startup [#2559](https://github.com/cloudamqp/lavinmq/pull/2559)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 - Use amq-protocol 1.3.2, which parses incoming AMQP frames with less CPU [#TBD](https://github.com/cloudamqp/lavinmq/pull/2577)
+- Less memory and CPU for stats history: a stat only keeps a history buffer while its value changes within the last `stats_log_size` samples, in memory outside the GC heap that is returned to the OS once idle or when the object closes. At 100k idle queues the history no longer takes ~1.4 GB of GC heap and a stats tick takes 15 ms instead of 69 ms. `/api/overview` reads message totals the stats loop records per vhost; its message history now keeps the messages of since deleted queues [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ### Fixed
 
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A TLS 1.2 connection that sent a servername bypassed the listener's `tls_ciphers` when any `[sni:host]` section was configured: OpenSSL picks the TLS 1.2 cipher after the servername callback, and the swapped-in SNI context carried OpenSSL's default cipher list. The listener's `tls_ciphers` and `tls_ciphersuites` now apply to every SNI context [#2540](https://github.com/cloudamqp/lavinmq/pull/2540)
 - With `tcp_nodelay` on (the default since 2.11.0-rc.1), a delivery that didn't fit what was left of the socket's write buffer went out as a small TCP segment of the buffered frames and then the rest, about a quarter of the throughput at 16 KiB messages with one publisher and one consumer. A write that doesn't fit now tops the buffer up first, and the socket is corked until the flush that ends the batch [#2568](https://github.com/cloudamqp/lavinmq/pull/2568)
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
+- Aggregating stats logs for the HTTP API no longer mutates the underlying per-object logs [#2453](https://github.com/cloudamqp/lavinmq/pull/2453)
 
 ## [2.11.0-rc.2] - 2026-10-23
 

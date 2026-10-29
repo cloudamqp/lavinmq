@@ -177,6 +177,7 @@ module LavinMQ
       protected def delete
         return if @deleted
         @deleted = true
+        Stats.retire(self)
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
         @vhost.upstreams.try &.stop_link(self)
@@ -381,6 +382,7 @@ module LavinMQ
       end
 
       def close
+        Stats.retire(self)
         @delayed_queue.try &.close
       end
 

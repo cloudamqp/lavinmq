@@ -743,6 +743,7 @@ module LavinMQ
       def close : Bool
         return false unless @running
         @running = false
+        Stats.retire(self)
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close

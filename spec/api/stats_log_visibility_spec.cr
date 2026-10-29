@@ -49,4 +49,56 @@ describe "rate-history log visibility" do
       end
     end
   end
+
+  describe "log contents" do
+    # The stats loop sleeps an hour after its first sweep; the spec drives the sweeps itself.
+    it "serves a queue's publish rate history in order" do
+      orig = LavinMQ::Config.instance.stats_interval
+      LavinMQ::Config.instance.stats_interval = 3_600_000
+      begin
+        with_http_server do |http, s|
+          LavinMQ::Config.instance.stats_interval = 1000
+          with_channel(s) do |ch|
+            cq = ch.queue("logq")
+            q = s.vhosts["/"].queue("logq")
+            [5, 5, 10, 0].each do |n|
+              n.times { cq.publish_confirm "m" }
+              q.update_rates
+            end
+            details = JSON.parse(http.get("/api/queues/%2f/logq").body)
+            details["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 5.0, 10.0, 0.0]
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.stats_interval = orig
+      end
+    end
+
+    it "logs the messages of all queues in the overview, also of since deleted ones" do
+      orig = LavinMQ::Config.instance.stats_interval
+      LavinMQ::Config.instance.stats_interval = 3_600_000
+      begin
+        with_http_server do |http, s|
+          LavinMQ::Config.instance.stats_interval = 1000
+          with_channel(s) do |ch|
+            old = ch.queue("old-q")
+            [1, 2, 3].each do |n|
+              old.publish_confirm "m" if n > 1
+              s.update_stats_rates
+            end
+            young = ch.queue("young-q")
+            2.times { young.publish_confirm "m" }
+            s.update_stats_rates
+            young.delete
+            s.update_stats_rates
+            overview = JSON.parse(http.get("/api/overview").body)
+            # old-q: 0, 1, 2, 2, 2 messages; young-q: 2 until deleted
+            overview["queue_totals"]["messages_ready_log"].as_a.map(&.as_i).last(5).should eq [0, 1, 2, 4, 2]
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.stats_interval = orig
+      end
+    end
+  end
 end

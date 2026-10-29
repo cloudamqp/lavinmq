@@ -152,21 +152,32 @@ module LavinMQ
       end
     end
 
-    def update_stats_rates
+    def update_stats_rates(interval : Float64 = @config.stats_interval / 1000.0)
       @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates)
-        vhost.each_exchange(&.update_rates)
-        vhost.each_session(&.update_rates)
-        vhost.each_connection do |connection|
-          connection.update_rates
-          connection.each_channel(&.update_rates)
+        ready = unacked = 0_u64
+        vhost.each_queue do |q|
+          q.update_rates(interval)
+          ready += q.message_count
+          unacked += q.unacked_count
         end
-        vhost.update_rates
+        vhost.each_exchange(&.update_rates(interval))
+        vhost.each_session do |s|
+          s.update_rates(interval)
+          ready += s.message_count
+          unacked += s.unacked_count
+        end
+        vhost.each_connection do |connection|
+          connection.update_rates(interval)
+          connection.each_channel(&.update_rates(interval))
+        end
+        vhost.update_message_totals(ready, unacked)
+        vhost.update_rates(interval)
       end
+      Stats.release_retired
+      StatBlockPool.trim
     end
 
-    def update_system_metrics(statm)
-      interval = @config.stats_interval / 1000.0
+    def update_system_metrics(statm, interval : Float64 = @config.stats_interval / 1000.0)
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 
@@ -223,14 +234,16 @@ module LavinMQ
       if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
+      # Rates span the interval slept, not one a reload set meanwhile
+      slept = @config.stats_interval
       until closed?
         begin
           @stats_collection_duration_seconds_total = Time.measure do
             @stats_rates_collection_duration_seconds = Time.measure do
-              update_stats_rates
+              update_stats_rates(slept / 1000.0)
             end
             @stats_system_collection_duration_seconds = Time.measure do
-              update_system_metrics(statm)
+              update_system_metrics(statm, slept / 1000.0)
             end
           end
           @gc_stats = GC.prof_stats
@@ -241,7 +254,8 @@ module LavinMQ
         end
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        slept = @config.stats_interval
+        sleep slept.milliseconds
       end
     ensure
       statm.try &.close

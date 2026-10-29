@@ -110,6 +110,7 @@ module LavinMQ
 
       def close : Bool
         return false if @closed.swap(true)
+        Stats.retire(self)
         @has_capacity.close
         @has_client.close
         @msg_store_lock.synchronize do

@@ -21,7 +21,7 @@ module LavinMQ
     end
 
     def x_rate
-      @x_rate
+      current_stats_details[:x_details][:rate]
     end
   end
 
@@ -42,6 +42,24 @@ module LavinMQ
   end
 
   describe Server do
+    it "spans the interval the stats loop slept when a reload changes it meanwhile" do
+      with_stats_interval(300) do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          with_channel(s) do |ch|
+            q = ch.queue("slept")
+            size = vhost.publish_log.size
+            wait_for { vhost.publish_log.size > size } # a tick just passed, the next sleep is 300 ms
+            LavinMQ::Config.instance.stats_interval = 30
+            3.times { q.publish_confirm "m" }
+            size = vhost.publish_log.size
+            wait_for { vhost.publish_log.size > size }
+            vhost.publish_log.to_a.last.should eq 10.0
+          end
+        end
+      end
+    end
+
     it "keeps checking free disk space while out of file descriptors" do
       with_stats_interval(50) do
         with_amqp_server do |s|

@@ -36,7 +36,24 @@ module LavinMQ
     STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
                   "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
-    rate_stats(STATS_KEYS)
+    rate_stats(STATS_KEYS, {"messages_ready", "messages_unacknowledged"})
+
+    # Ready and unacked messages in all queues and sessions, as of the last stats tick
+    @messages_ready = Atomic(UInt64).new(0_u64)
+    @messages_unacknowledged = Atomic(UInt64).new(0_u64)
+
+    def messages_ready : UInt64
+      @messages_ready.get(:relaxed)
+    end
+
+    def messages_unacknowledged : UInt64
+      @messages_unacknowledged.get(:relaxed)
+    end
+
+    def update_message_totals(ready : UInt64, unacked : UInt64) : Nil
+      @messages_ready.set(ready, :relaxed)
+      @messages_unacknowledged.set(unacked, :relaxed)
+    end
 
     DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
@@ -532,6 +549,7 @@ module LavinMQ
 
     def close(reason = "Broker shutdown")
       return if @closed.swap(true)
+      Stats.retire(self)
       stop_shovels
       stop_upstream_links
 
