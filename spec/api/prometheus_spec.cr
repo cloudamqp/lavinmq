@@ -143,6 +143,24 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose gc pause time as a histogram" do
+      with_metrics_server do |http, _|
+        GC.collect
+        lines = http.get("/metrics").body.lines
+        lines.should contain "# TYPE lavinmq_gc_pause_seconds histogram"
+        value = ->(prefix : String) do
+          lines.find!(&.starts_with?(prefix)).split(' ').last.to_f
+        end
+        count = value.call("lavinmq_gc_pause_seconds_count ")
+        count.should be > 0
+        value.call("lavinmq_gc_pause_seconds_sum ").should be > 0
+        value.call(%(lavinmq_gc_pause_seconds_bucket{le="+Inf"} )).should eq count
+        buckets = lines.select(&.starts_with?("lavinmq_gc_pause_seconds_bucket"))
+          .map(&.split(' ').last.to_f)
+        buckets.should eq buckets.sort
+      end
+    end
+
     it "should expose socket buffer pool stats" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -624,6 +642,7 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.status_code.should eq 200
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_pause_seconds_count").should be_true
     end
   end
 
