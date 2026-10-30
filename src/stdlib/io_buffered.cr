@@ -162,6 +162,9 @@ module IO::Buffered
 
   @buffer_pool : IO::BufferPool? = nil
 
+  # Number of reads from the underlying IO into the read buffer, wraps around
+  getter buffer_fills = 0_u32
+
   getter buffer_pool
 
   # Use buffers from *pool* (also sets `buffer_size` to the pool's buffer size).
@@ -334,6 +337,7 @@ module IO::Buffered
   end
 
   private def fill_buffer
+    @buffer_fills &+= 1
     return previous_def unless pool = @buffer_pool
     {% if flag?(:unix) %}
       if socket = self.as?(Socket)
