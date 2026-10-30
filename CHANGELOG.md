@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A TLS 1.2 connection that sent a servername bypassed the listener's `tls_ciphers` when any `[sni:host]` section was configured: OpenSSL picks the TLS 1.2 cipher after the servername callback, and the swapped-in SNI context carried OpenSSL's default cipher list. The listener's `tls_ciphers` and `tls_ciphersuites` now apply to every SNI context [#2540](https://github.com/cloudamqp/lavinmq/pull/2540)
 - With `tcp_nodelay` on (the default since 2.11.0-rc.1), a delivery that didn't fit what was left of the socket's write buffer went out as a small TCP segment of the buffered frames and then the rest, about a quarter of the throughput at 16 KiB messages with one publisher and one consumer. A write that doesn't fit now tops the buffer up first, and the socket is corked until the flush that ends the batch [#2568](https://github.com/cloudamqp/lavinmq/pull/2568)
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
+- Since 2.11.0-rc.1, reading an AMQP frame from a connection's pooled socket buffer went through a read that isn't inlined for every field, about 3% lower throughput with 16-byte messages. A read served from the buffer now copies from it directly [#2578](https://github.com/cloudamqp/lavinmq/pull/2578)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
