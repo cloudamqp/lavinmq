@@ -34,10 +34,26 @@ module LavinMQ
 
         def self.create(password : String) : self
           salt = Random::Secure.random_bytes(SALT_SIZE)
-          dgst = OpenSSL::Digest.new(openssl_hash_algorithm)
-          dgst.update salt
-          dgst.update password
-          new(salt, dgst.final)
+          new(salt, digest(salt, password.to_slice))
+        end
+
+        # Bare EVP context freed right away: an OpenSSL::Digest per login would register a GC
+        # finalizer, which Boehm counts as 10 KB allocated when deciding to collect
+        protected def self.digest(salt : Bytes, password : Bytes) : Bytes
+          md = evp_md
+          ctx = LibCrypto.evp_md_ctx_new
+          raise OpenSSL::Digest::Error.new("EVP_MD_CTX_new") unless ctx
+          begin
+            hash = Bytes.new(LibCrypto.evp_md_size(md))
+            ok = LibCrypto.evp_digestinit_ex(ctx, md, nil) == 1 &&
+                 LibCrypto.evp_digestupdate(ctx, salt, salt.bytesize) == 1 &&
+                 LibCrypto.evp_digestupdate(ctx, password, password.bytesize) == 1 &&
+                 LibCrypto.evp_digestfinal_ex(ctx, hash, nil) == 1
+            raise OpenSSL::Digest::Error.new("EVP_Digest") unless ok
+            hash
+          ensure
+            LibCrypto.evp_md_ctx_free(ctx)
+          end
         end
 
         def initialize(@salt : Bytes, @hash : Bytes)
@@ -75,11 +91,8 @@ module LavinMQ
           end
         end
 
-        def verify(password) : Bool
-          dgst = OpenSSL::Digest.new(openssl_hash_algorithm)
-          dgst.update @salt
-          dgst.update password
-          Crypto::Subtle.constant_time_compare(@hash, dgst.final)
+        def verify(password : Bytes) : Bool
+          Crypto::Subtle.constant_time_compare(@hash, self.class.digest(@salt, password))
         end
 
         def to_s(io)
@@ -94,7 +107,6 @@ module LavinMQ
           to_s(io)
         end
 
-        abstract def openssl_hash_algorithm : String
         abstract def hash_prefix : String
         abstract def digest_size : Int32
       end
@@ -108,12 +120,8 @@ module LavinMQ
           "rabbit_password_hashing_sha256"
         end
 
-        def self.openssl_hash_algorithm : String
-          "SHA256"
-        end
-
-        def openssl_hash_algorithm : String
-          SHA256Password.openssl_hash_algorithm
+        def self.evp_md : LibCrypto::EVP_MD
+          LibCrypto.evp_sha256
         end
 
         def hash_prefix : String
@@ -130,12 +138,8 @@ module LavinMQ
           "rabbit_password_hashing_sha512"
         end
 
-        def self.openssl_hash_algorithm : String
-          "SHA512"
-        end
-
-        def openssl_hash_algorithm : String
-          SHA512Password.openssl_hash_algorithm
+        def self.evp_md : LibCrypto::EVP_MD
+          LibCrypto.evp_sha512
         end
 
         def hash_prefix : String
@@ -152,12 +156,8 @@ module LavinMQ
           "rabbit_password_hashing_md5"
         end
 
-        def self.openssl_hash_algorithm : String
-          "MD5"
-        end
-
-        def openssl_hash_algorithm : String
-          MD5Password.openssl_hash_algorithm
+        def self.evp_md : LibCrypto::EVP_MD
+          LibCrypto.evp_md5
         end
 
         def hash_prefix : String
