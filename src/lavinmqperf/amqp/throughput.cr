@@ -345,11 +345,22 @@ module LavinMQPerf
         unconfirmed = ::Channel(Nil).new(@max_unconfirm)
         ::AMQP::Client.start(@uri) do |a|
           ch = a.channel
+          queues = queue_names
+          queues.each do |queue_name|
+            next if queue_name.empty?
+            next if !@queue_pattern && @exchange.empty? && @routing_key != queue_name
+            q = begin
+              ch.queue queue_name, durable: true, auto_delete: false, args: @queue_args
+            rescue
+              ch = a.channel
+              ch.queue(queue_name, passive: true)
+            end
+            q.bind(@exchange, @queue_pattern ? queue_name : @routing_key) unless @exchange.empty?
+          end
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
           wait_until_all_are_connected(connected)
           ticker = Ticker.new(@rate)
-          queues = queue_names
           queue_idx = 0
           local_pubs = 0_u64
           until @stopped
