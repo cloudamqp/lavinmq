@@ -288,7 +288,7 @@ module LavinMQ
         msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
-          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed? || result.rejected?
           result
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
@@ -877,7 +877,7 @@ module LavinMQ
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
           result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
-          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed?
+          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed? || result.rejected?
           # skip to next msg body in the next_msg_body_file
           tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)
         end
