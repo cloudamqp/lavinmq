@@ -8,6 +8,7 @@ on:
       - 'shard.*'
       - 'static/**'
       - 'views/**'
+      - 'packaging/libgc/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
@@ -22,6 +23,7 @@ on:
       - 'shard.*'
       - 'static/**'
       - 'views/**'
+      - 'packaging/libgc/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
@@ -96,6 +98,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Build patched libgc
+        run: packaging/libgc/build.sh
 
       - name: Spec
         run: make test
@@ -189,6 +194,9 @@ jobs:
 
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build patched libgc
+        run: packaging/libgc/build.sh
 
       - name: Build lavinmq
         run: make -j bin/lavinmq bin/lavinmqctl bin/stress bin/shovel-test DOCS= CRYSTAL_FLAGS="--release --error-on-warnings"
