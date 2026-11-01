@@ -24,4 +24,21 @@ class Fiber
       @stack.bottom.address &- @context.stack_top.address
     end
   end
+
+  # A dead fiber can stay reachable for a long time: a scheduler's run queue
+  # doesn't clear the slot of a dequeued fiber (up to 256 per scheduler), and
+  # a reused stack can keep a stale pointer to its previous fiber. Its proc's
+  # closure would then keep whatever the fiber captured alive, e.g. a closed
+  # connection's socket and client, so drop the proc once the fiber has
+  # finished.
+  # :nodoc:
+  def self.inactive(fiber : Fiber)
+    previous_def
+    fiber.drop_proc
+  end
+
+  # :nodoc:
+  protected def drop_proc : Nil
+    @proc = -> { }
+  end
 end
