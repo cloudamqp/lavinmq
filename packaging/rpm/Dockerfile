@@ -7,7 +7,9 @@ RUN if grep -q 'PLATFORM_ID="platform:el9"' /etc/os-release; then \
       dnf config-manager --enable crb; \
     fi
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
-    rpmdevtools rpmlint systemd-rpm-macros make help2man git lz4-devel openssl openssl-devel zlib-devel
+    rpmdevtools rpmlint systemd-rpm-macros make help2man git lz4-devel openssl openssl-devel zlib-devel patch
+COPY packaging/libgc /tmp/libgc
+RUN /tmp/libgc/build.sh
 RUN rpmdev-setuptree
 COPY packaging/rpm/lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
