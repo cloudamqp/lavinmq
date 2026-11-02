@@ -281,6 +281,7 @@ module LavinMQ
       private def publish_and_return(msg)
         validate_user_id(msg.properties.user_id)
         if @tx
+          msg.synced_by_commit = true
           @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
         end

@@ -1008,17 +1008,42 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
-      it "advises every segment random access" do
+      it "advises every segment but the write segment random access" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+          store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+        end
+      end
+
+      it "advises the write segment random access once a publish to it is synced" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(synced_message("m"))
           vm_flags(store.@wfile.path).should contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
           store.@wfile_id.should_not eq 1
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
+        end
+      end
+
+      it "keeps readahead on the write segment when sync is disabled" do
+        LavinMQ::Config.instance.sync = false
+        with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.push(synced_message("m"))
+          vm_flags(store.@wfile.path).should_not contain "rr"
           store.close
         end
       end
@@ -1044,7 +1069,7 @@ describe LavinMQ::MessageStore do
             flags.should contain "sr"
             flags.should_not contain "rr"
           end
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
           store.close
         end
       end
@@ -1080,7 +1105,7 @@ describe LavinMQ::MessageStore do
           loads = AdviceOnLoadStore.advice_on_load
           loads.map(&.first).should eq ["read_metadata_file", "produce_metadata", "produce_metadata"]
           loads.each { |_, flags| flags.should contain "sr" }
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
           store.close
         end
       end
@@ -1127,7 +1152,7 @@ describe LavinMQ::MessageStore do
           vm_flags(first).should contain "rr" # no read before it to go by
           vm_flags(second).should_not contain "rr"
           vm_flags(second).should contain "sr"
-          vm_flags(third).should contain "rr" # the write segment
+          vm_flags(third).should_not contain "rr" # the write segment
           store.close
         end
       end

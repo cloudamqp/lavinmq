@@ -29,6 +29,8 @@ module LavinMQ
     @closed = false
     # When the reader moved into @rfile, see #read_fast?
     @rfile_since : Time::Instant = RoughTime.instant
+    # Set once a publish to this store is synced, see #readahead_for_writes
+    @synced_writes = false
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -54,6 +56,7 @@ module LavinMQ
         prune_orphaned_acks
         delete_unused_segments
       end
+      readahead_for_writes(@wfile) unless @closed
       @empty.set empty? unless @closed
     end
 
@@ -405,19 +408,36 @@ module LavinMQ
       if msg.needs_sync? && (persister = @persister)
         persister.mark_dirty(wfile)
       end
+      random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
       @segment_msg_count[wfile_id] += 1
       sp
     end
 
+    private def synced?(msg) : Bool
+      (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
+    end
+
+    # The segment being written is mapped with readahead, which caches it in
+    # large folios and halves the CPU time of writing it. But an msync writes
+    # whole folios, so a confirm would write up to 128 KiB for a small
+    # message. Once a publish to the store is synced, its write segments are
+    # mapped without readahead and a sync only writes the pages that changed.
+    private def readahead_for_writes(wfile : MFile) : Nil
+      wfile.advise(MFile::Advice::Normal) unless @synced_writes
+    end
+
+    private def random_access_for_sync(wfile : MFile) : Nil
+      @synced_writes = true
+      wfile.advise(MFile::Advice::Random)
+    end
+
     # Segments are mapped without readahead. Readahead on a page fault caches
     # up to the readahead window (4 MiB on btrfs, 128 KiB on ext4/XFS) around
-    # it: for the segment being written that's its empty rest, and for a slow
-    # reader the part it hasn't reached yet, kept for as long as the queue is
-    # written to or read, which with many queues adds up to gigabytes. It also
-    # keeps the page cache in page sized folios, so an msync only writes the
-    # pages that changed. Writing faults once per page with or without
-    # readahead. Fast readers get readahead back, see #read_fast?, and so
-    # does loading at startup, see #load_stats_from_segments.
+    # it: for a slow reader the part it hasn't reached yet, kept for as long
+    # as the queue is read, which with many queues adds up to gigabytes.
+    # Fast readers get readahead back, see #read_fast?, and so does loading
+    # at startup, see #load_stats_from_segments. The segment being written
+    # is the exception, see #readahead_for_writes.
     private def open_segment(path : String, capacity : Int? = nil) : MFile
       mfile = MFile.new(path, capacity)
       mfile.advise(MFile::Advice::Random)
@@ -461,12 +481,14 @@ module LavinMQ
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
+        @wfile.advise(MFile::Advice::Random) unless @synced_writes
       end
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
       wfile = open_segment(path, capacity)
+      readahead_for_writes(wfile)
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
