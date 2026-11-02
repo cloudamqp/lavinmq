@@ -25,7 +25,6 @@ module LavinMQ
             if body = context.request.body
               json = JSON.parse(body)
               if value = json["value"]?.try &.as_i?
-                value = nil if value < 0
                 case params["type"]
                 when "max-connections"
                   vhost.max_connections = value
