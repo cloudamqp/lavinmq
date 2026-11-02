@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 - Since 2.11.0-rc.1, reading an AMQP frame from a connection's pooled socket buffer went through a read that isn't inlined for every field, about 3% lower throughput with 16-byte messages. A read served from the buffer now copies from it directly [#2578](https://github.com/cloudamqp/lavinmq/pull/2578)
 - Since 2.11.0-rc.1, the clock was read for every received frame and every delivered message to track heartbeats, about 3% lower throughput with 16-byte messages. It's now read once per socket read and once per socket flush [#2579](https://github.com/cloudamqp/lavinmq/pull/2579)
+- Clearing a vhost's connection limit, with a DELETE or a PUT with a negative value on `/api/vhost-limits`, was not saved to disk or replicated, so the old limit came back after a restart or a leader change [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
