@@ -57,7 +57,7 @@ module LavinMQ
     getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
     getter max_connections : Int32?
-    property max_queues : Int32?
+    getter max_queues : Int32?
 
     # Set by the server's disk space monitor, read by every publishing client
     @flow = Atomic(Bool).new(true)
@@ -289,8 +289,8 @@ module LavinMQ
       @max_connections.try { |max| connections_size >= max } || false
     end
 
-    def max_queues=(value : Int32) : Nil
-      value = nil if value < 0
+    def max_queues=(value : Int32?) : Nil
+      value = nil if value && value < 0
       @max_queues = value
       store_limits
     end

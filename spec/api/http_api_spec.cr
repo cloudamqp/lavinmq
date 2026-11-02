@@ -266,10 +266,21 @@ describe LavinMQ::HTTP::Server do
         s.vhosts["/"].max_connections.should be_nil
       end
     end
+
+    it "clears max-queues with a negative value" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_queues = 100
+        response = http.put("/api/vhost-limits/%2f/max-queues", body: %({"value": -1}))
+        response.status_code.should eq 204
+        s.vhosts["/"].max_queues.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_queues.should be_nil
+      end
+    end
   end
 
   describe "DELETE /api/vhost-limits/vhost/type" do
-    it "clears the limit" do
+    it "clears max-connections" do
       with_http_server do |http, s|
         s.vhosts["/"].max_connections = 100
         response = http.delete("/api/vhost-limits/%2f/max-connections")
@@ -277,6 +288,17 @@ describe LavinMQ::HTTP::Server do
         s.vhosts["/"].max_connections.should be_nil
         restart_server(s)
         s.vhosts["/"].max_connections.should be_nil
+      end
+    end
+
+    it "clears max-queues" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_queues = 100
+        response = http.delete("/api/vhost-limits/%2f/max-queues")
+        response.status_code.should eq 204
+        s.vhosts["/"].max_queues.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_queues.should be_nil
       end
     end
   end
