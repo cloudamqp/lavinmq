@@ -344,6 +344,10 @@ module LavinMQ
                       labels: {
                         "#{writer.prefix}_version" => LavinMQ::VERSION,
                         "#{writer.prefix}_cluster" => System.hostname,
+                        "crystal_version"          => Crystal::VERSION,
+                        "llvm_version"             => Crystal::LLVM_VERSION,
+                        "gc_version"               => GC_VERSION,
+                        "gc_patches"               => GC_PATCHES,
                       }})
 
         writer.write({name:  "connections_opened_total",

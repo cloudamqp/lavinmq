@@ -653,6 +653,10 @@ describe LavinMQ::HTTP::MetricsServer do
         response = http.get("/metrics")
         response.status_code.should eq 200
         response.body.should contain "lavinmq_identity_info"
+        response.body.should contain %(crystal_version="#{Crystal::VERSION}")
+        response.body.should contain %(llvm_version="#{Crystal::LLVM_VERSION}")
+        response.body.should match /gc_version="\d+\.\d+\.\d+"/
+        response.body.should contain %(gc_patches="#{LavinMQ::GC_PATCHES}")
       ensure
         h.close
       end

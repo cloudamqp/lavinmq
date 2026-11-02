@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `lavinmq_identity_info` now has `crystal_version`, `llvm_version`, `gc_version` and `gc_patches` labels, and `--build-info` prints the GC version. `gc_patches` is taken from the `GC_PATCHES` environment variable at build time
+
 ### Changed
 
 - Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
