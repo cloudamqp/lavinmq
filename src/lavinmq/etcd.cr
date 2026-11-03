@@ -55,13 +55,14 @@ module LavinMQ
       @endpoints.shuffle.each do |e|
         address = "#{e.host}:#{e.port}"
         tcp = create_tcp_socket(e.host, e.port)
-        tcp.read_timeout = tcp.write_timeout = 5.seconds
-        socket = e.tls ? wrap_with_tls(tcp, e.host) : tcp
         begin
+          tcp.read_timeout = tcp.write_timeout = 5.seconds
+          socket = e.tls ? wrap_with_tls(tcp, e.host) : tcp
           json = post_request(socket, address, e.auth, "/v3/kv/range", body)
           return json.dig?("kvs", 0, "value").try { |v| Base64.decode_string(v.as_s) }
         ensure
-          socket.close rescue nil
+          # The TLS wrap may have failed, so close the TCP socket itself
+          tcp.close rescue nil
         end
       rescue ex : IO::Error | Error | OpenSSL::SSL::Error
         Log.debug { "Could not read #{key} from #{address}: #{ex.message}" }
