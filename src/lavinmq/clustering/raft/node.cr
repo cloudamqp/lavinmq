@@ -163,6 +163,8 @@ module LavinMQ::Clustering::Raft
     @stopped = Channel(Nil).new
     @transport : Transport? = nil
     @synced_peers = Set(String).new
+    # The Core#version last published, nil before the first flush
+    @published_version : UInt64? = nil
     @seeds : Set(String)
     @logged_seeds = false
     @election_timeout : Time::Span
@@ -492,8 +494,13 @@ module LavinMQ::Clustering::Raft
         end
       end
       resolve_pending
-      publish_state
-      sync_transport
+      # Most events, like heartbeats and acks, change nothing published
+      version = @core.version
+      if version != @published_version
+        @published_version = version
+        publish_state
+        sync_transport
+      end
       # After answering and sending, nothing waits for it, see Core#unsaved_commit?
       save if @core.unsaved_commit?
     end

@@ -221,6 +221,12 @@ module LavinMQ::Clustering::Raft
     # since it started without one, see #may_vote_for_log?
     @votes_known = false
 
+    # Bumped whenever something the owner publishes or connects to may have
+    # changed (role, term, leader, log, commit, membership, peers and their
+    # addresses, the first leader's agreement), so it can skip that work for
+    # the many events, like heartbeats and acks, that change none of it
+    getter version = 0u64
+
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
                    now : Time::Instant, state : HardState? = nil, @random : Random = Random.new,
@@ -394,13 +400,16 @@ module LavinMQ::Clustering::Raft
       @now = now
       return if id == @id
       @live[id] = address
+      changed
       identified(address, id)
       manage_membership
       announce(id)
     end
 
     def disconnected(id : Int32, address : String) : Nil
-      @live.delete(id) if @live[id]? == address
+      return unless @live[id]? == address
+      @live.delete(id)
+      changed
     end
 
     # The node at `address` has clustering id `id`. Only matters for
@@ -416,6 +425,7 @@ module LavinMQ::Clustering::Raft
         return if !@seed_addresses.includes?(address) || @seed_ids[address]? == id
         @seed_ids[address] = id
       end
+      changed
       return if latest_membership
       refresh_membership
       manage_membership
@@ -498,6 +508,7 @@ module LavinMQ::Clustering::Raft
       append Entry.new(@term, isr, Membership.new(voters, learners, addresses, relocated))
       if departing_address
         @departing[id] = Departing.new(last_index, now + @election_timeout * 5, departing_address)
+        changed
         @progress[id] = progress || Progress.new(last_index, now)
       end
       advance_commit
@@ -522,7 +533,10 @@ module LavinMQ::Clustering::Raft
           broadcast_append
         end
       else
-        @trust_moved = true if leaderless_for(now) >= @election_timeout * MOVED_TRUST_AFTER
+        if !@trust_moved && leaderless_for(now) >= @election_timeout * MOVED_TRUST_AFTER
+          @trust_moved = true
+          changed
+        end
         if now >= @election_deadline
           @election_deadline = now + randomized_election_timeout
           # Again each election timeout, in case one got lost
@@ -608,7 +622,7 @@ module LavinMQ::Clustering::Raft
       in InstallSnapshot then handle_install_snapshot(msg, now)
       in TimeoutNow      then handle_timeout_now(msg, now)
       in CatchUp         then handle_catch_up(msg, now)
-      in SeedInfo        then @seed_info[msg.from] = msg
+      in SeedInfo        then record_seed_info(msg)
       end
     end
 
@@ -767,6 +781,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
+      changed
       return if index <= @snapshot.index
       if index <= last_index && term_at(index) == term
         # The entries after it stay: the leader resends its snapshot while
@@ -790,6 +805,11 @@ module LavinMQ::Clustering::Raft
         end
         append entry
       end
+    end
+
+    private def record_seed_info(msg : SeedInfo) : Nil
+      @seed_info[msg.from] = msg
+      changed
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -836,6 +856,7 @@ module LavinMQ::Clustering::Raft
         become_follower(term, leader)
       end
       @pre_voting = false
+      changed if @leader != leader || @leader_uri != uri || @trust_moved
       @leader = leader
       @leader_uri = uri
       @last_heard_leader = now
@@ -867,6 +888,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def start_election(now : Time::Instant, transfer : Bool) : Nil
+      changed
       @pre_voting = false
       @role = Role::Candidate
       @term += 1
@@ -887,6 +909,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def become_follower(term : Int64, leader : Int32?) : Nil
+      changed
       if term > @term
         @term = term
         @voted_for = nil
@@ -902,6 +925,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def become_leader(now : Time::Instant) : Nil
+      changed
       @role = Role::Leader
       @leader = @id
       @leader_uri = @uri
@@ -954,6 +978,7 @@ module LavinMQ::Clustering::Raft
       end
       if @trust_moved
         @trust_moved = false
+        changed
         moved_addresses_membership.try { |moved| append_membership(moved) }
         return
       end
@@ -1105,6 +1130,7 @@ module LavinMQ::Clustering::Raft
         @voters = @seed_ids.values.to_set << @id
         @peers = @seed_ids.values.uniq!.reject(@id)
       end
+      changed
       # Forget what we knew about peers that left, they may come back as new
       @progress.reject! { |p, _| !tracked?(p) }
       @peers.each { |p| @progress[p] ||= Progress.new(last_index + 1, @now) }
@@ -1149,6 +1175,7 @@ module LavinMQ::Clustering::Raft
       @snapshot = Snapshot.new(index, term_at(index), isr, membership)
       @entries.shift(count)
       @unsaved_commit = true
+      changed
     end
 
     private def term_at(index : Int64) : Int64
@@ -1160,6 +1187,7 @@ module LavinMQ::Clustering::Raft
     private def append(entry : Entry) : Nil
       @entries << entry
       @dirty = true
+      changed
       refresh_membership if entry.membership
     end
 
@@ -1169,7 +1197,12 @@ module LavinMQ::Clustering::Raft
       reverted = @entries[keep..].any?(&.membership)
       @entries.truncate(0, keep)
       @dirty = true
+      changed
       refresh_membership if reverted
+    end
+
+    private def changed : Nil
+      @version &+= 1
     end
 
     private def send(to : Int32, msg : Message) : Nil

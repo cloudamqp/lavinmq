@@ -209,6 +209,17 @@ describe Raft::Core do
     end
   end
 
+  it "keeps its version through heartbeats and acks, which change nothing published" do
+    sim = SimCluster.new(3)
+    sim.elect(Set{1, 2, 3})
+    versions = sim.cores.transform_values(&.version)
+    sim.advance(1.second)
+    sim.cores.transform_values(&.version).should eq versions
+    sim.propose(sim.leader.should_not(be_nil), Set{1, 2})
+    sim.advance(100.milliseconds)
+    sim.cores.each { |id, c| c.version.should be > versions[id] }
+  end
+
   it "elects itself in a single node cluster" do
     sim = SimCluster.new(1)
     sim.run_until { sim.leader.try &.serving_leader? }
