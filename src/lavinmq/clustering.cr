@@ -11,8 +11,11 @@ module LavinMQ
     # length), and syncfs on a bare `$`. Like version 1 they send the
     # password, as 2.11.0-rc.1 does.
     StartV2 = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
-    # Version 3 is version 2, but instead of sending the password the
-    # follower answers a challenge from the leader, see `challenge_response`.
+    # Version 3 is version 2, but instead of sending the password both sides
+    # prove they know it, see `challenge_response`: the leader sends a nonce,
+    # the follower its own nonce and its MAC over both, and the leader
+    # accepts with its MAC over both, which the follower checks before it
+    # sends its id.
     StartV3        = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
     FSYNC_PREFIX   = '$'
     CHALLENGE_SIZE = 32
@@ -34,10 +37,23 @@ module LavinMQ
       false
     end
 
-    # The header is part of the MAC so a response can't be replayed against
-    # the raft port, which uses the same password but MACs its challenge bare.
-    def self.challenge_response(password : String, challenge : Bytes) : Bytes
-      OpenSSL::HMAC.digest(:sha256, password, StartV3 + challenge)
+    enum Role
+      Leader
+      Follower
+    end
+
+    # What *role* answers in the version 3 handshake, a MAC over both sides'
+    # nonces. The role is part of it so one side's answer can't be replayed
+    # as the other's, and the header so neither can be replayed against the
+    # raft port, which uses the same password.
+    def self.challenge_response(password : String, role : Role, leader_nonce : Bytes,
+                                follower_nonce : Bytes) : Bytes
+      signed = IO::Memory.new
+      signed.write StartV3
+      signed.write role.to_s.downcase.to_slice
+      signed.write leader_nonce
+      signed.write follower_nonce
+      OpenSSL::HMAC.digest(:sha256, password, signed.to_slice)
     end
 
     class Error < Exception; end

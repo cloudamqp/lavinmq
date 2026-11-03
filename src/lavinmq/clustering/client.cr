@@ -1,3 +1,4 @@
+require "crypto/subtle"
 require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
@@ -740,16 +741,17 @@ module LavinMQ
       end
 
       private def authenticate(socket)
+        nonces = nil
         if @protocol_version < 3
           socket.write(@protocol_version < 2 ? Start : StartV2)
           socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
           socket.write @password.to_slice
         else
           socket.write StartV3
-          answer_challenge(socket)
+          nonces = answer_challenge(socket)
         end
         case byte = socket.read_byte
-        when 0 # ok
+        when 0   then nonces.try { |(leader, follower)| verify_leader(socket, leader, follower) }
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
         when Start[0]
@@ -764,15 +766,30 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
-      # A version 3 leader echoes the header followed by the challenge, an
-      # older one rejects it by replying with its own header.
-      private def answer_challenge(socket)
+      # A version 3 leader echoes the header followed by its nonce, an older
+      # one rejects it by replying with its own header. Returns the leader's
+      # and our nonce.
+      private def answer_challenge(socket) : Tuple(Bytes, Bytes)
         header = Bytes.new(StartV3.size)
         socket.read_fully(header)
         older_leader(header) unless header == StartV3
-        challenge = Bytes.new(CHALLENGE_SIZE)
-        socket.read_fully(challenge)
-        socket.write Clustering.challenge_response(@password, challenge)
+        leader_nonce = Bytes.new(CHALLENGE_SIZE)
+        socket.read_fully(leader_nonce)
+        nonce = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        socket.write nonce
+        socket.write Clustering.challenge_response(@password, :follower, leader_nonce, nonce)
+        {leader_nonce, nonce}
+      end
+
+      # Before sending it anything else, so that something at the leader's
+      # address that doesn't know the password, e.g. after the leader went
+      # down, isn't followed and can't make us delete our data in a full sync
+      private def verify_leader(socket, leader_nonce : Bytes, nonce : Bytes) : Nil
+        response = Bytes.new(RESPONSE_SIZE)
+        socket.read_fully(response)
+        expected = Clustering.challenge_response(@password, :leader, leader_nonce, nonce)
+        return if Crypto::Subtle.constant_time_compare(response, expected)
+        raise AuthenticationError.new("The leader doesn't know the clustering password")
       end
 
       # The leader replied with the header of an older version: reconnect
@@ -833,8 +850,8 @@ module LavinMQ
       class Error < Exception; end
 
       class AuthenticationError < Error
-        def initialize
-          super("Authentication error")
+        def initialize(message = "Authentication error")
+          super(message)
         end
       end
     end

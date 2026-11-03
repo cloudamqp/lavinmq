@@ -1307,19 +1307,47 @@ module ClientSyncSpec
         with_datadir do |data_dir|
           client = make_client(data_dir)
           client_socket, leader_io = UNIXSocket.pair
-          challenge = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
-          received = Bytes.new(8 + 32)
+          size = LavinMQ::Clustering::CHALLENGE_SIZE
+          nonce = Random::Secure.random_bytes(size)
+          received = Bytes.new(8 + size + LavinMQ::Clustering::RESPONSE_SIZE)
           spawn(name: "version 3 leader") do
             leader_io.write LavinMQ::Clustering::StartV3
-            leader_io.write challenge
+            leader_io.write nonce
             leader_io.read_fully(received)
             leader_io.write_byte 0u8
+            leader_io.write LavinMQ::Clustering.challenge_response("password", :leader, nonce, received[8, size])
           end
           client.authenticate_public(client_socket)
           leader_io.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 1
           received[0, 8].should eq LavinMQ::Clustering::StartV3
-          received[8, 32].should eq LavinMQ::Clustering.challenge_response("password", challenge)
+          received[8 + size..].should eq LavinMQ::Clustering.challenge_response("password", :follower, nonce, received[8, size])
           client.protocol_version.should eq 3
+        ensure
+          client_socket.try &.close
+          leader_io.try &.close
+        end
+      end
+
+      # Something at the leader's address that doesn't know the password,
+      # e.g. after the leader went down, mustn't be followed
+      it "refuses a leader that accepts it without knowing the password" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = UNIXSocket.pair
+          size = LavinMQ::Clustering::CHALLENGE_SIZE
+          spawn(name: "rogue leader") do
+            leader_io.write LavinMQ::Clustering::StartV3
+            leader_io.write Bytes.new(size)
+            leader_io.read_fully(Bytes.new(8 + size + LavinMQ::Clustering::RESPONSE_SIZE))
+            leader_io.write_byte 0u8
+            leader_io.write Bytes.new(LavinMQ::Clustering::RESPONSE_SIZE)
+          end
+          expect_raises(LavinMQ::Clustering::Client::AuthenticationError, /doesn't know the clustering password/) do
+            client.authenticate_public(client_socket)
+          end
+          client_socket.close
+          leader_io.read_timeout = 1.second
+          leader_io.gets_to_end.should be_empty # no id
         ensure
           client_socket.try &.close
           leader_io.try &.close

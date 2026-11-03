@@ -22,15 +22,26 @@ private def negotiate(follower, client_socket, header) : Nil
   end
   follower.negotiate!(password)
   client_socket.read_byte.should eq 0u8
+  if header == LavinMQ::Clustering::StartV3
+    leader_proof = Bytes.new(LavinMQ::Clustering::RESPONSE_SIZE)
+    client_socket.read_fully(leader_proof)
+    leader_proof.should eq LavinMQ::Clustering.challenge_response(password, :leader, *ANSWERED_NONCES.pop)
+  end
 end
+
+# The nonces of each answered challenge, leader's first
+private ANSWERED_NONCES = [] of Tuple(Bytes, Bytes)
 
 private def answer_challenge(client_socket, password, id = 1) : Nil
   header = Bytes.new(8)
   client_socket.read_fully(header)
   header.should eq LavinMQ::Clustering::StartV3
-  challenge = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
-  client_socket.read_fully(challenge)
-  client_socket.write LavinMQ::Clustering.challenge_response(password, challenge)
+  leader_nonce = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+  client_socket.read_fully(leader_nonce)
+  nonce = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+  ANSWERED_NONCES << {leader_nonce, nonce}
+  client_socket.write nonce
+  client_socket.write LavinMQ::Clustering.challenge_response(password, :follower, leader_nonce, nonce)
   client_socket.write_bytes id, IO::ByteFormat::LittleEndian
 end
 

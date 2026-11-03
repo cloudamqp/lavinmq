@@ -1,3 +1,4 @@
+require "crypto/subtle"
 require "./file_index"
 require "../config"
 require "../rate_limiter"
@@ -218,12 +219,18 @@ module LavinMQ
         authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
       end
 
+      # The follower proves it knows the password, then the leader does,
+      # see StartV3
       private def authenticate_challenge!(password) : Nil
-        challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
-        @socket.write(StartV3 + challenge)
+        nonce = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        @socket.write(StartV3 + nonce)
+        follower_nonce = Bytes.new(CHALLENGE_SIZE)
+        @socket.read_fully(follower_nonce)
         response = Bytes.new(RESPONSE_SIZE)
         @socket.read_fully(response)
-        authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge)))
+        expected = Clustering.challenge_response(password, :follower, nonce, follower_nonce)
+        authenticated!(Crypto::Subtle.constant_time_compare(response, expected))
+        @socket.write Clustering.challenge_response(password, :leader, nonce, follower_nonce)
       end
 
       private def authenticated!(ok : Bool) : Nil
