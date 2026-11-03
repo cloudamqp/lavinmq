@@ -113,6 +113,17 @@ describe LavinMQ::HTTP::ClusterController do
     end
   end
 
+  it "defaults a new member's port to 5680 like the seeds', and refuses a malformed address with 400" do
+    with_cluster_api do |http, _|
+      response = http.post("/api/cluster/members", body: %({"address":"127.0.0.1"}))
+      response.status_code.should eq 409 # nothing answers the raft handshake there
+      JSON.parse(response.body)["reason"].as_s.should contain "127.0.0.1:5680"
+      {"::1", "127.0.0.1:abc", "127.0.0.1:"}.each do |address|
+        http.post("/api/cluster/members", body: %({"address":"#{address}"})).status_code.should eq 400
+      end
+    end
+  end
+
   it "refuses to hand over leadership to a node that isn't an eligible voter" do
     with_cluster_api do |http, addr|
       http.post("/api/cluster/transfer-leadership", body: "{}").status_code.should eq 409

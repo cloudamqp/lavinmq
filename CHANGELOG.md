@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Raft clustering seeds can omit the port, defaulting to `5680` [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
+- Raft clustering seeds, and the address given to `add_cluster_member`, can omit the port, defaulting to `5680` [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - Raft clustering: a node recognizes itself in `seeds` also when it's listed under another name than its raft address, such as its short hostname or IP address. It used to count that seed as another voter that never answered, so a single node cluster never elected itself and a new cluster never recorded its first membership. Startup is refused when `bind` in `[clustering]` is a loopback address while a seed is on another host, as the other nodes could never reach it [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - Clustering followers also forward AMQPS, MQTTS and HTTPS (and so WSS) to the leader, passing TLS through, and every node keeps its client ports bound through leadership changes instead of rebinding them, so clients aren't refused while the leader changes [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - The Raft clustering password can be set through config, environment or CLI; group or other access to `password_file` now produces a warning instead of preventing startup [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)

@@ -49,7 +49,7 @@ AddClusterMemberRequestBody:
   properties:
     address:
       type: string
-      description: Raft address of the node to add, host:port.
+      description: Raft address of the node to add, host:port; the port defaults to 5680.
 TransferLeadershipRequestBody:
   type: object
   properties:

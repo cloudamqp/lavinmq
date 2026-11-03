@@ -125,7 +125,9 @@ module LavinMQ
         raise Error.new("clustering seeds is required with the raft backend: the raft addresses of the nodes to form " \
                         "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
       end
-      clustering_seed_addresses.each { |seed| validate_seed!(seed) }
+      clustering_seed_addresses.each do |seed|
+        Config.raft_address_error(seed).try { |e| raise Error.new("clustering seed '#{seed}' #{e}") }
+      end
       validate_clustering_bind_reachable!
     end
 
@@ -144,14 +146,23 @@ module LavinMQ
       Socket::IPAddress.valid?(host) && Socket::IPAddress.new(host, 0).loopback?
     end
 
-    private def validate_seed!(seed : String) : Nil
-      host, sep, port = seed.rpartition(':')
-      if sep.empty? || host.empty? || port.to_u16?.nil?
-        raise Error.new("clustering seed '#{seed}' must be host:port")
+    # A raft address as given in seeds or when adding a cluster member: an
+    # omitted port defaults to 5680, whatever this node's raft_port is
+    def self.raft_address(address : String) : String
+      if !address.includes?(':') || address.ends_with?(']')
+        "#{address}:#{DEFAULT_CLUSTERING_RAFT_PORT}"
+      else
+        address
       end
+    end
+
+    # Why *address* (see .raft_address) isn't a valid raft address, nil when it is
+    def self.raft_address_error(address : String) : String?
+      host, sep, port = address.rpartition(':')
+      return "must be host:port" if sep.empty? || host.empty? || port.to_u16?.nil?
       # "::1" would be taken for host ":" and port 1
       if host.includes?(':') && !(host.starts_with?('[') && host.ends_with?(']'))
-        raise Error.new("clustering seed '#{seed}' looks like an IPv6 address, put it in brackets, e.g. [::1] or [::1]:5680")
+        "looks like an IPv6 address, put it in brackets, e.g. [::1] or [::1]:5680"
       end
     end
 
@@ -207,13 +218,7 @@ module LavinMQ
     # Omitted ports default to 5680, independently of this node's raft_port.
     def clustering_seed_addresses : Array(String)
       seeds = @clustering_seeds.split(',').map(&.strip).reject(&.empty?)
-      seeds.map! do |seed|
-        if !seed.includes?(':') || seed.ends_with?(']')
-          "#{seed}:#{DEFAULT_CLUSTERING_RAFT_PORT}"
-        else
-          seed
-        end
-      end
+      seeds.map! { |seed| Config.raft_address(seed) }
       seeds.empty? ? [clustering_raft_address] : seeds.uniq
     end
 

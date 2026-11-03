@@ -173,7 +173,7 @@ Changes are made one server at a time and only on the leader, and the leader onl
 - a **learner**: it gets the Raft log and replicates broker data like a follower, so it can end up in the ISR, but it doesn't vote, count towards commit or quorum, or campaign. Adding one doesn't change the quorum.
 - a **voter**: a promoted learner. It can only be promoted once it is in the ISR (has the broker data) and has caught up in the Raft log.
 
-Nodes are identified by the `.clustering_id` in their data dir, the membership records where to reach each of them. `add_cluster_member` takes the new node's raft address and asks the node for its id, so the node must be running. The other operations take either the address or the id (as shown by `cluster_status`).
+Nodes are identified by the `.clustering_id` in their data dir, the membership records where to reach each of them. `add_cluster_member` takes the new node's raft address (the port defaults to 5680, as in `seeds`) and asks the node for its id, so the node must be running. The other operations take either the address or the id (as shown by `cluster_status`).
 
 Removing a node also removes it from the ISR in the same entry, so a removed node that missed it can still never win an election. The leader can't be removed, transfer leadership first. Non-members are refused when they try to replicate broker data, and a removed node's replication connection is closed.
 

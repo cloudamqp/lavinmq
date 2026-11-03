@@ -26,6 +26,11 @@ module LavinMQ
           cluster = require_cluster(context)
           body = parse_body(context)
           address = body["address"]?.try(&.as_s?).presence || bad_request(context, "Field 'address' is required")
+          # Like a seed's, the port defaults to 5680
+          address = Config.raft_address(address)
+          if error = Config.raft_address_error(address)
+            bad_request(context, "address '#{address}' #{error}")
+          end
           change(context, cluster.node.add_learner(address), 201, address)
         end
 
