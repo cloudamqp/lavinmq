@@ -62,9 +62,9 @@ describe LavinMQ::AMQP::DurableQueue do
             # Garbage after the first message's timestamp
             File.open(path, "r+") { |f| f.seek(4 + 8); f.write(Bytes.new(64, 0xff_u8)) }
 
-            msgs = Channel(String).new(2)
+            msgs = Channel({String, Bool}).new(2)
             q.subscribe(tag: "tag", no_ack: false) do |msg|
-              msgs.send msg.body_io.to_s
+              msgs.send({msg.body_io.to_s, msg.redelivered})
               msg.ack
             end
             should_eventually(be_true) { queue.state.paused? }
@@ -81,7 +81,8 @@ describe LavinMQ::AMQP::DurableQueue do
             queue.resume!
             select
             when received = msgs.receive
-              received.bytesize.should eq body.bytesize
+              received[0].bytesize.should eq body.bytesize
+              received[1].should be_false # put back, but never delivered
             when timeout 5.seconds
               fail "message after the unreadable data not delivered after resume"
             end

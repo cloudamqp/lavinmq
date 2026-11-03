@@ -1219,7 +1219,7 @@ module LavinMQ::AMQP
           # just read past data that can't be read, see
           # #pause_for_unreadable_data, which pauses before the shift returns
           if @state.paused? && !force
-            @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position) }
+            @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position, delivered: false) }
             return false
           end
           if has_expired?(env.message) # guarantee to not deliver expired messages

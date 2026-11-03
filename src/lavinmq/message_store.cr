@@ -50,6 +50,9 @@ module LavinMQ
     @unreadable_requeued = Hash(UInt32, UInt32).new(0u32)
     # Unreadable segments given up, but not yet deleted, see #release_unreadable
     @released = Set(UInt32).new
+    # Requeued messages that were never delivered, so not redelivered, e.g.
+    # read past data that can't be read just before the queue paused
+    @undelivered = Set(SegmentPosition).new
     # Called, under the store's lock, when a segment is found with data that
     # can't be read, so that the queue can stop delivering
     property on_unreadable : Proc(Nil)? = nil
@@ -104,10 +107,11 @@ module LavinMQ
       sp
     end
 
-    def requeue(sp : SegmentPosition)
+    def requeue(sp : SegmentPosition, delivered = true)
       raise ClosedError.new if @closed
       was_empty = @size.zero?
       @requeued.insert(sp)
+      @undelivered << sp unless delivered
       @bytesize += sp.bytesize
       @size += 1
       @empty.set false if was_empty
@@ -223,7 +227,8 @@ module LavinMQ
     private def requeued_envelope?(sp : SegmentPosition) : Envelope?
       segment = @segments[sp.segment]
       msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-      Envelope.new(sp, msg, redelivered: true, segment: segment)
+      redelivered = @undelivered.empty? || !@undelivered.delete(sp)
+      Envelope.new(sp, msg, redelivered: redelivered, segment: segment)
     rescue ex : KeyError | CorruptDataError # KeyError when the segment is gone
       @log.error(exception: ex) do
         bytes = @segments[sp.segment]?.try { |seg| " #{seg.path} #{hexdump(seg, sp.position)}" }
@@ -443,6 +448,7 @@ module LavinMQ
     end
 
     def purge_all
+      @undelivered.clear
       # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
