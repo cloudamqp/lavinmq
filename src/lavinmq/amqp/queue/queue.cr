@@ -1207,13 +1207,13 @@ module LavinMQ::AMQP
       raise ClosedError.new if @closed
       settings = self.settings
       loop do # retry if msg expired or deliver limit hit
-        unreadable = @msg_store.unreadable_segments
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
         @msg_store.shift_with_lease?(@msg_store_lock) do |env|
-          # Paused since the consumer checked, e.g. as another consumer just
-          # read past data that can't be read, or this get did
-          if (@state.paused? && !force) || @msg_store.unreadable_segments > unreadable
+          # Paused since the consumer checked, e.g. as this or another get
+          # just read past data that can't be read, see
+          # #pause_for_unreadable_data, which pauses before the shift returns
+          if @state.paused? && !force
             @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position) }
             return false
           end
