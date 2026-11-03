@@ -36,4 +36,15 @@ describe LavinMQ::AMQP::BindingKey do
       binding_key1.hash.should eq binding_key2.hash
     end
   end
+
+  # properties_key caches its result in the struct, which must not make an
+  # otherwise equal key compare unequal (unbinding would then fail)
+  it "is equal to an identical key whose properties_key has been computed" do
+    args = LavinMQ::AMQP::Table.new({"x-match" => "all", "k" => "v"})
+    computed = LavinMQ::AMQP::BindingKey.new("rk", args)
+    computed.hash # computes and caches properties_key
+    fresh = LavinMQ::AMQP::BindingKey.new("rk", LavinMQ::AMQP::Table.new({"x-match" => "all", "k" => "v"}))
+    computed.should eq fresh
+    computed.hash.should eq fresh.hash
+  end
 end
