@@ -650,6 +650,9 @@ module MqttSpecs
           until stop.get(:relaxed)
             sinks.each { |x| exchange.bind(x, "a/#", nil) }
             sinks.each { |x| exchange.unbind(x, "a/#", nil) }
+            # Block between rounds: a churner that only computes and allocates
+            # kept the publishers from finishing within the timeout on macOS CI
+            sleep 100.microseconds
           end
         end
         wg.wait
