@@ -598,6 +598,21 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "no longer counts a segment with data that can't be read once it's purged" do
+      with_store do |store|
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) } # one message per segment
+        seg_ids = store.@segments.keys
+        corrupt.call(store.@segments[seg_ids[0]], 4u32)
+        store.shift?.should_not(be_nil).segment_position.segment.should eq seg_ids[1]
+        store.unreadable_segments.should eq 1
+        store.purge_all
+        store.@segments.has_key?(seg_ids[0]).should be_false
+        store.unreadable_segments.should eq 0
+      end
+    end
+
     it "writes to a new segment when the one being written has a message that can't be read" do
       with_store do |store|
         sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))

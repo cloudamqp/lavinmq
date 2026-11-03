@@ -416,6 +416,11 @@ module LavinMQ
       File.delete?(meta_file_name(file)) if including_meta
       # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
+      # A segment, gone, e.g. purged, so no longer unreadable
+      if including_meta && (seg = file.path[-10..].to_u32?)
+        @unreadable.delete(seg)
+        @partly_counted.delete(seg)
+      end
     end
 
     def empty?
