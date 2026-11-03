@@ -392,6 +392,7 @@ module LavinMQ
         when @run_done.receive?
           return
         when timeout(SHUTDOWN_TIMEOUT)
+          Log.warn { "Shutdown didn't finish in #{SHUTDOWN_TIMEOUT.total_seconds}s, exiting" }
         end
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
