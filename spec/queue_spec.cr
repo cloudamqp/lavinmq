@@ -897,15 +897,20 @@ describe LavinMQ::AMQP::Queue do
   end
 
   describe "Flow" do
-    it "should stop queues from being declared when disk is full" do
+    it "should not create the queue when disk is full" do
       LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_amqp_server do |s|
-        with_channel(s) do |ch|
-          s.flow(false)
-          expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
-            ch.queue("test_queue_flow", durable: true)
-          end
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        ch = conn.channel
+        s.flow(false)
+        expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+          ch.queue("test_queue_flow", durable: true)
         end
+        # Round trip on the same connection so the server is done with the declare
+        conn.channel
+        s.vhosts["/"].queue?("test_queue_flow").should be_nil
+      ensure
+        conn.try &.close
       end
     ensure
       LavinMQ::Config.instance.free_disk_min = 0
