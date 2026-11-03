@@ -64,6 +64,18 @@ rescue
   ""
 end
 
+# Each node's role, replication and ISR, for a wait that didn't complete
+private def launcher_state(configs, controllers) : String
+  configs.each_index.join("; ") do |i|
+    node = controllers[i].node
+    metrics = metrics_of(configs[i])
+    "node #{i}: leader #{node.leader?}, serving #{metrics.includes?("lavinmq_uptime")}, " \
+    "following #{metrics.includes?("lavinmq_cluster_received_bytes_total")}, " \
+    "leader_uri #{node.leader_uri.inspect}, isr #{node.committed_isr.try(&.to_a).inspect}, " \
+    "first leader wait #{node.@logged_bootstrap_wait.inspect}"
+  end
+end
+
 # A GET over the node's lavinmqctl socket
 private def control_get(config : LavinMQ::Config, path : String) : HTTP::Client::Response
   client = HTTP::Client.new(UNIXSocket.new(config.control_unix_path))
@@ -176,15 +188,11 @@ describe LavinMQ::Clustering::Controller do
         serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
         following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
         in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
-        state = -> do
-          {0, 1}.map do |i|
-            node = controllers[i].node
-            "node #{i}: leader #{node.leader?}, serving #{serving.call(i)}, following #{following.call(i)}, " \
-            "leader_uri #{node.leader_uri.inspect}, isr #{node.committed_isr.try(&.to_a).inspect}"
-          end.join("; ")
+        begin
+          wait_for(10.seconds) { serving.call(0) && following.call(1) && in_sync.call(1) }
+        rescue ex
+          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, controllers)}"
         end
-
-        wait_for(10.seconds) { serving.call(0) && following.call(1) && in_sync.call(1) }
         {0, 1}.each do |from|
           to = 1 - from
           plan = controllers[from].request_transfer.as(LavinMQ::Clustering::RaftController::Transfer)
@@ -202,7 +210,7 @@ describe LavinMQ::Clustering::Controller do
               false
             end
           rescue ex
-            fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{state.call}"
+            fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{launcher_state(configs, controllers)}"
           end
           serving.call(from).should be_false
           # and still counts for its quorum, so the new leader keeps leading
@@ -236,10 +244,15 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(3)
         launchers.each { |l| run_launcher(l, exited) }
-        leader = launchers[0].@runner.as(LavinMQ::Clustering::RaftController)
-        wait_for(10.seconds) do
-          metrics_of(configs[0]).includes?("lavinmq_uptime") &&
-            leader.node.committed_isr.try(&.includes?(launchers[1].@runner.as(LavinMQ::Clustering::RaftController).id))
+        controllers = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftController) }
+        leader = controllers[0]
+        begin
+          wait_for(10.seconds) do
+            metrics_of(configs[0]).includes?("lavinmq_uptime") &&
+              leader.node.committed_isr.try(&.includes?(controllers[1].id))
+          end
+        rescue ex
+          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, controllers)}"
         end
 
         # The other voter goes away, the leader can't keep its quorum
