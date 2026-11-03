@@ -906,13 +906,16 @@ module LavinMQ::Clustering::Raft
       # Seed what a previous leader hasn't, like the first leader's ISR
       membership = if latest_membership.nil?
                      seed_membership if seeds_identified?
-                   elsif @trust_moved
+                   elsif @trust_moved && !membership_pending?
                      # Elected by counting voters at new addresses: record them
                      # in the first entry, so everyone is at home again and the
-                     # normal rules apply from here on
+                     # normal rules apply from here on. Not on top of a change
+                     # the previous leader left uncommitted, one at a time:
+                     # then the trust lasts until that is committed, see
+                     # #manage_membership
                      moved_addresses_membership
                    end
-      @trust_moved = false
+      @trust_moved = false unless membership_pending?
       append Entry.new(@term, latest_isr ? nil : Set{@id}, membership)
       @term_start_index = last_index
       advance_commit
@@ -941,6 +944,11 @@ module LavinMQ::Clustering::Raft
       return if !serving_leader? || membership_pending?
       unless m = latest_membership
         append_membership(seed_membership) if seeds_identified?
+        return
+      end
+      if @trust_moved
+        @trust_moved = false
+        moved_addresses_membership.try { |moved| append_membership(moved) }
         return
       end
       @live.each do |id, address|

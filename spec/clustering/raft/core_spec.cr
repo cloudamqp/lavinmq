@@ -539,6 +539,39 @@ describe Raft::Core do
     campaigns?(home, now).should be_true
   end
 
+  it "records moved addresses once the previous leader's membership change is committed, not on top of it" do
+    now = Time.instant
+    with_learner = three_voters.copy_with(learners: Set{4}, addresses: three_voters.addresses.merge({4 => "n4"}))
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [Raft::Entry.new(1, nil, with_learner)], three_voters)
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now, state)
+    core.connected(2, "n2b", now)
+    core.connected(3, "n3b", now)
+    until core.trusting_moved?
+      now = core.next_deadline(now)
+      core.tick(now)
+    end
+    now += 1.second
+    core.tick(now)
+    core.take_outbox.any? { |(_, m)| m.is_a?(Raft::RequestVote) && m.pre_vote }.should be_true
+    core.step(Raft::VoteResponse.new(2, core.term + 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, core.term, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    pending = core.hard_state.entries.select(&.membership)
+    pending.size.should eq 1
+    pending.first.membership.should eq with_learner
+    core.trusting_moved?.should be_true
+    # The voters at new addresses still count until it's committed
+    [2, 3].each { |id| core.step(Raft::AppendResponse.new(id, core.term, true, core.last_index), now) }
+    core.committed_membership.should eq with_learner
+    core.tick(now)
+    moved = core.latest_membership.should_not(be_nil)
+    moved.addresses.should eq({1 => "n1", 2 => "n2b", 3 => "n3b", 4 => "n4"})
+    moved.learners.should eq Set{4}
+    core.trusting_moved?.should be_false
+    [2, 3].each { |id| core.step(Raft::AppendResponse.new(id, core.term, true, core.last_index), now) }
+    core.committed_membership.should eq moved
+  end
+
   it "doesn't count acks from a voter connected from another address" do
     sim = SimCluster.new(3)
     leader = sim.elect(Set{1, 2, 3})
