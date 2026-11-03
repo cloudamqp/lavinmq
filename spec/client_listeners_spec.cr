@@ -13,6 +13,16 @@ private class SpecListeners < LavinMQ::ClientListeners
   end
 end
 
+# Reports whether what it accepts has TCP_NODELAY set
+private class NodelayListeners < LavinMQ::ClientListeners
+  getter nodelay = Channel(Bool).new(1)
+
+  private def dispatch(l, io) : Nil
+    nodelay.send io.as(TCPSocket).tcp_nodelay?
+    io.close
+  end
+end
+
 private def tls_context : OpenSSL::SSL::Context::Server
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = "spec/resources/server_certificate.pem"
@@ -91,6 +101,20 @@ describe LavinMQ::ClientListeners do
     ensure
       listeners.try &.close
     end
+  end
+
+  it "accepts with TCP_NODELAY set, as configured" do
+    config = listener_config
+    config.amqp_port = config.amqps_port = -1
+    config.http_bind = "127.0.0.1"
+    config.http_port = free_port
+    listeners = NodelayListeners.new(config, -> { nil.as(String?) })
+    listeners.bind(nil, nil, nil)
+    listeners.listen
+    TCPSocket.new("127.0.0.1", config.http_port).close
+    listeners.nodelay.receive.should be_true
+  ensure
+    listeners.try &.close
   end
 
   it "lets connections wait until it serves, without listening before" do

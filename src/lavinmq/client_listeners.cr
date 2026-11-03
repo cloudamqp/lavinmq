@@ -55,10 +55,10 @@ module LavinMQ
 
     private def bind(kind, address, port, tls_port, tls, unix_path) : Nil
       if port > 0
-        add kind, TCPServer.new(address, port), nil, port
+        add kind, tcp_server(address, port), nil, port
       end
       if tls_port > 0 && tls
-        add kind, TCPServer.new(address, tls_port), tls, tls_port
+        add kind, tcp_server(address, tls_port), tls, tls_port
       end
       unless unix_path.empty?
         File.delete?(unix_path)
@@ -67,6 +67,13 @@ module LavinMQ
         # To the leader's plain TCP port, unix sockets are local only
         add kind, server, nil, port > 0 ? port : nil
       end
+    end
+
+    # Accepted sockets inherit TCP_NODELAY from it, see HTTP.tcp_listener
+    private def tcp_server(address, port) : TCPServer
+      server = TCPServer.new(address, port)
+      server.tcp_nodelay = @config.tcp_nodelay?
+      server
     end
 
     private def add(kind, server, tls, target_port) : Nil
