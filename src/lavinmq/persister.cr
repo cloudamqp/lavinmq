@@ -165,7 +165,9 @@ module LavinMQ
       return unless batch
       replicator = @replicator
       if replicator.try &.fenced?
-        # Never confirmed, the waiters raise
+        # Never confirmed, the waiters raise. Unflagged so a later write
+        # registers the files again, as below
+        batch.files.each &.clear_needs_msync!
         batch.waiters.each &.close
         return
       end

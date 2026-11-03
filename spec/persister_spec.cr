@@ -61,9 +61,15 @@ describe LavinMQ::Persister do
         fail "sync kept waiting for an ISR change that can't happen"
       end
       target.acks.should be_empty
+      mfile = MFile.new(File.join(data_dir, "segment"), 4096)
+      mfile.write(Bytes.new(8))
+      persister.mark_dirty(mfile)
       expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { persister.sync }
       target.acks.should be_empty
+      # Dropped unsynced, but the next write has to register it again
+      mfile.mark_needs_msync!.should be_false
     ensure
+      mfile.try &.close
       persister.try &.close
       replicator.try &.close
     end
