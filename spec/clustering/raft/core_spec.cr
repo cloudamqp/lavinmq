@@ -16,6 +16,8 @@ private class SimCluster
   getter cores = Hash(Int32, Raft::Core).new
   getter isolated = Set(Int32).new
   getter crashed = Set(Int32).new
+  # Nodes whose AppendEntries are lost
+  getter appends_lost = Set(Int32).new
   @disk = Hash(Int32, Raft::HardState?).new
   @addresses = Hash(Int32, String).new
   @seeds : Array(String)
@@ -153,6 +155,7 @@ private class SimCluster
         to, msg = item
         next if @crashed.includes?(to) || @crashed.includes?(msg.from)
         next if @isolated.includes?(to) || @isolated.includes?(msg.from)
+        next if msg.is_a?(Raft::AppendEntries) && @appends_lost.includes?(msg.from)
         @cores[to]?.try &.step(msg, @now)
       end
     end
@@ -509,6 +512,19 @@ describe Raft::Core do
     sim.leader.should be_nil
     sim.restart(1)
     sim.run_until { sim.leader.try &.serving_leader? }
+  end
+
+  it "elects the first leader again when it went down before replicating its first entry" do
+    sim = SimCluster.new(3)
+    sim.appends_lost << 1
+    sim.run_until { sim.leader.try { |l| l.id == 1 && l.last_index > 0 } }
+    sim[2].last_index.should eq 0
+    sim[3].last_index.should eq 0
+    sim.crash(1)
+    sim.restart(1)
+    sim.appends_lost.clear
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.leader.try(&.id).should eq 1
   end
 
   it "only votes for a candidate connected from the address the membership lists for it" do

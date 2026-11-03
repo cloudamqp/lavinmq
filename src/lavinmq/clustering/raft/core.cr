@@ -216,6 +216,10 @@ module LavinMQ::Clustering::Raft
     # node campaigns, see at_home?. Cleared on hearing from a leader, and by
     # a leader once it has recorded the new addresses.
     @trust_moved = false
+    # Whether every vote this node has granted is on disk: it started with
+    # its raft state, or it has voted for the first leader of a new cluster
+    # since it started without one, see #may_vote_for_log?
+    @votes_known = false
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
@@ -225,6 +229,7 @@ module LavinMQ::Clustering::Raft
       @now = now
       @leaderless_since = now
       if state
+        @votes_known = true
         @term = state.term
         @voted_for = state.voted_for
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
@@ -682,6 +687,7 @@ module LavinMQ::Clustering::Raft
         @voted_for = msg.from
         @dirty = true
       end
+      @votes_known = true if granted
       @election_deadline = now + randomized_election_timeout if granted
       send msg.from, VoteResponse.new(@id, @term, granted, pre_vote: false)
     end
@@ -1026,14 +1032,23 @@ module LavinMQ::Clustering::Raft
       isr.nil? || isr.includes?(node_id)
     end
 
-    # Without a log we can't tell whether we already voted in this term: our
-    # raft state may have been lost while the clustering id was kept. Voting
-    # again could elect a second leader, so only vote for the first leader of
-    # a new cluster, see #bootstrap_choice. A candidate with a log is in the
-    # ISR, so it replicated from a leader, and the other voters that did too
-    # have a log.
+    # Without a log we may not know whether we already voted in this term:
+    # our raft state may have been lost while the clustering id was kept.
+    # Voting again could elect a second leader, so only vote for the first
+    # leader of a new cluster, see #bootstrap_choice. A candidate with a log
+    # is in the ISR, so it replicated from a leader, and the other voters
+    # that did too have a log.
+    #
+    # Unless every vote we granted is on disk (@votes_known): then a
+    # candidate with a log gets our vote as usual. That's the first leader
+    # when it appended its first entry but went down before anyone else got
+    # it: its voters have no log, and it has a membership, so the seeds no
+    # longer agree on a first leader. Without voting for it no leader is
+    # ever elected. A vote for the first leader is granted only while no
+    # seed has a log, so a node that has lost its state can't have voted in
+    # a later term before granting it.
     private def may_vote_for_log?(candidate : Int32, candidate_last_index : Int64) : Bool
-      return true if last_index > 0
+      return true if last_index > 0 || (@votes_known && candidate_last_index > 0)
       candidate_last_index == 0 && bootstrap_choice == candidate
     end
 
