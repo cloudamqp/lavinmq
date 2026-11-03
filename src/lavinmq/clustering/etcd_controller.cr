@@ -22,7 +22,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
-    return if @stopping
+    return if @stopping.get
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
@@ -34,7 +34,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     end
   rescue Etcd::Lease::Expired
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopping
+    unless @stopping.get
       Log.fatal { "Lease expired, lost leadership" }
       exit 3
     end
@@ -47,7 +47,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   end
 
   def stop
-    @stopped = @stopping = true
+    @stopping.set(true)
     @repli_client.get.try &.close
     @lease.try &.release
   end
@@ -133,7 +133,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         end
         select
         when err = lease.expired.receive?
-          return if err.nil? && @stopping # released by #stop
+          return if err.nil? && @stopping.get # released by #stop
           if err
             Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
           else

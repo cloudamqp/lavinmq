@@ -19,8 +19,9 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   getter id : Int32
 
   @repli_client = Atomic(Client?).new(nil)
-  @stopped = false
-  @stopping = false
+  # Set by #stopping and #stop from the shutdown fiber, read by #run's and
+  # the HTTP API's fibers
+  @stopping = Atomic(Bool).new(false)
 
   def initialize(@config : Config)
     @id = clustering_id
@@ -45,7 +46,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # closed. Peers may be shutting down at the same time, so losing leadership
   # from here on is expected and not a reason to exit with an error.
   def stopping : Nil
-    @stopping = true
+    @stopping.set(true)
   end
 
   # Each node in a cluster has an unique id, for tracking ISR

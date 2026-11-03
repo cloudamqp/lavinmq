@@ -20,6 +20,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
   @stop_signal = Channel(Nil).new
+  # Set once, by the first #stop
+  @stopped = Atomic(Bool).new(false)
   # Closed by the follower monitor once this node is a serving leader, so
   # only that fiber decides between replicating and promoting.
   @promoted = Channel(Nil).new
@@ -97,7 +99,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   private def check_transfer(target : String?) : Transfer | String
-    return "This node is not the leader" if @stopping
+    return "This node is not the leader" if @stopping.get
     status = @node.status || return "The raft node didn't answer in time, try again"
     if target
       id = status.resolve(target) || return "#{target} is not a member"
@@ -136,15 +138,15 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     loop do
       break unless await_promotion
       transfer = lead { yield }
-      break if @stopping
+      break if @stopping.get
       step_down_as_leader(transfer)
     end
     @stop_signal.receive?
   end
 
   def stop
-    return if @stopped
-    @stopped = @stopping = true
+    return if @stopped.swap(true)
+    @stopping.set(true)
     @repli_client.get.try &.close
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
@@ -179,7 +181,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     when @stop_signal.receive?
       return false
     end
-    !@stopping
+    !@stopping.get
   end
 
   # Serves as the leader until leadership is lost, a transfer is requested,
