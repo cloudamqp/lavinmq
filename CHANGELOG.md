@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Since 2.11.0-rc.1, reading an AMQP frame from a connection's pooled socket buffer went through a read that isn't inlined for every field, about 3% lower throughput with 16-byte messages. A read served from the buffer now copies from it directly [#2578](https://github.com/cloudamqp/lavinmq/pull/2578)
 - Since 2.11.0-rc.1, the clock was read for every received frame and every delivered message to track heartbeats, about 3% lower throughput with 16-byte messages. It's now read once per socket read and once per socket flush [#2579](https://github.com/cloudamqp/lavinmq/pull/2579)
 - Since 2.11.0-rc.1, the segment being written was mapped without readahead, so a queue written fast could use up to twice the CPU per message. It's mapped with readahead again until a publish to the queue is synced (publish confirm, MQTT QoS 1 or transaction), from then on it stays random access so a sync writes a page instead of a large folio [#2589](https://github.com/cloudamqp/lavinmq/pull/2589)
+- Declaring a queue with `x-dead-letter-exchange` over AMQP checked read permission on the connection name instead of the queue, so a user with read access to the queue could be refused, and a user without it could be allowed. A refused queue declare now also says which permission is missing [#2594](https://github.com/cloudamqp/lavinmq/pull/2594)
+- A queue declared over AMQP while the server was low on disk space was still created, even though the declare was refused with PRECONDITION_FAILED [#2594](https://github.com/cloudamqp/lavinmq/pull/2594)
 
 ## [2.11.0-rc.2] - 2026-10-23
 

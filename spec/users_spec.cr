@@ -374,9 +374,44 @@ describe LavinMQ::Server do
       s.vhosts.create("v1")
       s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
       Fiber.yield
-      expect_raises(AMQP::Client::Channel::ClosedException, /403/) do
+      expect_raises(AMQP::Client::Channel::ClosedException, /configure permissions to queue 'q1'/) do
         with_channel(s, vhost: "v1") do |ch|
           ch.queue("q1")
+        end
+      end
+    end
+  end
+
+  it "allows declaring a queue with a DLX with read access only to that queue" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /^q1$/, /.*/)
+      with_channel(s, vhost: "v1") do |ch|
+        ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
+      end
+      s.vhosts["v1"].queue?("q1").should_not be_nil
+    end
+  end
+
+  it "prohibits declaring a queue with a DLX without read access to the queue" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+      expect_raises(AMQP::Client::Channel::ClosedException, /read permissions to queue 'q1'/) do
+        with_channel(s, vhost: "v1") do |ch|
+          ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
+        end
+      end
+    end
+  end
+
+  it "prohibits declaring a queue with a DLX without write access to the DLX" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /.*/, /^q1$/)
+      expect_raises(AMQP::Client::Channel::ClosedException, /write permissions to exchange 'amq.topic'/) do
+        with_channel(s, vhost: "v1") do |ch|
+          ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
         end
       end
     end
