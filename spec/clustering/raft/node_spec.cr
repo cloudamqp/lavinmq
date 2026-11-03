@@ -750,6 +750,32 @@ describe Raft::Storage do
       state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})])
       storage.save(state)
       storage.load.should eq state
+      # A node that lost its state and hasn't voted for a first leader since
+      unknown = Raft::HardState.new(8, nil, 0, 0, nil, [] of Raft::Entry, votes_known: false)
+      storage.save(unknown)
+      storage.load.should eq unknown
+    end
+  end
+
+  # Written before the state said whether its votes are known
+  it "reads a version 3 state file as one with known votes" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      f = IO::ByteFormat::LittleEndian
+      io = IO::Memory.new
+      io.write "LMQRAFT".to_slice
+      io.write_byte 3u8
+      io.write_bytes 7i64, f
+      io.write_byte 1u8
+      io.write_bytes 2i32, f
+      io.write_bytes 3i64, f
+      io.write_bytes 6i64, f
+      Raft::Codec.write_isr(io, Set{1, 2})
+      Raft::Codec.write_membership(io, nil)
+      Raft::Codec.write_entries(io, [Raft::Entry.new(7, nil)])
+      io.write_bytes Digest::CRC32.checksum(io.to_slice), f
+      File.write(storage.path, io.to_slice)
+      storage.load.should eq Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil)])
     end
   end
 
