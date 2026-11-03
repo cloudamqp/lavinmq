@@ -12,6 +12,24 @@ class LavinMQ::Launcher
   end
 end
 
+# Sets the worker env vars for the block and restores them after, as the
+# multi-threaded CI job runs the specs with LAVINMQ_WORKERS set
+def with_worker_env(crystal_workers : String?, lavinmq_workers : String?, &)
+  saved = {ENV["CRYSTAL_WORKERS"]?, ENV["LAVINMQ_WORKERS"]?}
+  begin
+    set_env("CRYSTAL_WORKERS", crystal_workers)
+    set_env("LAVINMQ_WORKERS", lavinmq_workers)
+    yield
+  ensure
+    set_env("CRYSTAL_WORKERS", saved[0])
+    set_env("LAVINMQ_WORKERS", saved[1])
+  end
+end
+
+def set_env(key : String, value : String?) : Nil
+  value ? (ENV[key] = value) : ENV.delete(key)
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -50,6 +68,37 @@ describe LavinMQ::Config do
     config.data_dir.should eq "/tmp/lavinmq-cli"
   ensure
     ENV.delete("LAVINMQ_DATADIR")
+  end
+
+  describe "workers" do
+    it "defaults to 1" do
+      with_worker_env(nil, nil) { LavinMQ::Config.new.workers.should eq 1 }
+    end
+
+    it "defaults to CRYSTAL_WORKERS" do
+      with_worker_env("3", nil) { LavinMQ::Config.new.workers.should eq 3 }
+    end
+
+    it "prefers the INI file and LAVINMQ_WORKERS over CRYSTAL_WORKERS" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          workers = 2
+          CONFIG
+      end
+      with_worker_env("3", nil) do
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.workers.should eq 2
+      end
+      with_worker_env("3", "4") do
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.workers.should eq 4
+      end
+    ensure
+      config_file.try &.delete
+    end
   end
 
   it "should prioritize ENV arguments over INI arguments" do

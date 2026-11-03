@@ -2,6 +2,22 @@ require "spec"
 require "../../src/stdlib/io_buffered"
 require "../../src/stdlib/io_buffered_discard"
 
+# Runs the block, and the fibers it spawns, on a single thread, so that
+# Fiber.yield runs a spawned fiber until it waits. A fiber of the default
+# context can run on another of its threads at the same time.
+private def on_one_thread(&block : ->)
+  done = Channel(Exception?).new
+  Fiber::ExecutionContext::Concurrent.new("io_buffered_spec").spawn do
+    block.call
+    done.send nil
+  rescue ex
+    done.send ex
+  end
+  if ex = done.receive
+    raise ex
+  end
+end
+
 describe IO::BufferPool do
   it "reuses released buffers" do
     pool = IO::BufferPool.new(1024)
@@ -39,12 +55,16 @@ describe IO::BufferPool do
 
   it "caches buffers per thread" do
     pool = IO::BufferPool.new(1024)
-    buf = pool.acquire
-    Fiber::ExecutionContext::Isolated.new("release on another thread") do
-      pool.release(buf)
+    # Pinned to a thread of its own: a fiber of the default context can
+    # resume on another of its threads after waiting
+    Fiber::ExecutionContext::Isolated.new("acquire on one thread") do
+      buf = pool.acquire
+      Fiber::ExecutionContext::Isolated.new("release on another thread") do
+        pool.release(buf)
+      end.wait
+      # released into the other thread's cache, not this one's
+      pool.acquire.should_not eq buf
     end.wait
-    # released into the other thread's cache, not this one's
-    pool.acquire.should_not eq buf
     stats = pool.stats
     stats[:threads].should eq 2
     stats[:available].should eq 1
@@ -102,41 +122,45 @@ describe IO::Buffered do
     end
 
     it "doesn't hold a read buffer while waiting for data" do
-      pool = IO::BufferPool.new(1024)
-      reader, writer = UNIXSocket.pair
-      reader.buffer_pool = pool
-      reader.read_buffering = true
-      read = Channel(UInt8).new
-      spawn { read.send reader.read_byte.not_nil!("unexpected EOF") }
-      Fiber.yield
-      reader.@in_buffer.null?.should be_true
-      writer.write_byte 7_u8
-      writer.flush
-      read.receive.should eq 7_u8
-    ensure
-      reader.try &.close
-      writer.try &.close
+      on_one_thread do
+        pool = IO::BufferPool.new(1024)
+        reader, writer = UNIXSocket.pair
+        reader.buffer_pool = pool
+        reader.read_buffering = true
+        read = Channel(UInt8).new
+        spawn { read.send reader.read_byte.not_nil!("unexpected EOF") }
+        Fiber.yield
+        reader.@in_buffer.null?.should be_true
+        writer.write_byte 7_u8
+        writer.flush
+        read.receive.should eq 7_u8
+      ensure
+        reader.try &.close
+        writer.try &.close
+      end
     end
 
     it "doesn't hold an emptied read buffer while waiting for more data" do
-      pool = IO::BufferPool.new(1024)
-      reader, writer = UNIXSocket.pair
-      reader.buffer_pool = pool
-      reader.read_buffering = true
-      read = Channel(UInt8).new
-      spawn { 2.times { read.send reader.read_byte.not_nil!("unexpected EOF") } }
-      writer.write_byte 1_u8
-      writer.flush
-      read.receive.should eq 1_u8
-      # read_byte keeps the emptied buffer, the next read_byte waits without it
-      Fiber.yield
-      reader.@in_buffer.null?.should be_true
-      writer.write_byte 2_u8
-      writer.flush
-      read.receive.should eq 2_u8
-    ensure
-      reader.try &.close
-      writer.try &.close
+      on_one_thread do
+        pool = IO::BufferPool.new(1024)
+        reader, writer = UNIXSocket.pair
+        reader.buffer_pool = pool
+        reader.read_buffering = true
+        read = Channel(UInt8).new
+        spawn { 2.times { read.send reader.read_byte.not_nil!("unexpected EOF") } }
+        writer.write_byte 1_u8
+        writer.flush
+        read.receive.should eq 1_u8
+        # read_byte keeps the emptied buffer, the next read_byte waits without it
+        Fiber.yield
+        reader.@in_buffer.null?.should be_true
+        writer.write_byte 2_u8
+        writer.flush
+        read.receive.should eq 2_u8
+      ensure
+        reader.try &.close
+        writer.try &.close
+      end
     end
 
     it "can be closed while a fiber waits for data" do
