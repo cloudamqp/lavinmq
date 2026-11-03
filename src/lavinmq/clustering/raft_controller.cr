@@ -14,7 +14,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # in which term
   record Transfer, target : Int32, address : String, term : Int64
 
-  @transport : Raft::TCPTransport? = nil
   # Stops serving as the leader, see #on_demote
   @demote : (Proc(Nil)? ->)? = nil
   @step_down_requested = Channel(Transfer).new(1)
@@ -307,7 +306,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     server = TCPServer.new(@config.clustering_bind, @config.clustering_raft_port)
     address = @config.clustering_raft_address
     peers = @config.clustering_seed_addresses.reject(address)
-    transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
+    transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
       ->@node.deliver(Raft::TransportEvent), execution_context: raft_context)
     raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
