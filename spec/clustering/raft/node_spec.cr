@@ -563,6 +563,40 @@ describe Raft::TCPTransport do
     myself.try &.close
   end
 
+  # A peer that reconnects while its old connection's Disconnected is still
+  # on the way, e.g. while the node's event queue is full
+  it "reports a reconnect after the old connection's disconnect" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    reporting = Channel(Nil).new
+    stalled = Channel(Nil).new
+    stall = true
+    handler = ->(e : Raft::TransportEvent) do
+      if e.is_a?(Raft::Disconnected) && stall
+        stall = false
+        reporting.send nil
+        stalled.receive
+      end
+      events.send e
+    end
+    transport = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, handler)
+    spawn transport.listen(server)
+    first = Raft::TCPTransport.new("secret", 2, "peer:1", [addr], ->(_e : Raft::TransportEvent) { })
+    events.receive.should eq Raft::Connected.new(2, "peer:1")
+    first.close
+    reporting.receive
+    second = Raft::TCPTransport.new("secret", 2, "peer:1", [addr], ->(_e : Raft::TransportEvent) { })
+    sleep 200.milliseconds # the reconnect's handshake is done meanwhile
+    stalled.send nil
+    events.receive.should eq Raft::Disconnected.new(2, "peer:1")
+    events.receive.should eq Raft::Connected.new(2, "peer:1")
+  ensure
+    transport.try &.close
+    first.try &.close
+    second.try &.close
+  end
+
   it "recognizes a connection to itself under another address" do
     server = TCPServer.new("127.0.0.1", 0)
     addr = "127.0.0.1:#{server.local_address.port}"

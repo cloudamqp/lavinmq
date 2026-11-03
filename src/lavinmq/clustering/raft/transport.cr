@@ -74,6 +74,11 @@ module LavinMQ::Clustering::Raft
     @inbound = Set(TCPSocket).new
     # Clustering ids connected to us: their address and number of connections
     @inbound_ids = Hash(Int32, Tuple(String, Int32)).new
+    # Held while an id is claimed or released and the change reported, so
+    # Connected and Disconnected are delivered in the order they happened.
+    # Not @lock: the handler can block until the node's event loop takes the
+    # event, and that loop takes @lock to send.
+    @claim_lock = Mutex.new
     # Nonces of the inbound handshakes in progress, see #authenticate_client
     @issued_nonces = Set(Bytes).new
     @server : TCPServer? = nil
@@ -289,33 +294,37 @@ module LavinMQ::Clustering::Raft
     # holds the id instead when it's another one. The first connection of an
     # id is reported as Connected, before any of its messages.
     private def claim(id : Int32, address : String) : String?
-      first = false
-      @lock.synchronize do
-        if entry = @inbound_ids[id]?
-          holder, count = entry
-          return holder if holder != address
-          @inbound_ids[id] = {address, count + 1}
-        else
-          @inbound_ids[id] = {address, 1}
-          first = true
+      @claim_lock.synchronize do
+        first = false
+        @lock.synchronize do
+          if entry = @inbound_ids[id]?
+            holder, count = entry
+            return holder if holder != address
+            @inbound_ids[id] = {address, count + 1}
+          else
+            @inbound_ids[id] = {address, 1}
+            first = true
+          end
         end
+        @handler.call Connected.new(id, address) if first
       end
-      @handler.call Connected.new(id, address) if first
       nil
     end
 
     private def release(id : Int32, address : String) : Nil
-      last = false
-      @lock.synchronize do
-        _, count = @inbound_ids[id]? || return
-        if count > 1
-          @inbound_ids[id] = {address, count - 1}
-        else
-          @inbound_ids.delete(id)
-          last = true
+      @claim_lock.synchronize do
+        last = false
+        @lock.synchronize do
+          _, count = @inbound_ids[id]? || return
+          if count > 1
+            @inbound_ids[id] = {address, count - 1}
+          else
+            @inbound_ids.delete(id)
+            last = true
+          end
         end
+        @handler.call Disconnected.new(id, address) if last
       end
-      @handler.call Disconnected.new(id, address) if last
     end
 
     private def enable_keepalive(socket : TCPSocket) : Nil
