@@ -17,6 +17,8 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
+    # Finished segments to sync with the next confirm, see #open_new_segment
+    @finished_unsynced = Array(MFile).new
 
     def initialize(*args, **kwargs)
       super
@@ -250,7 +252,7 @@ module LavinMQ::AMQP
 
       return if consumer.offset > @last_offset
       rfile = @segments[consumer.segment]? || next_segment(consumer) || return
-      if consumer.pos == rfile.size # EOF
+      while consumer.pos == rfile.size # EOF, and a recovered lost segment can be empty
         return if rfile == @wfile
         rfile = next_segment(consumer) || return
       end
@@ -300,6 +302,7 @@ module LavinMQ::AMQP
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
+        consumer.offset = @segment_first_offset[seg_id] # offsets can jump past a lost segment
         consumer.segment_since = RoughTime.instant
         acquire_segment(consumer)
         @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
@@ -325,8 +328,13 @@ module LavinMQ::AMQP
       finished = @wfile
       super.tap do
         # Left unsynced, this segment becomes a hole between synced segments
-        # after a power cut, so sync it with the next publish confirm
-        @persister.try &.mark_dirty(finished)
+        # after a power cut, so sync it with the publish confirm that follows.
+        # Queued, not handed to the persister, whose batch only drains when
+        # confirms happen (see #write_to_disk)
+        if @persister
+          @finished_unsynced.reject!(&.closed?) # dropped by retention
+          @finished_unsynced << finished
+        end
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
@@ -339,6 +347,15 @@ module LavinMQ::AMQP
       io.write_bytes @segment_first_offset[seg]
       io.write_bytes @segment_first_ts[seg]
       io.write_bytes @segment_last_ts[seg]
+    end
+
+    private def write_to_disk(msg) : SegmentPosition
+      sp = super
+      if msg.needs_sync? && (persister = @persister) && !@finished_unsynced.empty?
+        @finished_unsynced.each { |mfile| persister.mark_dirty(mfile) }
+        @finished_unsynced.clear
+      end
+      sp
     end
 
     def drop_overflow
@@ -435,7 +452,7 @@ module LavinMQ::AMQP
     # reused: keep the segment as an empty marker whose meta file says where
     # its offsets ended.
     private def recover_empty_segment(seg : UInt32, file : MFile) : MFile
-      end_offset, first_ts, last_ts = read_end_of_lost_segment(file)
+      end_offset, first_ts, last_ts = end_of_lost_segment(seg, file)
       file.close(truncate_to_size: false)
       # Reopen writable: a segment mapped without capacity is read-only
       file = open_segment(file.path, Config.instance.segment_size)
@@ -446,13 +463,14 @@ module LavinMQ::AMQP
       @replicator.try &.replace_file(file)
       metafile = meta_file_name(file)
       if end_offset && first_ts && last_ts
-        File.open(metafile, "w") do |f|
+        # Atomic and durable: this file is the only record of the end offset
+        FileSystem.replace(metafile) do |f|
           f.write_bytes 0u32
           f.write_bytes end_offset
           f.write_bytes first_ts
           f.write_bytes last_ts
-          @replicator.try &.register_file(f)
         end
+        @replicator.try &.register_file metafile
         @replicator.try &.replace_file metafile
       else
         File.delete?(metafile)
@@ -462,22 +480,39 @@ module LavinMQ::AMQP
       file
     end
 
-    # The lost segment's meta file says where its offsets ended. The same
-    # power cut can have torn it, so no field is trusted unvalidated.
-    private def read_end_of_lost_segment(file : MFile) : Tuple(Int64?, Int64?, Int64?)
-      none = {nil, nil, nil}
-      File.open(meta_file_name(file)) do |f|
+    # Where the lost segment's offsets ended: its own meta file knows (first
+    # offset plus count), and so does the next segment's (its first offset)
+    private def end_of_lost_segment(seg : UInt32, file : MFile) : Tuple(Int64?, Int64?, Int64?)
+      if own = read_meta_fields(meta_file_name(file))
+        count, first_offset, first_ts, last_ts = own
+        if count > 0 && count <= Config.instance.segment_size // BytesMessage::MIN_BYTESIZE
+          return {first_offset + count, first_ts, last_ts}
+        end
+      end
+      next_meta = File.join(File.dirname(file.path), "meta.#{(seg + 1).to_s.rjust(10, '0')}")
+      if nxt = read_meta_fields(next_meta)
+        _, first_offset, first_ts, _ = nxt
+        return {first_offset, first_ts, first_ts}
+      end
+      {nil, nil, nil}
+    rescue OverflowError
+      {nil, nil, nil}
+    end
+
+    # The same power cut that empties a segment can tear its meta file, so no
+    # field is trusted unvalidated (the count is the caller's to judge)
+    private def read_meta_fields(path : String) : Tuple(UInt32, Int64, Int64, Int64)?
+      File.open(path) do |f|
         count = f.read_bytes(UInt32)
         first_offset = f.read_bytes(Int64)
         first_ts = f.read_bytes(Int64)
         last_ts = f.read_bytes(Int64)
-        return none unless count > 0 && count <= Config.instance.segment_size // BytesMessage::MIN_BYTESIZE
-        return none unless first_offset > 0
-        return none unless first_ts > 0 && first_ts <= last_ts && last_ts <= RoughTime.unix_ms + 86_400_000
-        {first_offset + count, first_ts, last_ts}
+        return unless first_offset > 0
+        return unless first_ts > 0 && first_ts <= last_ts && last_ts <= RoughTime.unix_ms + 86_400_000
+        {count, first_offset, first_ts, last_ts}
       end
-    rescue File::NotFoundError | IO::EOFError | OverflowError
-      {nil, nil, nil}
+    rescue File::NotFoundError | IO::EOFError
+      nil
     end
 
     # The offset that follows everything loaded before this segment. An empty
@@ -490,20 +525,38 @@ module LavinMQ::AMQP
       end
     end
 
+    # A meta file that says 0 messages while the segment holds data was
+    # written when the segment was recovered empty and has been published
+    # into since: the count is stale, rescan (#produce_metadata keeps the
+    # first offset it stores)
+    private def read_metadata_file(seg, mfile)
+      super
+      if @segment_msg_count[seg].zero? && mfile.size > 4
+        @bytesize -= mfile.size - 4 # undo super, produce_metadata recounts it
+        raise MetadataError.new("Stale meta file for segment #{seg} with data")
+      end
+    end
+
     private def produce_metadata(seg, mfile)
       super
       # A meta file that failed to read can have set it already
       @segment_first_offset.delete(seg)
+      first_offset = offset_after_previous_segments
+      # A readable meta file knows the first offset better than the chain
+      # does: offsets jump past a lost segment (see #recover_empty_segment)
+      if fields = read_meta_fields(meta_file_name(mfile))
+        first_offset = fields[1] if fields[1] > first_offset
+      end
       if empty? || @segment_msg_count[seg].zero?
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        @segment_first_offset[seg] = offset_after_previous_segments
+        @segment_first_offset[seg] = first_offset
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = offset_after_previous_segments
+        @segment_first_offset[seg] = first_offset
         @segment_first_ts[seg] = msg.timestamp
         # NOTE: scan_last_ts re-scans the segment even though super already did.
         # This path only runs when metadata files are missing, so the cost is acceptable.

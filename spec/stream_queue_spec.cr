@@ -49,6 +49,48 @@ end
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
+  describe "consuming after a power cut" do
+    it "delivers across a recovered empty segment with the right offsets" do
+      queue_name = Random::Secure.hex
+      body_size = LavinMQ::Config.instance.segment_size // 4 # 3 messages per segment
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue(queue_name, true, false, stream_queue_args)
+        stream = vhost.queue(queue_name).as(LavinMQ::AMQP::Stream)
+        12.times { |i| stream.publish(LavinMQ::Message.new("", queue_name, "#{i}:".ljust(body_size, 'x'))) }
+        seg_path = stream.stream_msg_store.@segments[2u32].path
+        s.stop
+        File.write(seg_path, Bytes.new(File.size(seg_path))) # a power cut zeroed segment 2
+        restart_server(s)
+
+        offsets = Array(Int64).new
+        bodies = Array(String).new
+        with_channel(s) do |ch|
+          ch.prefetch 16
+          q = ch.queue(queue_name, args: stream_queue_args)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(12)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs.send msg
+          end
+          9.times do
+            select
+            when msg = msgs.receive
+              offsets << msg.properties.headers.should_not(be_nil)["x-stream-offset"].as(Int64)
+              bodies << String.new(msg.body_io.to_slice)
+              msg.ack
+            when timeout 5.seconds
+              fail "consumer got #{offsets.size} of 9 messages: #{offsets}"
+            end
+          end
+        end
+        offsets.should eq [1i64, 2i64, 3i64, 7i64, 8i64, 9i64, 10i64, 11i64, 12i64]
+        offsets.zip(bodies) do |offset, body|
+          body.should start_with "#{offset - 1}:"
+        end
+      end
+    end
+  end
+
   describe "Arguments" do
     it "should refuse the retry arguments" do
       with_amqp_server do |s|

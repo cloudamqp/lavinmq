@@ -431,7 +431,9 @@ private def expected_recovery(damage : Array(Symbol)) : Tuple(Hash(UInt32, Int64
                        {chain || 1i64, 0i64}
                      end
                    when :zeroed_no_meta
-                     {chain || 1i64, 0i64}
+                     # the next segment's meta file, when readable, says where this one ended
+                     nxt_has_meta = seg + 1 < damage.size && damage[seg]? != :zeroed_no_meta
+                     {nxt_has_meta ? 3i64*seg + 1 : (chain || 1i64), 0i64}
                    else # :ok
                      {chain || 1i64, 3i64}
                    end
@@ -540,16 +542,64 @@ describe "Stream power cut recovery invariants" do
     end
   end
 
-  it "hands a finished segment to the persister so the next confirm syncs it" do
+  it "does not queue finished segments for the persister before a publish needs sync" do
     with_datadir do |dir|
       persister = LavinMQ::Persister.new(dir)
       store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil, persister: persister)
       push_indexed_messages(store, 4) # rolls over to segment 2
       store.@segments.size.should eq 2
-      # marked means it sits in the persister's batch for the next drain
-      store.@segments[1u32].mark_needs_msync!.should be_true
+      # nothing drains the persister's batch on a server without confirms
+      store.@segments[1u32].mark_needs_msync!.should be_false
       store.close
       persister.close
+    end
+  end
+
+  it "syncs finished segments with the publish confirm that follows them" do
+    with_datadir do |dir|
+      persister = LavinMQ::Persister.new(dir)
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil, persister: persister)
+      push_indexed_messages(store, 4) # rolls over to segment 2
+      store.@segments.size.should eq 2
+      confirmed = LavinMQ::Message.new("", "rk", "confirmed")
+      confirmed.needs_sync = true
+      store.push(confirmed)
+      # marked means it sits in the persister's batch for the next drain
+      store.@segments[1u32].mark_needs_msync!.should be_true
+      store.@segments[2u32].mark_needs_msync!.should be_true
+      store.close
+      persister.close
+    end
+  end
+
+  it "counts publishes into a recovered last segment across restarts" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.close
+
+      # the power cut hit right after a rollover: segment 4 never reached the
+      # disk, segment 3 lost its data, but segment 3's meta file is durable
+      File.delete(File.join(dir, "msgs.0000000004"))
+      File.delete(File.join(dir, "meta.0000000004")) if File.exists?(File.join(dir, "meta.0000000004"))
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 9
+      store.close
+
+      # a clean restart makes the recovered segment the write segment
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 9
+      store.push(LavinMQ::Message.new("", "rk", "a"))
+      store.push(LavinMQ::Message.new("", "rk", "b"))
+      store.last_offset.should eq 11
+      store.close
+
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 11
+      body_at_offset(store, 10).should eq "a"
+      body_at_offset(store, 11).should eq "b"
+      store.close
     end
   end
 end
