@@ -691,6 +691,54 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 400
       end
     end
+
+    it "should handle invalid definition types after a valid one" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": 100, "message-ttl": "String" },
+            "pattern": ".*"
+          }
+          JSON
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "'message-ttl'"
+        s.vhosts["/"].policies["name"]?.should be_nil
+      end
+    end
+
+    it "should accept a Bool delayed-message" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          {
+            "apply-to": "exchanges",
+            "priority": 0,
+            "definition": { "delayed-message": false },
+            "pattern": "^x$"
+          }
+          JSON
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+        s.vhosts["/"].policies["name"].definition["delayed-message"].as_bool.should be_false
+      end
+    end
+
+    it "should not check types of unsupported keys" do
+      with_http_server do |http, _|
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "ha-mode": "exactly", "ha-params": 2 },
+            "pattern": ".*"
+          }
+          JSON
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+      end
+    end
   end
 
   describe "PUT /api/operator-policies/vhost/name" do
@@ -706,6 +754,39 @@ describe LavinMQ::HTTP::ParametersController do
           JSON
         response = http.put("/api/operator-policies/%2f/name", body: body)
         response.status_code.should eq 400
+      end
+    end
+
+    it "should handle invalid definition types after a valid one" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": 100, "message-ttl": "String" },
+            "pattern": ".*"
+          }
+          JSON
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "'message-ttl'"
+        s.vhosts["/"].operator_policies["name"]?.should be_nil
+      end
+    end
+
+    it "should refuse keys not allowed in operator policies" do
+      with_http_server do |http, _|
+        body = <<-JSON
+          {
+            "apply-to": "queues",
+            "priority": 0,
+            "definition": { "max-length": 100, "ha-params": 2 },
+            "pattern": ".*"
+          }
+          JSON
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "'ha-params'"
       end
     end
   end

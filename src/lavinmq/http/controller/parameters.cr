@@ -178,14 +178,7 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
-              case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
-                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              else
-                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
-              end
-            end
+            validate_policy_definition(context, definition)
             is_update = vhost.policies[name]?
             vhost.add_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
@@ -236,14 +229,10 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
-              case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
-                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              else
-                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
-              end
+            definition.each_key do |k|
+              bad_request(context, "Operator policy definition '#{k}' is not allowed") unless OperatorPolicy::ALLOWED_ARGUMENTS.includes?(k)
             end
+            validate_policy_definition(context, definition)
             is_update = vhost.operator_policies[name]?
             vhost.add_operator_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
@@ -267,6 +256,21 @@ module LavinMQ
 
       private def param(context, parameters, id)
         parameters[id]? || not_found(context)
+      end
+
+      private def validate_policy_definition(context, definition)
+        definition.each do |k, v|
+          # Other keys are ignored when applied, e.g. RabbitMQ's ha-params
+          next unless Policy::SUPPORTED_POLICIES.includes?(k)
+          case k
+          when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+            bad_request(context, "Policy definition '#{k}' should be of type Int") unless v.as_i64?
+          when "delayed-message"
+            bad_request(context, "Policy definition '#{k}' should be of type Bool") if v.as_bool?.nil?
+          else
+            bad_request(context, "Policy definition '#{k}' should be of type String") unless v.as_s?
+          end
+        end
       end
 
       private def policy(context, name, vhost)

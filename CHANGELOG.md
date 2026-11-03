@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Creating or updating a policy or operator policy over the HTTP API checked only the first key of `definition`, so a wrongly typed value in any other key was accepted. Now all supported keys are checked, and `delayed-message` takes a Bool, not a String. In policies, keys that LavinMQ does not support are no longer type checked. Creating an operator policy with a key that is not allowed now fails with 400 instead of 500 [#2596](https://github.com/cloudamqp/lavinmq/pull/2596)
+
 ## [2.11.0-rc.3] - 2026-11-03
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites`, `syncfs_threshold` and `etcd_lease_ttl` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker. Federation links and their upstream resources now survive policy re-applies, publishes over the HTTP API and MQTT respect the disk alarm, and the MQTT retain store no longer mixes up non-ASCII topics or keeps an open file per topic. Since rc.2 it fixes the startup, HTTP API and message throughput regressions against 2.10 that were found in the release candidates.
