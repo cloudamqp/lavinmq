@@ -164,6 +164,29 @@ describe LavinMQ::PersistentMap do
   end
 end
 
+describe "LavinMQ::PersistentMap#find_value" do
+  it "finds a key by its hash and an equality block" do
+    map = LavinMQ::PersistentMap(FixedHashKey, Value).new
+    keys = Array(FixedHashKey).new(40) { |i| FixedHashKey.new("k#{i}", (i % 7).to_u64 &* 0x9E3779B97F4A7C15u64) }
+    keys.each { |k| map = map.put(k, Value.new(k.name)) }
+    keys.each do |k|
+      map.find_value(hash: k.hash) { |key| key.name == k.name }.should_not be_nil
+      map.find_value(hash: k.hash) { |key| key.name == k.name }.try(&.name).should eq k.name
+    end
+    map.find_value(hash: keys[0].hash) { |key| key.name == "missing" }.should be_nil
+    map.find_value(hash: 12345u64) { true }.should be_nil
+  end
+
+  it "picks the right key in a collision node" do
+    map = LavinMQ::PersistentMap(FixedHashKey, Value).new
+    5.times { |i| map = map.put(FixedHashKey.new("same#{i}", 42u64), Value.new("v#{i}")) }
+    5.times do |i|
+      map.find_value(hash: 42u64) { |key| key.name == "same#{i}" }.try(&.name).should eq "v#{i}"
+    end
+    map.find_value(hash: 42u64) { |key| key.name == "same9" }.should be_nil
+  end
+end
+
 describe LavinMQ::CowMap do
   it "supports Hash-like reads and writes" do
     map = LavinMQ::CowMap(String, Value).new
