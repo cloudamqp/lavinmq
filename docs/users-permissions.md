@@ -50,7 +50,7 @@ If a published message carries the `user_id` property, the server checks it matc
 |---------------|-------------------|
 | `exchange.declare` | `configure` on the exchange |
 | `exchange.delete` | `configure` on the exchange |
-| `queue.declare` | `configure` on the queue |
+| `queue.declare` | `configure` on the queue; with the `x-dead-letter-exchange` argument, also `read` on the queue and `write` on the dead letter exchange |
 | `queue.delete` | `configure` on the queue |
 | `queue.bind` | `read` on the exchange, `write` on the queue |
 | `queue.unbind` | `read` on the exchange, `write` on the queue |
