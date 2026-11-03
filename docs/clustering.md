@@ -120,7 +120,7 @@ A leader that can't reach a majority of the voters for `election_timeout` steps 
 | `election_timeout` | `[clustering]` | `1500` | Milliseconds without a leader heartbeat before an election starts |
 | `heartbeat_interval` | `[clustering]` | `250` | Milliseconds between leader heartbeats, at most half the election timeout |
 
-A node that has lost its election state (`.raft_state`) but kept its clustering id only votes for the first leader of a new cluster (see below), when no node has election state. It can't tell whether it already voted in the current term, and voting twice could elect two leaders. It votes normally again once it has the log from a leader.
+A node that has lost its election state (`.raft_state`) but kept its clustering id only votes for the first leader of a new cluster (see below), when no node has election state. It can't tell whether it already voted in the current term, and voting twice could elect two leaders. Once it has the log from a leader it still neither votes nor campaigns, as it can't tell which terms it voted in before: it votes again only after it has been removed from the cluster and added back (`lavinmqctl remove_cluster_member <id>`, then `add_cluster_member <address>`, and `promote_cluster_member` once it's in sync, see [Changing the cluster membership](#changing-the-cluster-membership)), and logs a warning at startup saying so. A node with a new clustering id, the nodes of a new cluster that agree on its first leader, and a migration from etcd aren't affected.
 
 #### Forming a cluster
 

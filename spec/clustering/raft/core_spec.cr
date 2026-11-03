@@ -534,6 +534,65 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_false
   end
 
+  # A log doesn't tell which terms it voted in before losing its state, and
+  # voting again in one of them could elect a second leader
+  it "never votes again in an existing cluster after losing its raft state" do
+    now = Time.instant
+    lost = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now)
+    lost.connected(1, "n1", now)
+    lost.connected(3, "n3", now)
+    lost.step(Raft::InstallSnapshot.new(1, 2, "u1", 5, 1, Set{1, 2, 3}, three_voters), now)
+    lost.take_outbox
+    {2i64, 3i64}.each do |term|
+      lost.step(Raft::RequestVote.new(3, term, 5, 1, pre_vote: false, transfer: true), now)
+      _, reply = lost.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+      reply.as(Raft::VoteResponse).granted.should be_false
+    end
+    restarted = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now,
+      lost.hard_state)
+    restarted.connected(3, "n3", now)
+    restarted.take_outbox
+    restarted.step(Raft::RequestVote.new(3, 4, 5, 1, pre_vote: false, transfer: true), now)
+    _, reply = restarted.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_false
+  end
+
+  # Any term it voted in before losing its state is at most the one its
+  # removal was committed in, which its current term is past or at
+  it "votes again once removed and added back as a learner" do
+    now = Time.instant
+    lost = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now)
+    lost.connected(1, "n1", now)
+    lost.connected(3, "n3", now)
+    lost.step(Raft::InstallSnapshot.new(1, 2, "u1", 5, 1, Set{1, 2, 3}, three_voters), now)
+    addresses = {1 => "n1", 2 => "n2", 3 => "n3"}
+    removed = Raft::Membership.new(Set{1, 3}, Set(Int32).new, {1 => "n1", 3 => "n3"})
+    learner = Raft::Membership.new(Set{1, 3}, Set{2}, addresses)
+    entries = [Raft::Entry.new(4, nil, removed), Raft::Entry.new(4, nil, learner), Raft::Entry.new(4, nil, three_voters)]
+    lost.step(Raft::AppendEntries.new(1, 4, "u1", 5, 1, entries, 7), now)
+    lost.take_outbox
+    lost.step(Raft::RequestVote.new(3, 4, 8, 4, pre_vote: false, transfer: true), now)
+    _, reply = lost.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_false
+    lost.step(Raft::RequestVote.new(3, 5, 8, 4, pre_vote: false, transfer: true), now)
+    _, reply = lost.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_true
+  end
+
+  # A seed that starts late may get the first leader's log before hearing
+  # from every seed, so it never sees them agree on that leader
+  it "votes with a log when its clustering id is new, as it can't have voted before" do
+    now = Time.instant
+    fresh = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, new_id: true)
+    fresh.connected(1, "n1", now)
+    fresh.connected(3, "n3", now)
+    fresh.step(Raft::InstallSnapshot.new(1, 2, "u1", 5, 1, Set{1, 2, 3}, three_voters), now)
+    fresh.take_outbox
+    fresh.step(Raft::RequestVote.new(3, 3, 5, 1, pre_vote: false, transfer: true), now)
+    _, reply = fresh.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_true
+  end
+
   it "doesn't elect with the vote of a voter that lost its raft state but kept its id" do
     sim = SimCluster.new(3)
     sim.elect(Set{1, 2, 3}).id.should eq 1
@@ -1291,6 +1350,29 @@ describe Raft::Core, "membership" do
     leader.committed_membership.should_not(be_nil).learners.should eq Set{moved}
     sim.propose(leader, Set{1, 2, 3})
     sim.run_until { leader.committed_membership.should_not(be_nil).voters.includes?(moved) }
+  end
+
+  it "counts the vote of a voter that lost its raft state again once it's removed and added back" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    wiped, other = sim.cores.keys.reject(leader.id)
+    sim.crash(wiped)
+    sim.wipe(wiped)
+    sim.restart(wiped)
+    sim.advance(200.milliseconds)
+    sim[wiped].last_index.should be > 0
+    sim.change(leader, Raft::MembershipChange::Remove, wiped).should be_a Int64
+    sim.advance(200.milliseconds)
+    sim.change(leader, Raft::MembershipChange::AddLearner, wiped, "n#{wiped}").should be_a Int64
+    sim.advance(200.milliseconds)
+    sim.propose(leader, Set{1, 2, 3})
+    sim.advance(100.milliseconds)
+    sim.change(leader, Raft::MembershipChange::Promote, wiped).should be_a Int64
+    sim.advance(200.milliseconds)
+    # The other two can only elect with its vote
+    sim.crash(leader.id)
+    sim.run_until { (l = sim.leader) && l.id != leader.id && l.serving_leader? }
+    {wiped, other}.should contain sim.leader.should_not(be_nil).id
   end
 
   it "takes a removed node back at a new address with the same data dir" do
