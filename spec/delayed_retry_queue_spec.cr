@@ -75,6 +75,49 @@ describe "Retry Queue" do
       end
     end
 
+    it "should let a delivery-limit policy raise the default limit" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          vhost = s.vhosts["/"]
+          vhost.add_policy("dl", "^retry-policy-limit$", "queues", {"delivery-limit" => JSON::Any.new(25_i64)}, 0_i8)
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1})
+          q = ch.queue("retry-policy-limit", args: args)
+          wait_for { vhost.queue("retry-policy-limit").policy.try(&.name) == "dl" }
+          ch.default_exchange.publish_confirm("policy limit", q.name)
+
+          21.times do
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
+
+          # The default limit of 20 would have dead-lettered it after 21 deliveries
+          wait_for(timeout: 5.seconds) { q.get(no_ack: false) }.should_not be_nil
+        end
+      end
+    end
+
+    it "should not let a delivery-limit policy raise an explicit x-delivery-limit" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          vhost = s.vhosts["/"]
+          vhost.add_policy("dl", "^retry-explicit-limit$", "queues", {"delivery-limit" => JSON::Any.new(25_i64)}, 0_i8)
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1, "x-delivery-limit" => 2})
+          q = ch.queue("retry-explicit-limit", args: args)
+          wait_for { vhost.queue("retry-explicit-limit").policy.try(&.name) == "dl" }
+          ch.default_exchange.publish_confirm("explicit limit", q.name)
+
+          3.times do
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
+
+          sleep 50.milliseconds
+          q.get(no_ack: true).should be_nil
+          vhost.queue("retry-explicit-limit").message_count.should eq 0
+        end
+      end
+    end
+
     it "should not create duplicate retry queues on concurrent rejects" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({

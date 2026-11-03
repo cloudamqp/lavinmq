@@ -70,6 +70,9 @@ module LavinMQ::AMQP
       property message_ttl : Int64?
       property expires : Int64?
       property delivery_limit : Int64?
+      # The delivery limit is the retry default, not from x-delivery-limit,
+      # so a delivery-limit policy may raise it too
+      property? default_delivery_limit = false
       property? reject_on_overflow = false
       property consumer_timeout : UInt64?
       property dlx : String?
@@ -569,7 +572,8 @@ module LavinMQ::AMQP
           return true
         end
       when "delivery-limit"
-        unless settings.delivery_limit.try &.< value.as_i64
+        if settings.default_delivery_limit? || !(settings.delivery_limit.try &.< value.as_i64)
+          settings.default_delivery_limit = false
           settings.delivery_limit = value.as_i64
           settings.effective_args.delete("x-delivery-limit")
           settings.enforce_limits = true
@@ -662,7 +666,10 @@ module LavinMQ::AMQP
           raise LavinMQ::Error::PreconditionFailed.new(
             "x-delayed-retry-min cannot be combined with x-message-deduplication")
         end
-        settings.delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+        unless settings.delivery_limit
+          settings.delivery_limit = DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
+          settings.default_delivery_limit = true
+        end
         effective_args << "x-delayed-retry-min"
         settings.delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
         effective_args << "x-delayed-retry-multiplier" if settings.delayed_retry_multiplier

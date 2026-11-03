@@ -16,7 +16,7 @@ Automatic retries let the broker redeliver rejected messages after a growing bac
 | `x-delayed-retry-min` | integer (≥ 1, ms) | - | Initial delay before the first retry. Setting it enables the feature. |
 | `x-delayed-retry-multiplier` | integer (≥ 1) | unset (linear) | Backoff shape: omit for linear (`delay × attempt`), `1` for constant, `≥ 2` for exponential (`delay × multiplier^(attempt-1)`). |
 | `x-delayed-retry-max` | integer (≥ 1, ms) | unset (no cap) | Cap on a single retry delay. Only clamps the delay, never ends retries. |
-| `x-delivery-limit` | integer (≥ 0) | 20 when retry is enabled | Maximum number of redeliveries: a message is delivered at most `x-delivery-limit` + 1 times before dead-lettering. An explicit value, including 0, is respected. |
+| `x-delivery-limit` | integer (≥ 0) | 20 when retry is enabled | Maximum number of redeliveries: a message is delivered at most `x-delivery-limit` + 1 times before dead-lettering. An explicit value, including 0, is respected. A `delivery-limit` policy replaces the default of 20. With an explicit value, the lower of the argument and the policy applies. |
 
 Delays are additionally capped at the `UInt32` millisecond range (~49.7 days) regardless of `x-delayed-retry-max`.
 
