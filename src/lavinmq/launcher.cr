@@ -31,7 +31,7 @@ module LavinMQ
     @closed = false
     @replicator : Clustering::Server?
     @runner : Runner
-    # Serializes stopping to serve as the leader with a shutdown
+    # Serializes starting and stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
@@ -73,6 +73,10 @@ module LavinMQ
     end
 
     private def start : self
+      # #stop may have run since the runner decided to serve, e.g. while the
+      # raft controller committed the ISR: nothing started from here on would
+      # be closed
+      return self if @role_lock.synchronize { @closed }
       started_at = Time.instant
       # A fresh replicator for each term this node leads, see #demote
       @replicator = @runner.new_replicator
@@ -116,6 +120,11 @@ module LavinMQ
       @client_listeners.listen if @config.clustering?
       @runner.run do
         start
+      end
+      # What a startup that #stop raced with opened after it, see #start
+      @role_lock.synchronize do
+        close_listeners
+        @server.try &.close rescue nil
       end
       @client_listeners.close
       @control_socket.close
