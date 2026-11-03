@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Since 2.11.0-rc.1, a `delivery-limit` policy couldn't raise the default delivery limit of 20 on queues with `x-delayed-retry-min` and no `x-delivery-limit`. The API showed the policy as applied, but messages were dead-lettered, or dropped without a dead letter exchange, after 21 deliveries. A policy now replaces the default. An explicit `x-delivery-limit` still only gets lowered by a policy
+- Since 2.11.0-rc.1, a `delivery-limit` policy couldn't raise the default delivery limit of 20 on queues with `x-delayed-retry-min` and no `x-delivery-limit`. The API showed the policy as applied, but messages were dead-lettered, or dropped without a dead letter exchange, after 21 deliveries. A policy now replaces the default. An explicit `x-delivery-limit` still only gets lowered by a policy [#2599](https://github.com/cloudamqp/lavinmq/pull/2599)
 
 ## [2.11.0-rc.3] - 2026-11-03
 
