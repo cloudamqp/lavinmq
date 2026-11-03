@@ -58,6 +58,7 @@ module LavinMQ::AMQP
               "#{mfile.path} #{pos.try { |p| hexdump(mfile, p) }}"
             end
             mark_unreadable(seg_id)
+            count_readable(seg_id, mfile, pos) if pos
             break
           end
         end
@@ -114,6 +115,7 @@ module LavinMQ::AMQP
           delete(sp) if @segments.has_key?(sp.segment)
         end
         @empty.set true
+        release_unreadable
       end
 
       def requeue(sp : SegmentPosition)

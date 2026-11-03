@@ -35,13 +35,19 @@ module LavinMQ
     @synced_writes = false
     # Segments with data that can't be read, see #skip_corrupt_tail. Never
     # written to or deleted for being acked, so that what's on disk, and on
-    # followers, stays for someone to look at. Changed under the store's
-    # lock, while its size is read without it, from @unreadable_count.
+    # followers, stays for someone to look at, until a purge, see
+    # #release_unreadable. Changed under the store's lock, while its size is
+    # read without it, from @unreadable_count.
     @unreadable = Set(UInt32).new
     @unreadable_count = Atomic(Int32).new(0)
     # Segments that were counted only up to data that can't be read, whose
     # count therefore isn't written to a metadata file
     @partly_counted = Set(UInt32).new
+    # How many messages in an unreadable segment can be acked, the messages
+    # before the data that can't be read and the acks after it, and how many
+    # of those were requeued messages that couldn't be read
+    @readable = Hash(UInt32, UInt32).new
+    @unreadable_requeued = Hash(UInt32, UInt32).new(0u32)
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -226,7 +232,10 @@ module LavinMQ
       @bytesize -= Math.min(@bytesize, sp.bytesize.to_u64)
       @size -= 1 unless @size.zero?
       @empty.set true if @size.zero?
-      mark_unreadable(sp.segment) if @segments.has_key?(sp.segment)
+      if (segment = @segments[sp.segment]?) && sp.position < segment.size
+        mark_unreadable(sp.segment)
+        @unreadable_requeued[sp.segment] += 1
+      end
     end
 
     # The segments are read through but @size says there are messages left:
@@ -244,19 +253,17 @@ module LavinMQ
     # so where the next message starts, is unknown, so the rest of the
     # segment is skipped, in memory only: its messages are no longer counted,
     # but nothing on disk, or on followers, is changed. They're not acked, so
-    # the segment is kept, until the queue is deleted, and nothing more is
-    # written to it (see #write_to_disk).
+    # the segment is kept until the queue is purged (see #release_unreadable)
+    # or deleted, and nothing more is written to it (see #write_to_disk).
     private def skip_corrupt_tail(seg : UInt32, mfile : MFile, pos : UInt32, ex : Exception) : Nil
       @log.error(exception: ex) do
         "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
         "#{mfile.path} #{hexdump(mfile, pos)} #{state_snapshot}"
       end
       mark_unreadable(seg)
-      before = messages_before(mfile, pos)
-      # Acks loaded from disk, the only ones that can be after the read position
-      acked_after = @deleted[seg]?.try(&.count { |p| p >= pos }.to_u32) || 0u32
+      readable = count_readable(seg, mfile, pos)
       total = @segment_msg_count[seg]
-      skipped = total - Math.min(total, before + acked_after)
+      skipped = total - Math.min(total, readable)
       @size -= Math.min(@size, skipped)
       # The skipped messages' sizes are unknown, so @bytesize can only be
       # corrected when nothing is left, else the messages still read would
@@ -274,6 +281,67 @@ module LavinMQ
       "bytes at pos #{pos}: #{mfile.to_slice(pos, len).hexstring}"
     rescue IO::Error
       "(not mapped)"
+    end
+
+    # The messages before `pos`, where data can't be read, and the acks after
+    # it, loaded from disk, the only ones that can be after it
+    private def count_readable(seg : UInt32, mfile : MFile, pos : UInt32) : UInt32
+      acked_after = @deleted[seg]?.try(&.count { |p| p >= pos }.to_u32) || 0u32
+      @readable[seg] = messages_before(mfile, pos) + acked_after
+    end
+
+    # Called when a purge has emptied the store: the data that can't be read
+    # is purged too. A segment that isn't loaded is deleted, and one that is
+    # gets the count of its readable messages, so that it's deleted once
+    # those are acked, now if they already are.
+    protected def release_unreadable : Nil
+      return if @unreadable.empty?
+      @log.info { "Purging segments with data that can't be read: #{@unreadable.to_a.sort!}" }
+      open_new_segment if @unreadable.includes?(@wfile_id)
+      @unreadable.to_a.each do |seg|
+        if mfile = @segments[seg]?
+          count = (@readable[seg]? || @segment_msg_count[seg])
+          count -= Math.min(count, @unreadable_requeued[seg])
+          @segment_msg_count[seg] = count
+          forget_unreadable(seg)
+          acked = @acks[seg]?.try { |a| (a.size // sizeof(UInt32)).to_u32 } || 0u32
+          if acked >= count
+            select_next_read_segment if seg == @rfile_id
+            @segments.delete(seg)
+            @segment_msg_count.delete(seg)
+            @deleted.delete(seg)
+            if a = @acks.delete(seg)
+              delete_file(a)
+            end
+            delete_file(mfile, including_meta: true)
+          else
+            write_metadata_file(seg, mfile)
+          end
+        else
+          delete_unloaded_segment(seg)
+        end
+      end
+    end
+
+    # A segment whose header couldn't be read, so that isn't loaded
+    private def delete_unloaded_segment(seg : UInt32) : Nil
+      name = seg.to_s.rjust(10, '0')
+      path = File.join(@msg_dir, "msgs.#{name}")
+      {path, meta_file_name(path), File.join(@msg_dir, "acks.#{name}")}.each do |file|
+        File.delete?(file)
+        @replicator.try &.delete_file(file)
+      end
+      @acks.delete(seg).try &.close(truncate_to_size: false)
+      @deleted.delete(seg)
+      forget_unreadable(seg)
+    end
+
+    private def forget_unreadable(seg : UInt32) : Nil
+      @unreadable.delete(seg)
+      @partly_counted.delete(seg)
+      @readable.delete(seg)
+      @unreadable_requeued.delete(seg)
+      @unreadable_count.set(@unreadable.size, :relaxed)
     end
 
     # The number of messages before `pos` in `mfile`
@@ -354,6 +422,7 @@ module LavinMQ
         break if count >= max_count
         Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
       end
+      release_unreadable if empty?
       count
     end
 
@@ -404,6 +473,7 @@ module LavinMQ
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
+      release_unreadable
     end
 
     def delete
@@ -425,9 +495,7 @@ module LavinMQ
       file.close
       # A segment, gone, e.g. purged, so no longer unreadable
       if including_meta && (seg = file.path[-10..].to_u32?)
-        @unreadable.delete(seg)
-        @unreadable_count.set(@unreadable.size, :relaxed)
-        @partly_counted.delete(seg)
+        forget_unreadable(seg)
       end
     end
 
@@ -943,6 +1011,7 @@ module LavinMQ
         @log.error { "Segment #{seg} can't be read from pos #{pos}, skipping the rest of it: #{mfile.path} #{pos.try { |p| hexdump(mfile, p.to_u32) }} #{ex}" }
         mark_unreadable(seg)
         @partly_counted << seg
+        count_readable(seg, mfile, pos.to_u32) if pos
         break
       end
       mfile.pos = 4

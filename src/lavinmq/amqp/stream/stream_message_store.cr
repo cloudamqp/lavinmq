@@ -431,7 +431,18 @@ module LavinMQ::AMQP
       drop_segments_while do |seg_id|
         max_count >= (count += @segment_msg_count[seg_id])
       end
+      release_unreadable if @segments.size == 1
       start_size - @size
+    end
+
+    # Segments are dropped whole, also those with data that can't be read,
+    # except for the one being written, which is rolled over by the next
+    # write (see MessageStore#write_to_disk), so only the ones that weren't
+    # loaded are left to purge
+    protected def release_unreadable : Nil
+      @unreadable.to_a.each do |seg|
+        delete_unloaded_segment(seg) unless @segments.has_key?(seg)
+      end
     end
 
     def delete(sp) : Nil

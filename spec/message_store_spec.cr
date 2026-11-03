@@ -613,6 +613,62 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "purges the segment being written when it has data that can't be read" do
+      with_store do |store|
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        sp2 = store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        corrupt.call(store.@segments[sp2.segment], sp2.position)
+        store.shift?.should_not(be_nil).segment_position.should eq sp1
+        store.delete(sp1)
+        store.shift?.should be_nil
+        store.unreadable_segments.should eq 1
+        store.purge_all
+        store.@segments.has_key?(sp1.segment).should be_false
+        store.unreadable_segments.should eq 0
+        store.push(LavinMQ::Message.new("ex", "rk", "3"))
+        store.shift?.should_not(be_nil).message.body.should eq "3".to_slice
+      end
+    end
+
+    it "purges a segment whose header can't be read" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        store.close
+        path = Dir.glob(File.join(dir, "msgs.*")).first
+        File.open(path, "r+", &.write("abcd".to_slice))
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.unreadable_segments.should eq 1
+        store.purge_all
+        store.unreadable_segments.should eq 0
+        File.exists?(path).should be_false
+        replicator.deleted_files.should contain(path)
+        store.close
+      end
+    end
+
+    it "purges a segment with data that can't be read once its unacked messages are acked" do
+      with_store do |store|
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 3
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        sp1 = store.push(msg)
+        sp2 = store.push(msg)
+        sp3 = store.push(msg)
+        sp2.segment.should eq sp1.segment
+        sp3.segment.should be > sp1.segment
+        corrupt.call(store.@segments[sp2.segment], sp2.position)
+        unacked = store.shift?.should_not(be_nil).segment_position # sp1, delivered but not acked
+        unacked.should eq sp1
+        store.purge.should eq 1 # sp3
+        store.unreadable_segments.should eq 0
+        store.@segments.has_key?(sp1.segment).should be_true
+        store.delete(unacked)
+        store.@segments.has_key?(sp1.segment).should be_false
+      end
+    end
+
     it "writes to a new segment when the one being written has a message that can't be read" do
       with_store do |store|
         sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))

@@ -43,12 +43,12 @@ For standard and priority queues, when all messages in a segment have been ackno
 
 A queue keeps running when part of a segment can't be read. That can be corrupt data, for example after disk errors, or a bug, and LavinMQ can't tell which. So it changes nothing on disk, nor on cluster followers, and only skips the data in memory. Where the next message in the segment starts is unknown, so the rest of the segment is skipped:
 
-- **When a message is read**: the message and the rest of its segment are no longer counted or delivered. They're not acknowledged, so the segment is kept until the queue is deleted, and nothing more is written to it: new messages go to a new segment. A requeued message that can't be read is skipped the same way. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
+- **When a message is read**: the message and the rest of its segment are no longer counted or delivered. They're not acknowledged, so the segment is kept until the queue is purged or deleted, and nothing more is written to it: new messages go to a new segment. A requeued message that can't be read is skipped the same way. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
 - **At startup**: a segment is counted up to its last readable message. A segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded.
 
 The data is still on disk, so after a restart it's skipped again, or read if it was a bug that's since been fixed.
 
-Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look: compare the segment with the copies on the cluster's followers. Purging the queue doesn't necessarily remove the segment, deleting the queue does.
+Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look: compare the segment with the copies on the cluster's followers, then purge or delete the queue once the data is no longer needed. A purge that empties the queue deletes these segments too, also those that weren't loaded, and a segment with unacknowledged messages once they're acknowledged. In a stream, the segment being written is only rolled over, by the next message published, and deleted with the segments before it after that.
 
 ## Data Directory Layout
 

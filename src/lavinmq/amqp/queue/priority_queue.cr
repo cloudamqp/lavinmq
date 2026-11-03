@@ -197,6 +197,7 @@ module LavinMQ::AMQP
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
+        @stores.each &.release_unreadable if empty?
         count
       end
 
