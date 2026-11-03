@@ -15,7 +15,7 @@ SEEDS=$(seq -s, -f "127.%g" 1 "$NODES")
 
 node_cmd() {
   local n=$1
-  echo "bin/lavinmq --data-dir=/tmp/amqp$n --control-unix-path=/tmp/lavinmqctl$n.sock --bind=127.$n --metrics-http-bind=127.$n --clustering --clustering-bind=127.$n --clustering-password=s3cr3t --clustering-seeds=$SEEDS --clustering-bootstrap"
+  echo "bin/lavinmq --data-dir=/tmp/amqp$n --control-unix-path=/tmp/lavinmqctl$n.sock --bind=127.$n --metrics-http-bind=127.$n --clustering --clustering-bind=127.$n --clustering-password=s3cr3t --clustering-seeds=$SEEDS"
 }
 
 # Create new window with first node

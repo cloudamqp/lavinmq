@@ -97,7 +97,6 @@ class Node
       "--clustering-seeds=#{seeds}", "--clustering-election-timeout=#{ELECTION}",
       "--clustering-heartbeat-interval=#{HEARTBEAT}",
     ]
-    args << "--clustering-bootstrap" if @i == 0
     args << "--config=#{CONFIG}"
     @log.puts "===== #{Time.utc} starting"
     @log.flush
