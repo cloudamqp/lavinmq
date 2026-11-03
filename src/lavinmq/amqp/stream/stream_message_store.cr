@@ -15,8 +15,6 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
-    # segment_id => offset after the last msg, of segments deleted at load as empty
-    @empty_segment_end_offset = Hash(UInt32, Int64).new
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
 
@@ -39,7 +37,7 @@ module LavinMQ::AMQP
     end
 
     private def get_last_offset : Int64
-      return 0i64 if @size.zero?
+      return 0i64 if @segment_first_offset.empty? # load aborted by a corrupt segment
       offset = @segment_first_offset.last_value
       # to_i64 first: when the trailing segment was opened but has no messages
       # yet (4-byte schema header only) @segment_msg_count is 0_u32 and the
@@ -324,7 +322,11 @@ module LavinMQ::AMQP
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      finished = @wfile
       super.tap do
+        # Left unsynced, this segment becomes a hole between synced segments
+        # after a power cut, so sync it with the next publish confirm
+        @persister.try &.mark_dirty(finished)
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
@@ -429,26 +431,59 @@ module LavinMQ::AMQP
     end
 
     # A power cut can leave a segment of unconfirmed messages without its
-    # data, and it's deleted at load. Its meta file can still say where it
-    # ended, for the offsets of the next segment to continue from.
-    private def empty_segment_found(seg : UInt32, file : MFile) : Nil
+    # data. Its offsets were handed out to consumers, so they must not be
+    # reused: keep the segment as an empty marker whose meta file says where
+    # its offsets ended.
+    private def recover_empty_segment(seg : UInt32, file : MFile) : MFile
+      end_offset, first_ts, last_ts = read_end_of_lost_segment(file)
+      file.close(truncate_to_size: false)
+      # Reopen writable: a segment mapped without capacity is read-only
+      file = open_segment(file.path, Config.instance.segment_size)
+      file.resize(0)
+      file.write_bytes Schema::VERSION
+      file.truncate(file.size)
+      @replicator.try &.register_file file
+      @replicator.try &.replace_file(file)
+      metafile = meta_file_name(file)
+      if end_offset && first_ts && last_ts
+        File.open(metafile, "w") do |f|
+          f.write_bytes 0u32
+          f.write_bytes end_offset
+          f.write_bytes first_ts
+          f.write_bytes last_ts
+          @replicator.try &.register_file(f)
+        end
+        @replicator.try &.replace_file metafile
+      else
+        File.delete?(metafile)
+        @replicator.try &.delete_file(metafile)
+      end
+      @log.warn { "Stream segment #{seg} lost its data in an unclean shutdown, keeping it as an empty segment" }
+      file
+    end
+
+    # The lost segment's meta file says where its offsets ended. The same
+    # power cut can have torn it, so no field is trusted unvalidated.
+    private def read_end_of_lost_segment(file : MFile) : Tuple(Int64?, Int64?, Int64?)
+      none = {nil, nil, nil}
       File.open(meta_file_name(file)) do |f|
         count = f.read_bytes(UInt32)
         first_offset = f.read_bytes(Int64)
-        @empty_segment_end_offset[seg] = first_offset + count if count > 0 && first_offset > 0
+        first_ts = f.read_bytes(Int64)
+        last_ts = f.read_bytes(Int64)
+        return none unless count > 0 && count <= Config.instance.segment_size // BytesMessage::MIN_BYTESIZE
+        return none unless first_offset > 0
+        return none unless first_ts > 0 && first_ts <= last_ts && last_ts <= RoughTime.unix_ms + 86_400_000
+        {first_offset + count, first_ts, last_ts}
       end
-    rescue File::NotFoundError | IO::EOFError
+    rescue File::NotFoundError | IO::EOFError | OverflowError
+      {nil, nil, nil}
     end
 
-    # The offset that follows the segments loaded before *seg*. The segment
-    # just before it can be missing, deleted at load as empty, so this is the
-    # closest earlier segment that is loaded or whose end is known.
-    private def offset_after_previous_segments(seg : UInt32) : Int64
-      prev = @segment_first_offset.last_key?
-      empty = @empty_segment_end_offset.last_key?
-      if empty && empty < seg && (prev.nil? || empty > prev)
-        @empty_segment_end_offset[empty]
-      elsif prev
+    # The offset that follows everything loaded before this segment. An empty
+    # recovered segment counts: its first offset is where its lost data ended.
+    private def offset_after_previous_segments : Int64
+      if prev = @segment_first_offset.last_key?
         @segment_first_offset[prev] + @segment_msg_count[prev]
       else
         1i64
@@ -463,12 +498,12 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        @segment_first_offset[seg] = offset_after_previous_segments(seg)
+        @segment_first_offset[seg] = offset_after_previous_segments
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = offset_after_previous_segments(seg)
+        @segment_first_offset[seg] = offset_after_previous_segments
         @segment_first_ts[seg] = msg.timestamp
         # NOTE: scan_last_ts re-scans the segment even though super already did.
         # This path only runs when metadata files are missing, so the cost is acceptable.
@@ -492,12 +527,15 @@ module LavinMQ::AMQP
       end
 
       # Validate and fix (possibly) incorrect offsets from existing metadata
-      @segment_first_offset[seg] = if seg == 1u32
+      chain = (prev_first = @segment_first_offset[seg - 1]?) ? prev_first + (@segment_msg_count[seg - 1]? || 0u32) : nil
+      @segment_first_offset[seg] = if @segments[seg].size == 4
+                                     # An empty segment holds no messages, only numbering: its stored
+                                     # first offset is where writing continues (#recover_empty_segment)
+                                     chain && chain > stored_offset ? chain : stored_offset
+                                   elsif seg == 1u32
                                      1i64 # First segment always starts at offset 1
-                                   elsif prev_first = @segment_first_offset[seg - 1]?
-                                     # Calculate based on previous segment
-                                     prev_count = @segment_msg_count[seg - 1]? || 0i64
-                                     prev_first + prev_count
+                                   elsif chain
+                                     chain # Calculate based on previous segment
                                    else
                                      stored_offset # No previous segment info, use stored value
                                    end

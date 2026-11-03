@@ -500,9 +500,11 @@ module LavinMQ
       wfile
     end
 
-    # Called at load for a segment that is deleted because it has no data,
-    # before its meta file is deleted with it
-    private def empty_segment_found(seg : UInt32, file : MFile) : Nil
+    # Called at load for a segment file that has no data. Returns the file
+    # reopened as an empty segment when the subclass recovers it in place;
+    # nil deletes it.
+    private def recover_empty_segment(seg : UInt32, file : MFile) : MFile?
+      nil
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
@@ -609,17 +611,21 @@ module LavinMQ
           begin
             SchemaVersion.verify(file, :message)
           rescue IO::EOFError
-            # delete empty file, it will be recreated if it's needed
-            @log.warn { "Empty file at #{path}, deleting it" }
-            empty_segment_found(seg, file)
-            delete_file(file, including_meta: true)
-            if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = open_segment(path, Config.instance.segment_size)
-              file.write_bytes Schema::VERSION
-              @replicator.try &.append_value path, Schema::VERSION, 0i64
+            if recovered = recover_empty_segment(seg, file)
+              file = recovered
             else
-              @segments.delete seg
-              next
+              # delete empty file, it will be recreated if it's needed
+              @log.warn { "Empty file at #{path}, deleting it" }
+              delete_file(file, including_meta: true)
+              if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
+                file = open_segment(path, Config.instance.segment_size)
+                file.write_bytes Schema::VERSION
+                @replicator.try &.register_file file
+                @replicator.try &.append_value path, Schema::VERSION, 0i64
+              else
+                @segments.delete seg
+                next
+              end
             end
           rescue ex
             @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }

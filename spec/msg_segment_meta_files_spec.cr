@@ -334,3 +334,222 @@ describe "Stream segment lost in a power cut" do
     end
   end
 end
+
+# Mirrors Clustering::Server's registration contract: appending by position
+# requires the path to be registered as an MFile first (clustering/server.cr)
+private class StrictReplicator
+  include LavinMQ::Clustering::Replicator
+
+  getter mfile_paths = Set(String).new
+
+  def register_file(path : String); end
+
+  def register_file(file : File); end
+
+  def register_file(mfile : MFile)
+    @mfile_paths << mfile.path
+  end
+
+  def replace_file(path : String); end
+
+  def replace_file(mfile : MFile); end
+
+  def append(path : String, pos : Int, length : Int)
+    raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless @mfile_paths.includes?(path)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64); end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64); end
+
+  def delete_file(path : String)
+    @mfile_paths.delete(path)
+  end
+
+  def delete_dir(path : String); end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil; end
+
+  def wait_for_followers : Nil; end
+
+  def request_fsync(paths : Enumerable(String)) : Nil; end
+
+  def request_syncfs : Nil; end
+
+  def close; end
+
+  def listen(server : TCPServer); end
+
+  def clear; end
+
+  def password : String
+    ""
+  end
+end
+
+private def damage_segment(dir, seg : Int, state : Symbol)
+  path = File.join(dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+  case state
+  when :zeroed then empty_segment(path)
+  when :zeroed_no_meta
+    empty_segment(path)
+    File.delete?(File.join(dir, "meta.#{seg.to_s.rjust(10, '0')}"))
+  end
+end
+
+# What recovery must produce: a zeroed segment with a readable meta knows
+# where it ended; without one it continues from the chain, like a segment
+# with data does.
+private def expected_recovery(damage : Array(Symbol)) : Tuple(Hash(UInt32, Int64), Int64)
+  firsts = Hash(UInt32, Int64).new
+  prev_first = nil.as(Int64?)
+  prev_count = 0i64
+  damage.each_with_index do |state, i|
+    seg = i + 1
+    chain = prev_first.try { |pf| pf + prev_count }
+    first, count = case state
+                   when :zeroed
+                     if seg < damage.size # a finished segment, its meta said where it ended
+                       {3i64*seg + 1, 0i64}
+                     else # the write segment never has a meta file
+                       {chain || 1i64, 0i64}
+                     end
+                   when :zeroed_no_meta
+                     {chain || 1i64, 0i64}
+                   else # :ok
+                     {chain || 1i64, 3i64}
+                   end
+    firsts[seg.to_u32] = first
+    prev_first = first
+    prev_count = count
+  end
+  {firsts, (prev_first || 1i64) + prev_count - 1}
+end
+
+private def assert_recovered(store, damage, firsts, last, file = __FILE__, line = __LINE__)
+  store.last_offset.should eq(last), file: file, line: line
+  store.@segment_first_offset.should eq(firsts), file: file, line: line
+  damage.each_with_index do |state, i|
+    next unless state == :ok
+    seg = i + 1
+    3.times do |j|
+      body_at_offset(store, firsts[seg.to_u32] + j).should start_with("#{3*i + j}:"), file: file, line: line
+    end
+  end
+end
+
+describe "Stream power cut recovery invariants" do
+  damage_states = [:ok, :zeroed, :zeroed_no_meta]
+  damage_states.each do |s1|
+    damage_states.each do |s2|
+      damage_states.each do |s3|
+        [:ok, :zeroed].each do |s4|
+          damage = [s1, s2, s3, s4]
+          it "recovers from damage #{damage.join(", ")}" do
+            with_datadir do |dir|
+              store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+              push_indexed_messages(store, 12)
+              store.@segments.size.should eq 4
+              store.close
+              damage.each_with_index { |state, i| damage_segment(dir, i + 1, state) }
+              firsts, last = expected_recovery(damage)
+
+              store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+              assert_recovered(store, damage, firsts, last)
+              store.close
+
+              # recovery must be durable: a second restart reads the same numbers
+              store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+              assert_recovered(store, damage, firsts, last)
+
+              # and the numbering continues, never reusing a known offset
+              store.push(LavinMQ::Message.new("", "rk", "fresh"))
+              store.last_offset.should eq last + 1
+              body_at_offset(store, last + 1).should eq "fresh"
+              store.close
+            end
+          end
+        end
+      end
+    end
+  end
+
+  it "publishes after recovery on a clustered node" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      empty_segment(File.join(dir, "msgs.0000000004"))
+      replicator = StrictReplicator.new
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, replicator)
+      store.last_offset.should eq 9
+      store.push(LavinMQ::Message.new("", "rk", "fresh")) # raises if the write segment lost its registration
+      body_at_offset(store, 10).should eq "fresh"
+      store.close
+    end
+  end
+
+  it "rejects a torn meta file of a lost segment" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      File.write(File.join(dir, "meta.0000000003"), Bytes.new(28, 0x78))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 9 # degraded like a lost meta file, never garbage offsets
+      store.close
+    end
+  end
+
+  it "corrects a stale stored offset in the meta after a lost segment" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 15)
+      store.@segments.size.should eq 5
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      File.open(File.join(dir, "meta.0000000004"), "r+") do |f|
+        f.seek(4) # the first offset field, after the message count
+        f.write_bytes 99i64
+      end
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 15
+      body_at_offset(store, 10).should start_with "9:"
+      store.close
+    end
+  end
+
+  it "hands a finished segment to the persister so the next confirm syncs it" do
+    with_datadir do |dir|
+      persister = LavinMQ::Persister.new(dir)
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil, persister: persister)
+      push_indexed_messages(store, 4) # rolls over to segment 2
+      store.@segments.size.should eq 2
+      # marked means it sits in the persister's batch for the next drain
+      store.@segments[1u32].mark_needs_msync!.should be_true
+      store.close
+      persister.close
+    end
+  end
+end

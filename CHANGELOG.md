@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Since 2.11.0-rc.1, a power loss could make confirmed messages in a stream unreadable. A segment that only got unconfirmed publishes isn't synced, so it could come back empty and be deleted at startup, and the stream then numbered the segments after it from offset 1 again: consumers stopped before the newest messages, confirmed ones included. Offsets now continue from the closest earlier segment, or from where the deleted segment ended if its metadata file is left [#2597](https://github.com/cloudamqp/lavinmq/pull/2597)
+- Since 2.11.0-rc.1, a power loss could make confirmed messages in a stream unreadable. A segment that only got unconfirmed publishes isn't synced, so it could come back empty and be deleted at startup, and the stream then numbered the segments after it from offset 1 again: consumers stopped before the newest messages, confirmed ones included. A finished stream segment is now synced with the next publish confirm, so it can't become a hole between synced segments, and a segment that still comes back empty is kept as an empty segment whose metadata file says where its offsets ended, so the numbering continues and survives restarts [#2597](https://github.com/cloudamqp/lavinmq/pull/2597)
 
 ## [2.11.0-rc.3] - 2026-11-03
 
