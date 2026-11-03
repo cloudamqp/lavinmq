@@ -26,12 +26,24 @@ module LavinMQ
     # or rolling back .raft_state could let the node vote twice in a term.
     NODE_LOCAL_FILES = {".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
 
-    # Whether the data dir has broker data, i.e. anything but this node's own
-    # files and the replication checksums
+    # Entries of the data dir that aren't the broker's: the schema migration
+    # backups, this node's own files (NODE_LOCAL_FILES), which the raft node
+    # may be replacing meanwhile, and sockets, like the lavinmqctl one when
+    # it's configured in the data dir (a crashed process leaves it behind,
+    # copying it fails and a live one mustn't be deleted). Also an entry
+    # that's gone. Schema.migrate neither backs these up nor restores them.
+    def self.node_local?(data_dir : String, child : String) : Bool
+      return true if child == "backups" || child.in?(NODE_LOCAL_FILES)
+      type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
+      type.nil? || type.socket? || type.pipe?
+    end
+
+    # Whether the data dir has broker data, i.e. anything but the replication
+    # checksums and node local entries (see .node_local?)
     def self.broker_data?(data_dir : String) : Bool
       return false unless Dir.exists?(data_dir)
       Dir.each_child(data_dir) do |child|
-        next if child.in?(NODE_LOCAL_FILES) || child.starts_with?("checksums.sha1")
+        next if child.starts_with?("checksums.sha1") || node_local?(data_dir, child)
         return true
       end
       false

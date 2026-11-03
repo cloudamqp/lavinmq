@@ -408,6 +408,22 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  # What the controller tells the other seeds as has_data, which picks the
+  # first leader: a lavinmqctl socket left in the data dir by a crashed
+  # process, or schema backups, aren't broker data
+  it "doesn't count a leftover socket or schema backups as broker data" do
+    with_datadir do |data_dir|
+      File.write(File.join(data_dir, ".clustering_id"), "1")
+      File.write(File.join(data_dir, "checksums.sha1"), "")
+      Dir.mkdir_p File.join(data_dir, "backups", "2026-01-01T00:00:00Z")
+      # The file outlives the process, as after a crash
+      UNIXServer.new(File.join(data_dir, "lavinmqctl.sock")).close(delete: false)
+      LavinMQ::Clustering.broker_data?(data_dir).should be_false
+      File.write(File.join(data_dir, "users.json"), "[]")
+      LavinMQ::Clustering.broker_data?(data_dir).should be_true
+    end
+  end
+
   it "elects a node that was in the etcd backend's ISR first, after a migration", tags: %w[etcd slow] do
     with_etcd do
       # Not the lowest id, which leads among equals
