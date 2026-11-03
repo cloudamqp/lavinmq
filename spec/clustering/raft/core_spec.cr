@@ -665,6 +665,21 @@ describe Raft::Core do
     core.last_term.should eq 2
   end
 
+  # The leader resends its snapshot until the follower's ack arrives, and a
+  # changed version makes the node publish its state and resync its peers
+  it "keeps its version on a snapshot it already has, and still acks it" do
+    now = Time.instant
+    core = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
+      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+    core.step(Raft::AppendEntries.new(1, 1, "u1", 10, 1, [] of Raft::Entry, 10), now)
+    core.take_outbox
+    version = core.version
+    core.step(Raft::InstallSnapshot.new(1, 1, "u1", 10, 1, Set{1, 2, 3}, three_voters), now)
+    core.version.should eq version
+    _, ack = core.take_outbox.find!(&.[1].is_a?(Raft::AppendResponse))
+    ack.as(Raft::AppendResponse).success.should be_true
+  end
+
   # A node a term behind would otherwise keep asking for pre-votes in a term
   # nobody grants, and no node may be left that can campaign
   it "adopts the term of a voter that refuses it a pre-vote" do

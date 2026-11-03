@@ -781,8 +781,8 @@ module LavinMQ::Clustering::Raft
     end
 
     private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?, membership : Membership?) : Nil
-      changed
       return if index <= @snapshot.index
+      changed
       if index <= last_index && term_at(index) == term
         # The entries after it stay: the leader resends its snapshot while
         # entries past it may already be here, and acked
