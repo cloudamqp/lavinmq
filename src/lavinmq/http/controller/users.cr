@@ -67,7 +67,7 @@ module LavinMQ
 
         get "/api/users/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          user(context, params).user_details.to_json(context.response)
+          user(context, params).user_details.to_json(context.response.output)
           context
         end
 
@@ -124,9 +124,9 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           u = user(context, params)
           if vhost = params["vhost"]?
-            u.permissions_details.find { |p| p[:vhost] == vhost }.to_json(context.response)
+            u.permissions_details.find { |p| p[:vhost] == vhost }.to_json(context.response.output)
           else
-            u.permissions_details.to_json(context.response)
+            u.permissions_details.to_json(context.response.output)
           end
           context
         end
@@ -135,7 +135,7 @@ module LavinMQ
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
             hash = Auth::User.hash_password(password, "SHA256")
-            {password_hash: hash.to_s}.to_json(context.response)
+            {password_hash: hash.to_s}.to_json(context.response.output)
             context
           else
             bad_request(context, "Field 'password' is required")

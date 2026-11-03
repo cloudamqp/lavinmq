@@ -221,6 +221,19 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 
   describe "GET /metrics/detailed" do
+    it "writes a body larger than the writer buffer completely" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("chunked")
+        200.times { |i| vhost.declare_queue("q-#{i}", false, false) }
+        body = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        body.bytesize.should be > LavinMQ::HTTP::PrometheusWriter::BUFFER_SIZE
+        lines = body.lines
+        ready = lines.select(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+        ready.count(&.includes?(%(vhost="chunked"))).should eq 200
+        lines.last.should start_with "telemetry_scrape_mem"
+      end
+    end
+
     it "should support specifying families" do
       with_metrics_server do |http, _|
         response = http.get("/metrics/detailed?family=connection_churn_metrics")

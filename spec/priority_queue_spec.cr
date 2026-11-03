@@ -11,7 +11,7 @@ end
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, durable: true, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store

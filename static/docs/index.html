@@ -4,11 +4,50 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>LavinMQ HTTP API</title>
+    <link rel="icon" href="../img/favicon.png">
+    <script src="lavinmq-docs.js"></script>
+    <script>
+      // Elements fetches the files openapi.yaml $refs with credentials: "omit",
+      // so behind a cookie-based auth proxy (e.g. Cloudflare Access) they're
+      // redirected to its login page and the docs show no endpoints.
+      // "same-origin" still never sends cookies to other origins.
+      (function () {
+        var fetch = window.fetch
+        window.fetch = function (input, init) {
+          if (init && init.credentials === 'omit') init = Object.assign({}, init, { credentials: 'same-origin' })
+          return fetch.call(this, input, init)
+        }
+      })()
+    </script>
     <script src="../js/lib/elements-8.2.0.js"></script>
     <link rel="stylesheet" href="../js/lib/elements-8.2.0.css">
+    <link rel="stylesheet" href="lavinmq-docs.css">
   </head>
   <body>
+    <header class="lavinmq-docs-header">
+      <a class="home" href="#/" title="Overview">
+        <img src="../img/favicon.png" alt="LavinMQ">
+        <span>LavinMQ HTTP API</span>
+      </a>
+      <span class="spacer"></span>
+      <div id="theme-switcher">
+        <button id="theme-light" data-mode="light" title="Light theme">
+          <img src="../img/mode-icons/sun-light.svg" alt="Light theme" class="theme-icon dark">
+          <img src="../img/mode-icons/sun-dark.svg" alt="Light theme" class="theme-icon light">
+        </button>
+        <button id="theme-dark" data-mode="dark" title="Dark theme">
+          <img src="../img/mode-icons/moon-light.svg" alt="Dark theme" class="theme-icon dark">
+          <img src="../img/mode-icons/moon-dark.svg" alt="Dark theme" class="theme-icon light">
+        </button>
+        <button id="theme-system" data-mode="system" title="System theme">
+          <img src="../img/mode-icons/monitor-light.svg" alt="System theme" class="theme-icon dark">
+          <img src="../img/mode-icons/monitor-dark.svg" alt="System theme" class="theme-icon light">
+        </button>
+      </div>
+      <a href="../">Back to management UI</a>
+    </header>
     <elements-api
+      class="lavinmq-docs-elements"
       apiDescriptionUrl="openapi.yaml"
       router="hash"
       layout="sidebar"
@@ -18,4 +57,3 @@
       />
   </body>
 </html>
-

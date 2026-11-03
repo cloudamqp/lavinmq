@@ -151,11 +151,19 @@ module LavinMQ
       private def read_loop
         received_bytes = 0_u32
         stream = AMQ::Protocol::Stream.new(@socket, @max_frame_size)
+        stamped_reads = nil
         loop do
           stream.next_frame do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
+            # Frames that arrived in the same socket read were received at the
+            # same time, so the clock is only read once per socket read
+            reads = socket_reads
+            if reads.nil? || reads != stamped_reads
+              stamped_reads = reads
+              received_from_socket
+            end
             if (received_bytes &+= frame.bytesize) > Config.instance.yield_each_received_bytes
               received_bytes = 0_u32
               Fiber.yield
@@ -228,6 +236,24 @@ module LavinMQ
           return false
         end
         true
+      end
+
+      # Reads from the socket so far, nil if the socket isn't buffered
+      private def socket_reads : UInt32?
+        socket = @socket
+        socket.buffer_fills if socket.is_a?(IO::Buffered)
+      end
+
+      # A client that keeps sending never lets the read time out, so this is
+      # where heartbeats are sent to it when nothing else was
+      private def received_from_socket : Nil
+        now = RoughTime.instant
+        @last_recv_frame = now
+        if heartbeat_interval_ms = @heartbeat_interval_ms
+          if @last_sent_frame + heartbeat_interval_ms.milliseconds < now
+            send AMQP::Frame::Heartbeat.new
+          end
+        end
       end
 
       private def send_heartbeat
@@ -349,7 +375,7 @@ module LavinMQ
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
-          @last_sent_frame = RoughTime.instant
+          @last_sent_frame = RoughTime.instant if flush || websocket
         end
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
@@ -447,7 +473,6 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
-        @last_recv_frame = RoughTime.instant
         @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
         @vhost.add_recv_bytes(8_u64 + frame.bytesize)
         case frame
@@ -518,11 +543,6 @@ module LavinMQ
         else
           send_not_implemented(frame)
         end
-        if heartbeat_interval_ms = @heartbeat_interval_ms
-          if @last_sent_frame + heartbeat_interval_ms.milliseconds < RoughTime.instant
-            send AMQP::Frame::Heartbeat.new
-          end
-        end
       rescue ex : LavinMQ::Error::UnexpectedFrame
         @log.error { ex.inspect }
         send_channel_close(ex.frame, ChannelReplyCode::UNEXPECTED_FRAME, ex.frame.class.name)
@@ -565,7 +585,10 @@ module LavinMQ
         @log.debug { "#{ex.inspect} when closing socket" }
       end
 
-      def close(reason = nil, timeout : Time::Span = 5.seconds)
+      # *timeout* applies to new socket writes, not to one already blocked on a
+      # client that doesn't read. *force_close_timeout* shuts the socket down if
+      # the Close frame isn't confirmed by then, which aborts such a write.
+      def close(reason = nil, timeout : Time::Span = 5.seconds, force_close_timeout : Time::Span? = nil)
         reason ||= "Connection closed"
         @log.info { "Closing: #{reason}" }
 
@@ -575,10 +598,28 @@ module LavinMQ
           socket.read_timeout = timeout
         end
 
-        code = ConnectionReplyCode::CONNECTION_FORCED
-        send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        send_done = start_force_close_timer(force_close_timeout) if force_close_timeout
+        begin
+          code = ConnectionReplyCode::CONNECTION_FORCED
+          send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
+        ensure
+          send_done.try &.send(nil)
+        end
       ensure
         @running = false
+      end
+
+      private def start_force_close_timer(force_close_timeout : Time::Span) : ::Channel(Nil)
+        send_done = ::Channel(Nil).new(1)
+        spawn(name: "AMQP::Client#close force close timer") do
+          select
+          when send_done.receive
+          when timeout(force_close_timeout)
+            @log.info { "Sending the Close frame didn't complete within #{force_close_timeout.total_seconds}s, shutting the connection down" }
+            close_socket
+          end
+        end
+        send_done
       end
 
       def force_close
@@ -1042,6 +1083,7 @@ module LavinMQ
         @write_lock.synchronize do
           @socket.flush
         end
+        @last_sent_frame = RoughTime.instant
       end
     end
   end

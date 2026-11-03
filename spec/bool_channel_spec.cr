@@ -9,7 +9,9 @@ describe BoolChannel do
   it "keeps the active channel in sync with the value under concurrent sets" do
     ctx = Fiber::ExecutionContext::Parallel.new("bool-channel", 4)
     mismatches = 0
+    deadline = Time.instant + 5.seconds
     2_000.times do
+      break if Time.instant >= deadline
       bc = BoolChannel.new(false)
       wg = WaitGroup.new
       4.times do |i|

@@ -10,6 +10,10 @@ module LavinMQ
       false
     end
 
+    def synced_by_commit? : Bool
+      false
+    end
+
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
@@ -71,6 +75,8 @@ module LavinMQ
     # Set for publishes that are confirmed (AMQP confirm mode, MQTT QoS 1), so
     # the segments they're written to are synced before the confirm
     property? needs_sync = false
+    # Set for transactional publishes, the commit syncs the data dir
+    property? synced_by_commit = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,
@@ -127,6 +133,12 @@ module LavinMQ
 
     protected def release : Nil
       @segment.release_lease
+    end
+
+    # The same message flagged as redelivered, for a message that left the
+    # queue and came back through another store, like the retry queue
+    def as_redelivered : self
+      Envelope.new(@segment_position, @message, segment: @segment, redelivered: true)
     end
   end
 end
