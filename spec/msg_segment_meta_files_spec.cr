@@ -280,3 +280,57 @@ describe "Message segment metadata files" do
     end
   end
 end
+
+private def push_indexed_messages(store, count)
+  body_size = LavinMQ::Config.instance.segment_size // 4 # 3 messages fit in a segment
+  count.times do |i|
+    store.push(LavinMQ::Message.new("", "rk", "#{i}:".ljust(body_size, 'x')))
+  end
+end
+
+# The segment's size reached the disk but none of its data did: a power cut
+# leaves it as zeros, which the loader takes as an empty segment
+private def empty_segment(path : String) : Nil
+  File.write(path, Bytes.new(File.size(path)))
+end
+
+private def body_at_offset(store, offset) : String
+  _, seg, pos = store.find_offset(offset)
+  String.new(store.read(seg, pos).should_not(be_nil).message.body)
+end
+
+# A segment that only got unconfirmed publishes isn't synced, so a power cut
+# can bring it back empty, and the loader deletes it. The segments after it
+# must still get offsets that continue from the segments before it.
+describe "Stream segment lost in a power cut" do
+  it "keeps the offsets of the next segment when an empty segment is deleted at load" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.@segments.size.should eq 4
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 12
+      body_at_offset(store, 10).should start_with "9:"
+      store.close
+    end
+  end
+
+  it "continues the offsets after an empty segment when the meta files are lost too" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.@segments.size.should eq 4
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      Dir.glob(File.join(dir, "meta.*")).each { |path| File.write(path, "") }
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 9
+      body_at_offset(store, 7).should start_with "9:"
+      store.close
+    end
+  end
+end

@@ -15,6 +15,8 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
+    # segment_id => offset after the last msg, of segments deleted at load as empty
+    @empty_segment_end_offset = Hash(UInt32, Int64).new
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
 
@@ -426,22 +428,47 @@ module LavinMQ::AMQP
       end
     end
 
+    # A power cut can leave a segment of unconfirmed messages without its
+    # data, and it's deleted at load. Its meta file can still say where it
+    # ended, for the offsets of the next segment to continue from.
+    private def empty_segment_found(seg : UInt32, file : MFile) : Nil
+      File.open(meta_file_name(file)) do |f|
+        count = f.read_bytes(UInt32)
+        first_offset = f.read_bytes(Int64)
+        @empty_segment_end_offset[seg] = first_offset + count if count > 0 && first_offset > 0
+      end
+    rescue File::NotFoundError | IO::EOFError
+    end
+
+    # The offset that follows the segments loaded before *seg*. The segment
+    # just before it can be missing, deleted at load as empty, so this is the
+    # closest earlier segment that is loaded or whose end is known.
+    private def offset_after_previous_segments(seg : UInt32) : Int64
+      prev = @segment_first_offset.last_key?
+      empty = @empty_segment_end_offset.last_key?
+      if empty && empty < seg && (prev.nil? || empty > prev)
+        @empty_segment_end_offset[empty]
+      elsif prev
+        @segment_first_offset[prev] + @segment_msg_count[prev]
+      else
+        1i64
+      end
+    end
+
     private def produce_metadata(seg, mfile)
       super
+      # A meta file that failed to read can have set it already
+      @segment_first_offset.delete(seg)
       if empty? || @segment_msg_count[seg].zero?
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = offset_after_previous_segments(seg)
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = offset_after_previous_segments(seg)
         @segment_first_ts[seg] = msg.timestamp
         # NOTE: scan_last_ts re-scans the segment even though super already did.
         # This path only runs when metadata files are missing, so the cost is acceptable.

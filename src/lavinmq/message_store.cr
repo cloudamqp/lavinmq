@@ -500,6 +500,11 @@ module LavinMQ
       wfile
     end
 
+    # Called at load for a segment that is deleted because it has no data,
+    # before its meta file is deleted with it
+    private def empty_segment_found(seg : UInt32, file : MFile) : Nil
+    end
+
     private def write_metadata_file(seg : UInt32, wfile : MFile)
       metafile = meta_file_name(wfile)
       @log.debug { "Write message segment meta file #{metafile}" }
@@ -606,6 +611,7 @@ module LavinMQ
           rescue IO::EOFError
             # delete empty file, it will be recreated if it's needed
             @log.warn { "Empty file at #{path}, deleting it" }
+            empty_segment_found(seg, file)
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = open_segment(path, Config.instance.segment_size)

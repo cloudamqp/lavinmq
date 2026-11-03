@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Since 2.11.0-rc.1, a power loss could make confirmed messages in a stream unreadable. A segment that only got unconfirmed publishes isn't synced, so it could come back empty and be deleted at startup, and the stream then numbered the segments after it from offset 1 again: consumers stopped before the newest messages, confirmed ones included. Offsets now continue from the closest earlier segment, or from where the deleted segment ended if its metadata file is left
+
 ## [2.11.0-rc.3] - 2026-11-03
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites`, `syncfs_threshold` and `etcd_lease_ttl` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker. Federation links and their upstream resources now survive policy re-applies, publishes over the HTTP API and MQTT respect the disk alarm, and the MQTT retain store no longer mixes up non-ASCII topics or keeps an open file per topic. Since rc.2 it fixes the startup, HTTP API and message throughput regressions against 2.10 that were found in the release candidates.
