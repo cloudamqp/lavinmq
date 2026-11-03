@@ -381,6 +381,11 @@ module LavinMQ::Clustering::Raft
         @core.tick(Time.instant)
         flush
       end
+    rescue ex
+      # Without this fiber the node stays up but never takes part again, so
+      # let a supervisor restart it instead
+      Log.fatal(exception: ex) { "Raft node failed" }
+      exit 1
     ensure
       @pending.each &.done.call(false)
       @pending.clear
