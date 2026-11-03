@@ -3,6 +3,13 @@ require "log/spec"
 require "../src/lavinmq/federation/upstream"
 require "../src/lavinmq/federation/upstream_store"
 
+# Sets a link's state the way its run loop does
+class StateSettingExchangeLink < LavinMQ::Federation::Upstream::ExchangeLink
+  def move_to(state : State)
+    state(state)
+  end
+end
+
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
     x = ch.exchange("", "direct", passive: true)
@@ -937,6 +944,23 @@ describe LavinMQ::Federation::Upstream do
         downstream_vhost.delete_exchange("downstream_ex")
 
         upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    # The run loop checks for a stop and then sets its next state, possibly
+    # on another thread than the stop
+    it "stays stopped when the run loop moves on after the stop" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef stop race", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        link = StateSettingExchangeLink.new(upstream, ex, "upstream_q", "upstream_ex")
+        link.stop
+        link.move_to(LavinMQ::Federation::Upstream::Link::State::Starting)
+        link.state.terminating?.should be_true
+        link.run
         wait_for { link.state.terminated? }
       end
     end
