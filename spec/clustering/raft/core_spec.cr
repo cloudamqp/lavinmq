@@ -803,6 +803,23 @@ describe Raft::Core, "membership" do
     core.latest_membership.should eq three_voters
   end
 
+  it "counts the votes of seeds that advertise another name than they're listed under" do
+    now = Time.instant
+    seeds = ["10.0.0.1:5680", "10.0.0.2:5680", "10.0.0.3:5680"]
+    core = Raft::Core.new(1, "n1", seeds, "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    seeds.each_with_index { |seed, i| core.identified(seed, i + 1) }
+    core.connected(2, "n2", now)
+    core.connected(3, "n3", now)
+    announce_fresh(core, [2, 3], now)
+    now += SimCluster::ELECTION * 2
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, 1, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    core.trusting_moved?.should be_false
+  end
+
   it "leads alone once its only seed turns out to be itself" do
     now = Time.instant
     core = Raft::Core.new(1, "n1", ["alias1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,

@@ -1016,7 +1016,10 @@ module LavinMQ::Clustering::Raft
     # only arrive over a connection, and a peer that restarted may not have
     # reconnected to us yet. Non-members, like a removed node acking its
     # removal, have no address to be at. After a long time without a leader
-    # everyone counts, see @trust_moved.
+    # everyone counts, see @trust_moved. A seed may be listed under another
+    # name than it advertises, e.g. its IP address, so before there is a
+    # membership a peer also counts once we reached it through a seed: the
+    # transport only lets one address at a time connect with an id.
     private def at_home?(id : Int32) : Bool
       return true if id == @id || @trust_moved
       address = @live[id]? || return true
@@ -1024,7 +1027,7 @@ module LavinMQ::Clustering::Raft
         expected = m.addresses[id]? || return true
         expected == address
       else
-        @seed_addresses.includes?(address)
+        @seed_addresses.includes?(address) || @seed_ids.has_value?(id)
       end
     end
 
