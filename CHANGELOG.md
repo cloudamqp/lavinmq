@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[clustering] etcd_lease_ttl` config option (default 10 seconds, the previous hardcoded value). A leader that does not renew its etcd lease within the TTL loses leadership, so a higher value lets large nodes survive longer GC pauses, at the cost of slower failover on crashes [#2582](https://github.com/cloudamqp/lavinmq/pull/2582)
+
 ### Changed
 
 - Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
