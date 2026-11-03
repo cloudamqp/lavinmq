@@ -244,8 +244,8 @@ module LavinMQ
     # so where the next message starts, is unknown, so the rest of the
     # segment is skipped, in memory only: its messages are no longer counted,
     # but nothing on disk, or on followers, is changed. They're not acked, so
-    # the segment is kept until the queue is purged or deleted, and nothing
-    # more is written to it (see #write_to_disk).
+    # the segment is kept, until the queue is deleted, and nothing more is
+    # written to it (see #write_to_disk).
     private def skip_corrupt_tail(seg : UInt32, mfile : MFile, pos : UInt32, ex : Exception) : Nil
       @log.error(exception: ex) do
         "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
