@@ -846,6 +846,20 @@ describe Raft::Core, "membership" do
     core.trusting_moved?.should be_false
   end
 
+  # Its connection to us came first, while its id wasn't known, so that
+  # announce went to the name it advertises, which wasn't connected to then
+  it "tells a seed listed under another name about itself once its id is known" do
+    now = Time.instant
+    core = Raft::Core.new(1, "n1", ["n1", "10.0.0.2:5680"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1))
+    core.connected(2, "n2", now)
+    core.connect_to.should_not contain "n2"
+    core.take_outbox
+    core.identified("10.0.0.2:5680", 2)
+    to, _ = core.take_outbox.find!(&.[1].is_a?(Raft::SeedInfo))
+    core.connect_to.should contain core.address_of(to).should_not(be_nil)
+  end
+
   it "leads alone once its only seed turns out to be itself" do
     now = Time.instant
     core = Raft::Core.new(1, "n1", ["alias1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,

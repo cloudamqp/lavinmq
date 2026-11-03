@@ -11,7 +11,7 @@ private class TCPRaftCluster
   @transports = Hash(String, Raft::TCPTransport).new
   @addrs : Array(String)
 
-  def initialize(size : Int32, @password = "secret")
+  def initialize(size : Int32, @password = "secret", @heartbeat : Time::Span = 20.milliseconds)
     size.times { @servers["x#{@servers.size}"] = TCPServer.new("127.0.0.1", 0) }
     listeners = @servers.values
     @servers.clear
@@ -28,7 +28,7 @@ private class TCPRaftCluster
             peers = @addrs) : Raft::Node
     server = @servers[addr]? || (@servers[addr] = TCPServer.new("127.0.0.1", addr.split(':').last.to_i))
     node = @nodes[addr] = Raft::Node.new(id, addr, peers, "tcp://#{addr}", Raft::Storage.new(dir),
-      100.milliseconds, 20.milliseconds)
+      100.milliseconds, @heartbeat)
     transport = @transports[addr] = Raft::TCPTransport.new(@password, id, addr, peers.reject(addr),
       ->node.deliver(Raft::TransportEvent))
     spawn transport.listen(server)
@@ -162,8 +162,8 @@ private class StallingTransport < Raft::Transport
   end
 end
 
-private def with_raft_cluster(size = 3, &)
-  cluster = TCPRaftCluster.new(size)
+private def with_raft_cluster(size = 3, heartbeat = 20.milliseconds, &)
+  cluster = TCPRaftCluster.new(size, heartbeat: heartbeat)
   yield cluster
 ensure
   cluster.try &.close
@@ -439,6 +439,16 @@ describe Raft::Node do
       membership.learners.should eq Set{40}
       membership.addresses[40].should eq addr
       on_current_leader(c, &.add_learner("127.0.0.1:1")).should eq Raft::MembershipError::Unreachable
+    end
+  end
+
+  # The transport drops what's sent to an address it doesn't connect to yet
+  it "replicates to a learner it just added without waiting for the next heartbeat" do
+    with_raft_cluster(1, heartbeat: 1.minute) do |c|
+      c.wait_for_leader
+      addr, learner = c.start_extra(40, [c.address(0)])
+      on_current_leader(c, &.add_learner(addr)).should be_nil
+      wait_for(5.seconds) { learner.membership.try &.learners.includes?(40) }
     end
   end
 

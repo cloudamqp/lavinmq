@@ -488,18 +488,22 @@ module LavinMQ::Clustering::Raft
 
     private def flush : Nil
       save if @core.dirty?
+      # Most events, like heartbeats and acks, change nothing published
+      version = @core.version
+      publish = version != @published_version
+      # Before sending: the transport drops what's sent to an address it
+      # doesn't connect to, and this step may have added one, e.g. a learner
+      # just added or a seed now known by the address it advertises
+      sync_transport if publish
       if transport = @transport
         @core.take_outbox.each do |(to, msg)|
           @core.address_of(to).try { |address| transport.send(address, msg) }
         end
       end
       resolve_pending
-      # Most events, like heartbeats and acks, change nothing published
-      version = @core.version
-      if version != @published_version
+      if publish
         @published_version = version
         publish_state
-        sync_transport
       end
       # After answering and sending, nothing waits for it, see Core#unsaved_commit?
       save if @core.unsaved_commit?

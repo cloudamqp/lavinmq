@@ -429,6 +429,9 @@ module LavinMQ::Clustering::Raft
       return if latest_membership
       refresh_membership
       manage_membership
+      # It connected to us first, under the name it advertises, which wasn't
+      # a peer to connect to then, so the announce from #connected was lost
+      announce(id) if (live = @live[id]?) && live != address
     end
 
     # Leader whose no-op of this term is committed, i.e. it has applied every
