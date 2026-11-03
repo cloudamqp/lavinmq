@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Since 2.11.0-rc.1, a power loss within about 30 seconds of the first start on a new data dir could leave `schema_version` empty, and every later start failed with `Invalid Int32: ""`. Publish confirms no longer sync the whole data dir, so nothing made the file durable. It's now written durably when it's created
+- Since 2.11.0-rc.1, a power loss within about 30 seconds of the first start on a new data dir could leave `schema_version` empty, and every later start failed with `Invalid Int32: ""`. Publish confirms no longer sync the whole data dir, so nothing made the file durable. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
 
 ## [2.11.0-rc.3] - 2026-11-03
 
