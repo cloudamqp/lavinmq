@@ -123,6 +123,7 @@ module LavinMQ
         @protocol_version = PROTOCOL_VERSION # a new leader may speak it
         @host = host
         @port = port
+        handshake_retry = 1.second
         loop do
           hash_local_files
           return if @closed
@@ -131,14 +132,23 @@ module LavinMQ
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
+          handshake_retry = 1.second
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
-        rescue ex : IO::Error
+        rescue ex : IO::Error | Error
           @leader_host.set(nil)
           lz4.try &.close
           socket.try &.close
           break if @closed
-          if (check = @member_check) && !check.call
+          if ex.is_a?(Error)
+            # The leader refused our password, couldn't prove it knows it, or
+            # doesn't speak the protocol. That lasts until the password or the
+            # leader changes, and both sides log each attempt, so wait longer
+            # each time.
+            Log.error { "Handshake with server #{host}:#{port} failed (#{ex.message}), retrying in #{handshake_retry.total_seconds.to_i}s" }
+            break if closed_while_waiting?(handshake_retry)
+            handshake_retry = Math.min(handshake_retry * 2, NOT_MEMBER_RETRY_INTERVAL)
+          elsif (check = @member_check) && !check.call
             # Refused by the leader, keep retrying: we may be added back, and
             # exiting would only make a supervisor restart us in a loop.
             Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
@@ -153,7 +163,8 @@ module LavinMQ
       end
 
       # How long a node that isn't a member waits before it's refused again,
-      # and both it and the leader log it again
+      # and both it and the leader log it again; also the longest a follower
+      # waits between failed handshakes
       NOT_MEMBER_RETRY_INTERVAL = 1.minute
 
       # Waits until this node is added back, or NOT_MEMBER_RETRY_INTERVAL in
