@@ -688,6 +688,30 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "doesn't count data that was given up as unreadable again after a restart" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        sp2 = store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        corrupt.call(store.@segments[sp2.segment], sp2.position)
+        store.shift?.should_not(be_nil).segment_position.should eq sp1 # unacked
+        store.shift?.should be_nil
+        store.unreadable_segments.should eq 1
+        store.release_unreadable
+        store.unreadable_segments.should eq 0
+        store.@segments.has_key?(sp1.segment).should be_true # sp1 is unacked
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.shift?.should_not(be_nil).segment_position.should eq sp1
+        store.shift?.should be_nil
+        store.unreadable_segments.should eq 0
+        store.delete(sp1)
+        store.@segments.has_key?(sp1.segment).should be_false
+        store.close
+      end
+    end
+
     it "skips a requeued message that can't be read without acking it" do
       with_store do |store|
         sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))

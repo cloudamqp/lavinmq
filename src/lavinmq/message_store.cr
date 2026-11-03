@@ -264,14 +264,20 @@ module LavinMQ
     # and nothing more is written to it (see #write_to_disk). The queue is
     # told, see #on_unreadable, and pauses.
     private def skip_corrupt_tail(seg : UInt32, mfile : MFile, pos : UInt32, ex : Exception) : Nil
-      @log.error(exception: ex) do
-        "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
-        "#{mfile.path} #{hexdump(mfile, pos)} #{state_snapshot}"
-      end
-      mark_unreadable(seg)
       readable = count_readable(seg, mfile, pos)
       total = @segment_msg_count[seg]
       skipped = total - Math.min(total, readable)
+      if skipped.zero? && !@unreadable.includes?(seg)
+        # The segment's count ends before the data, as it was given up, also
+        # before a restart, see #release_unreadable
+        @log.info { "Segment #{seg} has data that was given up from pos #{pos}: #{mfile.path}" }
+      else
+        @log.error(exception: ex) do
+          "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
+          "#{mfile.path} #{hexdump(mfile, pos)} #{state_snapshot}"
+        end
+        mark_unreadable(seg)
+      end
       @size -= Math.min(@size, skipped)
       # The skipped messages' sizes are unknown, so @bytesize can only be
       # corrected when nothing is left, else the messages still read would

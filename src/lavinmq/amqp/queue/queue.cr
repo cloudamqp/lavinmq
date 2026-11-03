@@ -1178,7 +1178,7 @@ module LavinMQ::AMQP
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
-      get(no_ack) do |env|
+      get(no_ack, force) do |env|
         yield env
       end.tap { ensure_expire_fiber }
     rescue ClosedError | MessageStore::ClosedError
@@ -1203,7 +1203,7 @@ module LavinMQ::AMQP
 
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
-    private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
+    private def get(no_ack : Bool, force = false, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       settings = self.settings
       loop do # retry if msg expired or deliver limit hit
@@ -1211,8 +1211,9 @@ module LavinMQ::AMQP
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
         @msg_store.shift_with_lease?(@msg_store_lock) do |env|
-          if @msg_store.unreadable_segments > unreadable
-            # Read past data that can't be read, which paused the queue
+          # Paused since the consumer checked, e.g. as another consumer just
+          # read past data that can't be read, or this get did
+          if (@state.paused? && !force) || @msg_store.unreadable_segments > unreadable
             @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position) }
             return false
           end

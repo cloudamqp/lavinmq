@@ -920,6 +920,21 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "doesn't deliver to a consumer once the queue is paused" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("paused-get", true, false)
+        queue = vhost.queue("paused-get").as(LavinMQ::AMQP::Queue)
+        queue.publish(LavinMQ::Message.new("", queue.name, "1"))
+        # Paused after the consumer checked, e.g. by another consumer that
+        # read past data that can't be read
+        queue.pause!
+        queue.consume_get(true) { fail "delivered while paused" }.should be_false
+        queue.message_count.should eq 1
+        queue.basic_get(true, force: true) { }.should be_true
+      end
+    end
+
     it "cancels a consumer whose delivery runs into a store error" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
