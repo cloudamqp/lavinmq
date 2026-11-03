@@ -20,6 +20,7 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
+        @state_lock = Mutex.new
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -57,11 +58,17 @@ module LavinMQ
           Fiber.yield
         end
 
+        # Once stopped, the link only goes on to Terminated: the run loop,
+        # possibly on another thread, checks for a stop and then sets its next
+        # state, and must not undo a stop that came in between.
         private def state(state)
-          @log.debug { "state change from=#{@state} to=#{state}" }
-          @last_changed = RoughTime.unix_ms
-          return if @state == state
-          @state = state
+          @state_lock.synchronize do
+            @log.debug { "state change from=#{@state} to=#{state}" }
+            return if stop_link? && !state.terminated?
+            @last_changed = RoughTime.unix_ms
+            return if @state == state
+            @state = state
+          end
           loop { @state_changed.try_send?(state) || break }
         end
 
