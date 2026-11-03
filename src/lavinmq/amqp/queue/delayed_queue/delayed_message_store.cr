@@ -90,7 +90,7 @@ module LavinMQ::AMQP
       def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         while sp = @requeued.shift?
-          if env = requeued_envelope?(sp)
+          if env = requeued_envelope?(sp, shift: true)
             @bytesize -= sp.bytesize
             @size -= 1
             @empty.set true if @size.zero?

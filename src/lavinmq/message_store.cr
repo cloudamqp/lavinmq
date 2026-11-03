@@ -173,7 +173,7 @@ module LavinMQ
     def shift?(consumer = nil) : Envelope?
       raise ClosedError.new if @closed
       while sp = @requeued.shift?
-        if env = requeued_envelope?(sp)
+        if env = requeued_envelope?(sp, shift: true)
           @bytesize -= sp.bytesize
           @size -= 1
           empty_after_shift if @size.zero?
@@ -224,10 +224,12 @@ module LavinMQ
       msg
     end
 
-    private def requeued_envelope?(sp : SegmentPosition) : Envelope?
+    # The mark that it wasn't delivered is only used up by a shift, not by a
+    # peek, see #first?
+    private def requeued_envelope?(sp : SegmentPosition, shift = false) : Envelope?
       segment = @segments[sp.segment]
       msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-      redelivered = @undelivered.empty? || !@undelivered.delete(sp)
+      redelivered = @undelivered.empty? || !(shift ? @undelivered.delete(sp) : @undelivered.includes?(sp))
       Envelope.new(sp, msg, redelivered: redelivered, segment: segment)
     rescue ex : KeyError | CorruptDataError # KeyError when the segment is gone
       @log.error(exception: ex) do
@@ -241,6 +243,7 @@ module LavinMQ
     # no longer counted. It's not acked, so it stays on disk, as does its
     # segment, see #skip_corrupt_tail.
     private def drop_requeued(sp : SegmentPosition) : Nil
+      @undelivered.delete(sp) unless @undelivered.empty?
       @bytesize -= Math.min(@bytesize, sp.bytesize.to_u64)
       @size -= 1 unless @size.zero?
       @empty.set true if @size.zero?

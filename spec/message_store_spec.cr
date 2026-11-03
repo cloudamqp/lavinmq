@@ -727,6 +727,18 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "keeps a message requeued without being delivered from being flagged redelivered, also after peeks" do
+      with_store do |store|
+        sp = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        store.shift?.should_not be_nil
+        store.requeue(sp, delivered: false)
+        2.times { store.first?.should_not(be_nil).redelivered.should be_false }
+        store.shift?.should_not(be_nil).redelivered.should be_false
+        store.requeue(sp)
+        store.shift?.should_not(be_nil).redelivered.should be_true
+      end
+    end
+
     it "skips a requeued message that can't be read without acking it" do
       with_store do |store|
         sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
