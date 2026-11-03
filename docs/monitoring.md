@@ -45,6 +45,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `queue_messages_ready` | gauge | Messages ready to be delivered to consumers |
 | `queue_messages_unacked` | gauge | Messages delivered to consumers but not yet acknowledged |
 | `queue_messages` | gauge | Sum of ready and unacknowledged messages (total queue depth) |
+| `queue_unreadable_segments` | gauge | Segments found with data that can't be read, kept on disk and skipped, see [Storage](storage.md#unreadable-data). Anything above 0 needs a look |
 
 #### Global message stats
 
@@ -149,7 +150,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `connection_churn_metrics` | Connection open/close totals |
 | `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
 | `channel_metrics` | Per-channel metrics |
-| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; segments with data that can't be read; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
 

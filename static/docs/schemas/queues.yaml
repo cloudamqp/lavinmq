@@ -69,6 +69,9 @@ queue:
     internal:
       type: boolean
       description: If the queue is internal (meaning clients can't publish directly to it).
+    unreadable_segments:
+      type: integer
+      description: Number of segments found with data that can't be read, which are kept on disk and skipped. See docs/storage.md.
     first_message_timestamp:
       type: integer
       description: Epoch timestamp of the first message in the queue.

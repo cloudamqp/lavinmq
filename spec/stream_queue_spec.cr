@@ -329,7 +329,7 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, q_name, 1)
         receive.call.should eq 3
         stream.closed?.should be_false
-        File.exists?("#{mfile.path}.corrupt").should be_true
+        stream.unreadable_segments.should eq 1
       end
       # What's written after the corrupt message is kept, with its offset
       restart_server(s)

@@ -533,7 +533,13 @@ module LavinMQ
           effective_arguments:          EFFECTIVE_ARGS,
           effective_policy_arguments:   effective_policy_args,
           internal:                     false,
+          unreadable_segments:          unreadable_segments,
         }
+      end
+
+      # Segments found with data that can't be read, see MessageStore#skip_corrupt_tail
+      def unreadable_segments : Int32
+        @msg_store.unreadable_segments
       end
     end
   end

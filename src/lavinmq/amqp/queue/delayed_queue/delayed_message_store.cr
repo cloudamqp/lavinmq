@@ -51,8 +51,13 @@ module LavinMQ::AMQP
             count += 1
             bytesize += msg.bytesize
             requeued.insert(sp, msg.timestamp)
-          rescue ex : IO::EOFError | IndexError
-            @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
+          rescue ex : CorruptDataError
+            # Left on disk, see MessageStore#skip_corrupt_tail
+            @log.error(exception: ex) do
+              "Message at segment #{seg_id} pos #{pos} can't be read, skipping the rest of the segment: " \
+              "#{mfile.path} #{pos.try { |p| hexdump(mfile, p) }}"
+            end
+            @unreadable << seg_id
             break
           end
         end

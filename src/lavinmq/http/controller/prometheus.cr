@@ -448,8 +448,10 @@ module LavinMQ
       end
 
       private def overview_queue_metrics(vhosts, writer)
-        ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
+        ready = unacked = connections = channels = consumers = queues = bindings = unreadable = 0_u64
         vhosts.each do |vhost|
+          vhost.each_queue { |q| unreadable += q.unreadable_segments }
+          vhost.each_session { |s| unreadable += s.unreadable_segments }
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
@@ -495,6 +497,10 @@ module LavinMQ
                       value: ready + unacked,
                       type:  "gauge",
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
+        writer.write({name:  "queue_unreadable_segments",
+                      value: unreadable,
+                      type:  "gauge",
+                      help:  "Segments found with data that can't be read, kept on disk and skipped"})
       end
 
       private def custom_metrics(writer)
@@ -663,6 +669,19 @@ module LavinMQ
           vhost.each_session do |s|
             labels = {queue: s.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", s.message_count + s.unacked_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_unreadable_segments", "gauge",
+          "Segments found with data that can't be read, kept on disk and skipped")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_unreadable_segments", q.unreadable_segments, labels)
+          end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_unreadable_segments", s.unreadable_segments, labels)
           end
         end
 

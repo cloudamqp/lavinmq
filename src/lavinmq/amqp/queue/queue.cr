@@ -881,7 +881,13 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        unreadable_segments:          unreadable_segments,
       }
+    end
+
+    # Segments found with data that can't be read, see MessageStore#skip_corrupt_tail
+    def unreadable_segments : Int32
+      @msg_store.unreadable_segments
     end
 
     private def exclusive_consumer_tag : String?

@@ -58,6 +58,19 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose segments with data that can't be read" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthu")
+        vhost.declare_queue("uq", true, false)
+        queue = vhost.queue("uq").as(LavinMQ::AMQP::Queue)
+        queue.@msg_store.@unreadable << queue.@msg_store.@segments.first_key
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        parsed_metrics.find!(&.[:key].== "lavinmq_queue_unreadable_segments")[:value].should eq 1
+        lines = http.get("/metrics/detailed?family=queue_coarse_metrics&vhost=pmthu").body.lines
+        lines.should contain %(lavinmq_detailed_queue_unreadable_segments{queue="uq", vhost="pmthu"} 1)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|

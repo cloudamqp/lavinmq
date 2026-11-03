@@ -71,7 +71,8 @@ describe LavinMQ::AMQP::DurableQueue do
               msg.ack
             end
             should_eventually(eq 0) { queue.message_count }
-            File.exists?("#{path}.corrupt").should be_true
+            queue.details_tuple[:unreadable_segments].should eq 1
+            File.exists?(path).should be_true
 
             q.publish_confirm "after the corrupt data"
             select

@@ -39,14 +39,16 @@ Streams do not record individual message deletions in ack files. Acknowledgments
 
 For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
-## Corrupt Data
+## Unreadable Data
 
-A queue keeps running when part of a segment can't be read, for example after disk errors or an unclean shutdown. Where the next message in the segment starts is then unknown, so the rest of the segment is skipped:
+A queue keeps running when part of a segment can't be read. That can be corrupt data, for example after disk errors, or a bug, and LavinMQ can't tell which. So it changes nothing on disk, nor on cluster followers, and only skips the data in memory. Where the next message in the segment starts is unknown, so the rest of the segment is skipped:
 
-- **When a message is read**: the unreadable message and the rest of its segment are no longer counted or delivered. The segment is deleted once the messages before the corrupt one are acknowledged. If the segment was still being written to, new messages go to a new segment. A requeued message that can't be read is dropped and acknowledged. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
-- **At startup**: a segment is kept up to its last readable message. A segment with an unreadable header, for example from a newer LavinMQ version, is moved aside and not loaded.
+- **When a message is read**: the message and the rest of its segment are no longer counted or delivered. They're not acknowledged, so the segment is kept until the queue is purged or deleted, and nothing more is written to it: new messages go to a new segment. A requeued message that can't be read is skipped the same way. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
+- **At startup**: a segment is counted up to its last readable message. A segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded.
 
-Each such segment is logged as an error and copied, or moved, to `msgs.{segment_id}.corrupt` next to it for inspection. The copies are deleted with the queue.
+The data is still on disk, so after a restart it's skipped again, or read if it was a bug that's since been fixed.
+
+Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look: compare the segment with the copies on the cluster's followers, then purge or delete the queue once it's no longer needed.
 
 ## Data Directory Layout
 

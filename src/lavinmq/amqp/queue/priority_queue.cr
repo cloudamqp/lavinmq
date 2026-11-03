@@ -131,6 +131,10 @@ module LavinMQ::AMQP
         @stores.sum(&.bytesize)
       end
 
+      def unreadable_segments : Int32
+        @stores.sum(&.unreadable_segments)
+      end
+
       def empty? : Bool
         size.zero?
       end
