@@ -135,6 +135,14 @@ module LavinMQ::AMQP
         @stores.sum(&.unreadable_segments)
       end
 
+      def release_unreadable : Nil
+        @stores.each &.release_unreadable
+      end
+
+      def on_unreadable=(callback : Proc(Nil)?)
+        @stores.each(&.on_unreadable = callback)
+      end
+
       def empty? : Bool
         size.zero?
       end
@@ -197,7 +205,7 @@ module LavinMQ::AMQP
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
-        @stores.each &.release_unreadable if empty?
+        release_unreadable if empty?
         count
       end
 

@@ -91,7 +91,7 @@ A queue can be in one of the following states:
 | State | Description |
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
-| `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
+| `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. A queue is also paused when data in it can't be read, see [Storage](storage.md#unreadable-data). |
 | `closed` | Queue is being shut down, for example when the broker stops |
 | `deleted` | Queue has been deleted |
 

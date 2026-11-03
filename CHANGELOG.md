@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A queue or stream with a message that can't be read is no longer closed. The rest of that segment is skipped in memory, while the data stays on disk and on cluster followers, as it can be corrupt data or a bug. It's logged as an error and counted in the new `unreadable_segments` queue detail and `queue_unreadable_segments` metric, see [Storage](docs/storage.md#unreadable-data). At startup a segment is counted up to its last readable message, and one whose header can't be read isn't loaded, instead of leaving its queue closed. A purge that empties the queue deletes these segments [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
+- A queue with a message that can't be read is paused instead of closed, and a stream consumer skips it. The data stays on disk and on cluster followers, as it can be corrupt data or a bug: restarting, or failing over, reads it again, and resuming the queue gives it up. It's logged as an error and counted in the new `unreadable_segments` queue detail and `queue_unreadable_segments` metric, see [Storage](docs/storage.md#unreadable-data). At startup a segment is counted up to its last readable message, and one whose header can't be read isn't loaded, instead of leaving its queue closed [#2481](https://github.com/cloudamqp/lavinmq/pull/2481)
 
 ### Removed
 

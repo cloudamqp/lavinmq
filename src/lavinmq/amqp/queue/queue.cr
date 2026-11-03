@@ -352,6 +352,8 @@ module LavinMQ::AMQP
         @state = QueueState::Paused
         @paused.set(true)
       end
+      @msg_store.on_unreadable = ->pause_for_unreadable_data
+      pause_for_unreadable_data if @msg_store.unreadable_segments > 0
       handle_arguments
       ensure_queue_expire_fiber
       start_message_expire_loop if should_start_expire_fiber?
@@ -780,8 +782,23 @@ module LavinMQ::AMQP
       File.touch(File.join(@data_dir, "paused"))
     end
 
+    # Data that can't be read, see MessageStore#skip_corrupt_tail, stops
+    # deliveries, so that nothing after it is delivered before someone has
+    # decided: resume the queue to give the data up, or restart, or fail over,
+    # to read it again. Internal queues, with no consumers, keep going.
+    private def pause_for_unreadable_data : Nil
+      return if internal? || !@state.running?
+      @log.error do
+        "Pausing the queue, as data in its message store can't be read. Resume it to give that data up, " \
+        "or restart, or fail over to another node, to read it again"
+      end
+      pause!
+    end
+
+    # Also gives up data that can't be read, see #pause_for_unreadable_data
     def resume!
       return unless @state.paused?
+      @msg_store_lock.synchronize { @msg_store.release_unreadable }
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused.set(false)
@@ -1190,9 +1207,15 @@ module LavinMQ::AMQP
       raise ClosedError.new if @closed
       settings = self.settings
       loop do # retry if msg expired or deliver limit hit
+        unreadable = @msg_store.unreadable_segments
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
         @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+          if @msg_store.unreadable_segments > unreadable
+            # Read past data that can't be read, which paused the queue
+            @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position) }
+            return false
+          end
           if has_expired?(env.message) # guarantee to not deliver expired messages
             expire_msg(env, :expired)
             next

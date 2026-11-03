@@ -35,7 +35,7 @@ module LavinMQ
     @synced_writes = false
     # Segments with data that can't be read, see #skip_corrupt_tail. Never
     # written to or deleted for being acked, so that what's on disk, and on
-    # followers, stays for someone to look at, until a purge, see
+    # followers, stays for someone to look at, until they're given up, see
     # #release_unreadable. Changed under the store's lock, while its size is
     # read without it, from @unreadable_count.
     @unreadable = Set(UInt32).new
@@ -48,6 +48,11 @@ module LavinMQ
     # of those were requeued messages that couldn't be read
     @readable = Hash(UInt32, UInt32).new
     @unreadable_requeued = Hash(UInt32, UInt32).new(0u32)
+    # Unreadable segments given up, but not yet deleted, see #release_unreadable
+    @released = Set(UInt32).new
+    # Called, under the store's lock, when a segment is found with data that
+    # can't be read, so that the queue can stop delivering
+    property on_unreadable : Proc(Nil)? = nil
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -59,8 +64,10 @@ module LavinMQ
     end
 
     private def mark_unreadable(seg : UInt32) : Nil
-      @unreadable << seg
+      return if @released.includes?(seg)
+      return unless @unreadable.add?(seg)
       @unreadable_count.set(@unreadable.size, :relaxed)
+      @on_unreadable.try &.call
     end
 
     def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
@@ -253,8 +260,9 @@ module LavinMQ
     # so where the next message starts, is unknown, so the rest of the
     # segment is skipped, in memory only: its messages are no longer counted,
     # but nothing on disk, or on followers, is changed. They're not acked, so
-    # the segment is kept until the queue is purged (see #release_unreadable)
-    # or deleted, and nothing more is written to it (see #write_to_disk).
+    # the segment is kept until the data is given up (see #release_unreadable),
+    # and nothing more is written to it (see #write_to_disk). The queue is
+    # told, see #on_unreadable, and pauses.
     private def skip_corrupt_tail(seg : UInt32, mfile : MFile, pos : UInt32, ex : Exception) : Nil
       @log.error(exception: ex) do
         "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
@@ -290,11 +298,11 @@ module LavinMQ
       @readable[seg] = messages_before(mfile, pos) + acked_after
     end
 
-    # Called when a purge has emptied the store: the data that can't be read
-    # is purged too. A segment that isn't loaded is deleted, and one that is
-    # gets the count of its readable messages, so that it's deleted once
-    # those are acked, now if they already are.
-    protected def release_unreadable : Nil
+    # Gives up the data that can't be read, when a purge has emptied the
+    # store or the queue is resumed. A segment that isn't loaded is deleted,
+    # and one that is gets the count of its readable messages, so that it's
+    # deleted once those are acked, now if they already are.
+    def release_unreadable : Nil
       return if @unreadable.empty?
       @log.info { "Purging segments with data that can't be read: #{@unreadable.to_a.sort!}" }
       open_new_segment if @unreadable.includes?(@wfile_id)
@@ -315,6 +323,7 @@ module LavinMQ
             end
             delete_file(mfile, including_meta: true)
           else
+            @released << seg
             write_metadata_file(seg, mfile)
           end
         else
@@ -337,6 +346,7 @@ module LavinMQ
     end
 
     private def forget_unreadable(seg : UInt32) : Nil
+      @released.delete(seg)
       @unreadable.delete(seg)
       @partly_counted.delete(seg)
       @readable.delete(seg)

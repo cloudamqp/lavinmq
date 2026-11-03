@@ -439,7 +439,7 @@ module LavinMQ::AMQP
     # except for the one being written, which is rolled over by the next
     # write (see MessageStore#write_to_disk), so only the ones that weren't
     # loaded are left to purge
-    protected def release_unreadable : Nil
+    def release_unreadable : Nil
       @unreadable.to_a.each do |seg|
         delete_unloaded_segment(seg) unless @segments.has_key?(seg)
       end

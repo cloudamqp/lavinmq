@@ -41,14 +41,17 @@ For standard and priority queues, when all messages in a segment have been ackno
 
 ## Unreadable Data
 
-A queue keeps running when part of a segment can't be read. That can be corrupt data, for example after disk errors, or a bug, and LavinMQ can't tell which. So it changes nothing on disk, nor on cluster followers, and only skips the data in memory. Where the next message in the segment starts is unknown, so the rest of the segment is skipped:
+Part of a segment can't be read when the data is corrupt, for example after disk errors or a power loss, or because of a bug, and LavinMQ can't tell which. So it changes nothing on disk, nor on cluster followers, and the queue is paused, for someone to decide what to do with the data. Where the next message in the segment starts is unknown, so the rest of the segment can't be read:
 
-- **When a message is read**: the message and the rest of its segment are no longer counted or delivered. They're not acknowledged, so the segment is kept until the queue is purged or deleted, and nothing more is written to it: new messages go to a new segment. A requeued message that can't be read is skipped the same way. A stream consumer that reads one continues with the next segment, or with the next message written if it was reading the last segment.
-- **At startup**: a segment is counted up to its last readable message. A segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded.
+- **When a message is read**: the queue is paused, and no message after the data that can't be read is delivered. Publishing continues, to a new segment. The message and the rest of its segment are no longer counted. A requeued message that can't be read is handled the same way.
+- **At startup**: a segment is counted up to its last readable message, and a segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded. The queue starts paused.
+- **Streams and internal queues** aren't paused. A stream consumer that reads data that can't be read continues with the next segment, or with the next message written if it was reading the last segment.
 
-The data is still on disk, so after a restart it's skipped again, or read if it was a bug that's since been fixed.
+Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look, for example by comparing the segment with the copies on the cluster's followers. Then:
 
-Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look: compare the segment with the copies on the cluster's followers, then purge or delete the queue once the data is no longer needed. A purge that empties the queue deletes these segments too, also those that weren't loaded, and a segment with unacknowledged messages once they're acknowledged. In a stream, the segment being written is only rolled over, by the next message published, and deleted with the segments before it after that.
+- **Restart LavinMQ, or fail over to another node**, to read the data again. If it was a bug that's since been fixed, or the other node has a copy that can be read, nothing is lost. Otherwise the queue is paused again.
+- **Resume the queue** to give the data up. The messages after it are delivered, and the segments are deleted once their readable messages are acknowledged, also those that weren't loaded.
+- **Purge or delete the queue**. A purge that empties the queue gives the data up too.
 
 ## Data Directory Layout
 
