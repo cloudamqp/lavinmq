@@ -5,6 +5,7 @@ require "random/secure"
 require "uri"
 require "./messages"
 require "../../logger"
+require "../../accept_loop"
 require "../../../stdlib/channel"
 
 module LavinMQ::Clustering::Raft
@@ -108,7 +109,7 @@ module LavinMQ::Clustering::Raft
 
     def listen(server : TCPServer) : Nil
       @server = server
-      while socket = server.accept?
+      AcceptLoop.each(server, "Raft listener") do |socket|
         spawn_inbound(socket)
       end
     end

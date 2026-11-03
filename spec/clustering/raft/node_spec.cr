@@ -509,7 +509,38 @@ describe Raft::Node do
   end
 end
 
+# Fails its first accept like when out of file descriptors
+private class FailingOnceServer < TCPServer
+  @failed = false
+
+  def accept? : TCPSocket?
+    unless @failed
+      @failed = true
+      raise Socket::Error.from_os_error("accept", Errno::EMFILE)
+    end
+    super
+  end
+end
+
 describe Raft::TCPTransport do
+  it "keeps accepting after an accept fails" do
+    server = FailingOnceServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    transport = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, ->(e : Raft::TransportEvent) { events.send e })
+    spawn transport.listen(server)
+    client = Raft::TCPTransport.new("secret", 2, "client:1", [addr], ->(_e : Raft::TransportEvent) { })
+    select
+    when event = events.receive
+      event.should eq Raft::Connected.new(2, "client:1")
+    when timeout(3.seconds)
+      fail "stopped accepting"
+    end
+  ensure
+    client.try &.close
+    transport.try &.close
+  end
+
   it "lets one address at a time connect with a clustering id" do
     server = TCPServer.new("127.0.0.1", 0)
     addr = "127.0.0.1:#{server.local_address.port}"
