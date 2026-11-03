@@ -22,6 +22,10 @@ private class SpecController < LavinMQ::Clustering::RaftController
   private def leader? : Bool
     @fake_leader
   end
+
+  private def leadership : LavinMQ::Clustering::Raft::Node::Leadership
+    LavinMQ::Clustering::Raft::Node::Leadership.new(@fake_leader_uri, @fake_leader)
+  end
 end
 
 private alias ControllerExit = Tuple(LavinMQ::Clustering::RaftController, Int32)

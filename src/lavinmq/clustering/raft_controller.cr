@@ -319,7 +319,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # back to following whoever leads next.
   private def follow_leader_changes
     loop do
-      if follow(current_leader_uri) == :elected
+      if follow(leadership) == :elected
         select
         when serving.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
@@ -343,7 +343,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node.serving
   end
 
-  private def follow(uri : String?) : Symbol?
+  private def follow(leadership : Raft::Node::Leadership) : Symbol?
+    uri = leadership.uri
     if repli_client = @repli_client # is currently following a leader
       return if repli_client.follows? uri
       stop_following
@@ -353,7 +354,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       return
     end
     if uri == @advertised_uri
-      return :elected if leader?
+      return :elected if leadership.leader
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
@@ -371,6 +372,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def current_leader_uri : String?
     @node.leader_uri
+  end
+
+  private def leadership : Raft::Node::Leadership
+    @node.leadership
   end
 
   private def leader? : Bool

@@ -136,6 +136,10 @@ module LavinMQ::Clustering::Raft
     private record Pending, index : Int64, term : Int64, done : Bool ->
     private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | CheckTransfer | GetStatus | GetMetrics
 
+    # The leader's URI and whether it's this node, read together: read apart,
+    # a node that lost its term in between looks like another node at its URI
+    record Leadership, uri : String?, leader : Bool
+
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
     getter serving = BoolChannel.new(false)
@@ -204,6 +208,10 @@ module LavinMQ::Clustering::Raft
 
     def leader? : Bool
       @state_lock.synchronize { @leader }
+    end
+
+    def leadership : Leadership
+      @state_lock.synchronize { Leadership.new(@leader_uri, @leader) }
     end
 
     def term : Int64
