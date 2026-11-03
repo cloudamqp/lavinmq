@@ -27,7 +27,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.get.try &.close
+    @repli_client.swap(nil).try &.close
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)

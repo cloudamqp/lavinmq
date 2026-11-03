@@ -26,6 +26,17 @@ private class SelfLeaderController < LavinMQ::Clustering::EtcdController
   end
 end
 
+# No follower monitor: a replication client set with #following_for_spec is
+# left to #run, as when this node is elected before the monitor sees it
+private class UnmonitoredController < LavinMQ::Clustering::EtcdController
+  def following_for_spec(client : LavinMQ::Clustering::Client) : Nil
+    @repli_client.set(client)
+  end
+
+  private def follow_leader_changes
+  end
+end
+
 # Test-only seam: drive the SIGTERM shutdown path without raising the signal.
 class LavinMQ::Launcher
   def shutdown_for_spec
@@ -188,6 +199,38 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
         code.should be_nil
       when timeout(5.seconds)
         fail "run didn't return after stop"
+      end
+    end
+  end
+
+  it "stops reporting the replication client's metrics once it leads" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5686"
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      client = LavinMQ::Clustering::Client.new(config, controller.id, "secret")
+      controller.following_for_spec(client)
+      # follow was never called, satisfy close's follower-done handshake
+      spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+      metrics = Channel(String).new(1)
+      spawn(name: "promoted controller") do
+        controller.run do
+          metrics.send(String.build { |io| LavinMQ::HTTP::PrometheusWriter.open(io, "lavinmq") { |w| controller.write_metrics(w) } })
+        end
+      rescue SpecExit
+      end
+      begin
+        select
+        when body = metrics.receive
+          body.should_not contain "cluster_received_bytes_total"
+        when timeout(5.seconds)
+          fail "controller was not elected leader"
+        end
+      ensure
+        controller.stop
       end
     end
   end
