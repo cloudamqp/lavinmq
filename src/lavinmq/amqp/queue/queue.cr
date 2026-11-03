@@ -33,8 +33,7 @@ module LavinMQ::AMQP
     VALIDATOR_STRING    = ArgumentValidator::StringValidator.new
     VALIDATOR_BOOL      = ArgumentValidator::BoolValidator.new
 
-    DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
-    DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
+    DELAYED_RETRY_MAX_DELAY_MS = UInt32::MAX.to_i64
 
     add_argument_validator "x-expires", VALIDATOR_INT_ONE
     add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
@@ -662,7 +661,6 @@ module LavinMQ::AMQP
           raise LavinMQ::Error::PreconditionFailed.new(
             "x-delayed-retry-min cannot be combined with x-message-deduplication")
         end
-        settings.delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
         effective_args << "x-delayed-retry-min"
         settings.delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
         effective_args << "x-delayed-retry-multiplier" if settings.delayed_retry_multiplier
@@ -764,6 +762,9 @@ module LavinMQ::AMQP
       cap = Math.min(settings.delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
       delay = Math.min(base_delay, cap)
       if mult = settings.delayed_retry_multiplier
+        # Without a delivery limit the count is unbounded, and a constant
+        # delay would otherwise loop once per attempt
+        return delay if mult == 1
         (delivery_count - 1).times do
           if delay > cap // mult
             delay = cap
@@ -1275,7 +1276,8 @@ module LavinMQ::AMQP
       # Acks and rejects on other threads update @deliveries too
       delivery_count = @msg_store_lock.synchronize do
         count = @deliveries[sp]? || delivery_count_from_header(headers, settings) || 0
-        @deliveries[sp] = count + 1
+        # Saturates, since without a delivery limit the count is unbounded
+        @deliveries[sp] = count == Int32::MAX ? count : count + 1
         count
       end
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
