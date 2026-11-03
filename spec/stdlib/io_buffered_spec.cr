@@ -39,12 +39,16 @@ describe IO::BufferPool do
 
   it "caches buffers per thread" do
     pool = IO::BufferPool.new(1024)
-    buf = pool.acquire
-    Fiber::ExecutionContext::Isolated.new("release on another thread") do
-      pool.release(buf)
+    # Pinned to a thread of its own: a fiber of the default context can
+    # resume on another of its threads after waiting
+    Fiber::ExecutionContext::Isolated.new("acquire on one thread") do
+      buf = pool.acquire
+      Fiber::ExecutionContext::Isolated.new("release on another thread") do
+        pool.release(buf)
+      end.wait
+      # released into the other thread's cache, not this one's
+      pool.acquire.should_not eq buf
     end.wait
-    # released into the other thread's cache, not this one's
-    pool.acquire.should_not eq buf
     stats = pool.stats
     stats[:threads].should eq 2
     stats[:available].should eq 1
