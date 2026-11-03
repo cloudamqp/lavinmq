@@ -26,6 +26,7 @@ module LavinMQ::AMQP
       def initialize(*args, **kwargs)
         super
         build_index
+        release_unreadable
       end
 
       def build_index
@@ -71,7 +72,9 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
-      # Messages that can't be read are dropped, see #drop_requeued
+      # Messages that can't be read are dropped, see #drop_requeued, and
+      # given up right away, as an internal queue isn't paused for them, see
+      # MessageStore#release_unreadable
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
         while sp = @requeued.first?
@@ -80,6 +83,7 @@ module LavinMQ::AMQP
           end
           @requeued.shift?
           drop_requeued(sp)
+          release_unreadable
         end
       end
 
@@ -93,6 +97,7 @@ module LavinMQ::AMQP
             return env
           end
           drop_requeued(sp)
+          release_unreadable
         end
       end
 

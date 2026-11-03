@@ -712,6 +712,21 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "gives up data that can't be read right away in an MQTT session's store" do
+      mktmpdir do |dir|
+        store = LavinMQ::MQTT::SessionMessageStore.new(dir, nil)
+        sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))
+        sp2 = store.push(LavinMQ::Message.new("ex", "rk", "2"))
+        corrupt.call(store.@segments[sp2.segment], sp2.position)
+        store.shift?.should_not(be_nil).segment_position.should eq sp1
+        store.shift?.should be_nil
+        store.unreadable_segments.should eq 0 # a session can't be paused
+        store.delete(sp1)
+        store.@segments.has_key?(sp1.segment).should be_false
+        store.close
+      end
+    end
+
     it "skips a requeued message that can't be read without acking it" do
       with_store do |store|
         sp1 = store.push(LavinMQ::Message.new("ex", "rk", "1"))

@@ -785,7 +785,8 @@ module LavinMQ::AMQP
     # Data that can't be read, see MessageStore#skip_corrupt_tail, stops
     # deliveries, so that nothing after it is delivered before someone has
     # decided: resume the queue to give the data up, or restart, or fail over,
-    # to read it again. Internal queues, with no consumers, keep going.
+    # to read it again. Internal queues, with no consumers, keep going, and
+    # give the data up right away, see DelayedMessageStore.
     private def pause_for_unreadable_data : Nil
       return if internal? || !@state.running?
       @log.error do
@@ -797,12 +798,16 @@ module LavinMQ::AMQP
 
     # Also gives up data that can't be read, see #pause_for_unreadable_data
     def resume!
-      return unless @state.paused?
-      @msg_store_lock.synchronize { @msg_store.release_unreadable }
-      @state = QueueState::Running
-      @log.debug { "Resuming" }
-      @paused.set(false)
-      File.delete(File.join(@data_dir, "paused"))
+      # Under the store's lock, which data that can't be read pauses the queue
+      # under, so that a pause for new such data isn't lost to this resume
+      @msg_store_lock.synchronize do
+        return unless @state.paused?
+        @msg_store.release_unreadable
+        @state = QueueState::Running
+        @log.debug { "Resuming" }
+        @paused.set(false)
+        File.delete(File.join(@data_dir, "paused"))
+      end
     end
 
     def close : Bool

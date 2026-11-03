@@ -337,6 +337,7 @@ describe "Delayed Message Exchange" do
         # queue, so delayed messages are still released
         should_eventually(eq 0) { requeued.size }
         queue.closed?.should be_false
+        queue.unreadable_segments.should eq 0 # given up, as it isn't paused
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
         x.publish_confirm "after the error", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
         should_eventually(eq 1) { s.vhosts["/"].queue(q.name).message_count }
