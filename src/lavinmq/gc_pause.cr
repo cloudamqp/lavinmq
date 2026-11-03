@@ -3,8 +3,8 @@ module LavinMQ
   #
   # The collection event callback runs inside the collector with the
   # allocation lock held, so it must not allocate, log or touch fibers.
-  # Counters are only written from that callback, readers may observe
-  # a slightly stale but never torn value.
+  # Counters are written from that callback and read by scrapes on other
+  # threads, so they're relaxed atomics.
   #
   # The class vars below are initialized at program start. Don't make
   # them lazy: a lazy initializer is guarded by __crystal_once, which may
@@ -12,10 +12,16 @@ module LavinMQ
   module GCPauseRecorder
     BUCKETS = StaticArray[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5]
 
-    @@counts = StaticArray(UInt64, 11).new(0_u64) # last slot is +Inf
-    @@sum = 0.0
+    # Last slot is +Inf. `uninitialized` because the global is zeroed anyway, and
+    # pointerof on a class var with an initializer re-runs that initializer
+    @@counts = uninitialized StaticArray(Atomic(UInt64), 11)
+    # Nanoseconds, an integer so a long uptime doesn't accumulate float rounding
+    @@sum_ns = Atomic(UInt64).new(0_u64)
+    # Read and written only inside the callback, which the GC lock serializes
     @@stop_started_at : Time::Instant? = nil
+    # Written before set_on_collection_event, whose GC lock publishes it to the callback
     @@previous : LibGC::OnCollectionEventProc? = nil
+    # Only touched by install, which runs once at startup
     @@installed = false
 
     def self.install : Nil
@@ -29,7 +35,7 @@ module LavinMQ
           @@stop_started_at = Time.instant
         when .post_start_world?
           if started_at = @@stop_started_at
-            record (Time.instant - started_at).total_seconds
+            record (Time.instant - started_at).total_nanoseconds.to_u64
             @@stop_started_at = nil
           end
         end
@@ -37,23 +43,30 @@ module LavinMQ
       })
     end
 
-    private def self.record(seconds : Float64) : Nil
+    def self.record(nanoseconds : UInt64) : Nil
+      seconds = nanoseconds / 1e9
       idx = BUCKETS.index { |le| seconds <= le } || BUCKETS.size
-      @@counts[idx] &+= 1
-      @@sum += seconds
+      counter(idx).value.add(1_u64, :relaxed)
+      @@sum_ns.add(nanoseconds, :relaxed)
     end
 
+    # Seconds
     def self.sum : Float64
-      @@sum
+      @@sum_ns.get(:relaxed) / 1e9
     end
 
     # Yields each upper bound (nil for +Inf) with its cumulative count
     def self.each_bucket(& : Float64?, UInt64 ->) : Nil
       cumulative = 0_u64
-      @@counts.each_with_index do |count, i|
-        cumulative &+= count
+      @@counts.size.times do |i|
+        cumulative &+= counter(i).value.get(:relaxed)
         yield BUCKETS[i]?, cumulative
       end
+    end
+
+    # StaticArray is a value type: indexing @@counts would act on a copy
+    private def self.counter(idx : Int) : Atomic(UInt64)*
+      pointerof(@@counts).as(Atomic(UInt64)*) + idx
     end
   end
 end

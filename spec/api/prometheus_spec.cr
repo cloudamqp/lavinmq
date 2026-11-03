@@ -744,3 +744,17 @@ class PrometheusSpecHelper
     attrs
   end
 end
+
+describe LavinMQ::GCPauseRecorder do
+  it "adds recorded nanoseconds to the sum in seconds" do
+    GC.disable # no real pauses may land between the snapshots
+    begin
+      sum_before = LavinMQ::GCPauseRecorder.sum
+      1000.times { LavinMQ::GCPauseRecorder.record(1_u64) }
+      LavinMQ::GCPauseRecorder.record(1_500_000_u64)
+      (LavinMQ::GCPauseRecorder.sum - sum_before).should be_close(0.001501, 1e-12)
+    ensure
+      GC.enable
+    end
+  end
+end
