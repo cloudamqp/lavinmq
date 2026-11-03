@@ -145,7 +145,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   def stop
     return if @stopped
     @stopped = @stopping = true
-    @repli_client.try &.close
+    @repli_client.get.try &.close
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
     @stop_signal.close
@@ -155,7 +155,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   def cluster_status : String?
     status = @node.status || return
     # Replicating from it, which it lets this node do once it serves
-    serving = @repli_client.try { |c| c.connected? && c.follows?(current_leader_uri) } || false
+    serving = @repli_client.get.try { |c| c.connected? && c.follows?(current_leader_uri) } || false
     JSON.build { |json| status.to_json(json, leader_serving: serving) }
   end
 
@@ -345,7 +345,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def follow(leadership : Raft::Node::Leadership) : Symbol?
     uri = leadership.uri
-    if repli_client = @repli_client # is currently following a leader
+    if repli_client = @repli_client.get # is currently following a leader
       return if repli_client.follows? uri
       stop_following
     end
@@ -358,16 +358,16 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
-    @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
+    r = Clustering::Client.new(@config, @id, @coordinator.password)
     r.member_check = -> { @node.self_member? }
+    @repli_client.set(r)
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil
   end
 
   private def stop_following : Nil
-    @repli_client.try &.close
-    @repli_client = nil
+    @repli_client.swap(nil).try &.close
   end
 
   private def current_leader_uri : String?

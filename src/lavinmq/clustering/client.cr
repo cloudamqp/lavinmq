@@ -39,10 +39,6 @@ module LavinMQ
                       help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
       end
 
-      # Whether the leader's replication server has let this node in. A
-      # leader binds that listener after its client listeners, so it's
-      # serving then.
-      getter? connected = false
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -87,13 +83,21 @@ module LavinMQ
 
       @host : String?
       @port : Int32?
+      @leader_host = Atomic(String?).new(nil)
 
       # The leader's host while connected to it, client connections are
       # forwarded there with a PROXY header the leader only accepts from the
       # followers it has registered, see ClientListeners. So nil until it
       # has registered this one, and while reconnecting.
       def host : String?
-        @host if @connected
+        @leader_host.get
+      end
+
+      # Whether the leader's replication server has let this node in. A
+      # leader binds that listener after its client listeners, so it's
+      # serving then.
+      def connected? : Bool
+        !@leader_host.get.nil?
       end
 
       # Tells whether this node is part of the cluster, to explain why the
@@ -129,7 +133,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
-          @connected = false
+          @leader_host.set(nil)
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -268,7 +272,7 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
-        @connected = true # the leader registered this follower before sending it
+        @leader_host.set(@host) # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)

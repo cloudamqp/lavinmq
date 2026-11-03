@@ -18,7 +18,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 
   getter id : Int32
 
-  @repli_client : Client? = nil
+  @repli_client = Atomic(Client?).new(nil)
   @stopped = false
   @stopping = false
 
@@ -77,12 +77,12 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 
   # The leader it replicates from, which client connections are forwarded to
   def leader_host : String?
-    @repli_client.try &.host
+    @repli_client.get.try &.host
   end
 
   # The replication client's while following
   def write_metrics(writer) : Nil
-    @repli_client.try &.write_metrics(writer)
+    @repli_client.get.try &.write_metrics(writer)
   end
 
   private def execute_shell_command(command : String, event : String)

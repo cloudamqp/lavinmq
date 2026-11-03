@@ -26,7 +26,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.try &.close
+    @repli_client.get.try &.close
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -47,19 +47,19 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
 
   def stop
     @stopped = @stopping = true
-    @repli_client.try &.close
+    @repli_client.get.try &.close
     @lease.try &.release
   end
 
   # Listens for leader change events
   private def follow_leader_changes
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
-      if repli_client = @repli_client # is currently following a leader
+      if repli_client = @repli_client.get # is currently following a leader
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
           repli_client.close
-          @repli_client = nil
+          @repli_client.set(nil)
         end
       end
       if uri.nil? # no leader yet
@@ -86,7 +86,8 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
           break
         end
       end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
+      r = Clustering::Client.new(@config, @id, secret)
+      @repli_client.set(r)
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
