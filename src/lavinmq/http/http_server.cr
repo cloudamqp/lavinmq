@@ -75,11 +75,19 @@ module LavinMQ
       end
 
       @closed = false
+      # Connections passed to #accept, closed by #close so that an idle
+      # keep-alive connection doesn't outlive the broker it was serving
+      @clients = Set(Socket).new
+      @clients_lock = Mutex.new
 
       # A connection accepted on a listener ClientListeners owns, over TLS
       # with *tls*
       def accept(client : Socket, tls : OpenSSL::SSL::Context::Server?) : Nil
-        return client.close if @closed
+        open = @clients_lock.synchronize do
+          @clients << client unless @closed
+          !@closed
+        end
+        return client.close unless open
         spawn(name: "HTTP client") do
           client.sync = false
           io = tls ? OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true) : client
@@ -95,6 +103,7 @@ module LavinMQ
         ensure
           io.try &.close rescue nil
           client.close rescue nil
+          @clients_lock.synchronize { @clients.delete(client) }
         end
       end
 
@@ -127,10 +136,17 @@ module LavinMQ
       end
 
       def close
-        @closed = true
-        # Ends keep-alive connections after their current request
+        clients = @clients_lock.synchronize do
+          return if @closed
+          @closed = true
+          @clients.dup.tap { @clients.clear }
+        end
+        # Ends busy keep-alive connections after their current request
         @processor.close
         @http.try &.close
+        # Idle ones would otherwise wait for their next request, and serve it
+        # from the closed broker
+        clients.each { |c| c.close rescue nil }
       end
     end
   end
