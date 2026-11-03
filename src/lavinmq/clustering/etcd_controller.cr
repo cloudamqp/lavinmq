@@ -22,6 +22,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
+    return if @stopping
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
@@ -132,6 +133,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         end
         select
         when err = lease.expired.receive?
+          return if err.nil? && @stopping # released by #stop
           if err
             Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
           else

@@ -166,6 +166,32 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
 
+  it "stops without exiting while waiting to be in sync" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5685"
+      controller = LavinMQ::Clustering::EtcdController.new(config)
+      LavinMQ::Etcd.new("localhost:12379").put("lavinmq/isr", (controller.id + 1).to_s(36))
+      done = Channel(Int32?).new(1)
+      spawn(name: "not in sync controller") do
+        controller.run { fail "served while not in sync" }
+        done.send nil
+      rescue ex : SpecExit
+        done.send ex.code
+      end
+      sleep 0.5.seconds # waiting to be in sync
+      controller.stop
+      select
+      when code = done.receive
+        code.should be_nil
+      when timeout(5.seconds)
+        fail "run didn't return after stop"
+      end
+    end
+  end
+
   it "does not reject its own URI while leadership is validating ISR" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
