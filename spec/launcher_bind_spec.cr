@@ -38,6 +38,21 @@ private class StoppingRunner < LavinMQ::StandaloneRunner
   end
 end
 
+# Stops the launcher from #start's call for the raft cluster, once the broker
+# has loaded, and records whether that closed the broker under the startup
+private class StoppingMidStartRunner < LavinMQ::StandaloneRunner
+  getter closed_under_startup : Bool? = nil
+
+  def initialize(@launcher : LavinMQ::Launcher)
+  end
+
+  def raft : LavinMQ::Clustering::RaftController?
+    @launcher.stop
+    @closed_under_startup = @launcher.@server.try &.closed?
+    nil
+  end
+end
+
 # Runs *launcher* until #run returns, when the process would exit
 private def run_until_stopped(launcher : LavinMQ::Launcher) : Nil
   done = Channel(Nil).new
@@ -61,6 +76,23 @@ describe LavinMQ::Launcher do
       begin
         run_until_stopped(launcher)
         launcher.@server.should be_nil
+      ensure
+        launcher.@server.try &.close # before the data dir is removed
+      end
+    end
+  end
+
+  # It would fail what's still to come, e.g. loading definitions exits 1
+  it "leaves the broker to a startup that's running when stopped, and closes it after" do
+    with_datadir do |data_dir|
+      launcher = LavinMQ::Launcher.new(standalone_config(data_dir))
+      runner = StoppingMidStartRunner.new(launcher)
+      launcher.runner_for_spec = runner
+      begin
+        run_until_stopped(launcher)
+        runner.closed_under_startup.should be_false
+        launcher.@server.should_not(be_nil).closed?.should be_true
+        File.exists?(File.join(data_dir, "control.sock")).should be_false
       ensure
         launcher.@server.try &.close # before the data dir is removed
       end

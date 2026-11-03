@@ -29,6 +29,8 @@ module LavinMQ
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
+    # While #start runs, #stop leaves what it opens to it, see #start
+    @starting = false
     @replicator : Clustering::Server?
     @runner : Runner
     # Serializes starting and stopping to serve as the leader with a shutdown
@@ -75,8 +77,10 @@ module LavinMQ
     private def start : self
       # #stop may have run since the runner decided to serve, e.g. while the
       # raft controller committed the ISR: nothing started from here on would
-      # be closed
-      return self if @role_lock.synchronize { @closed }
+      # be closed. A #stop from now on leaves the broker to this startup,
+      # closing it under it would fail what's still to come, e.g. loading
+      # definitions exits 1, and #run closes it once the runner returns.
+      return self unless @role_lock.synchronize { @starting = !@closed }
       started_at = Time.instant
       # A fresh replicator for each term this node leads, see #demote
       @replicator = @runner.new_replicator
@@ -101,6 +105,8 @@ module LavinMQ
     rescue ex : Socket::BindError
       stop
       abort "Error: #{ex.message}"
+    ensure
+      @role_lock.synchronize { @starting = false }
     end
 
     def run
@@ -121,7 +127,7 @@ module LavinMQ
       @runner.run do
         start
       end
-      # What a startup that #stop raced with opened after it, see #start
+      # What a startup that #stop raced with opened, see #start
       @role_lock.synchronize do
         close_listeners
         @server.try &.close rescue nil
@@ -184,10 +190,11 @@ module LavinMQ
         Log.warn { "Stopping" }
         SystemD.notify_stopping
         @runner.stopping
-        close_listeners
+        # A startup that's running closes what it opens once it's done, see #start
+        close_listeners unless @starting
         @client_listeners.close
         @control_socket.close
-        @server.try &.close rescue nil
+        @server.try(&.close) rescue nil unless @starting
         @metrics_server.try &.close rescue nil
       end
       @runner.stop

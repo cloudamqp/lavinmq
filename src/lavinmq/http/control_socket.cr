@@ -51,7 +51,7 @@ module LavinMQ
       # Binds and listens, only for the owner and its group. Raises if it
       # can't, e.g. when another process on this machine serves the socket.
       def bind! : Nil
-        return if @bound
+        return if @bound || @http.closed?
         ControlSocket.prepare(@path)
         addr = @http.bind_unix(@path)
         begin
