@@ -6,6 +6,7 @@ describe LavinMQ::SNIHost do
     host = LavinMQ::SNIHost.new("example.com")
     host.tls_cert = "spec/resources/server_certificate.pem"
     host.tls_key = "spec/resources/server_key.pem"
+    host.build_tls_contexts("", "")
 
     host.amqp_tls_context.should be_a(OpenSSL::SSL::Context::Server)
     host.mqtt_tls_context.should be_a(OpenSSL::SSL::Context::Server)
@@ -18,6 +19,7 @@ describe LavinMQ::SNIHost do
     host.tls_key = "spec/resources/server_key.pem"
     host.tls_verify_peer = true
     host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    host.build_tls_contexts("", "")
 
     # All protocols should have mTLS by default
     host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
@@ -36,6 +38,7 @@ describe LavinMQ::SNIHost do
     host.mqtt_tls_verify_peer = false
     # HTTP: disable mTLS
     host.http_tls_verify_peer = false
+    host.build_tls_contexts("", "")
 
     amqp_ctx = host.amqp_tls_context
     mqtt_ctx = host.mqtt_tls_context
@@ -51,49 +54,6 @@ describe LavinMQ::SNIHost do
     mqtt_ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
     # HTTP should NOT have peer verification
     http_ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
-  end
-
-  it "does not prefer server ciphers by default" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-
-    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
-  end
-
-  it "creates TLS contexts that prefer the server cipher order" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_prefer_server_ciphers = true
-    # MQTT opts out of the default
-    host.mqtt_tls_prefer_server_ciphers = false
-
-    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
-    host.http_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
-    host.mqtt_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
-  end
-
-  it "restricts the TLS 1.3 ciphersuites, per protocol" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_min_version = "1.3"
-    host.tls_ciphersuites = "TLS_AES_128_GCM_SHA256"
-    host.mqtt_tls_ciphersuites = "TLS_AES_256_GCM_SHA384"
-
-    negotiated_cipher(host.amqp_tls_context).should eq "TLS_AES_128_GCM_SHA256"
-    negotiated_cipher(host.http_tls_context).should eq "TLS_AES_128_GCM_SHA256"
-    negotiated_cipher(host.mqtt_tls_context).should eq "TLS_AES_256_GCM_SHA384"
-  end
-
-  it "raises on an unknown TLS 1.3 ciphersuite" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-    host.tls_ciphersuites = "TLS_NO_SUCH_SUITE"
-
-    expect_raises(OpenSSL::Error) { host.amqp_tls_context }
   end
 end
 
@@ -178,7 +138,6 @@ describe LavinMQ::Config do
       [sni:example.com]
       tls_cert = spec/resources/server_certificate.pem
       tls_key = spec/resources/server_key.pem
-      tls_min_version = 1.2
       tls_verify_peer = false
 
       [sni:mtls.example.com]
@@ -202,7 +161,6 @@ describe LavinMQ::Config do
             case key
             when "tls_cert"             then host.tls_cert = value
             when "tls_key"              then host.tls_key = value
-            when "tls_min_version"      then host.tls_min_version = value
             when "tls_verify_peer"      then host.tls_verify_peer = {"true", "yes", "y", "1"}.includes?(value)
             when "tls_ca_cert"          then host.tls_ca_cert = value
             when "http_tls_verify_peer" then host.http_tls_verify_peer = {"true", "yes", "y", "1"}.includes?(value)
@@ -263,6 +221,36 @@ describe LavinMQ::Config do
       File.delete(config_file)
     end
   end
+
+  it "warns on TLS version and cipher keys in an SNI section and keeps the host" do
+    io = IO::Memory.new
+    config = LavinMQ::Config.new(io)
+    config_content = <<-INI
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
+
+      [sni:example.com]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_ciphersuites = TLS_AES_128_GCM_SHA256
+      amqp_tls_min_version = 1.3
+      INI
+
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+
+    begin
+      config.parse(["-c", config_file])
+
+      output = io.to_s
+      output.should contain "'sni:example.com/tls_ciphersuites' is not supported"
+      output.should contain "'sni:example.com/amqp_tls_min_version' is not supported"
+      # The host itself is still registered with its certificate
+      config.sni_manager.get_host("example.com").should_not be_nil
+    ensure
+      File.delete(config_file)
+    end
+  end
 end
 
 describe OpenSSL::SSL::Context::Server do
@@ -301,12 +289,14 @@ describe "SNI end-to-end" do
     wildcard_host = LavinMQ::SNIHost.new("*.example.com")
     wildcard_host.tls_cert = "spec/resources/wildcard_example_certificate.pem"
     wildcard_host.tls_key = "spec/resources/wildcard_example_key.pem"
+    wildcard_host.build_tls_contexts("", "")
     sni_manager.add_host(wildcard_host)
 
     # Certificate for foobar.localhost (exact match)
     foobar_host = LavinMQ::SNIHost.new("foobar.localhost")
     foobar_host.tls_cert = "spec/resources/foobar_localhost_certificate.pem"
     foobar_host.tls_key = "spec/resources/foobar_localhost_key.pem"
+    foobar_host.build_tls_contexts("", "")
     sni_manager.add_host(foobar_host)
 
     # Default server context (for unmatched hostnames)
@@ -385,6 +375,111 @@ describe "SNI end-to-end" do
     server_done.receive
   end
 
+  it "applies the listener's tls_ciphers to SNI connections over TLS 1.2" do
+    config_content = <<-INI
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_ciphers = ECDHE-RSA-AES128-GCM-SHA256
+
+      [sni:sni.localhost]
+      tls_cert = spec/resources/foobar_localhost_certificate.pem
+      tls_key = spec/resources/foobar_localhost_key.pem
+      INI
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+    config = LavinMQ::Config.new
+    begin
+      config.parse(["-c", config_file])
+
+      listener_ctx = OpenSSL::SSL::Context::Server.new
+      listener_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      listener_ctx.private_key = "spec/resources/server_key.pem"
+      listener_ctx.ciphers = config.tls_ciphers
+      listener_ctx.on_server_name do |hostname|
+        config.sni_manager.get_host(hostname).try(&.amqp_tls_context)
+      end
+
+      tcp_server = TCPServer.new("127.0.0.1", 0)
+      port = tcp_server.local_address.port
+      server_done = Channel(Nil).new
+
+      spawn do
+        5.times do
+          if client = tcp_server.accept?
+            begin
+              ssl_socket = OpenSSL::SSL::Socket::Server.new(client, listener_ctx)
+              ssl_socket.close
+            rescue
+            ensure
+              client.close
+            end
+          end
+        end
+        server_done.send(nil)
+      end
+
+      excluded_cipher_ctx = -> {
+        ctx = OpenSSL::SSL::Context::Client.new
+        ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        ctx.ciphers = "ECDHE-RSA-AES256-GCM-SHA384"
+        ctx
+      }
+
+      # Control: the listener refuses the excluded cipher without SNI
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call)
+        end
+      end
+
+      # The excluded cipher must be refused with SNI too
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call, hostname: "sni.localhost")
+        end
+      end
+
+      # An allowed cipher with SNI still connects
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        allowed_ctx = OpenSSL::SSL::Context::Client.new
+        allowed_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        allowed_ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        allowed_ctx.ciphers = "ECDHE-RSA-AES128-GCM-SHA256"
+        ssl_client = OpenSSL::SSL::Socket::Client.new(tcp, allowed_ctx, hostname: "sni.localhost")
+        ssl_client.close
+      end
+
+      # A reload that removes tls_cert is refused by the launcher, which keeps
+      # serving, so SNI contexts built after it must still get the ciphers
+      File.write(config_file, config_content.sub("tls_cert = spec/resources/server_certificate.pem", "tls_cert ="))
+      config.reload
+      config.tls_configured?.should be_false
+
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        expect_raises(OpenSSL::SSL::Error) do
+          OpenSSL::SSL::Socket::Client.new(tcp, excluded_cipher_ctx.call, hostname: "sni.localhost")
+        end
+      end
+
+      TCPSocket.open("127.0.0.1", port) do |tcp|
+        allowed_ctx = OpenSSL::SSL::Context::Client.new
+        allowed_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        allowed_ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_3)
+        allowed_ctx.ciphers = "ECDHE-RSA-AES128-GCM-SHA256"
+        OpenSSL::SSL::Socket::Client.new(tcp, allowed_ctx, hostname: "sni.localhost").close
+      end
+
+      tcp_server.close
+      server_done.receive
+    ensure
+      File.delete(config_file)
+      Log.setup(:fatal) # config.reload reconfigures logging
+    end
+  end
+
   it "rejects connection without client cert when mTLS is enabled via SNI" do
     sni_manager = LavinMQ::SNIManager.new
     mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
@@ -392,6 +487,7 @@ describe "SNI end-to-end" do
     mtls_host.tls_key = "spec/resources/server_key.pem"
     mtls_host.tls_verify_peer = true
     mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    mtls_host.build_tls_contexts("", "")
     sni_manager.add_host(mtls_host)
 
     mtls_host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
@@ -446,6 +542,7 @@ describe "SNI end-to-end" do
     mtls_host.tls_key = "spec/resources/server_key.pem"
     mtls_host.tls_verify_peer = true
     mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    mtls_host.build_tls_contexts("", "")
     sni_manager.add_host(mtls_host)
 
     default_ctx = OpenSSL::SSL::Context::Server.new
@@ -491,31 +588,4 @@ describe "SNI end-to-end" do
     tcp_server.close
     server_done.receive
   end
-end
-
-private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : String?
-  tcp_server = TCPServer.new("127.0.0.1", 0)
-  port = tcp_server.local_address.port
-  spawn do
-    if client = tcp_server.accept?
-      begin
-        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
-      rescue
-        # ignore handshake errors, the client assertion will surface them
-      ensure
-        client.close rescue nil
-      end
-    end
-  end
-  Fiber.yield
-  tcp_client = TCPSocket.new("127.0.0.1", port)
-  client_ctx = OpenSSL::SSL::Context::Client.new
-  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
-  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "example.com")
-  cipher = ssl_client.cipher
-  ssl_client.close
-  tcp_client.close
-  cipher
-ensure
-  tcp_server.try &.close
 end

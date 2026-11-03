@@ -5,6 +5,7 @@ require "./follower"
 require "./checksums"
 require "./coordinator"
 require "../config"
+require "../accept_loop"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
@@ -348,8 +349,7 @@ module LavinMQ
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
-        loop do
-          socket = server.accept? || break
+        AcceptLoop.each(server, "Clustering listener") do |socket|
           spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end

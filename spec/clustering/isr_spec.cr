@@ -201,6 +201,13 @@ describe LavinMQ::Clustering::Server do
       tcp_server = TCPServer.new("localhost", 0)
       spawn(replicator.listen(tcp_server), name: "isr close spec")
       broker = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+      # Clearing a retained message makes the close compact the retained
+      # index, a replicated write
+      retain_store = broker.vhosts["/"].mqtt_broker.@retain_store
+      {"body", ""}.each do |body|
+        retain_store.retain(MQTT::Protocol::Publish.new(topic: "t", payload: body.to_slice,
+          packet_id: nil, dup: false, qos: 0u8, retain: true))
+      end
       client_io = sync_follower(replicator, tcp_server.local_address.port, 7)
       wait_for { replicator.followers.any? &.id.== 7 }
       client_io.close

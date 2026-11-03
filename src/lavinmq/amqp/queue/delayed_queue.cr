@@ -18,6 +18,9 @@ module LavinMQ::AMQP
     # Simplified expire loop: no consumers and no per-message TTL to consider,
     # only the delays ordered by the delayed store.
     private def message_expire_loop
+      # Messages restored from disk can be overdue already, but must not be
+      # released before the vhost has loaded the bindings they route through
+      @vhost.closed.when_false.receive?
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -54,16 +57,24 @@ module LavinMQ::AMQP
       true
     end
 
+    # Routing a released message can fan out to many queues, so it runs
+    # outside the lock, on a lease that keeps the message's segment mapped
     def expire_messages
+      while env = next_expired_message
+        begin
+          expire_msg(env, :expired)
+        ensure
+          env.release
+        end
+      end
+    end
+
+    # Shifts the next message whose delay has passed, leased before the lock
+    # is released
+    private def next_expired_message : Envelope?
       @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
-          end
+        if (env = delayed_msg_store.first_delayed?) && has_expired?(env)
+          delayed_msg_store.shift_delayed?.try &.lease
         end
       end
     end

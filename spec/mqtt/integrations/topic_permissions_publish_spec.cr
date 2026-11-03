@@ -131,5 +131,31 @@ module MqttSpecs
         end
       end
     end
+
+    it "acks a denied publish during a disk alarm instead of disconnecting" do
+      # Keeps the stats loop from starting flow again
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        group = LavinMQ::MQTT::PermissionGroup.new(
+          "alice-chat", "/",
+          ["alice"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--client-id---", "chat/{client_id}/#", read: true, write: true)]
+        )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
+        server.vhosts["/"].mqtt_permission_service.put(group)
+        server.flow(false)
+
+        with_client_io(server) do |pub_io|
+          connect(pub_io, client_id: "alice", username: "alice", password: "alice".to_slice)
+          ack = publish(pub_io, topic: "chat/other/secret", payload: "secret".to_slice, qos: 1u8)
+          ack.should be_a(MQTT::Protocol::PubAck)
+          pub_io.should_not be_closed
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
+    end
   end
 end

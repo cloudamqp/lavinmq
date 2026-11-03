@@ -26,6 +26,31 @@ private class SelfLeaderController < LavinMQ::Clustering::EtcdController
   end
 end
 
+# Test-only seam: drive the SIGTERM shutdown path without raising the signal.
+class LavinMQ::Launcher
+  def shutdown_for_spec
+    shutdown_server
+  end
+end
+
+private def with_clustered_launcher_config(data_dir : String, &)
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_etcd_endpoints = "localhost:12379"
+  config.clustering_advertised_uri = "tcp://localhost:5681"
+  config.clustering_port = 0
+  config.amqp_port = -1
+  config.mqtt_port = -1
+  config.http_port = -1
+  config.metrics_http_port = 0
+  control_unix_path = LavinMQ::Config.instance.control_unix_path
+  LavinMQ::Config.instance.control_unix_path = File.join(data_dir, "control.sock")
+  yield config
+ensure
+  LavinMQ::Config.instance.control_unix_path = control_unix_path if control_unix_path
+end
+
 describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
   add_etcd_around_each
 
@@ -214,5 +239,67 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   ensure
     lease.try &.release
+  end
+
+  it "grants its lease with the configured TTL" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5681"
+      config.clustering_etcd_lease_ttl = 30
+      controller = LavinMQ::Clustering::EtcdController.new(config)
+      lease_id = File.read(File.join(data_dir, ".clustering_id")).to_i(36)
+
+      elected = Channel(Nil).new
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      spawn do
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+      rescue SpecExit
+      end
+      spawn do
+        controller.run { }
+      rescue SpecExit
+      end
+      begin
+        select
+        when elected.receive?
+        when timeout(5.seconds)
+          fail("controller was not elected leader")
+        end
+        etcd.lease_ttl(lease_id).should be > 10
+      ensure
+        controller.stop
+      end
+    end
+  end
+
+  it "leaves the exit to the main fiber when stopping a leader", tags: "slow" do
+    with_datadir do |data_dir|
+      with_clustered_launcher_config(data_dir) do |config|
+        launcher = LavinMQ::Launcher.new(config)
+        begin
+          run_done = Channel(Nil).new
+          spawn do
+            launcher.run
+            run_done.close
+          rescue SpecExit
+          end
+          wait_for { launcher.@server }
+
+          # Exiting from the signal handler while #run still closed the replicator
+          # closed the log backend under it, and the leader exited with code 1
+          launcher.shutdown_for_spec
+
+          select
+          when run_done.receive?
+          when timeout(1.second)
+            fail("Launcher#run didn't return after shutdown")
+          end
+        ensure
+          launcher.stop
+        end
+      end
+    end
   end
 end

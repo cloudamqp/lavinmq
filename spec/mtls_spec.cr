@@ -136,6 +136,7 @@ describe "mTLS (Mutual TLS)" do
       host.tls_key = "spec/resources/server_key.pem"
       host.tls_verify_peer = true
       host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+      host.build_tls_contexts("", "")
 
       ctx = host.amqp_tls_context
       ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
@@ -146,6 +147,7 @@ describe "mTLS (Mutual TLS)" do
       host.tls_cert = "spec/resources/server_certificate.pem"
       host.tls_key = "spec/resources/server_key.pem"
       host.tls_verify_peer = false
+      host.build_tls_contexts("", "")
 
       ctx = host.amqp_tls_context
       ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
@@ -159,6 +161,7 @@ describe "mTLS (Mutual TLS)" do
       host.tls_ca_cert = "spec/resources/ca_certificate.pem"
       # Disable mTLS for HTTP only
       host.http_tls_verify_peer = false
+      host.build_tls_contexts("", "")
 
       # AMQP and MQTT should require client certs
       host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)

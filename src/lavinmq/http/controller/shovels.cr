@@ -27,7 +27,7 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             shovel_name = params["name"]
             if shovel = vhost.shovels[shovel_name]?
-              shovel.to_json(context.response)
+              shovel.to_json(context.response.output)
             else
               context.response.status_code = 404
             end

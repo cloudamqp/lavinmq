@@ -25,7 +25,7 @@ module LavinMQ
 
     # *target_port* is where it's forwarded to on the leader, nil when there
     # is no such port (a unix socket without the plain TCP port)
-    private record Listener, kind : Kind, server : Socket::Server,
+    private record Listener, kind : Kind, server : Socket::Server, address : String,
       tls : OpenSSL::SSL::Context::Server?, target_port : Int32?
 
     # Where connections go while this node serves
@@ -70,8 +70,9 @@ module LavinMQ
     end
 
     private def add(kind, server, tls, target_port) : Nil
-      Log.info { "Bound #{kind} to #{server.local_address}#{" (TLS)" if tls}" }
-      @listeners << Listener.new(kind, server, tls, target_port)
+      address = server.local_address.to_s
+      Log.info { "Bound #{kind} to #{address}#{" (TLS)" if tls}" }
+      @listeners << Listener.new(kind, server, address, tls, target_port)
     end
 
     # Starts accepting. Until then connections wait in the listen backlog,
@@ -80,7 +81,7 @@ module LavinMQ
     def listen : Nil
       return if @listening.swap(true)
       @listeners.each do |l|
-        spawn(name: "#{l.kind} listener #{l.server.local_address}") { accept_loop(l) }
+        spawn(name: "#{l.kind} listener #{l.address}") { accept_loop(l) }
       end
     end
 
@@ -115,7 +116,7 @@ module LavinMQ
     end
 
     private def accept_loop(l : Listener) : Nil
-      while client = l.server.accept?
+      AcceptLoop.each(l.server, "#{l.kind} listener") do |client|
         dispatch(l, client)
       end
     rescue ex : IO::Error
@@ -139,7 +140,7 @@ module LavinMQ
 
     private def forward(l : Listener, client : Socket, host : String) : Nil
       unless port = leader_port(l)
-        Log.debug { "Closing a #{l.kind} connection to #{l.server.local_address}, no port to forward it to" }
+        Log.debug { "Closing a #{l.kind} connection to #{l.address}, no port to forward it to" }
         return client.close
       end
       return client.close unless track(client)
