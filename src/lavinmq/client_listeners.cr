@@ -190,13 +190,7 @@ module LavinMQ
       socket.sync = true
       socket.read_buffering = false
       socket.tcp_nodelay = true
-      return if socket.remote_address.loopback?
-      if keepalive = @config.tcp_keepalive
-        socket.keepalive = true
-        socket.tcp_keepalive_idle = keepalive[0]
-        socket.tcp_keepalive_interval = keepalive[1]
-        socket.tcp_keepalive_count = keepalive[2]
-      end
+      @config.apply_tcp_keepalive(socket) unless socket.remote_address.loopback?
     end
   end
 end

@@ -287,14 +287,7 @@ module LavinMQ
     end
 
     private def set_socket_options(socket)
-      unless socket.remote_address.loopback?
-        if keepalive = @config.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
-      end
+      @config.apply_tcp_keepalive(socket) unless socket.remote_address.loopback?
       socket.tcp_nodelay = true if @config.tcp_nodelay?
       @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
