@@ -177,13 +177,15 @@ module LavinMQ::Clustering::Raft
     @save_count = 0_u64
     @save_sum = 0.0
 
+    # `state` is what `storage` holds, for a caller that has loaded it already
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
-                   @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
-                   has_data = false, prior_in_sync = false,
+                   storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
+                   has_data = false, prior_in_sync = false, state : HardState? = storage.load,
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
+      @storage = storage
       @election_timeout = election_timeout
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
-        Time.instant, @storage.load, has_data: has_data, prior_in_sync: prior_in_sync)
+        Time.instant, state, has_data: has_data, prior_in_sync: prior_in_sync)
       @seeds = seeds.to_set << @address
       @term = @core.term
       @committed_isr = @core.committed_isr

@@ -42,12 +42,13 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   def initialize(config : Config)
     super(config)
     storage = Raft::Storage.new(@config.data_dir)
+    state = storage.load
     has_data = Clustering.broker_data?(@config.data_dir)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      has_data: has_data, prior_in_sync: has_data && storage.load.nil? && self.class.prior_in_sync?(@config, @id),
-      execution_context: raft_context)
+      has_data: has_data, prior_in_sync: has_data && state.nil? && self.class.prior_in_sync?(@config, @id),
+      state: state, execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
