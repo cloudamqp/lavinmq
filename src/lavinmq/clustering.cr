@@ -16,6 +16,7 @@ module LavinMQ
     StartV3        = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
     FSYNC_PREFIX   = '$'
     CHALLENGE_SIZE = 32
+    RESPONSE_SIZE  = 32 # HMAC-SHA256
 
     # This node's own files in the data dir, never replicated nor restored:
     # the data dir lock, the clustering identity and the raft state. Losing

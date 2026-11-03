@@ -221,7 +221,7 @@ module LavinMQ
       private def authenticate_challenge!(password) : Nil
         challenge = Random::Secure.random_bytes(CHALLENGE_SIZE)
         @socket.write(StartV3 + challenge)
-        response = Bytes.new(32)
+        response = Bytes.new(RESPONSE_SIZE)
         @socket.read_fully(response)
         authenticated!(Crypto::Subtle.constant_time_compare(response, Clustering.challenge_response(password, challenge)))
       end
