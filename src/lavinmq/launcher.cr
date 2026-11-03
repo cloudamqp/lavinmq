@@ -136,6 +136,8 @@ module LavinMQ
     private def demote(hand_over : Proc(Nil)?) : Nil
       @role_lock.synchronize do
         return if @closed
+        # Scrapes would get the closed broker's metrics until it's done
+        @metrics_server.try &.stop_reporting_broker
         close_replicator unless hand_over
         close_listeners
         if server = @server
@@ -146,7 +148,6 @@ module LavinMQ
         end
         hand_over.try &.call
         close_replicator
-        @metrics_server.try &.stop_reporting_broker
         @http_server = nil
         @amqp_server = nil
         @mqtt_server = nil
