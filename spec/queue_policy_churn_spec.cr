@@ -213,7 +213,7 @@ describe "Queue policy churn" do
     end
   end
 
-  it "releases the limits guard after a store error and enforces policies after restart" do
+  it "releases the limits guard after a store error" do
     with_amqp_server do |s|
       queue = LavinMQ::AMQP::DurableQueue.create(s.vhosts["/"], "store_failure")
       3.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
@@ -221,58 +221,7 @@ describe "Queue policy churn" do
       queue.apply_policy(churn_policy({"max-length" => 1}), nil)
       should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
       queue.@policy_limits_pending.get.should be_false
-
-      queue.close
-      queue.restart!.should be_true
-      should_eventually(eq 1) { queue.message_count }
-      should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
     ensure
-      queue.try &.delete
-    end
-  end
-
-  it "coalesces into a limits worker blocked across restart and uses the new policy" do
-    with_amqp_server do |s|
-      queue = LavinMQ::AMQP::DurableQueue.create(s.vhosts["/"], "limits_restart")
-      10.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
-      queue.@msg_store_lock.synchronize do
-        queue.apply_policy(churn_policy({"max-length" => 1}), nil)
-        should_eventually(be_false) { queue.@policy_limits_pending.get }
-        queue.close
-        queue.apply_policy(churn_policy({"max-length" => 8}), nil)
-        queue.restart!.should be_true
-        20.times { queue.reapply_policy }
-        Fiber.yield
-        workers = 0
-        Fiber.list do |fiber|
-          workers += 1 if fiber.name == "Queue#apply_policy_limits #{queue.vhost.name}/#{queue.name}"
-        end
-        workers.should eq 1
-      end
-      should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
-      queue.message_count.should eq 8
-    ensure
-      queue.try &.delete
-    end
-  end
-
-  it "keeps one expiration worker across restart while waiting for the vhost to open" do
-    with_amqp_server do |s|
-      vhost = s.vhosts["/"]
-      vhost.closed.set(true)
-      queue = LavinMQ::AMQP::DurableQueue.create(vhost, "expiry_restart",
-        arguments: LavinMQ::AMQP::Table.new({"x-expires" => 60_000}))
-      vhost.register_queue(queue)
-      Fiber.yield
-      queue.close
-      queue.restart!.should be_true
-      queue_expire_fibers(queue).should eq 1
-      vhost.closed.set(false)
-      queue.apply_policy(churn_policy({"expires" => 100}), nil)
-      should_eventually(be_true) { queue.closed? }
-      should_eventually(eq 0) { queue_expire_fibers(queue) }
-    ensure
-      s.try &.vhosts["/"].closed.set(false)
       queue.try &.delete
     end
   end

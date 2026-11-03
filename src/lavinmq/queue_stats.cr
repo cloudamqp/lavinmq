@@ -34,10 +34,5 @@ module LavinMQ::AMQP
         unacked_avg_bytes:            unacked_avg_bytes,
       }
     end
-
-    private def reset_queue_stats
-      @unacked_count.set(0u32, :relaxed)
-      @unacked_bytesize.set(0u64, :relaxed)
-    end
   end
 end

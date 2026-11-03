@@ -24,6 +24,20 @@ module LavinMQ
         super
         forget_packet_id(sp)
       end
+
+      # A session can't be paused, so data that can't be read is given up
+      # once the read that found it is done, see MessageStore#release_unreadable
+      def shift?(consumer = nil) : Envelope?
+        env = super
+        release_unreadable
+        env
+      end
+
+      def first? : Envelope?
+        env = super
+        release_unreadable
+        env
+      end
     end
   end
 end

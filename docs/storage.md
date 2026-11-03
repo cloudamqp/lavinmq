@@ -39,6 +39,20 @@ Streams do not record individual message deletions in ack files. Acknowledgments
 
 For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
+## Unreadable Data
+
+Part of a segment can't be read when the data is corrupt, for example after disk errors or a power loss, or because of a bug, and LavinMQ can't tell which. So it changes nothing on disk, nor on cluster followers, and the queue is paused, for someone to decide what to do with the data. Where the next message in the segment starts is unknown, so the rest of the segment can't be read:
+
+- **When a message is read**: the queue is paused, and no message after the data that can't be read is delivered. Publishing continues, to a new segment. The message and the rest of its segment are no longer counted. A requeued message that can't be read is handled the same way.
+- **At startup**: a segment is counted up to its last readable message, and a segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded. The queue starts paused.
+- **Streams and internal queues** aren't paused. A stream consumer that reads data that can't be read continues with the next segment, or with the next message written if it was reading the last segment.
+
+Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look, for example by comparing the segment with the copies on the cluster's followers. Then:
+
+- **Restart LavinMQ, or fail over to another node**, to read the data again. If it was a bug that's since been fixed, or the other node has a copy that can be read, nothing is lost. Otherwise the queue is paused again.
+- **Resume the queue** to give the data up. The messages after it are delivered, and the segments are deleted once their readable messages are acknowledged, also those that weren't loaded.
+- **Purge or delete the queue**. A purge that empties the queue gives the data up too.
+
 ## Data Directory Layout
 
 ```

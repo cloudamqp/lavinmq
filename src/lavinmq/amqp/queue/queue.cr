@@ -226,6 +226,7 @@ module LavinMQ::AMQP
     end
 
     private def message_expire_loop
+      failed = false
       @vhost.closed.when_false.receive?
       loop do
         break unless wait_for_consumers_empty
@@ -234,13 +235,14 @@ module LavinMQ::AMQP
         break unless wait_for_message_expiration
       end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+      # Not restarted here, where it would run into the error again, but by
+      # the next publish or when the last consumer is removed
+      failed = true
+      @log.error(ex) { "Message expire loop stopped due to error" }
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
-      ensure_expire_fiber # restart if msg arrived during teardown
+      ensure_expire_fiber unless failed # restart if msg arrived during teardown
     end
 
     # The wait_for_* helpers below return false once the fiber has been idle
@@ -342,32 +344,19 @@ module LavinMQ::AMQP
       end
     end
 
-    private def start : Bool
-      if @msg_store.closed
-        !close
-      else
-        if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
-        end
-        if File.exists?(File.join(@data_dir, "paused"))
-          @state = QueueState::Paused
-          @paused.set(true)
-        end
-        handle_arguments
-        ensure_queue_expire_fiber
-        start_message_expire_loop if should_start_expire_fiber?
-        true
+    private def start : Nil
+      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+        FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
       end
-    end
-
-    def restart! : Bool
-      return false unless @closed
-      reset_queue_state
-      @msg_store = init_msg_store(@data_dir)
-      @empty = @msg_store.empty
-      start.tap do |started|
-        reapply_policy if started
+      if File.exists?(File.join(@data_dir, "paused"))
+        @state = QueueState::Paused
+        @paused.set(true)
       end
+      @msg_store.on_unreadable = ->pause_for_unreadable_data
+      pause_for_unreadable_data if @msg_store.unreadable_segments > 0
+      handle_arguments
+      ensure_queue_expire_fiber
+      start_message_expire_loop if should_start_expire_fiber?
     end
 
     private def start_message_expire_loop
@@ -444,22 +433,6 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
       end
-    end
-
-    private def reset_queue_state
-      @closed = false
-      @consumers_closed = false
-      @state = QueueState::Running
-      @message_expire_fiber_active.set(false, :release)
-
-      # Recreate channels that were closed
-      @queue_expiration_ttl_change = ::Channel(Nil).new
-      @message_ttl_change = ::Channel(Nil).new
-      @paused = BoolChannel.new(false)
-      @consumers_empty = BoolChannel.new(true)
-      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
-      @deliver_loop_wg = WaitGroup.new
-      reset_queue_stats
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -809,12 +782,32 @@ module LavinMQ::AMQP
       File.touch(File.join(@data_dir, "paused"))
     end
 
+    # Data that can't be read, see MessageStore#skip_corrupt_tail, stops
+    # deliveries, so that nothing after it is delivered before someone has
+    # decided: resume the queue to give the data up, or restart, or fail over,
+    # to read it again. Internal queues, with no consumers, keep going, and
+    # give the data up right away, see DelayedMessageStore.
+    private def pause_for_unreadable_data : Nil
+      return if internal? || !@state.running?
+      @log.error do
+        "Pausing the queue, as data in its message store can't be read. Resume it to give that data up, " \
+        "or restart, or fail over to another node, to read it again"
+      end
+      pause!
+    end
+
+    # Also gives up data that can't be read, see #pause_for_unreadable_data
     def resume!
-      return unless @state.paused?
-      @state = QueueState::Running
-      @log.debug { "Resuming" }
-      @paused.set(false)
-      File.delete(File.join(@data_dir, "paused"))
+      # Under the store's lock, which data that can't be read pauses the queue
+      # under, so that a pause for new such data isn't lost to this resume
+      @msg_store_lock.synchronize do
+        return unless @state.paused?
+        @msg_store.release_unreadable
+        @state = QueueState::Running
+        @log.debug { "Resuming" }
+        @paused.set(false)
+        File.delete(File.join(@data_dir, "paused"))
+      end
     end
 
     def close : Bool
@@ -910,7 +903,13 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        unreadable_segments:          unreadable_segments,
       }
+    end
+
+    # Segments found with data that can't be read, see MessageStore#skip_corrupt_tail
+    def unreadable_segments : Int32
+      @msg_store.unreadable_segments
     end
 
     private def exclusive_consumer_tag : String?
@@ -977,10 +976,6 @@ module LavinMQ::AMQP
       # not stored (avoids an HTTP 500); if it had, a later ClosedError from the
       # post-publish expire-fiber check still means the publish succeeded.
       pushed ? PublishResult::Ok : PublishResult::Closed
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     private def reject_on_overflow?(msg) : Bool
@@ -1188,7 +1183,7 @@ module LavinMQ::AMQP
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
-      get(no_ack) do |env|
+      get(no_ack, force) do |env|
         yield env
       end.tap { ensure_expire_fiber }
     rescue ClosedError | MessageStore::ClosedError
@@ -1213,14 +1208,20 @@ module LavinMQ::AMQP
 
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
+    private def get(no_ack : Bool, force = false, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       settings = self.settings
       loop do # retry if msg expired or deliver limit hit
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
         @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+          # Paused since the consumer checked, e.g. as this or another get
+          # just read past data that can't be read, see
+          # #pause_for_unreadable_data, which pauses before the shift returns
+          if @state.paused? && !force
+            @msg_store_lock.synchronize { @msg_store.requeue(env.segment_position, delivered: false) }
+            return false
+          end
           if has_expired?(env.message) # guarantee to not deliver expired messages
             expire_msg(env, :expired)
             next
@@ -1251,10 +1252,6 @@ module LavinMQ::AMQP
         end || break
       end
       false
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ClosedError.new(cause: ex)
     end
 
     def unacked_messages : Array(UnackedMessage)
@@ -1325,10 +1322,6 @@ module LavinMQ::AMQP
       else
         expire_msg(sp, :rejected)
       end
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
@@ -1339,10 +1332,6 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       redeliver_message(sp, route_to_retry: false)
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
@@ -1472,10 +1461,6 @@ module LavinMQ::AMQP
       end
       delete_count += purge_delayed(max_count - delete_count)
       delete_count
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     # Delayed messages would otherwise be republished after their backoff,
@@ -1538,10 +1523,6 @@ module LavinMQ::AMQP
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
       @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     def durable?

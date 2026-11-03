@@ -47,30 +47,73 @@ describe LavinMQ::AMQP::DurableQueue do
 
   context "with corrupt segments" do
     context "when consumed" do
-      it "should be closed" do
+      it "pauses the queue, and gives the data up when it's resumed" do
         with_amqp_server do |s|
           vhost = s.vhosts.create("corrupt_vhost")
           with_channel(s, vhost: vhost.name) do |ch|
             q = ch.queue("corrupt_q")
             queue = vhost.queue("corrupt_q").as(LavinMQ::AMQP::DurableQueue)
-            q.publish_confirm "test message"
+            body = "x" * 400_000 # one message per segment
+            q.publish_confirm body
+            q.publish_confirm body
+            segments = queue.@msg_store.@segments
+            segments.size.should eq 2
+            path = segments.first_value.path
+            # Garbage after the first message's timestamp
+            File.open(path, "r+") { |f| f.seek(4 + 8); f.write(Bytes.new(64, 0xff_u8)) }
 
-            sleep 10.milliseconds
-            bytes = "111111111aaaaauaoeuaoeu".to_slice
-            queue.@msg_store.@segments.each_value do |mfile|
-              File.open(mfile.path, "w+") do |f|
-                f.seek(mfile.size - bytes.size)
-                f.write(bytes)
-              end
+            msgs = Channel({String, Bool}).new(2)
+            q.subscribe(tag: "tag", no_ack: false) do |msg|
+              msgs.send({msg.body_io.to_s, msg.redelivered})
+              msg.ack
             end
+            should_eventually(be_true) { queue.state.paused? }
+            queue.unreadable_segments.should eq 1
+            # The message after the unreadable data isn't delivered
+            select
+            when msgs.receive
+              fail "delivered a message after data that can't be read"
+            when timeout 200.milliseconds
+            end
+            queue.message_count.should eq 1
+            File.exists?(path).should be_true
 
-            q.subscribe(tag: "tag", no_ack: false, &.ack)
-
-            should_eventually(be_true) { queue.state.closed? }
+            queue.resume!
+            select
+            when received = msgs.receive
+              received[0].bytesize.should eq body.bytesize
+              received[1].should be_false # put back, but never delivered
+            when timeout 5.seconds
+              fail "message after the unreadable data not delivered after resume"
+            end
+            queue.unreadable_segments.should eq 0
+            File.exists?(path).should be_false # nothing in it left to ack
           end
-
-          vhost.queue?("corrupt_q").try &.delete
         end
+      end
+    end
+
+    it "starts the queue paused when data can't be read at startup" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("corrupt_vhost")
+        path = ""
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("corrupt_q3")
+          path = vhost.queue("corrupt_q3").as(LavinMQ::AMQP::DurableQueue).@msg_store.@segments.last_value.path
+          q.publish_confirm "test message"
+        end
+        s.stop
+        # Empty exchange, routing key and properties, and a body size that
+        # can't be skipped
+        File.open(path, "r+") do |f|
+          f.seek(4 + 8)
+          f.write(Bytes[0, 0, 0, 0])
+          f.write(Bytes.new(8, 0xff_u8))
+        end
+        restart_server(s)
+        queue = s.vhosts["corrupt_vhost"].queue("corrupt_q3").as(LavinMQ::AMQP::DurableQueue)
+        queue.state.paused?.should be_true
+        queue.unreadable_segments.should eq 1
       end
     end
 

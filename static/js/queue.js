@@ -16,7 +16,6 @@ const queue = search.get('name')
 const vhost = search.get('vhost')
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const restartQueueForm = document.querySelector('#restartQueue')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -82,17 +81,14 @@ function handleQueueState (state) {
   document.getElementById('q-state').textContent = state
   switch (state) {
     case 'paused':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
       break
     case 'running':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.remove('hide')
       resumeQueueForm.classList.add('hide')
       break
     case 'closed':
-      restartQueueForm.classList.remove('hide')
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
       break
@@ -388,19 +384,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue resumed!')
-        handleQueueState('running')
-      })
-      .catch(() => {})
-  }
-})
-
-restartQueueForm.addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
-  if (window.confirm('Are you sure? This will restart the queue.')) {
-    HTTP.request('PUT', url)
-      .then(() => {
-        DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
       .catch(() => {})

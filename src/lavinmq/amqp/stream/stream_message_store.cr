@@ -262,8 +262,29 @@ module LavinMQ::AMQP
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex
-        raise Error.new(rfile, cause: ex)
+      rescue ex : CorruptDataError
+        skip_corrupt_segment(consumer, rfile, ex)
+        nil
+      end
+    end
+
+    # The message at the consumer's position can't be read, and where the
+    # next one starts is unknown, so the consumer skips the rest of the
+    # segment. Nothing on disk is changed, and nothing more is written to the
+    # segment (see MessageStore#write_to_disk), so if it's the segment being
+    # written to, the consumer continues with the next message written.
+    private def skip_corrupt_segment(consumer, rfile : MFile, ex : Exception) : Nil
+      @log.error(exception: ex) do
+        "Message at segment #{consumer.segment} pos #{consumer.pos} can't be read, skipping the rest of the " \
+        "segment for consumer #{consumer.tag}: #{rfile.path} #{hexdump(rfile, consumer.pos)}"
+      end
+      mark_unreadable(consumer.segment)
+      if next_seg = next_segment_offset(consumer.segment)
+        next_segment(consumer)
+        consumer.offset = next_seg[1]
+      else
+        consumer.pos = rfile.size.to_u32
+        consumer.offset = @last_offset + 1
       end
     end
 
@@ -276,8 +297,8 @@ module LavinMQ::AMQP
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
-          rescue ex
-            raise Error.new(segment, cause: ex)
+          rescue ex : CorruptDataError
+            @log.error(exception: ex) { "Skipping requeued message #{sp}, it can't be read" }
           end
         end
       end
@@ -410,7 +431,18 @@ module LavinMQ::AMQP
       drop_segments_while do |seg_id|
         max_count >= (count += @segment_msg_count[seg_id])
       end
+      release_unreadable if @segments.size == 1
       start_size - @size
+    end
+
+    # Segments are dropped whole, also those with data that can't be read,
+    # except for the one being written, which is rolled over by the next
+    # write (see MessageStore#write_to_disk), so only the ones that weren't
+    # loaded are left to purge
+    def release_unreadable : Nil
+      @unreadable.to_a.each do |seg|
+        delete_unloaded_segment(seg) unless @segments.has_key?(seg)
+      end
     end
 
     def delete(sp) : Nil

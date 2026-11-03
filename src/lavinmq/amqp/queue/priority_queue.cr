@@ -131,6 +131,18 @@ module LavinMQ::AMQP
         @stores.sum(&.bytesize)
       end
 
+      def unreadable_segments : Int32
+        @stores.sum(&.unreadable_segments)
+      end
+
+      def release_unreadable : Nil
+        @stores.each &.release_unreadable
+      end
+
+      def on_unreadable=(callback : Proc(Nil)?)
+        @stores.each(&.on_unreadable = callback)
+      end
+
       def empty? : Bool
         size.zero?
       end
@@ -144,10 +156,10 @@ module LavinMQ::AMQP
         sp
       end
 
-      def requeue(sp : SegmentPosition)
+      def requeue(sp : SegmentPosition, delivered = true)
         raise ClosedError.new if @closed
         was_empty = size.zero?
-        store_for sp, &.requeue(sp)
+        store_for sp, &.requeue(sp, delivered)
         @empty.set false if was_empty
       end
 
@@ -193,6 +205,7 @@ module LavinMQ::AMQP
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
+        release_unreadable if empty?
         count
       end
 

@@ -26,6 +26,7 @@ module LavinMQ::AMQP
       def initialize(*args, **kwargs)
         super
         build_index
+        release_unreadable
       end
 
       def build_index
@@ -51,8 +52,14 @@ module LavinMQ::AMQP
             count += 1
             bytesize += msg.bytesize
             requeued.insert(sp, msg.timestamp)
-          rescue ex : IO::EOFError | IndexError
-            @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
+          rescue ex : CorruptDataError
+            # Left on disk, see MessageStore#skip_corrupt_tail
+            @log.error(exception: ex) do
+              "Message at segment #{seg_id} pos #{pos} can't be read, skipping the rest of the segment: " \
+              "#{mfile.path} #{pos.try { |p| hexdump(mfile, p) }}"
+            end
+            mark_unreadable(seg_id)
+            count_readable(seg_id, mfile, pos) if pos
             break
           end
         end
@@ -65,30 +72,32 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
+      # Messages that can't be read are dropped, see #drop_requeued, and
+      # given up right away, as an internal queue isn't paused for them, see
+      # MessageStore#release_unreadable
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
-        sp = @requeued.first? || return
-        seg = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          Envelope.new(sp, msg, redelivered: true, segment: seg)
-        rescue ex
-          raise MessageStore::Error.new(seg, cause: ex)
+        while sp = @requeued.first?
+          if env = requeued_envelope?(sp)
+            return env
+          end
+          @requeued.shift?
+          drop_requeued(sp)
+          release_unreadable
         end
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
-        sp = @requeued.shift? || return
-        segment = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          Envelope.new(sp, msg, redelivered: true, segment: segment)
-        rescue ex
-          raise MessageStore::Error.new(segment, cause: ex)
+        while sp = @requeued.shift?
+          if env = requeued_envelope?(sp, shift: true)
+            @bytesize -= sp.bytesize
+            @size -= 1
+            @empty.set true if @size.zero?
+            return env
+          end
+          drop_requeued(sp)
+          release_unreadable
         end
       end
 
@@ -111,6 +120,7 @@ module LavinMQ::AMQP
           delete(sp) if @segments.has_key?(sp.segment)
         end
         @empty.set true
+        release_unreadable
       end
 
       def requeue(sp : SegmentPosition)
