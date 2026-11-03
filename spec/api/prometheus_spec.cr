@@ -63,7 +63,8 @@ describe LavinMQ::HTTP::PrometheusController do
         vhost = s.vhosts.create("pmthu")
         vhost.declare_queue("uq", true, false)
         queue = vhost.queue("uq").as(LavinMQ::AMQP::Queue)
-        queue.@msg_store.@unreadable << queue.@msg_store.@segments.first_key
+        store = queue.@msg_store
+        store.@unreadable_count.set(1) # as if a segment had data that can't be read
         parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
         parsed_metrics.find!(&.[:key].== "lavinmq_queue_unreadable_segments")[:value].should eq 1
         lines = http.get("/metrics/detailed?family=queue_coarse_metrics&vhost=pmthu").body.lines

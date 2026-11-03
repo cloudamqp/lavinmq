@@ -278,7 +278,7 @@ module LavinMQ::AMQP
         "Message at segment #{consumer.segment} pos #{consumer.pos} can't be read, skipping the rest of the " \
         "segment for consumer #{consumer.tag}: #{rfile.path} #{hexdump(rfile, consumer.pos)}"
       end
-      @unreadable << consumer.segment
+      mark_unreadable(consumer.segment)
       if next_seg = next_segment_offset(consumer.segment)
         next_segment(consumer)
         consumer.offset = next_seg[1]

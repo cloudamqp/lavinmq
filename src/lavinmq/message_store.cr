@@ -35,8 +35,10 @@ module LavinMQ
     @synced_writes = false
     # Segments with data that can't be read, see #skip_corrupt_tail. Never
     # written to or deleted for being acked, so that what's on disk, and on
-    # followers, stays for someone to look at.
+    # followers, stays for someone to look at. Changed under the store's
+    # lock, while its size is read without it, from @unreadable_count.
     @unreadable = Set(UInt32).new
+    @unreadable_count = Atomic(Int32).new(0)
     # Segments that were counted only up to data that can't be read, whose
     # count therefore isn't written to a metadata file
     @partly_counted = Set(UInt32).new
@@ -47,7 +49,12 @@ module LavinMQ
 
     # The number of segments found with data that can't be read
     def unreadable_segments : Int32
-      @unreadable.size
+      @unreadable_count.get(:relaxed)
+    end
+
+    private def mark_unreadable(seg : UInt32) : Nil
+      @unreadable << seg
+      @unreadable_count.set(@unreadable.size, :relaxed)
     end
 
     def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
@@ -219,7 +226,7 @@ module LavinMQ
       @bytesize -= Math.min(@bytesize, sp.bytesize.to_u64)
       @size -= 1 unless @size.zero?
       @empty.set true if @size.zero?
-      @unreadable << sp.segment if @segments.has_key?(sp.segment)
+      mark_unreadable(sp.segment) if @segments.has_key?(sp.segment)
     end
 
     # The segments are read through but @size says there are messages left:
@@ -244,7 +251,7 @@ module LavinMQ
         "Message at segment #{seg} pos #{pos} can't be read, skipping the rest of the segment: " \
         "#{mfile.path} #{hexdump(mfile, pos)} #{state_snapshot}"
       end
-      @unreadable << seg
+      mark_unreadable(seg)
       before = messages_before(mfile, pos)
       # Acks loaded from disk, the only ones that can be after the read position
       acked_after = @deleted[seg]?.try(&.count { |p| p >= pos }.to_u32) || 0u32
@@ -419,6 +426,7 @@ module LavinMQ
       # A segment, gone, e.g. purged, so no longer unreadable
       if including_meta && (seg = file.path[-10..].to_u32?)
         @unreadable.delete(seg)
+        @unreadable_count.set(@unreadable.size, :relaxed)
         @partly_counted.delete(seg)
       end
     end
@@ -719,7 +727,7 @@ module LavinMQ
           rescue ex
             # Left as it is, as it may be from a newer version, or a bug
             @log.error { "Segment #{path} can't be read, it's not loaded: #{ex.message} #{hexdump(file, 0u32)}" }
-            @unreadable << seg
+            mark_unreadable(seg)
             file.close # back to its size on disk
             # By path, so that followers still get it, read from disk
             @replicator.try &.register_file(path)
@@ -933,7 +941,7 @@ module LavinMQ
         # counted, nor read later (see #skip_corrupt_tail), but it's left on
         # disk, as it can be corrupt data or a bug
         @log.error { "Segment #{seg} can't be read from pos #{pos}, skipping the rest of it: #{mfile.path} #{pos.try { |p| hexdump(mfile, p.to_u32) }} #{ex}" }
-        @unreadable << seg
+        mark_unreadable(seg)
         @partly_counted << seg
         break
       end

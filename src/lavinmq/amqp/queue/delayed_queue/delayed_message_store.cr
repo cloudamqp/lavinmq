@@ -57,7 +57,7 @@ module LavinMQ::AMQP
               "Message at segment #{seg_id} pos #{pos} can't be read, skipping the rest of the segment: " \
               "#{mfile.path} #{pos.try { |p| hexdump(mfile, p) }}"
             end
-            @unreadable << seg_id
+            mark_unreadable(seg_id)
             break
           end
         end
