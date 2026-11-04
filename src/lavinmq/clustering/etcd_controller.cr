@@ -18,25 +18,33 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @elected_leader = BoolChannel.new(false)
   end
 
+  # Follows the leader, and yields to start serving whenever this node is
+  # elected. When its lease expires the broker is stopped (see #on_demote),
+  # and this node grants itself a new lease and follows again, all in this
+  # process. Returns once stopped.
   def run(&)
-    lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
-    spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync(lease)
-    return if @stopping.get
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
-    @elected_leader.set(true)
-    ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.swap(nil).try &.close
-    yield
     loop do
-      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
-    end
-  rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopping.get
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
+      lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
+      if @stopping.get # #stop released the previous lease, if any
+        lease.release rescue nil
+        return
+      end
+      @elected_leader = BoolChannel.new(false)
+      spawn(follow_leader, name: "Follower monitor")
+      wait_to_be_insync(lease)
+      return if @stopping.get
+      @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
+      @elected_leader.set(true)
+      ensure_in_isr!
+      execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+      @repli_client.swap(nil).try &.close
+      lead(lease) { yield }
+      execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+      return if @stopping.get
+      Log.warn { "Lost leadership, continuing as a follower" }
+      # Stops its keepalive, in case leadership was lost some other way
+      lease.release rescue nil
+      demote(nil)
     end
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
@@ -44,6 +52,27 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   rescue Etcd::LeaseNotFound
     Log.fatal { "Lease not found, etcd may have been reset" }
     exit 3
+  end
+
+  # Serves until the lease expires, or #stop releases it. Replicated writes
+  # fail once leadership is lost, which ends a startup that waits for them,
+  # but exits if it hangs on something else.
+  private def lead(lease : Etcd::Lease, &) : Nil
+    started = Channel(Nil).new
+    spawn(watchdog(started, "Lost leadership while starting to serve, and the startup didn't stop, exiting",
+      armed: lease.expired), name: "Startup watchdog")
+    begin
+      yield
+    ensure
+      started.close
+    end
+    loop do
+      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
+    end
+  rescue Etcd::Lease::Expired
+  rescue Coordinator::StaleLeadership
+    # Lost while starting to serve, replicated writes during startup fail
+    # with it, also when a fenced replicator or the Persister raises it
   end
 
   def stop

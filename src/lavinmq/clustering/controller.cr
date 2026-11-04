@@ -23,6 +23,13 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # Set by #stopping and #stop from the shutdown fiber, read by #run's and
   # the HTTP API's fibers
   @stopping = Atomic(Bool).new(false)
+  # Stops serving as the leader, see #on_demote
+  @demote : (Proc(Nil)? ->)? = nil
+
+  # How long stopping to serve, or a startup that lost leadership, may take
+  # before the process exits instead, so a node that isn't the leader anymore
+  # never keeps serving
+  property demotion_timeout : Time::Span = 60.seconds
 
   # *id*: this node's unique id, for tracking the ISR. The etcd backend keeps
   # it in .clustering_id, see .clustering_id, the raft backend in its raft
@@ -50,6 +57,53 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # from here on is expected and not a reason to exit with an error.
   def stopping : Nil
     @stopping.set(true)
+  end
+
+  # Registers how the Launcher stops serving when this node stops being the
+  # leader, without exiting: this node then follows the new leader. When
+  # leadership is handed over the block gets the handover to call once
+  # clients are disconnected, while the followers are still connected (the
+  # target has to stay in the ISR). When it was lost, it gets nil.
+  def on_demote(&block : Proc(Nil)? ->) : Nil
+    @demote = block
+  end
+
+  # Exits unless *done* is closed within the demotion timeout, counted from
+  # when *armed* fires, or right away without it: a node that isn't the
+  # leader anymore must never keep serving.
+  private def watchdog(done : Channel(Nil), message : String, armed : Channel? = nil) : Nil
+    if armed
+      select
+      when done.receive?
+        return
+      when armed.receive?
+      end
+    end
+    select
+    when done.receive?
+    when timeout(@demotion_timeout)
+      Log.fatal { message }
+      exit 3
+    end
+  end
+
+  # Stops serving, see #on_demote. Exits if that fails or hangs.
+  private def demote(hand_over : Proc(Nil)?) : Nil
+    done = Channel(Nil).new
+    spawn(watchdog(done, "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting"),
+      name: "Demotion watchdog")
+    begin
+      if demote = @demote
+        demote.call(hand_over)
+      else
+        hand_over.try &.call
+      end
+    rescue ex
+      Log.fatal(exception: ex) { "Failed to stop serving, exiting" }
+      exit 3
+    ensure
+      done.close
+    end
   end
 
   # The id in .clustering_id, generated if there's none

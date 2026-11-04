@@ -14,8 +14,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # in which term
   record Transfer, target : Int32, address : String, term : Int64
 
-  # Stops serving as the leader, see #on_demote
-  @demote : (Proc(Nil)? ->)? = nil
   @step_down_requested = Channel(Transfer).new(1)
   @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
@@ -95,21 +93,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   rescue ex : ArgumentError
     Log.warn { "Can't read the etcd backend's ISR: #{ex.message}" }
     false
-  end
-
-  # How long stopping to serve, or a startup that lost leadership, may take
-  # before the process exits instead, so a node that isn't the leader anymore
-  # never keeps serving
-  property demotion_timeout : Time::Span = 60.seconds
-
-  # Registers how the Launcher stops serving when this node stops being the
-  # leader, without exiting: the raft node keeps running and this node
-  # follows the new leader. When leadership is handed over the block gets
-  # the handover to call once clients are disconnected, while the followers
-  # are still connected (the target has to stay in the ISR). When it was
-  # lost, it gets nil.
-  def on_demote(&block : Proc(Nil)? ->) : Nil
-    @demote = block
   end
 
   # Checks that `target` (a clustering id or raft address, or without one any
@@ -275,44 +258,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # in a later term or block the next one
     @step_down_requested.try_receive?
     @transfer_lock.synchronize { @transfer_target = nil }
-  end
-
-  # Exits unless *done* is closed within the demotion timeout, counted from
-  # when *armed* fires, or right away without it: a node that isn't the
-  # leader anymore must never keep serving.
-  private def watchdog(done : Channel(Nil), message : String, armed : Channel(Nil)? = nil) : Nil
-    if armed
-      select
-      when done.receive?
-        return
-      when armed.receive?
-      end
-    end
-    select
-    when done.receive?
-    when timeout(@demotion_timeout)
-      Log.fatal { message }
-      exit 3
-    end
-  end
-
-  # Stops serving, see #on_demote. Exits if that fails or hangs.
-  private def demote(hand_over : Proc(Nil)?) : Nil
-    done = Channel(Nil).new
-    spawn(watchdog(done, "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting"),
-      name: "Demotion watchdog")
-    begin
-      if demote = @demote
-        demote.call(hand_over)
-      else
-        hand_over.try &.call
-      end
-    rescue ex
-      Log.fatal(exception: ex) { "Failed to stop serving, exiting" }
-      exit 3
-    ensure
-      done.close
-    end
   end
 
   # Lets an in-sync follower take over right away instead of after an

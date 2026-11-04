@@ -14,7 +14,7 @@ module LavinMQ
     end
 
     # How the Launcher stops serving when this node stops leading, while the
-    # process keeps running, see Clustering::RaftController#on_demote.
+    # process keeps running, see Clustering::Controller#on_demote
     def on_demote(&_block : Proc(Nil)? ->) : Nil
     end
 

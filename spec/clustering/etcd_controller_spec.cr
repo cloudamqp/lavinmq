@@ -177,6 +177,55 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
 
+  it "stops serving when its lease expires, and leads again without exiting" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5686"
+      config.clustering_etcd_lease_ttl = 3 # keepalive every second
+      controller = LavinMQ::Clustering::EtcdController.new(config)
+      demoted = Channel(Proc(Nil)?).new(1)
+      controller.on_demote { |hand_over| demoted.send hand_over }
+      served = Channel(Nil).new(2)
+      done = Channel(Int32?).new(1)
+      spawn(name: "lease expiry controller") do
+        controller.run { served.send nil }
+        done.send nil
+      rescue ex : SpecExit
+        done.send ex.code
+      end
+      select
+      when served.receive
+      when timeout(10.seconds)
+        fail "wasn't elected"
+      end
+      LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
+      select
+      when hand_over = demoted.receive
+        hand_over.should be_nil # lost, not handed over
+      when code = done.receive
+        fail "exited with #{code.inspect} instead of stopping to serve"
+      when timeout(10.seconds)
+        fail "didn't stop serving when its lease expired"
+      end
+      select
+      when served.receive
+      when code = done.receive
+        fail "exited with #{code.inspect} instead of leading again"
+      when timeout(10.seconds)
+        fail "wasn't elected again"
+      end
+      controller.stop
+      select
+      when code = done.receive
+        code.should be_nil
+      when timeout(5.seconds)
+        fail "run didn't return after stop"
+      end
+    end
+  end
+
   it "stops without exiting while waiting to be in sync" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
