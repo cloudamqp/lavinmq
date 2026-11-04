@@ -11,7 +11,7 @@ module LavinMQ
     class Exchange < AMQP::Exchange
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
-      # QoS levels counted in lavinmq_mqtt_messages_published_total
+      # QoS levels counted in lavinmq_global_mqtt_messages_published_total
       PUBLISHED_QOS_LEVELS = {0u8, 1u8, 2u8}
 
       # Process-wide so the counters stay monotonic when a vhost is deleted
