@@ -298,49 +298,49 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
   end
 
   it "will release lease on shutdown", tags: "slow" do
-    config = LavinMQ::Config.new
-    config.data_dir = "/tmp/release-lease"
-    config.clustering = true
-    config.clustering_etcd_endpoints = "localhost:12379"
-    config.clustering_advertised_uri = "tcp://localhost:5681"
-    launcher = LavinMQ::Launcher.new(config)
+    with_datadir do |data_dir|
+      with_clustered_launcher_config(data_dir) do |config|
+        launcher = LavinMQ::Launcher.new(config)
 
-    election_done = Channel(Nil).new
-    etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
-    spawn do
-      etcd.elect_listen("lavinmq/leader") { election_done.close }
-    rescue SpecExit
+        election_done = Channel(Nil).new
+        etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+        spawn do
+          etcd.elect_listen("lavinmq/leader") { election_done.close }
+        rescue SpecExit
+        end
+
+        spawn do
+          launcher.run
+        rescue SpecExit
+        end
+
+        # Wait until our "launcher" is leader
+        election_done.receive?
+
+        # The spec gets a lease to use in an election campaign
+        lease = etcd.lease_grant(5)
+        begin
+          # graceful stop...
+          spawn { launcher.stop }
+
+          # Let the spec campaign for leadership...
+          elected = Channel(Nil).new
+          spawn do
+            etcd.election_campaign("lavinmq/leader", "spec", lease.id)
+            elected.close
+          end
+
+          # ... and verify spec is elected
+          select
+          when elected.receive?
+          when timeout(1.seconds)
+            fail("election campaign did not finish in time, leadership not released on launcher stop?")
+          end
+        ensure
+          lease.release
+        end
+      end
     end
-
-    spawn do
-      launcher.run
-    rescue SpecExit
-    end
-
-    # Wait until our "launcher" is leader
-    election_done.receive?
-
-    # The spec gets a lease to use in an election campaign
-    lease = etcd.lease_grant(5)
-
-    # graceful stop...
-    spawn { launcher.stop }
-
-    # Let the spec campaign for leadership...
-    elected = Channel(Nil).new
-    spawn do
-      etcd.election_campaign("lavinmq/leader", "spec", lease.id)
-      elected.close
-    end
-
-    # ... and verify spec is elected
-    select
-    when elected.receive?
-    when timeout(1.seconds)
-      fail("election campaign did not finish in time, leadership not released on launcher stop?")
-    end
-  ensure
-    lease.try &.release
   end
 
   it "creates the data dir and keeps its clustering id across restarts" do
