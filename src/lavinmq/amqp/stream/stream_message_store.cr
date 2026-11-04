@@ -17,8 +17,6 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
-    # Finished segments to sync with the next confirm, see #open_new_segment
-    @finished_unsynced = Array(MFile).new
 
     def initialize(*args, **kwargs)
       super
@@ -157,7 +155,7 @@ module LavinMQ::AMQP
       @segments[segment]?.try { |mfile| read_ahead(mfile) }
       loop do
         rfile = @segments[segment]?
-        if rfile.nil? || pos == rfile.size
+        while rfile.nil? || pos == rfile.size # a recovered lost segment can be empty
           unmap_if_unused(segment)
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
@@ -328,13 +326,9 @@ module LavinMQ::AMQP
       finished = @wfile
       super.tap do
         # Left unsynced, this segment becomes a hole between synced segments
-        # after a power cut, so sync it with the publish confirm that follows.
-        # Queued, not handed to the persister, whose batch only drains when
-        # confirms happen (see #write_to_disk)
-        if @persister
-          @finished_unsynced.reject!(&.closed?) # dropped by retention
-          @finished_unsynced << finished
-        end
+        # after a power cut, and its meta file a 0-byte file. Synced in the
+        # background, so no later confirm pays for it
+        @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
@@ -347,15 +341,6 @@ module LavinMQ::AMQP
       io.write_bytes @segment_first_offset[seg]
       io.write_bytes @segment_first_ts[seg]
       io.write_bytes @segment_last_ts[seg]
-    end
-
-    private def write_to_disk(msg) : SegmentPosition
-      sp = super
-      if msg.needs_sync? && (persister = @persister) && !@finished_unsynced.empty?
-        @finished_unsynced.each { |mfile| persister.mark_dirty(mfile) }
-        @finished_unsynced.clear
-      end
-      sp
     end
 
     def drop_overflow
@@ -553,9 +538,12 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
+        # The restart clock would put a recovered segment out of time order
+        # (lookups, max-age), so it inherits its predecessor's timestamps
+        ts = (prev = @segment_first_ts.last_key?) ? @segment_last_ts[prev] : RoughTime.unix_ms
         @segment_first_offset[seg] = first_offset
-        @segment_first_ts[seg] = RoughTime.unix_ms
-        @segment_last_ts[seg] = RoughTime.unix_ms
+        @segment_first_ts[seg] = ts
+        @segment_last_ts[seg] = ts
       else
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @segment_first_offset[seg] = first_offset

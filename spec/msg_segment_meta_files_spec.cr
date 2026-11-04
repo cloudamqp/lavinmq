@@ -542,33 +542,48 @@ describe "Stream power cut recovery invariants" do
     end
   end
 
-  it "does not queue finished segments for the persister before a publish needs sync" do
+  it "syncs a finished segment and its meta file in the background" do
     with_datadir do |dir|
       persister = LavinMQ::Persister.new(dir)
       store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil, persister: persister)
       push_indexed_messages(store, 4) # rolls over to segment 2
       store.@segments.size.should eq 2
-      # nothing drains the persister's batch on a server without confirms
-      store.@segments[1u32].mark_needs_msync!.should be_false
+      # the drain runs without any confirm, so confirms never pay for it
+      wait_for { persister.last_sync }
+      synced = persister.last_sync.should_not be_nil
+      synced.paths.should contain File.join(dir, "msgs.0000000001")
+      synced.paths.should contain File.join(dir, "meta.0000000001")
       store.close
       persister.close
     end
   end
 
-  it "syncs finished segments with the publish confirm that follows them" do
+  it "finds the next surviving message when the asked offset is lost" do
     with_datadir do |dir|
-      persister = LavinMQ::Persister.new(dir)
-      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil, persister: persister)
-      push_indexed_messages(store, 4) # rolls over to segment 2
-      store.@segments.size.should eq 2
-      confirmed = LavinMQ::Message.new("", "rk", "confirmed")
-      confirmed.needs_sync = true
-      store.push(confirmed)
-      # marked means it sits in the persister's batch for the next drain
-      store.@segments[1u32].mark_needs_msync!.should be_true
-      store.@segments[2u32].mark_needs_msync!.should be_true
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
       store.close
-      persister.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      body_at_offset(store, 8).should start_with "9:" # offsets 7-9 are lost, 10 is next
+      store.close
+    end
+  end
+
+  it "gives a recovered segment its neighbors' timestamps, not the restart time" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      File.delete(File.join(dir, "meta.0000000003")) # nothing says when it ended
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      # a restart-time stamp would break the time order lookups and max-age depend on
+      store.@segment_first_ts[3u32].should be <= store.@segment_first_ts[4u32]
+      store.@segment_last_ts[3u32].should be <= store.@segment_first_ts[4u32]
+      store.close
     end
   end
 

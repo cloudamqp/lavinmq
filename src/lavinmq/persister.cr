@@ -39,7 +39,7 @@ module LavinMQ
       getter waiters = Array(::Channel(Nil)).new
 
       def drainable? : Bool
-        !acks.empty? || !waiters.empty?
+        !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -101,6 +101,16 @@ module LavinMQ
     # drain, so many new entries in one directory cost one fsync.
     def mark_dirty(path : String) : Nil
       @pending.lock &.add_path(path)
+    end
+
+    # Make *mfile* and *path* durable soon, without waiting: the drain runs in
+    # the background, so no later confirm pays for them. Used for a stream's
+    # finished segments and their meta files.
+    def sync_soon(mfile : MFile, path : String) : Nil
+      mark_dirty(mfile)
+      mark_dirty(path)
+      @publish_confirm_requested.try_send true
+    rescue ::Channel::ClosedError
     end
 
     # Block until everything written so far is durable, on the leader and on
