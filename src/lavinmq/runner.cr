@@ -17,6 +17,11 @@ module LavinMQ
     def new_replicator : Clustering::Server?
     end
 
+    # The leader's host, which client connections are forwarded to while this
+    # node doesn't serve, nil when there's none to forward to
+    def leader_host : String?
+    end
+
     # Writes the runner's own metrics to every Prometheus scrape, whatever the
     # node's role, see HTTP::MetricsServer
     def write_metrics(writer) : Nil

@@ -68,40 +68,6 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
-describe LavinMQ::Clustering::Client do
-  # On promotion both the leader watcher and the controller close the client.
-  # The controller binds the listeners right after its close returns, so that
-  # close must not return while the other one still holds the proxy ports.
-  it "waits for a concurrent close to release the proxy ports" do
-    free_port = -> { TCPServer.open("127.0.0.1", 0, &.local_address.port) }
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
-      config.amqp_port = free_port.call
-      config.http_port = free_port.call
-      config.mqtt_port = free_port.call
-      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
-      spawn client.follow("127.0.0.1", free_port.call) # no leader there, keeps retrying
-      Fiber.yield                                      # let the proxies start accepting
-      ports = {config.amqp_port, config.http_port, config.mqtt_port}
-      bind_errors = [] of String
-      wg = WaitGroup.new
-      wg.spawn { client.close } # suspends while closing a proxy
-      wg.spawn do
-        client.close
-        ports.each do |port|
-          TCPServer.new("127.0.0.1", port).close
-        rescue ex : Socket::BindError
-          bind_errors << ex.message.to_s
-        end
-      end
-      wg.wait
-      bind_errors.should be_empty
-    end
-  end
-end
-
 describe LavinMQ::Clustering::Client, tags: "slow" do
   it "can stream changes" do
     with_clustering do |cluster|
@@ -314,6 +280,22 @@ describe LavinMQ::Clustering::Client, tags: "slow" do
       ensure
         server.close
       end
+    end
+  end
+
+  it "names the leader's host, for forwarding clients, only while connected to it" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.instance.dup.tap &.data_dir = data_dir
+      repli = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      spawn(name: "follow unreachable spec") { repli.follow("localhost", free_port) }
+      sleep 100.milliseconds # retrying the refused connection
+      repli.host.should be_nil
+      repli.close
+    end
+    with_clustering do |cluster|
+      wait_for { cluster.repli.host == "localhost" }
+      cluster.replicator.close
+      wait_for { cluster.repli.host.nil? }
     end
   end
 

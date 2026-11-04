@@ -3,7 +3,6 @@ require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
 require "./checksums"
-require "./proxy"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -30,17 +29,7 @@ module LavinMQ
       @closed = false
       @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
       @close_done = Channel(Nil).new
-      @amqp_proxy : Proxy?
-      @http_proxy : Proxy?
-      @mqtt_proxy : Proxy?
-      @amqps_proxy : Proxy?
-      @https_proxy : Proxy?
-      @mqtts_proxy : Proxy?
-      @unix_amqp_proxy : Proxy?
-      @unix_http_proxy : Proxy?
-      @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
-      @internal_http_server : ::HTTP::Server?
       getter streamed_bytes = 0_u64
 
       # To a HTTP::PrometheusWriter, see Runner#write_metrics
@@ -75,7 +64,7 @@ module LavinMQ
       # fsynced yet, fsynced with the next fsync request (see #make_dirs)
       @created_dirs = Set(String).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -91,21 +80,18 @@ module LavinMQ
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
+      end
 
-        if proxy
-          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
-          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
-          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
-          # TLS is passed through unterminated, the leader terminates it
-          if @config.tls_configured?
-            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
-            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
-            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
-          end
-          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
-          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
-          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
+      @host : String?
+      @port : Int32?
+      @leader_host = Atomic(String?).new(nil)
+
+      # The leader's host while connected to it, client connections are
+      # forwarded there with a PROXY header the leader only accepts from the
+      # followers it has registered, see ClientListeners. So nil until it
+      # has registered this one, and while reconnecting.
+      def host : String?
+        @leader_host.get
       end
 
       def follow(uri : String)
@@ -128,8 +114,6 @@ module LavinMQ
         @protocol_version = PROTOCOL_VERSION # a new leader may speak it
         @host = host
         @port = port
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        start_proxies(host)
         handshake_retry = 1.second
         loop do
           hash_local_files
@@ -143,6 +127,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error | Error
+          @leader_host.set(nil)
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -172,36 +157,6 @@ module LavinMQ
         end
       end
 
-      private def start_proxies(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if amqps_proxy = @amqps_proxy
-          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
-        end
-        if https_proxy = @https_proxy
-          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
-        end
-        if mqtts_proxy = @mqtts_proxy
-          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
-      end
-
       def follows?(_nil : Nil) : Bool
         false
       end
@@ -218,16 +173,6 @@ module LavinMQ
 
       def follows?(host : String, port : Int32) : Bool
         @host == host && @port == port
-      end
-
-      private def local_leader_host?(host : String) : Bool
-        host = host.downcase
-        return true if host == System.hostname.downcase
-        host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
-
-        Socket::Addrinfo.tcp(host, 0).any?(&.ip_address.loopback?)
-      rescue Socket::Error
-        false
       end
 
       private def sync(socket, lz4)
@@ -304,6 +249,7 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
+        @leader_host.set(@host) # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
@@ -843,8 +789,8 @@ module LavinMQ
       end
 
       # On promotion both the leader watcher and the controller close the
-      # client, and the controller binds the listeners as soon as its call
-      # returns, so a call made while another is closing waits for it to finish.
+      # client, and the leader starts as soon as its call returns, so a call
+      # made while another is closing waits for it to finish with the data dir.
       def close
         if @closed
           @close_done.receive?
@@ -852,16 +798,6 @@ module LavinMQ
         end
         @closed = true
         @closing.close
-        @internal_http_server.try &.close
-        @amqp_proxy.try &.close
-        @http_proxy.try &.close
-        @mqtt_proxy.try &.close
-        @amqps_proxy.try &.close
-        @https_proxy.try &.close
-        @mqtts_proxy.try &.close
-        @unix_amqp_proxy.try &.close
-        @unix_http_proxy.try &.close
-        @unix_mqtt_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)

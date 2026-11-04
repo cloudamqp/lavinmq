@@ -86,19 +86,17 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 
 ## Clustering Proxy
 
-When a node is a follower, it automatically proxies client traffic to the current leader. Clients can connect to any node in the cluster on the normal protocol ports and reach the leader without needing to know which node is the leader.
+Every node binds the client ports when it starts and keeps them bound through leadership changes. A node that serves handles the connections itself, a follower forwards them to the current leader, so clients can connect to any node on the normal protocol ports without needing to know which node is the leader. Connections a node forwarded to the old leader are closed when it starts to serve itself, so their clients reconnect to it.
 
-The proxy is transparent and runs on every follower for:
+Forwarding is transparent and covers:
 
-- AMQP and AMQPS
-- MQTT and MQTTS
-- HTTP/management and HTTPS
+- AMQP and AMQPS (TCP and Unix socket)
+- MQTT and MQTTS (TCP and Unix socket)
+- HTTP/management, HTTPS and WebSockets (TCP and Unix socket)
 
-The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
+The TLS ports (`amqps_port`, `mqtts_port`, `https_port`) are bound when TLS is configured (`tls_cert_path` is set) and the port is above 0. TLS is forwarded as is: the follower doesn't terminate it, the client's TLS session is with the leader, so the certificate has to be valid for every node's name, and SNI and kTLS are handled by the leader. Unix-socket forwarding activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`, and goes to the leader's TCP port of that protocol; Unix sockets are always plaintext. Connections go to the same ports on the leader, so the client ports should be the same on all nodes.
 
-TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
-
-For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
+For AMQP and MQTT, with or without TLS, the follower sends a PROXY protocol v1 header first, which the leader reads before the TLS handshake, so it sees the original client address. HTTP and HTTPS connections get no PROXY header. No further configuration is needed.
 
 ## Security
 

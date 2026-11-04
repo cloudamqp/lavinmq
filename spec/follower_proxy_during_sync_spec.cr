@@ -1,7 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
 require "mqtt-protocol"
 
@@ -27,9 +26,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
   end
 end
 
-describe "extract_conn_info during full_sync with syncing_followers", tags: %w[etcd slow] do
-  add_etcd_around_each
-
+describe "extract_conn_info during full_sync with syncing_followers", tags: "slow" do
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
@@ -51,7 +48,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
         begin
           follower_config = leader_config.dup.tap &.data_dir = follower_data_dir
           follower_config.metrics_http_port = -1
-          follower_client = LavinMQ::Clustering::Client.new(follower_config, 2, slow_replicator.password, proxy: false)
+          follower_client = LavinMQ::Clustering::Client.new(follower_config, 2, slow_replicator.password)
 
           spawn(name: "slow follower sync") do
             follower_client.follow("localhost", leader_tcp_server.local_address.port)
