@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Since 2.11.0-rc.1, a power loss within about 30 seconds of the first start on a new data dir could leave `schema_version` empty, and every later start failed with `Invalid Int32: ""`. Publish confirms no longer sync the whole data dir, so nothing made the file durable. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
 - Since 2.11.0-rc.1, a power loss soon after a clustered node's first start could leave `.clustering_id` empty, and every later start of that node failed. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
+- Since 2.11.0-rc.1, `tcp_send_timeout` didn't apply to clients connected through a follower. The leader closed its side, but the follower kept a client that stopped reading connected, with its proxy fibers blocked in a write. The follower now closes the client connection after `tcp_send_timeout` too [#2600](https://github.com/cloudamqp/lavinmq/pull/2600)
 - A clustering follower whose replication handshake with the leader failed, such as on a password mismatch, stopped replicating until it was restarted or the leader changed. It now logs the failure and retries, waiting twice as long each time, up to a minute [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 
 ## [2.11.0-rc.3] - 2026-11-03

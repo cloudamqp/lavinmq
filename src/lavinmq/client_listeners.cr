@@ -153,6 +153,10 @@ module LavinMQ
       return client.close unless track(client)
       target = TCPSocket.new(host, port, connect_timeout: CONNECT_TIMEOUT)
       set_socket_options(target)
+      # A client that stops reading must not keep the connection open: the
+      # copy from the leader would block in its write forever, and never see
+      # that the leader closed the connection after its own tcp_send_timeout
+      client.write_timeout = @config.tcp_send_timeout.seconds
       if client.is_a?(TCPSocket)
         set_socket_options(client)
         # The leader parses it from followers, also before TLS, but HTTP has

@@ -139,6 +139,40 @@ describe LavinMQ::ClientListeners do
     end
   end
 
+  it "closes the connection of a forwarded client that stops reading for tcp_send_timeout" do
+    config = listener_config
+    config.amqps_port = -1
+    config.tcp_send_timeout = 1
+    leader = TCPServer.new("127.0.0.1", 0)
+    listeners = SpecListeners.new(config, -> { "127.0.0.1".as(String?) },
+      {config.amqp_port => leader.local_address.port})
+    listeners.bind(nil, nil, nil)
+    listeners.listen
+    client = TCPSocket.new("127.0.0.1", config.amqp_port)
+    upstream = leader.accept
+    # The leader keeps sending to a client that never reads, until the
+    # follower gives up on the client and closes the connection to the
+    # leader too
+    closed = Channel(Exception).new(1)
+    spawn(name: "leader writing to a stalled client") do
+      chunk = Bytes.new(64 * 1024)
+      loop { upstream.write chunk }
+    rescue ex
+      closed.send ex
+    end
+    select
+    when ex = closed.receive
+      ex.should be_a(IO::Error)
+    when timeout(10.seconds)
+      fail "The follower kept the connection of a client that doesn't read"
+    end
+  ensure
+    client.try &.close rescue nil
+    upstream.try &.close rescue nil
+    listeners.try &.close
+    leader.try &.close
+  end
+
   it "closes connections while neither serving nor knowing of a leader" do
     config = listener_config
     listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
