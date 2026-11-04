@@ -1,0 +1,44 @@
+--- a/include/gc_mark.h
++++ b/include/gc_mark.h
+@@ -300,6 +300,10 @@
+ /* is scanned immediately, not just scheduled for scanning.             */
+ GC_API void GC_CALL GC_push_all(void * /* bottom */, void * /* top */);
+ GC_API void GC_CALL GC_push_all_eager(void * /* bottom */, void * /* top */);
++/* Same as GC_push_all but grows the mark stack instead of aborting   */
++/* when it is full.  Only for use while the roots are pushed, e.g.    */
++/* from a GC_push_other_roots callback.                               */
++GC_API void GC_CALL GC_push_all_grow(void * /* bottom */, void * /* top */);
+ GC_API void GC_CALL GC_push_conditional(void * /* bottom */, void * /* top */,
+                                         int /* bool all */);
+ GC_API void GC_CALL GC_push_finalizer_structures(void);
+--- a/mark.c
++++ b/mark.c
+@@ -1213,6 +1213,28 @@
+     GC_mark_stack_top -> mse_descr.w = length;
+ }
+ 
++/* The roots are pushed with the allocation lock held and before any  */
++/* marking starts, so nothing else points into the mark stack and it  */
++/* can be moved.  The old stack is not recycled, since that adds to   */
++/* the heap in the middle of pushing the roots.                       */
++GC_API void GC_CALL GC_push_all_grow(void *bottom, void *top)
++{
++    if ((word)(GC_mark_stack_top + 1) >= (word)GC_mark_stack_limit) {
++        size_t n = 2 * GC_mark_stack_size;
++        mse *new_stack = (mse *)GC_scratch_alloc(n * sizeof(mse));
++
++        if (NULL == new_stack) ABORT("Failed to grow mark stack");
++        BCOPY(GC_mark_stack, new_stack, GC_mark_stack_size * sizeof(mse));
++        GC_mark_stack_top = new_stack + (GC_mark_stack_top - GC_mark_stack);
++        GC_mark_stack = new_stack;
++        GC_mark_stack_size = n;
++        GC_mark_stack_limit = new_stack + n;
++        GC_COND_LOG_PRINTF("Grew mark stack to %lu frames\n",
++                           (unsigned long)n);
++    }
++    GC_push_all(bottom, top);
++}
++
+ #ifndef GC_DISABLE_INCREMENTAL
+ 
+   /* Analogous to the above, but push only those pages h with           */
