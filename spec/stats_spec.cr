@@ -615,3 +615,21 @@ describe "concurrent readers" do
     foreign.get.should eq 0
   end
 end
+
+describe LavinMQ::StatJson do
+  it "serializes a log without allocating" do
+    io = IO::Memory.new(4096)
+    ring = view(Array.new(120) { |i| i * 7 }, 120)
+    {ring, const_view(5_u32, 120), LavinMQ::RateLogView.new(ring), LavinMQ::RateLogView.new(const_view(15_u32, 120))}.each do |log|
+      allocated = Array.new(5) do
+        io.clear
+        json = JSON::Builder.new(io)
+        before = GC.stats.total_bytes
+        json.document { log.to_json(json) }
+        GC.stats.total_bytes - before
+      end
+      allocated.min.should eq 0 # other fibers may allocate meanwhile; the formatter never does
+      io.to_s.should eq log.to_a.to_json
+    end
+  end
+end
