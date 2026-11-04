@@ -403,6 +403,34 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   end
 
+  # The replication client shares checksums.sha1 with the replication server,
+  # one that never listened has nothing to write to it
+  it "keeps the replication checksums when stopped while waiting to be in sync" do
+    with_datadir do |data_dir|
+      with_clustered_launcher_config(data_dir) do |config|
+        launcher = LavinMQ::Launcher.new(config)
+        id = File.read(File.join(data_dir, ".clustering_id")).to_i(36)
+        LavinMQ::Etcd.new(config.clustering_etcd_endpoints).put("lavinmq/isr", (id + 1).to_s(36))
+        checksums_path = File.join(data_dir, "checksums.sha1")
+        File.write(checksums_path, "#{Digest::SHA1.digest("a").hexstring} 1 *a\n")
+        run_done = Channel(Nil).new
+        spawn do
+          launcher.run
+          run_done.close
+        rescue SpecExit
+        end
+        sleep 0.5.seconds # waiting to be in sync
+        launcher.stop
+        select
+        when run_done.receive?
+        when timeout(5.seconds)
+          fail("Launcher#run didn't return after stop")
+        end
+        File.read(checksums_path).should_not be_empty
+      end
+    end
+  end
+
   it "leaves the exit to the main fiber when stopping a leader", tags: "slow" do
     with_datadir do |data_dir|
       with_clustered_launcher_config(data_dir) do |config|
