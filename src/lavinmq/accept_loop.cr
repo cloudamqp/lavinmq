@@ -1,5 +1,6 @@
 require "socket"
 require "./logger"
+require "./bool_channel"
 
 module LavinMQ
   # Accepts connections on a listener through errors that pass, instead of
@@ -26,10 +27,12 @@ module LavinMQ
     # until it's closed. After a connection error it accepts again right
     # away. After any other error, like when out of file descriptors
     # (`EMFILE`), retrying right away would only spin, so it retries with a
-    # growing delay.
-    def self.each(server, name : String, &)
+    # growing delay. With *open* it only accepts while that's true, until
+    # then connections wait in the listen backlog.
+    def self.each(server, name : String, open : BoolChannel? = nil, &)
       delay = RETRY_DELAY
       loop do
+        open.try &.when_true.receive
         client = begin
           server.accept?
         rescue ex : Socket::Error

@@ -94,6 +94,14 @@ module LavinMQ
         @leader_host.get
       end
 
+      # Called after #host changed, set before #follow
+      property on_host_change : Proc(Nil)? = nil
+
+      private def leader_host=(host : String?) : Nil
+        @leader_host.set(host)
+        @on_host_change.try &.call
+      end
+
       def follow(uri : String)
         follow(URI.parse(uri))
       end
@@ -127,7 +135,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error | Error
-          @leader_host.set(nil)
+          self.leader_host = nil
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -249,7 +257,7 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
-        @leader_host.set(@host) # the leader registered this follower before sending it
+        self.leader_host = @host # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)

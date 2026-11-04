@@ -21,6 +21,8 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   @stopping = Atomic(Bool).new(false)
   # Stops serving as the leader, see #on_demote
   @demote : (Proc(Nil)? ->)? = nil
+  # See #on_leader_host_change, set before #run
+  @leader_host_change : Proc(Nil)? = nil
 
   # How long stopping to serve, or a startup that lost leadership, may take
   # before the process exits instead, so a node that isn't the leader anymore
@@ -136,6 +138,15 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # The leader it replicates from, which client connections are forwarded to
   def leader_host : String?
     @repli_client.get.try &.host
+  end
+
+  def on_leader_host_change(&block : ->) : Nil
+    @leader_host_change = block
+  end
+
+  # After a change of the replication client, or of its leader host
+  private def leader_host_changed : Nil
+    @leader_host_change.try &.call
   end
 
   # The replication client's while following

@@ -27,6 +27,10 @@ module LavinMQ
     def leader_host : String?
     end
 
+    # Registers what to call after what #leader_host returns may have changed
+    def on_leader_host_change(&_block : ->) : Nil
+    end
+
     # Writes the runner's own metrics to every Prometheus scrape, whatever the
     # node's role, see HTTP::MetricsServer
     def write_metrics(writer) : Nil
