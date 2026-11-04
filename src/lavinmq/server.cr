@@ -241,7 +241,10 @@ module LavinMQ
         end
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        select # until the next round, or until closed
+        when @closed.when_true.receive
+        when timeout(@config.stats_interval.milliseconds)
+        end
       end
     ensure
       statm.try &.close
