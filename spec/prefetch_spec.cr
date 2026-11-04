@@ -70,5 +70,32 @@ describe LavinMQ::Server do
         end
       end
     end
+    {1, 3, 8}.each do |prefetch|
+      it "should not let one consumer starve the others when global is true (prefetch #{prefetch})" do
+        with_amqp_server do |s|
+          queues = {"global-prefetch-q1", "global-prefetch-empty", "global-prefetch-q2"}
+          with_channel(s) do |ch|
+            queues.each { |name| ch.queue(name) }
+            100.times do
+              ch.basic_publish "1", "", "global-prefetch-q1"
+              ch.basic_publish "2", "", "global-prefetch-q2"
+            end
+          end
+          with_channel(s) do |ch|
+            ch.prefetch prefetch, true
+            order = Channel(String).new(200)
+            queues.each do |name|
+              ch.basic_consume(name, no_ack: false, block: false) do |msg|
+                order.send msg.body_io.to_s
+                msg.ack
+              end
+            end
+            first = Array(String).new(100) { order.receive }
+            longest_run = first.chunk_while { |a, b| a == b }.max_of(&.size)
+            longest_run.should be <= 4 * prefetch
+          end
+        end
+      end
+    end
   end
 end
