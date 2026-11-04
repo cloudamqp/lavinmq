@@ -62,6 +62,7 @@ module LavinMQ
       @runner.on_demote { |hand_over| demote(hand_over) }
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, -> { @runner.cluster_status })
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
+      @runner.on_leader_host_change { @client_listeners.leader_host_changed }
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context

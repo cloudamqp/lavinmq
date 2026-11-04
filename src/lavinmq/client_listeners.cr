@@ -5,6 +5,7 @@ require "./proxy_protocol"
 require "./amqp/server"
 require "./mqtt/server"
 require "./http/http_server"
+require "./bool_channel"
 
 module LavinMQ
   # The client ports (AMQP, MQTT and HTTP, with TLS and on unix sockets),
@@ -38,6 +39,11 @@ module LavinMQ
     @lock = Mutex.new
     @closed = false
     @listening = Atomic(Bool).new(false)
+    # Open while what's accepted has somewhere to go, see #destination. The
+    # accept loops wait for it, so that meanwhile connections wait in the
+    # listen backlog instead of being closed. Also open once closed, for them
+    # to see that.
+    @accepting = BoolChannel.new(false)
 
     # *leader_host* is where connections are forwarded while not serving, see
     # Runner#leader_host
@@ -82,11 +88,11 @@ module LavinMQ
       @listeners << Listener.new(kind, server, address, tls, target_port)
     end
 
-    # Starts accepting. Until then connections wait in the listen backlog,
-    # rather than being closed while neither serving nor knowing of a
-    # leader. #serve also starts it.
+    # Starts accepting, while this node serves or knows the leader, see
+    # #leader_host_changed. #serve also starts it.
     def listen : Nil
       return if @listening.swap(true)
+      destination
       @listeners.each do |l|
         spawn(name: "#{l.kind} listener #{l.address}") { accept_loop(l) }
       end
@@ -98,6 +104,7 @@ module LavinMQ
     def serve(brokers : Brokers?) : Nil
       forwarded = @lock.synchronize do
         @brokers = brokers
+        destination_locked
         @forwarded.dup.tap { @forwarded.clear if brokers }
       end
       return unless brokers
@@ -116,14 +123,35 @@ module LavinMQ
       forwarded = @lock.synchronize do
         @closed = true
         @brokers = nil
+        destination_locked
         @forwarded.dup.tap { @forwarded.clear }
       end
       @listeners.each { |l| l.server.close rescue nil }
       forwarded.each { |io| io.close rescue nil }
     end
 
+    # Called after what *leader_host* returns may have changed, see
+    # Runner#on_leader_host_change
+    def leader_host_changed : Nil
+      destination
+    end
+
+    # Where what's accepted goes now, nil when nowhere. Opens or shuts
+    # @accepting in the same step, so that a change notified meanwhile isn't
+    # lost.
+    private def destination : (Brokers | String)?
+      @lock.synchronize { destination_locked }
+    end
+
+    private def destination_locked : (Brokers | String)?
+      dest = @closed ? nil : (@brokers || @leader_host.call)
+      open = @closed || !dest.nil?
+      @accepting.set(open) unless @accepting.value == open
+      dest
+    end
+
     private def accept_loop(l : Listener) : Nil
-      AcceptLoop.each(l.server, "#{l.kind} listener") do |client|
+      AcceptLoop.each(l.server, "#{l.kind} listener", @accepting) do |client|
         dispatch(l, client)
       end
     rescue ex : IO::Error
@@ -132,16 +160,25 @@ module LavinMQ
 
     private def dispatch(l : Listener, io : IO) : Nil
       client = io.as(Socket)
-      if brokers = @lock.synchronize { @brokers }
-        case l.kind
-        in .amqp? then brokers.amqp.accept(client, l.tls)
-        in .mqtt? then brokers.mqtt.accept(client, l.tls)
-        in .http? then brokers.http.accept(client, l.tls)
+      loop do
+        case dest = destination
+        in Brokers
+          case l.kind
+          in .amqp? then dest.amqp.accept(client, l.tls)
+          in .mqtt? then dest.mqtt.accept(client, l.tls)
+          in .http? then dest.http.accept(client, l.tls)
+          end
+          return
+        in String
+          host = dest
+          spawn(name: "Forward #{l.kind} to the leader") { forward(l, client, host) }
+          return
+        in Nil
+          # Accepted just as there stopped being anywhere to send it, it
+          # waits like the ones in the backlog
+          @accepting.when_true.receive
+          return client.close if @lock.synchronize { @closed }
         end
-      elsif host = @leader_host.call
-        spawn(name: "Forward #{l.kind} to the leader") { forward(l, client, host) }
-      else
-        client.close # neither serving nor following
       end
     end
 

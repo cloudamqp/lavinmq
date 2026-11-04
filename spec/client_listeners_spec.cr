@@ -108,7 +108,8 @@ describe LavinMQ::ClientListeners do
     config.amqp_port = config.amqps_port = -1
     config.http_bind = "127.0.0.1"
     config.http_port = free_port
-    listeners = NodelayListeners.new(config, -> { nil.as(String?) })
+    # Knows a leader, so that it accepts
+    listeners = NodelayListeners.new(config, -> { "127.0.0.1".as(String?) })
     listeners.bind(nil, nil, nil)
     listeners.listen
     TCPSocket.new("127.0.0.1", config.http_port).close
@@ -173,16 +174,39 @@ describe LavinMQ::ClientListeners do
     leader.try &.close
   end
 
-  it "closes connections while neither serving nor knowing of a leader" do
-    config = listener_config
-    listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
-    listeners.bind(nil, nil, nil)
-    listeners.listen
-    socket = TCPSocket.new("127.0.0.1", config.amqp_port)
-    socket.read_timeout = 5.seconds
-    socket.read_byte.should be_nil
-  ensure
-    socket.try &.close
-    listeners.try &.close
+  it "lets connections wait while neither serving nor knowing of a leader" do
+    with_amqp_server do |s|
+      config = listener_config
+      config.amqps_port = -1
+      leader = TCPServer.new("127.0.0.1", 0)
+      leader_host : String? = nil
+      listeners = SpecListeners.new(config, -> { leader_host.as(String?) }, {config.amqp_port => leader.local_address.port})
+      listeners.bind(nil, nil, nil)
+      listeners.listen
+      early = TCPSocket.new("127.0.0.1", config.amqp_port)
+      early.read_timeout = 100.milliseconds
+      expect_raises(IO::TimeoutError) { early.read_byte } # not closed
+
+      leader_host = "127.0.0.1"
+      listeners.leader_host_changed
+      leader.accept.close # forwarded once there's a leader
+
+      # The leader is gone, e.g. this node won the election and loads its data
+      leader_host = nil
+      listeners.leader_host_changed
+      promoted = TCPSocket.new("127.0.0.1", config.amqp_port)
+      promoted.read_timeout = 100.milliseconds
+      expect_raises(IO::TimeoutError) { promoted.read_byte }
+
+      listeners.serve(LavinMQ::ClientListeners::Brokers.new(s.amqp_server, s.mqtt_server, s.http_server))
+      promoted.read_timeout = 5.seconds
+      promoted.write "AMQP\u0000\u0000\u0009\u0001".to_slice
+      promoted.read_byte.should eq 1 # a method frame, Connection.Start
+    ensure
+      early.try &.close
+      promoted.try &.close
+      listeners.try &.close
+      leader.try &.close
+    end
   end
 end

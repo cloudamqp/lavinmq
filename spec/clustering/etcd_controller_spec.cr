@@ -284,6 +284,39 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   end
 
+  # Client connections then wait for this node to serve, see ClientListeners
+  it "tells that there's no leader host before it serves" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5687"
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      client = LavinMQ::Clustering::Client.new(config, controller.id, "secret")
+      controller.following_for_spec(client)
+      # follow was never called, satisfy close's follower-done handshake
+      spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+      changed = Atomic(Bool).new(false)
+      controller.on_leader_host_change { changed.set(true) }
+      served = Channel(Bool).new(1)
+      spawn(name: "promoted controller") do
+        controller.run { served.send changed.get }
+      rescue SpecExit
+      end
+      begin
+        select
+        when told = served.receive
+          told.should be_true
+        when timeout(5.seconds)
+          fail "controller was not elected leader"
+        end
+      ensure
+        controller.stop
+      end
+    end
+  end
+
   it "does not reject its own URI while leadership is validating ISR" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new

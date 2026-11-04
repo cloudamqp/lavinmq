@@ -31,6 +31,10 @@ module LavinMQ
     def leader_host : String?
     end
 
+    # Registers what to call after what #leader_host returns may have changed
+    def on_leader_host_change(&_block : ->) : Nil
+    end
+
     # This node's view of the cluster, which the lavinmqctl socket answers
     # GET /api/cluster with while this node doesn't serve, see
     # HTTP::ControlSocket. Nil to answer as a follower.

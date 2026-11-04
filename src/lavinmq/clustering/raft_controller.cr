@@ -331,6 +331,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     Log.info { "Leader: #{uri}" }
     r = Clustering::Client.new(@config, @id, @coordinator.password)
     r.member_check = -> { @node.self_member? }
+    r.on_host_change = ->leader_host_changed
     @repli_client.set(r)
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
@@ -339,6 +340,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def stop_following : Nil
     @repli_client.swap(nil).try &.close
+    leader_host_changed
   end
 
   private def current_leader_uri : String?

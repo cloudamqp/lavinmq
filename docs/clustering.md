@@ -215,7 +215,7 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 
 ## Clustering Proxy
 
-Every node binds the client ports when it starts and keeps them bound through leadership changes. A node that serves handles the connections itself, a follower forwards them to the current leader, so clients can connect to any node on the normal protocol ports without needing to know which node is the leader. Connections a node forwarded to the old leader are closed when it starts to serve itself, so their clients reconnect to it.
+Every node binds the client ports when it starts and keeps them bound through leadership changes. A node that serves handles the connections itself, a follower forwards them to the current leader, so clients can connect to any node on the normal protocol ports without needing to know which node is the leader. Connections a node forwarded to the old leader are closed when it starts to serve itself, so their clients reconnect to it. While a node neither serves nor knows the leader, such as during an election or while a new leader loads its data, it doesn't accept connections: they wait in the listen backlog until it can serve or forward them.
 
 Forwarding is transparent and covers:
 

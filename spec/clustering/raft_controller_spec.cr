@@ -476,6 +476,19 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  # Client connections then wait for this node to serve, see ClientListeners
+  it "tells that there's no leader host before it serves", tags: "slow" do
+    with_controllers(size: 1) do |cluster|
+      controller = cluster.controllers.first
+      changed = Atomic(Bool).new(false)
+      controller.on_leader_host_change { changed.set(true) }
+      told = Channel(Bool).new(1)
+      cluster.start(controller, -> { told.send changed.get })
+      cluster.next_leader
+      told.receive.should be_true
+    end
+  end
+
   it "doesn't count a leftover socket or schema backups as broker data" do
     with_datadir do |data_dir|
       File.write(File.join(data_dir, ".clustering_id"), "1")

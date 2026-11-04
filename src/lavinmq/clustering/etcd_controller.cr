@@ -38,6 +38,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       ensure_in_isr!
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
       @repli_client.swap(nil).try &.close
+      leader_host_changed # connections wait for this node to serve
       lead(lease) { yield }
       execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
       return if @stopping.get
@@ -90,6 +91,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         else
           repli_client.close
           @repli_client.set(nil)
+          leader_host_changed
         end
       end
       if uri.nil? # no leader yet
@@ -117,6 +119,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         end
       end
       r = Clustering::Client.new(@config, @id, secret)
+      r.on_host_change = ->leader_host_changed
       @repli_client.set(r)
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
