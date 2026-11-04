@@ -10,9 +10,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
-require "./etcd"
 require "./clustering/controller"
-require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -29,6 +27,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @runner : Runner
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -47,16 +46,9 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
-      @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
-
-      if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
-      else
-        @runner = StandaloneRunner.new
-      end
+      @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
+      @replicator = @runner.new_replicator
+      @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
@@ -76,9 +68,9 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, metrics: runner_metrics)
       start_listeners(amqp_server, mqtt_server, http_server)
-      @metrics_server.try &.leader = server
+      @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -104,6 +96,7 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
+      @runner.stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
@@ -204,6 +197,10 @@ module LavinMQ
 
     # Bound once, before the node knows its role, and kept until shutdown so
     # that the port isn't rebound when a follower becomes leader
+    private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
+      ->@runner.write_metrics(HTTP::PrometheusWriter)
+    end
+
     private def start_metrics_server
       return unless metrics_server = @metrics_server
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)

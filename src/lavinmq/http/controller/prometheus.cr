@@ -2,7 +2,6 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
-require "../../clustering/client"
 require "../../../stdlib/io_buffered"
 
 module LavinMQ
@@ -228,7 +227,8 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize(@clustering_client : LavinMQ::Clustering::Client? = nil)
+      # *metrics* writes the runner's own metrics, see Runner#write_metrics
+      def initialize(@metrics : Proc(PrometheusWriter, Nil)? = nil)
         register_routes
       end
 
@@ -244,7 +244,7 @@ module LavinMQ
 
           report(context.response.output, prefix) do |writer|
             gc_metrics(writer)
-            cluster_metrics(writer)
+            @metrics.try &.call(writer)
           end
           context
         end
@@ -257,21 +257,13 @@ module LavinMQ
           context
         end
       end
-
-      private def cluster_metrics(writer)
-        client = @clustering_client
-        return unless client
-        writer.write({name:  "cluster_received_bytes_total",
-                      value: client.streamed_bytes,
-                      type:  "counter",
-                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
-      end
     end
 
     class PrometheusController < Controller
       include Prometheus
 
-      def initialize(amqp_server : LavinMQ::Server, @require_authentication : Bool)
+      def initialize(amqp_server : LavinMQ::Server, @require_authentication : Bool,
+                     @metrics : Proc(PrometheusWriter, Nil)? = nil)
         super(amqp_server)
       end
 
@@ -301,6 +293,7 @@ module LavinMQ
             buffer_pool_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
+            @metrics.try &.call(writer)
           end
           context
         end
