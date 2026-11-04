@@ -73,8 +73,8 @@ describe "Transactions" do
     it "doesn't return a mandatory publish that a full queue rejects" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          returned = [] of String
-          ch.on_return { |msg| returned << msg.routing_key }
+          returned = Channel(String).new
+          ch.on_return { |msg| returned.send msg.routing_key }
           args = AMQP::Client::Arguments.new
           args["x-max-length"] = 0_i64
           args["x-overflow"] = "reject-publish"
@@ -83,7 +83,7 @@ describe "Transactions" do
           ch.basic_publish("m1", "", q.name, mandatory: true)
           ch.basic_publish("m2", "", "unroutable", mandatory: true)
           ch.tx_commit
-          returned.should eq ["unroutable"]
+          returned.receive.should eq "unroutable"
         end
       end
     end

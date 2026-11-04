@@ -1114,15 +1114,15 @@ describe LavinMQ::Server do
   it "nacks but doesn't return a mandatory publish that a full queue rejects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        returned = [] of String
-        ch.on_return { |msg| returned << msg.routing_key }
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
         args = AMQP::Client::Arguments.new
         args["x-max-length"] = 0_i64
         args["x-overflow"] = "reject-publish"
         q = ch.queue("", args: args)
         ch.basic_publish_confirm("m1", "", q.name, mandatory: true).should be_false
         ch.basic_publish_confirm("m2", "", "unroutable", mandatory: true).should be_true
-        returned.should eq ["unroutable"]
+        returned.receive.should eq "unroutable"
       end
     end
   end
