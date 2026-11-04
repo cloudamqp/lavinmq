@@ -8,6 +8,26 @@ private def last_sync(s : LavinMQ::Server) : LavinMQ::Persister::SyncRecord
   s.persister.last_sync.should_not be_nil
 end
 
+# The ISR can't be changed anymore, as on a node that lost its leadership
+private class LostLeadershipCoordinator < LavinMQ::Clustering::Coordinator
+  def update_isr(synced_node_ids : Set(Int32)) : Nil
+    raise LavinMQ::Clustering::Coordinator::StaleLeadership.new("Not the leader (spec)")
+  end
+
+  def password : String
+    "persister-spec"
+  end
+end
+
+private class RecordingConfirmTarget
+  include LavinMQ::Persister::ConfirmTarget
+  getter acks = Array(UInt64).new
+
+  def enqueue_confirm_ack(msgid : UInt64) : Nil
+    @acks << msgid
+  end
+end
+
 private class ConfirmReceiver
   include LavinMQ::Persister::ConfirmTarget
   getter confirms = Channel(UInt64).new(1)
@@ -18,6 +38,43 @@ private class ConfirmReceiver
 end
 
 describe LavinMQ::Persister do
+  it "neither confirms nor reports a sync as done once leadership is lost" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.instance.dup
+      config.data_dir = data_dir
+      # A new replicator's ISR is dirty, so waiting for the followers writes it
+      replicator = LavinMQ::Clustering::Server.new(config, LostLeadershipCoordinator.new, 0)
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      target = RecordingConfirmTarget.new
+      persister.enqueue_ack(target, 1_u64)
+      result = Channel(Exception?).new(1)
+      spawn do
+        persister.sync
+        result.send nil
+      rescue ex
+        result.send ex
+      end
+      select
+      when ex = result.receive
+        ex.should be_a LavinMQ::Clustering::Coordinator::StaleLeadership
+      when timeout(5.seconds)
+        fail "sync kept waiting for an ISR change that can't happen"
+      end
+      target.acks.should be_empty
+      mfile = MFile.new(File.join(data_dir, "segment"), 4096)
+      mfile.write(Bytes.new(8))
+      persister.mark_dirty(mfile)
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { persister.sync }
+      target.acks.should be_empty
+      # Dropped unsynced, but the next write has to register it again
+      mfile.mark_needs_msync!.should be_false
+    ensure
+      mfile.try &.close
+      persister.try &.close
+      replicator.try &.close
+    end
+  end
+
   it "syncs the segments of confirmed publishes, not of other publishes" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

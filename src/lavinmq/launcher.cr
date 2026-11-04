@@ -29,8 +29,12 @@ module LavinMQ
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
     @closed = false
+    # While #start runs, #stop leaves what it opens to it, see #start
+    @starting = false
     @replicator : Clustering::Server?
     @runner : Runner
+    # Serializes starting and stopping to serve as the leader with a shutdown
+    @role_lock = Mutex.new
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -56,7 +60,7 @@ module LavinMQ
       print_data_dir_read_ahead
 
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
-      @replicator = @runner.new_replicator
+      @runner.on_demote { |hand_over| demote(hand_over) }
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path)
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
@@ -73,7 +77,15 @@ module LavinMQ
     end
 
     private def start : self
+      # #stop may have run since the runner decided to serve, e.g. while the
+      # controller checked the ISR: nothing started from here on would be
+      # closed. A #stop from now on leaves the broker to this startup,
+      # closing it under it would fail what's still to come, e.g. loading
+      # definitions exits 1, and #run closes it once the runner returns.
+      return self unless @role_lock.synchronize { @starting = !@closed }
       started_at = Time.instant
+      # A fresh replicator for each term this node leads, see #demote
+      @replicator = @runner.new_replicator
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
@@ -95,6 +107,8 @@ module LavinMQ
     rescue ex : Socket::BindError
       stop
       abort "Error: #{ex.message}"
+    ensure
+      @role_lock.synchronize { @starting = false }
     end
 
     def run
@@ -111,28 +125,75 @@ module LavinMQ
       @runner.run do
         start
       end
+      # What a startup that #stop raced with opened, see #start
+      @role_lock.synchronize do
+        close_listeners
+        @server.try &.close rescue nil
+      end
       @client_listeners.close
       @control_socket.close
-      @replicator.try &.close
+      @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
     ensure
       @run_done.close
     end
 
-    def stop
-      return if @closed
-      @closed = true
-      Log.warn { "Stopping" }
-      SystemD.notify_stopping
-      @runner.stopping
+    # Stops serving as the leader, without exiting: the controller makes this
+    # node follow the new leader, and the next time it's elected #start
+    # serves again. When leadership was lost (no *hand_over*) the followers
+    # are disconnected first, so nothing more can be confirmed. When it's
+    # handed over the clients are disconnected first, and leadership is
+    # handed over once the followers have acked everything and before
+    # they're disconnected, so the target is still in the ISR.
+    private def demote(hand_over : Proc(Nil)?) : Nil
+      @role_lock.synchronize do
+        return if @closed
+        # Scrapes would get the closed broker's metrics until it's done
+        @metrics_server.try &.stop_reporting_broker
+        close_replicator unless hand_over
+        close_listeners
+        if server = @server
+          # Not #stop, that also clears the replicator's checksums, which the
+          # replication client reuses when it starts following
+          server.close rescue nil
+          server.authenticator.cleanup rescue nil
+        end
+        hand_over.try &.call
+        close_replicator
+        @http_server = nil
+        @amqp_server = nil
+        @mqtt_server = nil
+        @server = nil
+      end
+    end
+
+    private def close_listeners : Nil
       @control_socket.api = nil
-      @client_listeners.close
-      @control_socket.close
+      @client_listeners.serve(nil)
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
-      @server.try &.close rescue nil
-      @metrics_server.try &.close rescue nil
+    end
+
+    private def close_replicator : Nil
+      @replicator.try &.close rescue nil
+      @replicator = nil
+    end
+
+    def stop
+      @role_lock.synchronize do
+        return if @closed
+        @closed = true
+        Log.warn { "Stopping" }
+        SystemD.notify_stopping
+        @runner.stopping
+        # A startup that's running closes what it opens once it's done, see #start
+        close_listeners unless @starting
+        @client_listeners.close
+        @control_socket.close
+        @server.try(&.close) rescue nil unless @starting
+        @metrics_server.try &.close rescue nil
+      end
       @runner.stop
     end
 

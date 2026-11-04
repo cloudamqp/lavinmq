@@ -9,13 +9,20 @@ require "lz4"
 class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
+  @stale = false
   getter isr_updates = Array(Set(Int32)).new
 
   def update_isr(synced_node_ids : Set(Int32)) : Nil
     @lock.synchronize do
+      raise LavinMQ::Clustering::Coordinator::StaleLeadership.new("Not the leader (spec)") if @stale
       raise Error.new("coordinator unavailable (spec)") if @failing
       @isr_updates << synced_node_ids.dup
     end
+  end
+
+  # Not the leader anymore, as the coordinator reports it
+  def stale=(value : Bool)
+    @lock.synchronize { @stale = value }
   end
 
   def failing=(value : Bool)
@@ -111,6 +118,128 @@ describe LavinMQ::Clustering::Server do
       # specs below).
       isr = coordinator.last_isr.should_not be_nil
       isr.includes?(follower_id).should be_true
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "after losing leadership" do
+    it "lets the broker's own writes complete once replication is closed" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      coordinator.stale = true
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      path = File.join(data_dir, "file")
+      File.write(path, "x")
+      # A new server's ISR is dirty, so a replicated write commits it first
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { server.replace_file(path) }
+      server.close
+      # As when the vhosts are closed after stepping down
+      server.replace_file(path)
+    ensure
+      server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "closing the broker" do
+    # E.g. etcd unreachable on shutdown: committing the ISR without a
+    # follower that didn't ack would be retried until the lease expires
+    it "doesn't wait on a follower that doesn't ack, nor on the coordinator" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "isr close spec")
+      broker = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+      client_io = sync_follower(replicator, tcp_server.local_address.port, 7)
+      wait_for { replicator.followers.any? &.id.== 7 }
+      # The raw follower never acks
+      replicator.append_bytes(File.join(data_dir, "lag"), "x".to_slice, 0i64)
+      wait_for { replicator.followers.find(&.id.== 7).try { |f| f.lag_in_bytes > 0 } }
+      coordinator.failing = true
+      closed = Channel(Nil).new(1)
+      spawn(name: "close broker spec") do
+        broker.close
+        closed.send nil
+      end
+      select
+      when closed.receive
+      when timeout(10.seconds)
+        fail "closing the broker kept waiting"
+      end
+      coordinator.isr_updates.last.should contain 7 # not taken out on close
+    ensure
+      coordinator.try &.failing = false
+      client_io.try &.close
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    # E.g. while handing leadership over, when replication stays open as the
+    # broker closes
+    it "closes every vhost also when it loses leadership halfway through" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "isr close spec")
+      broker = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+      # Clearing a retained message makes the close compact the retained
+      # index, a replicated write
+      retain_store = broker.vhosts["/"].mqtt_broker.@retain_store
+      {"body", ""}.each do |body|
+        retain_store.retain(MQTT::Protocol::Publish.new(topic: "t", payload: body.to_slice,
+          packet_id: nil, dup: false, qos: 0u8, retain: true))
+      end
+      client_io = sync_follower(replicator, tcp_server.local_address.port, 7)
+      wait_for { replicator.followers.any? &.id.== 7 }
+      client_io.close
+      wait_for { replicator.followers.empty? }
+      # Caught up, so it stays in the ISR until the next write commits it
+      replicator.isr_dirty?.should be_true
+      replicator.fenced?.should be_false
+      coordinator.stale = true
+      definitions = broker.vhosts["/"].@definitions.should_not(be_nil)
+      broker.close
+      replicator.fenced?.should be_true
+      definitions.@definitions_file.closed?.should be_true # its last step
+    ensure
+      client_io.try &.close
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "once closed" do
+    # E.g. the target of a leadership handover, which must stay in the ISR
+    it "doesn't take the followers it disconnects out of the ISR" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr closed spec")
+      follower_id = 7
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { coordinator.last_isr.try &.includes?(follower_id) }
+      # Behind, which would take it out of the ISR as it disconnects
+      server.append_bytes(File.join(data_dir, "lag"), "x".to_slice, 0i64)
+      wait_for { server.followers.find(&.id.== follower_id).try { |f| f.lag_in_bytes > 0 } }
+
+      server.close
+      sleep 200.milliseconds # its disconnect handled
+      server.fenced?.should be_true
+      coordinator.last_isr.should_not(be_nil).should contain follower_id
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { server.wait_for_followers }
     ensure
       client_io.try &.close
       server.try &.close
