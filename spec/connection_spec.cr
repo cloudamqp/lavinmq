@@ -400,6 +400,21 @@ describe LavinMQ::Server do
       end
     end
 
+    it "delivers a body of the largest single frame intact to every queue it routes to" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange("frame-max-fanout", "fanout")
+          queues = Array.new(3) { |i| ch.queue("frame-max-q#{i}").tap &.bind(x.name, "") }
+          body = Random.new(42).random_bytes(LavinMQ::Config.instance.frame_max.to_i - 8)
+          x.publish_confirm(body, "")
+          queues.each do |q|
+            msg = q.get(no_ack: true).should_not be_nil
+            msg.body_io.to_slice.should eq body
+          end
+        end
+      end
+    end
+
     it "should not allow client to send a frame larger than the negotiated frame_max" do
       with_amqp_server do |s|
         conn = AMQP::Client.new(port: amqp_port(s)).connect
