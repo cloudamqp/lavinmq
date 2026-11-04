@@ -8,8 +8,7 @@ VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
-# bdwgc with packaging/libgc/mark-stack-overflow.patch, linked statically in
-# place of the system libgc. `make LIBGC=` links the system libgc instead.
+# By default libgc is vendored and patched, `make LIBGC=` links the system libgc instead
 LIBGC ?= ext/libgc.a
 ifneq ($(LIBGC),)
 export CRYSTAL_LIBRARY_PATH := $(abspath $(dir $(LIBGC))):$(shell crystal env CRYSTAL_LIBRARY_PATH)
