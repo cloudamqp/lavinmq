@@ -257,7 +257,6 @@ private def raft_config(data_dir : String) : LavinMQ::Config
   config
 end
 
-# A .raft_state as versions before the clustering id was kept in it wrote it
 describe LavinMQ::Clustering::RaftController do
   it "stops following once this node is the leader" do
     with_datadir do |data_dir|

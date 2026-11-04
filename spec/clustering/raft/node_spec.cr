@@ -742,13 +742,25 @@ describe Raft::TCPTransport do
   end
 end
 
+private def raft_state_body(storage : Raft::Storage) : Bytes
+  bytes = File.open(storage.path, &.getb_to_end)
+  bytes[0, bytes.size - 4]
+end
+
+private def write_raft_state(storage : Raft::Storage, body : Bytes) : Nil
+  File.open(storage.path, "w") do |f|
+    f.write body
+    f.write_bytes Digest::CRC32.checksum(body), IO::ByteFormat::LittleEndian
+  end
+end
+
 describe Raft::Storage do
   it "round-trips the hard state" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
       storage.load.should be_nil
       state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})],
-        node_id: 42)
+        nil, node_id: 42)
       storage.save(state)
       storage.load.should eq state
     end
@@ -769,19 +781,39 @@ describe Raft::Storage do
     end
   end
 
-  # The votes are only safe with the id they were granted under
-  it "refuses a state without the clustering id" do
+  it "refuses a state of another version" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
-      storage.save(Raft::HardState.new(7, 2, 0, 0, nil, [] of Raft::Entry))
-      expect_raises(Raft::Storage::CorruptError, /no clustering id/) { storage.load }
+      storage.save(Raft::HardState.new(7, 2, 0, 0, nil, [] of Raft::Entry, nil, node_id: 42))
+      body = raft_state_body(storage)
+      body[Raft::Storage::MAGIC.bytesize] = Raft::Storage::VERSION - 1
+      write_raft_state(storage, body)
+      expect_raises(Raft::Storage::CorruptError, /unsupported version #{Raft::Storage::VERSION - 1}/) { storage.load }
+    end
+  end
+
+  it "refuses a state with a valid checksum that doesn't match the format" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      storage.save(Raft::HardState.new(7, 2, 0, 0, nil, [] of Raft::Entry, nil, node_id: 42))
+      body = raft_state_body(storage)
+      write_raft_state(storage, body[0, body.size - 1])
+      expect_raises(Raft::Storage::CorruptError) { storage.load }
+      invalid_count = body.dup
+      IO::ByteFormat::LittleEndian.encode(-1, invalid_count[invalid_count.size - 4, 4])
+      write_raft_state(storage, invalid_count)
+      expect_raises(Raft::Storage::CorruptError, /Invalid entry count/) { storage.load }
+      trailing = Bytes.new(body.size + 1)
+      body.copy_to(trailing)
+      write_raft_state(storage, trailing)
+      expect_raises(Raft::Storage::CorruptError, /1 bytes after the state/) { storage.load }
     end
   end
 
   it "detects a corrupt state file" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
-      storage.save(Raft::HardState.new(7, nil, 0, 0, nil, [] of Raft::Entry, node_id: 42))
+      storage.save(Raft::HardState.new(7, nil, 0, 0, nil, [] of Raft::Entry, nil, node_id: 42))
       bytes = File.read(storage.path).to_slice.dup
       bytes[10] ^= 0xff
       File.write(storage.path, bytes)

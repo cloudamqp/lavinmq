@@ -47,13 +47,12 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # cluster has a first leader
     no_log = state.nil? || (state.snapshot_index == 0 && state.entries.empty?)
     prior_in_sync = has_data && no_log && self.class.prior_in_sync?(config)
-    unless id = state.try(&.node_id)
-      id = self.class.new_raft_id
+    unless state
       # Before anyone learns it, so it's never another id after a restart
-      state = Raft::HardState.new(0, nil, 0, 0, nil, Array(Raft::Entry).new, node_id: id)
+      state = Raft::HardState.new(0, nil, 0, 0, nil, Array(Raft::Entry).new, nil, self.class.new_raft_id)
       storage.save(state)
     end
-    super(config, id)
+    super(config, state.node_id)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,

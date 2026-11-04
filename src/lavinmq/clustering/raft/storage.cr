@@ -7,7 +7,7 @@ module LavinMQ::Clustering::Raft
   # file, fsync it, rename over the old one and fsync the directory.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 5u8
+    VERSION = 6u8
     Format  = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
     MAX_ENTRIES = 1 << 20
@@ -30,8 +30,6 @@ module LavinMQ::Clustering::Raft
       decode(IO::Memory.new(body, writable: false))
     rescue File::NotFoundError
       nil
-    rescue IO::EOFError
-      raise CorruptError.new("#{@path} is truncated")
     end
 
     def save(state : HardState) : Nil
@@ -52,7 +50,7 @@ module LavinMQ::Clustering::Raft
       io.write_byte VERSION
       io.write_bytes state.term, Format
       write_id(io, state.voted_for)
-      write_id(io, state.node_id)
+      io.write_bytes state.node_id, Format
       io.write_bytes state.snapshot_index, Format
       io.write_bytes state.snapshot_term, Format
       Codec.write_isr(io, state.snapshot_isr)
@@ -60,20 +58,23 @@ module LavinMQ::Clustering::Raft
       Codec.write_entries(io, state.entries)
     end
 
-    private def decode(io) : HardState
+    private def decode(io : IO::Memory) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
       raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
       term = io.read_bytes Int64, Format
       voted_for = read_id(io)
-      node_id = read_id(io) || raise CorruptError.new("#{@path} has no clustering id")
+      node_id = io.read_bytes Int32, Format
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
       snapshot_membership = Codec.read_membership(io)
       entries = Codec.read_entries(io, MAX_ENTRIES)
+      raise CorruptError.new("#{@path} has #{io.size - io.pos} bytes after the state") unless io.pos == io.size
       HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership,
         node_id)
+    rescue ex : IO::Error
+      raise CorruptError.new("#{@path} is corrupt: #{ex.message}")
     end
 
     private def write_id(io, id : Int32?) : Nil

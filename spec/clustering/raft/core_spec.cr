@@ -411,7 +411,7 @@ describe Raft::Core do
 
     it "starts counting voters at other addresses once long without a leader" do
       now = Time.instant
-      state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+      state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 2)
       moved = Raft::Core.new(2, "n2b", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, state)
       trust_at = now + 100.milliseconds * Raft::Core::MOVED_TRUST_AFTER
       at = now
@@ -470,7 +470,7 @@ describe Raft::Core do
 
   it "rejects stale-term append entries" do
     core = Raft::Core.new(1, "n1", ["n1", "n2"], "u1", 100.milliseconds, 20.milliseconds, Time.instant,
-      Raft::HardState.new(5, nil, 0, 0, nil, [] of Raft::Entry))
+      Raft::HardState.new(5, nil, 0, 0, nil, [] of Raft::Entry, nil, node_id: 1))
     core.step(Raft::AppendEntries.new(2, 4, "u2", 0, 0, [Raft::Entry.new(4, Set{2})], 1), Time.instant)
     core.latest_isr.should be_nil
     _, reply = core.take_outbox.first
@@ -481,7 +481,7 @@ describe Raft::Core do
   it "refuses votes to a candidate with an older log" do
     now = Time.instant
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now,
-      Raft::HardState.new(3, nil, 0, 0, nil, [Raft::Entry.new(3, nil)]))
+      Raft::HardState.new(3, nil, 0, 0, nil, [Raft::Entry.new(3, nil)], nil, node_id: 1))
     core.connected(2, "n2", now)
     core.take_outbox
     core.step(Raft::RequestVote.new(2, 4, 5, 2, pre_vote: false, transfer: false), now)
@@ -525,7 +525,7 @@ describe Raft::Core do
 
   it "only votes for a candidate connected from the address the membership lists for it" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now, state)
     core.connected(2, "n2b", now)
     core.step(Raft::RequestVote.new(2, 2, 1, 1, pre_vote: false, transfer: true), now)
@@ -540,7 +540,7 @@ describe Raft::Core do
 
   it "doesn't campaign from another address than the membership lists for it, until long without a leader" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 2)
     moved = Raft::Core.new(2, "n2b", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, state)
     # Past its election timeout, but a leader may still move it
     campaigns?(moved, now, 100.milliseconds * (Raft::Core::MOVED_TRUST_AFTER - 0.5)).should be_false
@@ -554,7 +554,7 @@ describe Raft::Core do
   it "records moved addresses once the previous leader's membership change is committed, not on top of it" do
     now = Time.instant
     with_learner = three_voters.copy_with(learners: Set{4}, addresses: three_voters.addresses.merge({4 => "n4"}))
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [Raft::Entry.new(1, nil, with_learner)], three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [Raft::Entry.new(1, nil, with_learner)], three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now, state)
     core.connected(2, "n2b", now)
     core.connected(3, "n3b", now)
@@ -602,7 +602,7 @@ describe Raft::Core do
 
   it "keeps leading while a voter that hasn't reconnected to it is quiet" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
       now, state, Random.new(1))
     # Only n2 is connected, like after this node restarted and n3, which had
@@ -638,7 +638,7 @@ describe Raft::Core do
   it "keeps the entries after an installed snapshot that it already has" do
     now = Time.instant
     core = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
-      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters, node_id: 2))
     entries = (11..13).map { Raft::Entry.new(1, Set{1, 2, 3}) }
     core.step(Raft::AppendEntries.new(1, 1, "u1", 10, 1, entries, 10), now)
     core.last_index.should eq 13
@@ -655,7 +655,7 @@ describe Raft::Core do
   it "keeps its version on a snapshot it already has, and still acks it" do
     now = Time.instant
     core = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
-      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+      Raft::HardState.new(1, nil, 10, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters, node_id: 2))
     core.step(Raft::AppendEntries.new(1, 1, "u1", 10, 1, [] of Raft::Entry, 10), now)
     core.take_outbox
     version = core.version
@@ -670,9 +670,9 @@ describe Raft::Core do
   it "adopts the term of a voter that refuses it a pre-vote" do
     now = Time.instant
     candidate = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
-      Raft::HardState.new(5, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+      Raft::HardState.new(5, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters, node_id: 1))
     voter = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", SimCluster::ELECTION, SimCluster::HEARTBEAT, now,
-      Raft::HardState.new(6, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters))
+      Raft::HardState.new(6, nil, 1, 1, Set{1, 2, 3}, [] of Raft::Entry, three_voters, node_id: 2))
     candidate.connected(2, "n2", now)
     voter.connected(1, "n1", now)
     now += 1.second
@@ -1078,7 +1078,7 @@ describe Raft::Core, "membership" do
 
   it "keeps the membership in its log when peers no longer lists the other nodes" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
       now, state, Random.new(1))
     core.quorum.should eq 2
@@ -1091,7 +1091,7 @@ describe Raft::Core, "membership" do
 
   it "keeps connecting to its seeds while moved or trusting moved voters, they may have moved too" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     moved = Raft::Core.new(1, "n1b", ["n1b", "n2b", "n3b"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
       now, state, Random.new(1))
     moved.moved_from.should eq "n1"
@@ -1107,7 +1107,7 @@ describe Raft::Core, "membership" do
 
   it "ignores a CatchUp from a node that isn't a voter" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
       now, state, Random.new(1))
     longer = [Raft::Entry.new(1, Set{1, 2, 3})]
@@ -1119,7 +1119,7 @@ describe Raft::Core, "membership" do
 
   it "steps down as a candidate when it catches up on a voter's log" do
     now = Time.instant
-    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters, node_id: 1)
     core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
       now, state, Random.new(1))
     now += 1.second
