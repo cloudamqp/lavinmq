@@ -6,7 +6,7 @@ COPY shard.yml shard.lock .
 RUN shards install --production
 COPY Makefile .
 COPY packaging/libgc packaging/libgc
-RUN make -C packaging/libgc
+RUN make ext/libgc.a
 COPY ./static ./static
 COPY ./views ./views
 COPY ./src ./src
@@ -16,7 +16,7 @@ FROM base AS spec
 RUN apt-get install -y etcd-server
 COPY ./spec ./spec
 ARG spec_args="--order random"
-RUN CRYSTAL_LIBRARY_PATH=$PWD/packaging/libgc/bdwgc/.libs:$(crystal env CRYSTAL_LIBRARY_PATH) crystal spec ${spec_args}
+RUN CRYSTAL_LIBRARY_PATH=$PWD/ext:$(crystal env CRYSTAL_LIBRARY_PATH) crystal spec ${spec_args}
 
 # Lint in another layer
 FROM base AS lint

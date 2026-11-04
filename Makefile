@@ -10,7 +10,7 @@ CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 # bdwgc with packaging/libgc/mark-stack-overflow.patch, linked statically in
 # place of the system libgc. `make LIBGC=` links the system libgc instead.
-LIBGC ?= packaging/libgc/bdwgc/.libs/libgc.a
+LIBGC ?= ext/libgc.a
 ifneq ($(LIBGC),)
 export CRYSTAL_LIBRARY_PATH := $(abspath $(dir $(LIBGC))):$(shell crystal env CRYSTAL_LIBRARY_PATH)
 endif
@@ -46,12 +46,15 @@ SHOVEL_TEST_SOURCES := $(shell find extras/shovel_test -name '*.cr' 2> /dev/null
 bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-packaging/libgc/bdwgc/.libs/libgc.a: packaging/libgc/Makefile packaging/libgc/mark-stack-overflow.patch packaging/libgc/mark_stack_test.c
+ext/libgc.a: packaging/libgc/Makefile packaging/libgc/mark-stack-overflow.patch packaging/libgc/mark_stack_test.c
 	$(MAKE) -C packaging/libgc
+	mkdir -p $(@D)
+	cp packaging/libgc/bdwgc/.libs/libgc.a $@
 
 .PHONY: clean-libgc
 clean-libgc:
 	$(MAKE) -C packaging/libgc clean
+	$(RM) ext/libgc.a
 
 .PHONY: shovel-test
 shovel-test: bin/shovel-test

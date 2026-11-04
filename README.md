@@ -105,8 +105,9 @@ sudo make install # optional
 The packages and Docker images link a patched Boehm GC (`packaging/libgc/`):
 stock bdwgc 8.2.12 never grows its mark stack when thousands of connections
 and queues overflow it, which made every collection several times slower.
-`make` downloads, patches and builds it in `packaging/libgc/bdwgc/` and
-links it statically; `make LIBGC=` links the system libgc instead.
+`make` downloads, patches and builds it in `packaging/libgc/`, copies it to
+`ext/libgc.a` and links it statically; `make LIBGC=` links the system libgc
+instead.
 
 ## Using LavinMQ
 
