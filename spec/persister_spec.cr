@@ -243,6 +243,44 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs a finished stream segment and its meta file without waiting for a confirm" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil, persister: persister)
+      begin
+        store.@segments[1u32].take_created! # as if an earlier confirm already synced its directory
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) } # not confirmed, rolls over once
+        store.@segments.size.should eq 2
+        sync = wait_for { persister.last_sync }
+        sync.paths.should contain File.join(data_dir, "msgs.0000000001")
+        sync.paths.should contain File.join(data_dir, "meta.0000000001")
+        sync.paths.should contain data_dir # holds the entry of msgs.0000000002
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "leaves finished stream segments to the kernel when sync is disabled" do
+    with_datadir do |data_dir|
+      LavinMQ::Config.instance.sync = false
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
+        persister.last_sync.should be_nil
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "stops collecting paths at the threshold and syncs the whole filesystem instead" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.syncfs_threshold = 4
