@@ -40,7 +40,7 @@ module LavinMQ
       getter waiters = Array(::Channel(Bool)).new
 
       def drainable? : Bool
-        !acks.empty? || !waiters.empty?
+        !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -102,6 +102,22 @@ module LavinMQ
     # drain, so many new entries in one directory cost one fsync.
     def mark_dirty(path : String) : Nil
       @pending.lock &.add_path(path)
+    end
+
+    # Makes *mfile* and *path* durable in a drain of their own, without
+    # waiting for a confirm to request one. A stream calls it when a segment
+    # is finished: confirms only sync the segments they wrote to, so an
+    # unconfirmed segment could otherwise stay unsynced while later ones
+    # become durable, and a power loss would leave a hole in the offsets.
+    # The directory is synced too, so the entry of the segment opened after
+    # it is durable with the meta file.
+    def sync_soon(mfile : MFile, path : String) : Nil
+      return unless Config.instance.sync?
+      mark_dirty(mfile)
+      mark_dirty(path)
+      mark_dirty(File.dirname(path))
+      @publish_confirm_requested.try_send true
+    rescue ::Channel::ClosedError
     end
 
     # Block until everything written so far is durable, on the leader and on
