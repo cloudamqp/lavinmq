@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Messages read from a stream through the HTTP API count as `get_no_ack` in the stream's message stats [#2621](https://github.com/cloudamqp/lavinmq/pull/2621)
 - Stats rates span the time since the previous stats tick, not a `stats_interval` a reload set meanwhile [#2616](https://github.com/cloudamqp/lavinmq/pull/2616)
 - `stats_log_size` must be at least 1; with 0 every stats collection failed. The config now refuses 0 and negative values, also at startup [#2615](https://github.com/cloudamqp/lavinmq/pull/2615)
 - Since 2.11.0-rc.1, a power loss could renumber a stream and make confirmed messages unreadable, because a segment that only got unconfirmed publishes was never synced. A finished stream segment is now synced right after rollover, so no confirm is sent before every earlier segment is on disk, as in 2.10

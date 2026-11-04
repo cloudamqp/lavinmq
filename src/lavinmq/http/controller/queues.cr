@@ -264,6 +264,8 @@ module LavinMQ
               j.array do
                 reader.each do |env|
                   break if count.zero?
+                  vhost.event_tick(EventType::ClientGetNoAck)
+                  vhost.add_send_bytes(env.message.bodysize.to_u64)
                   payload_encoding = "string"
                   j.object do
                     j.field("payload_bytes", env.message.bodysize)
