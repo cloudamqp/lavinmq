@@ -4,11 +4,16 @@ module LavinMQ
   # A stat's last value, plus a ring of T samples on the GC heap while it changes. The ring
   # is headed by its capacity, so a view never reads past it
   struct StatColumn(T)
-    getter last : T
+    @last : Atomic(T)
     @run : Int32 = 0 # samples since the value last changed; in the padding of a 4-byte T
     @ring = Atomic(Pointer(T)).new(Pointer(T).null)
 
-    def initialize(@last : T)
+    def initialize(last : T)
+      @last = Atomic(T).new(last)
+    end
+
+    def last : T
+      @last.get(:relaxed)
     end
 
     # Null while the column is its last value. Published after its header and fill, so a view
@@ -24,26 +29,27 @@ module LavinMQ
 
     # Takes a ring on the first change, filled with the value so far; true when it did
     @[AlwaysInline]
-    def record(value : T, tail : Int32, established : Bool, cap : Int32) : Bool
+    def record(value : T, tail : Int32, sampled : Bool, cap : Int32) : Bool
       ring = @ring.get(:relaxed)
-      if value == @last
+      last = @last.get(:relaxed)
+      if value == last
         if ring
-          ring[tail] = value
+          Atomic::Ops.store(StatColumn.sample(ring, tail), value, :monotonic, false)
           @run += 1
         end
         return false
       end
       taken = false
       if ring
-        ring[tail] = value
-      elsif established
-        ring = StatColumn.alloc(cap, @last)
-        ring[tail] = value
+        Atomic::Ops.store(StatColumn.sample(ring, tail), value, :monotonic, false)
+      elsif sampled
+        ring = StatColumn.alloc(cap, last)
+        StatColumn.sample(ring, tail).value = value
         @ring.set(ring, :release)
         taken = true
       end
       @run = 1
-      @last = value
+      @last.set(value, :relaxed)
       taken
     end
 
@@ -67,12 +73,12 @@ module LavinMQ
         return true
       end
       keep = Math.min(size, new_cap)
-      ring = StatColumn.alloc(new_cap, @last)
+      ring = StatColumn.alloc(new_cap, @last.get(:relaxed))
       first = head + size - keep
       keep.times do |k|
         src = first + k
         src -= old_cap if src >= old_cap
-        ring[k] = old[src]
+        StatColumn.sample(ring, k).value = StatColumn.sample(old, src).value
       end
       @ring.set(ring, :release)
       false
@@ -81,13 +87,17 @@ module LavinMQ
     def self.alloc(cap : Int32, fill : T) : Pointer(T)
       ring = Pointer(T).malloc(cap + 1)
       ring.value = T.new(cap)
-      ring += 1
-      Slice.new(ring, cap).fill(fill)
+      Slice.new(sample(ring, 0), cap).fill(fill)
       ring
     end
 
+    # The samples follow the capacity
+    def self.sample(ring : Pointer(T), index : Int32) : Pointer(T)
+      ring + (index + 1)
+    end
+
     def self.capacity(ring : Pointer(T)) : Int32
-      ring[-1].to_i32
+      ring.value.to_i32
     end
   end
 
@@ -114,7 +124,7 @@ module LavinMQ
     def [](index : Int32) : T
       raise IndexError.new if index < 0 || index >= size
       return @const if @ring.null?
-      @ring[wrap(@head % @capacity + index)]
+      sample(wrap(@head % @capacity + index))
     end
 
     def each(& : T ->) : Nil
@@ -125,13 +135,17 @@ module LavinMQ
       end
       i = @head % @capacity
       n.times do
-        yield @ring[i]
+        yield sample(i)
         i = wrap(i + 1)
       end
     end
 
     def to_json(json : JSON::Builder) : Nil
       json.array { each { |v| json.number v } }
+    end
+
+    private def sample(i : Int32) : T
+      Atomic::Ops.load(StatColumn.sample(@ring, i), :monotonic, false)
     end
 
     private def wrap(i : Int32) : Int32

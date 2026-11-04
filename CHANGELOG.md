@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `/api/overview` reads its message history from totals the stats loop records per vhost instead of summing every queue's log on each request, so the history also keeps the messages of since deleted queues [#2617](https://github.com/cloudamqp/lavinmq/pull/2617)
 - `deliver_get` is derived from `deliver`, `deliver_no_ack`, `get` and `get_no_ack` at each stats tick instead of counted on its own: one atomic add less per delivery, the same values [#2622](https://github.com/cloudamqp/lavinmq/pull/2622)
+- Less memory and CPU for stats history: a stat keeps a history buffer only while its value changes, so idle queues, exchanges, channels and connections cost almost nothing. At 100k idle queues that saves about 1.4 GB. An object's history now starts with its second sample, as the first spans a partial interval [#2618](https://github.com/cloudamqp/lavinmq/pull/2618)
 
 ### Fixed
 
