@@ -1,5 +1,6 @@
 require "../http/metrics_server"
 require "../etcd"
+require "../filesystem"
 require "./client"
 require "./etcd_coordinator"
 
@@ -73,8 +74,8 @@ class LavinMQ::Clustering::Controller
       id = File.read(id_file_path).to_i(36)
     rescue File::NotFoundError
       id = rand(Int32::MAX)
-      Dir.mkdir_p @config.data_dir
-      File.write(id_file_path, id.to_s(36))
+      FileSystem.mkdir_p @config.data_dir
+      FileSystem.replace(id_file_path, &.print(id.to_s(36)))
       Log.info { "Generated new clustering ID" }
     end
     id
