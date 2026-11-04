@@ -572,6 +572,26 @@ describe "Stream power cut recovery invariants" do
     end
   end
 
+  it "keeps the numbering when the recovered segment is lost again" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      push_indexed_messages(store, 12)
+      store.close
+
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 12
+      store.close
+
+      # a second power cut zeroes the recovered segment's header too
+      empty_segment(File.join(dir, "msgs.0000000003"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+      store.last_offset.should eq 12
+      body_at_offset(store, 10).should start_with "9:"
+      store.close
+    end
+  end
+
   it "counts publishes into a recovered last segment across restarts" do
     with_datadir do |dir|
       store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)

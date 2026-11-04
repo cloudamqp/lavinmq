@@ -459,6 +459,7 @@ module LavinMQ::AMQP
       file.resize(0)
       file.write_bytes Schema::VERSION
       file.truncate(file.size)
+      file.fsync # or the header is itself unsynced and the next power cut repeats this
       @replicator.try &.register_file file
       @replicator.try &.replace_file(file)
       metafile = meta_file_name(file)
@@ -485,12 +486,13 @@ module LavinMQ::AMQP
     private def end_of_lost_segment(seg : UInt32, file : MFile) : Tuple(Int64?, Int64?, Int64?)
       if own = read_meta_fields(meta_file_name(file))
         count, first_offset, first_ts, last_ts = own
-        if count > 0 && count <= Config.instance.segment_size // BytesMessage::MIN_BYTESIZE
+        # count 0 is a marker this method's caller wrote in an earlier recovery
+        if count <= Config.instance.segment_size // BytesMessage::MIN_BYTESIZE
           return {first_offset + count, first_ts, last_ts}
         end
       end
-      next_meta = File.join(File.dirname(file.path), "meta.#{(seg + 1).to_s.rjust(10, '0')}")
-      if nxt = read_meta_fields(next_meta)
+      next_msgs = File.join(File.dirname(file.path), "msgs.#{(seg + 1).to_s.rjust(10, '0')}")
+      if nxt = read_meta_fields(meta_file_name(next_msgs))
         _, first_offset, first_ts, _ = nxt
         return {first_offset, first_ts, first_ts}
       end

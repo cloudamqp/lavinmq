@@ -620,7 +620,6 @@ module LavinMQ
               if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
                 file = open_segment(path, Config.instance.segment_size)
                 file.write_bytes Schema::VERSION
-                @replicator.try &.register_file file
                 @replicator.try &.append_value path, Schema::VERSION, 0i64
               else
                 @segments.delete seg
