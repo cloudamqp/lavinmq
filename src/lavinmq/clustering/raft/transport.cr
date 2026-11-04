@@ -371,13 +371,13 @@ module LavinMQ::Clustering::Raft
       if id == @id
         socket.write_byte Reply::SameId.value
         raise AuthError.new("#{address} has the same clustering id as this node, " \
-                            "delete .clustering_id on the node with a copied data dir")
+                            "delete .raft_state on the node with a copied data dir")
       end
       if holder = claim(id, address)
         socket.write_byte Reply::IdConnected.value
         Codec.write_str socket, holder
         raise AuthError.new("#{address} has clustering id #{id.to_s(36)}, which #{holder} is connected with, " \
-                            "delete .clustering_id on the node with a copied data dir")
+                            "delete .raft_state on the node with a copied data dir")
       end
       begin
         socket.write_byte Reply::Ok.value

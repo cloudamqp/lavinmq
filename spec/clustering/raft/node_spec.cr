@@ -747,9 +747,36 @@ describe Raft::Storage do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
       storage.load.should be_nil
-      state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})])
+      state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})],
+        node_id: 42)
       storage.save(state)
       storage.load.should eq state
+    end
+  end
+
+  # The clustering id was kept in .clustering_id then; version 4 also has
+  # whether the node's votes were known, from a build of #2299
+  {3u8, 4u8}.each do |version|
+    it "reads a version #{version} state, without the clustering id" do
+      with_datadir do |dir|
+        storage = Raft::Storage.new(dir)
+        format = IO::ByteFormat::LittleEndian
+        io = IO::Memory.new
+        io.write "LMQRAFT".to_slice
+        io.write_byte version
+        io.write_bytes 7i64, format
+        io.write_byte 1u8
+        io.write_bytes 2i32, format
+        io.write_byte 1u8 if version == 4
+        io.write_bytes 3i64, format
+        io.write_bytes 6i64, format
+        Raft::Codec.write_isr(io, Set{1, 2})
+        Raft::Codec.write_membership(io, nil)
+        Raft::Codec.write_entries(io, [Raft::Entry.new(7, nil)])
+        io.write_bytes Digest::CRC32.checksum(io.to_slice), format
+        File.write(storage.path, io.to_slice)
+        storage.load.should eq Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil)])
+      end
     end
   end
 

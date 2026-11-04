@@ -51,11 +51,6 @@ private class SimCluster
     @crashed << id
   end
 
-  # Loses the node's raft state, keeping its clustering id
-  def wipe(id : Int32)
-    @disk[id] = nil
-  end
-
   def restart(id : Int32, seed = 7)
     @crashed.delete(id)
     @cores[id] = new_core(id, seed, @disk[id])
@@ -494,35 +489,25 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_false
   end
 
-  it "doesn't vote for a candidate with a log when it has lost its raft state" do
+  # So nodes without broker data can't outvote the one with it
+  it "votes without a log only for the first leader the seeds agree on, or a candidate with a log" do
     now = Time.instant
-    lost = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now)
-    lost.connected(2, "n2", now)
-    lost.connected(3, "n3", now)
-    lost.take_outbox
-    lost.step(Raft::RequestVote.new(2, 5, 3, 4, pre_vote: false, transfer: true), now)
-    _, reply = lost.take_outbox.first
+    fresh = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now)
+    fresh.connected(2, "n2", now)
+    fresh.connected(3, "n3", now)
+    announce_fresh(fresh, [2, 3], now, data: [2])
+    fresh.take_outbox
+    fresh.step(Raft::RequestVote.new(3, 5, 0, 0, pre_vote: false, transfer: true), now)
+    _, reply = fresh.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
     reply.as(Raft::VoteResponse).granted.should be_false
-    lost.voted_for.should be_nil
-    # Like the first election, where no node has a log yet, and the seeds
-    # agree on node 2
-    announce_fresh(lost, [2, 3], now, data: [2])
-    lost.step(Raft::RequestVote.new(2, 6, 0, 0, pre_vote: false, transfer: true), now)
-    _, reply = lost.take_outbox.first
+    fresh.step(Raft::RequestVote.new(2, 6, 0, 0, pre_vote: false, transfer: true), now)
+    _, reply = fresh.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
     reply.as(Raft::VoteResponse).granted.should be_true
-  end
-
-  it "doesn't elect with the vote of a voter that lost its raft state but kept its id" do
-    sim = SimCluster.new(3)
-    sim.elect(Set{1, 2, 3}).id.should eq 1
-    sim.crash(2)
-    sim.wipe(2)
-    sim.restart(2)
-    sim.crash(1)
-    sim.advance(2.seconds)
-    sim.leader.should be_nil
-    sim.restart(1)
-    sim.run_until { sim.leader.try &.serving_leader? }
+    # The first leader, after it appended its first entry and went down
+    # before anyone else got it
+    fresh.step(Raft::RequestVote.new(3, 7, 1, 7, pre_vote: false, transfer: true), now)
+    _, reply = fresh.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
+    reply.as(Raft::VoteResponse).granted.should be_true
   end
 
   it "elects the first leader again when it went down before replicating its first entry" do

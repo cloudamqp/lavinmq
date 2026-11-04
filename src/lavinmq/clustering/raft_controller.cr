@@ -41,23 +41,52 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   def initialize(config : Config)
-    super(config)
-    storage = Raft::Storage.new(@config.data_dir)
+    Dir.mkdir_p config.data_dir
+    storage = Raft::Storage.new(config.data_dir)
     state = storage.load
-    has_data = Clustering.broker_data?(@config.data_dir)
+    has_data = Clustering.broker_data?(config.data_dir)
+    # Its raft state has its id from the first start, but no log until the
+    # cluster has a first leader
+    no_log = state.nil? || (state.snapshot_index == 0 && state.entries.empty?)
+    prior_in_sync = has_data && no_log && self.class.prior_in_sync?(config)
+    id = state.try(&.node_id) || self.class.new_raft_id(config, state)
+    if state.nil? || state.node_id.nil?
+      # Before anyone learns it, so it's never another id after a restart
+      state = (state || Raft::HardState.new(0, nil, 0, 0, nil, Array(Raft::Entry).new)).copy_with(node_id: id)
+      storage.save(state)
+    end
+    super(config, id)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      has_data: has_data, prior_in_sync: has_data && state.nil? && self.class.prior_in_sync?(@config, @id),
-      state: state, execution_context: raft_context)
+      has_data: has_data, prior_in_sync: prior_in_sync, state: state, execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
-  # Whether this node was in the ISR of the etcd backend, read once when it
-  # starts raft with broker data but no raft state, as after a migration.
-  # That tells the nodes whose data is current, see Raft::Core#bootstrap_choice.
-  protected def self.prior_in_sync?(config : Config, id : Int32) : Bool
+  # The clustering id is kept in the raft state, see Raft::HardState. A
+  # state written before that ran with the id in .clustering_id. Without a
+  # state the node is a new one, also when it was a member before: it can't
+  # tell which terms it voted in, so it mustn't vote again with that id.
+  protected def self.new_raft_id(config : Config, state : Raft::HardState?) : Int32
+    if state
+      return stored_clustering_id(config) || raise Error.new("#{config.data_dir}/.raft_state has no clustering id, " \
+                                                             "and there's no .clustering_id")
+    end
+    id = rand(Int32::MAX)
+    Log.info do
+      "No raft state, starting as a new node with clustering id #{id.to_s(36)}. If this node was a member " \
+      "before, remove its old id from the cluster and add it again, see docs/clustering.md"
+    end
+    id
+  end
+
+  # Whether this node was in the ISR of the etcd backend, read when it starts
+  # raft with broker data but no raft log, as after a migration, by the id it
+  # had there, in .clustering_id. That tells the nodes whose data is current,
+  # see Raft::Core#bootstrap_choice.
+  protected def self.prior_in_sync?(config : Config) : Bool
     return false if config.clustering_seed_addresses.all?(config.clustering_raft_address)
+    id = stored_clustering_id(config) || return false
     key = "#{config.clustering_etcd_prefix}/isr"
     raw = Etcd.new(config.clustering_etcd_endpoints).try_get(key) || return false
     in_sync = raw.split(',').any? { |i| i.to_i?(36) == id }

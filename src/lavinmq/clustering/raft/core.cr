@@ -8,9 +8,12 @@ module LavinMQ::Clustering::Raft
   end
 
   # What must be on disk before any message produced alongside it is sent.
+  # With the node's clustering id, so the votes can't be lost while the id
+  # is kept: a node without them is a new node, with an id of its own, and
+  # can't vote twice in a term. Nil in states written before it was kept.
   record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry), snapshot_membership : Membership? = nil
+    entries : Array(Entry), snapshot_membership : Membership? = nil, node_id : Int32? = nil
 
   enum TransferResult
     # TimeoutNow was sent to the target
@@ -216,10 +219,6 @@ module LavinMQ::Clustering::Raft
     # node campaigns, see at_home?. Cleared on hearing from a leader, and by
     # a leader once it has recorded the new addresses.
     @trust_moved = false
-    # Whether every vote this node has granted is on disk: it started with
-    # its raft state, or it has voted for the first leader of a new cluster
-    # since it started without one, see #may_vote_for_log?
-    @votes_known = false
 
     # Bumped whenever something the owner publishes or connects to may have
     # changed (role, term, leader, log, commit, membership, peers and their
@@ -235,7 +234,6 @@ module LavinMQ::Clustering::Raft
       @now = now
       @leaderless_since = now
       if state
-        @votes_known = true
         @term = state.term
         @voted_for = state.voted_for
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
@@ -249,7 +247,7 @@ module LavinMQ::Clustering::Raft
 
     def hard_state : HardState
       HardState.new(@term, @voted_for, @snapshot.index, @snapshot.term, @snapshot.isr, @entries.dup,
-        @snapshot.membership)
+        @snapshot.membership, @id)
     end
 
     def persisted : Nil
@@ -704,7 +702,6 @@ module LavinMQ::Clustering::Raft
         @voted_for = msg.from
         @dirty = true
       end
-      @votes_known = true if granted
       @election_deadline = now + randomized_election_timeout if granted
       send msg.from, VoteResponse.new(@id, @term, granted, pre_vote: false)
     end
@@ -1063,24 +1060,20 @@ module LavinMQ::Clustering::Raft
       isr.nil? || isr.includes?(node_id)
     end
 
-    # Without a log we may not know whether we already voted in this term:
-    # our raft state may have been lost while the clustering id was kept.
-    # Voting again could elect a second leader, so only vote for the first
-    # leader of a new cluster, see #bootstrap_choice. A candidate with a log
-    # is in the ISR, so it replicated from a leader, and the other voters
-    # that did too have a log.
+    # Without a log, and so before a cluster exists, only vote for the first
+    # leader the seeds agree on, see #bootstrap_choice, so new nodes without
+    # broker data can't outvote the one with the data and make it sync their
+    # empty state. Or for a candidate with a log, which is in the ISR, so it
+    # replicated from a leader: that's the first leader when it appended its
+    # first entry but went down before anyone else got it. Its voters have no
+    # log, and it has a membership, so the seeds no longer agree on a first
+    # leader, and without voting for it no leader is ever elected.
     #
-    # Unless every vote we granted is on disk (@votes_known): then a
-    # candidate with a log gets our vote as usual. That's the first leader
-    # when it appended its first entry but went down before anyone else got
-    # it: its voters have no log, and it has a membership, so the seeds no
-    # longer agree on a first leader. Without voting for it no leader is
-    # ever elected. A vote for the first leader is granted only while no
-    # seed has a log, so a node that has lost its state can't have voted in
-    # a later term before granting it.
+    # A node without its raft state has a new clustering id (see HardState),
+    # so it can't have voted before under its id.
     private def may_vote_for_log?(candidate : Int32, candidate_last_index : Int64) : Bool
-      return true if last_index > 0 || (@votes_known && candidate_last_index > 0)
-      candidate_last_index == 0 && bootstrap_choice == candidate
+      return true if last_index > 0 || candidate_last_index > 0
+      bootstrap_choice == candidate
     end
 
     private def log_up_to_date?(index : Int64, term : Int64) : Bool

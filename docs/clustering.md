@@ -120,7 +120,7 @@ A leader that can't reach a majority of the voters for `election_timeout` steps 
 | `election_timeout` | `[clustering]` | `1500` | Milliseconds without a leader heartbeat before an election starts |
 | `heartbeat_interval` | `[clustering]` | `250` | Milliseconds between leader heartbeats, at most half the election timeout |
 
-A node that has lost its election state (`.raft_state`) but kept its clustering id only votes for the first leader of a new cluster (see below), when no node has election state. It can't tell whether it already voted in the current term, and voting twice could elect two leaders. It votes normally again once it has the log from a leader.
+A raft node keeps its clustering id in its election state (`.raft_state` in the data dir), not in `.clustering_id`, which only the etcd backend uses. A node that has lost `.raft_state` can't tell which terms it voted in, and voting twice in a term could elect two leaders, so it starts as a new node, with a new id. It's not a member then, and its replication is refused: remove its old id from the cluster and add it again, see [Changing the cluster membership](#changing-the-cluster-membership).
 
 #### Forming a cluster
 
@@ -144,7 +144,7 @@ Only an ISR member can become leader, so if all of them are lost for good, no le
 2. Stop all remaining nodes.
 3. Set `seeds` on each of them to only the remaining nodes. The first leader needs all of them up, see [Forming a cluster](#forming-a-cluster).
 4. Delete `.raft_state` from the data dir of every remaining node, not only the chosen one: nodes with election state wouldn't vote for a node that isn't in their ISR.
-5. Empty the data dirs of the others, keeping `.clustering_id`, so the chosen node is the only one with broker data. They sync the broker data from it once it leads.
+5. Empty the data dirs of the others, so the chosen node is the only one with broker data. They sync the broker data from it once it leads.
 6. Start them all, then add replacement nodes as described in [Relocating a replica](#relocating-a-replica).
 
 ### etcd backend
@@ -160,7 +160,7 @@ The migration needs a short full cluster downtime. All nodes have to switch back
 3. Start all nodes. Each node with broker data reads `{etcd_prefix}/isr` from etcd once when it starts, and a node in it becomes the first leader, see [Forming a cluster](#forming-a-cluster). The others sync from it.
 4. Remove `etcd_endpoints` and `etcd_prefix`, raft doesn't use them once it has a leader.
 
-Without etcd, empty the data dirs of all nodes but the former leader before starting them, keeping `.clustering_id`. Until the other nodes have synced, the first leader is the only one that can lead, so if it goes down the cluster waits for it to come back.
+Without etcd, empty the data dirs of all nodes but the former leader before starting them. Until the other nodes have synced, the first leader is the only one that can lead, so if it goes down the cluster waits for it to come back.
 
 To roll back to etcd, stop all nodes the same way, followers first and the leader last. Delete `{etcd_prefix}/isr` in etcd (`etcdctl del lavinmq/isr`), since it's from before the migration and may list nodes that are no longer in sync. Remove `seeds`, or set `backend = etcd`, on every node and delete `.raft_state` from the data dirs. Then start the former leader first, and the other nodes once it has been elected.
 
@@ -173,7 +173,7 @@ Changes are made one server at a time and only on the leader, and the leader onl
 - a **learner**: it gets the Raft log and replicates broker data like a follower, so it can end up in the ISR, but it doesn't vote, count towards commit or quorum, or campaign. Adding one doesn't change the quorum.
 - a **voter**: a promoted learner. It can only be promoted once it is in the ISR (has the broker data) and has caught up in the Raft log.
 
-Nodes are identified by the `.clustering_id` in their data dir, the membership records where to reach each of them. `add_cluster_member` takes the new node's raft address (the port defaults to 5680, as in `seeds`) and asks the node for its id, so the node must be running. The other operations take either the address or the id (as shown by `cluster_status`).
+Nodes are identified by the clustering id in their `.raft_state`, the membership records where to reach each of them. `add_cluster_member` takes the new node's raft address (the port defaults to 5680, as in `seeds`) and asks the node for its id, so the node must be running. The other operations take either the address or the id (as shown by `cluster_status`).
 
 Removing a node also removes it from the ISR in the same entry, so a removed node that missed it can still never win an election. The leader can't be removed, transfer leadership first. Non-members are refused when they try to replicate broker data, and a removed node's replication connection is closed.
 
@@ -201,7 +201,7 @@ Moving a voter takes a majority of the voters at their old addresses, so if most
 
 That shortcut trusts that a node connecting from a new address with a known clustering id is that node, moved, and not a copy of its data dir running next to the original. Never run a node and a copy of it at the same time; with a leader around the copy is refused, but without one for long enough both could be counted. If the cluster still doesn't elect a leader, for example because the nodes in the ISR are gone, see [Recovering when no ISR member can come back](#recovering-when-no-isr-member-can-come-back).
 
-Copying a data dir to start another node also copies its clustering id. While the original is connected, the copy is refused with a log about a clustering id conflict. Delete `.clustering_id` on the copy to give it an id of its own. If the original is down, the copy is taken for the node having moved, and the original is refused when it comes back.
+Copying a data dir to start another node also copies its clustering id. While the original is connected, the copy is refused with a log about a clustering id conflict. Delete `.raft_state` on the copy to give it an id of its own, then add it as a new node. If the original is down, the copy is taken for the node having moved, and the original is refused when it comes back.
 
 ### Leader Election Hooks
 

@@ -83,7 +83,8 @@ private class ControllerCluster
   # `data`: the nodes with broker data, so with one the first leader is
   # known, see Raft::Core#bootstrap_choice. `etcd_endpoints`: where they read
   # the etcd backend's ISR from, nothing listens there by default. `ids`:
-  # the nodes' clustering ids, random by default.
+  # the nodes' etcd backend clustering ids (.clustering_id), as before a
+  # migration, none by default.
   def initialize(size : Int32, data = [0], @replication = false, @election_timeout = 300,
                  @etcd_endpoints = "localhost:1", @ids = [] of Int32)
     ports = Array.new(size) { reserve_port }
@@ -241,6 +242,36 @@ private def with_metrics_of(controller : LavinMQ::Clustering::RaftController, &)
   yield -> { HTTP::Client.get("http://#{addr}/metrics").body rescue "" }
 ensure
   metrics.try &.close
+end
+
+# A single node raft config, for a controller that isn't started
+private def raft_config(data_dir : String) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_bind = "127.0.0.1"
+  config.clustering_raft_advertised_address = "127.0.0.1:5680"
+  config.clustering_seeds = "127.0.0.1:5680"
+  config.clustering_secret = "raft-controller-spec"
+  config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+  config
+end
+
+# A .raft_state as versions before the clustering id was kept in it wrote it
+private def write_v3_raft_state(data_dir : String, term : Int64) : Nil
+  format = IO::ByteFormat::LittleEndian
+  io = IO::Memory.new
+  io.write "LMQRAFT".to_slice
+  io.write_byte 3u8
+  io.write_bytes term, format
+  io.write_byte 0u8 # no vote
+  io.write_bytes 0i64, format
+  io.write_bytes 0i64, format
+  LavinMQ::Clustering::Raft::Codec.write_isr(io, nil)
+  LavinMQ::Clustering::Raft::Codec.write_membership(io, nil)
+  LavinMQ::Clustering::Raft::Codec.write_entries(io, [] of LavinMQ::Clustering::Raft::Entry)
+  io.write_bytes Digest::CRC32.checksum(io.to_slice), format
+  File.write(File.join(data_dir, ".raft_state"), io.to_slice)
 end
 
 describe LavinMQ::Clustering::RaftController do
@@ -411,6 +442,54 @@ describe LavinMQ::Clustering::RaftController do
   # What the controller tells the other seeds as has_data, which picks the
   # first leader: a lavinmqctl socket left in the data dir by a crashed
   # process, or schema backups, aren't broker data
+  # A node that lost its raft state can't tell which terms it voted in, so
+  # it mustn't vote again under the id it had: its identity and its votes
+  # are kept in the same file, and lost together
+  it "keeps its clustering id in its raft state, and starts as a new node without it" do
+    with_datadir do |data_dir|
+      config = raft_config(data_dir)
+      id = LavinMQ::Clustering::RaftController.new(config).id
+      LavinMQ::Clustering::Raft::Storage.new(data_dir).load.should_not(be_nil).node_id.should eq id
+      File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+      LavinMQ::Clustering::RaftController.new(config).id.should eq id
+      File.delete(File.join(data_dir, ".raft_state"))
+      # Not even the etcd backend's id, kept from before a migration
+      File.write(File.join(data_dir, ".clustering_id"), id.to_s(36))
+      LavinMQ::Clustering::RaftController.new(config).id.should_not eq id
+    end
+  end
+
+  it "keeps the id that a raft state written by an earlier version ran with" do
+    with_datadir do |data_dir|
+      File.write(File.join(data_dir, ".clustering_id"), 1234.to_s(36))
+      write_v3_raft_state(data_dir, term: 7)
+      LavinMQ::Clustering::RaftController.new(raft_config(data_dir)).id.should eq 1234
+      state = LavinMQ::Clustering::Raft::Storage.new(data_dir).load.should_not(be_nil)
+      state.node_id.should eq 1234
+      state.term.should eq 7
+    end
+  end
+
+  it "takes a node that lost its raft state for a new node, which isn't a voter", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      wait_for { leader.node.membership.try(&.voters.size) == 3 }
+      follower = cluster.controllers.find! { |c| c != leader }
+      old_id = follower.id
+      follower.stop
+      File.delete(File.join(cluster.dirs[cluster.controllers.index!(follower)], ".raft_state"))
+      fresh = cluster.restart(follower)
+      fresh.id.should_not eq old_id
+      sleep 1.second # a few election timeouts, connected to the others
+      leader.node.leader?.should be_true
+      fresh.node.leader?.should be_false
+      voters = leader.node.membership.should_not(be_nil).voters
+      voters.should contain old_id
+      voters.should_not contain fresh.id
+    end
+  end
+
   it "doesn't count a leftover socket or schema backups as broker data" do
     with_datadir do |data_dir|
       File.write(File.join(data_dir, ".clustering_id"), "1")
@@ -430,7 +509,19 @@ describe LavinMQ::Clustering::RaftController do
       LavinMQ::Etcd.new("127.0.0.1:12379").put("lavinmq/isr", 200.to_s(36))
       with_controllers(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
         cluster.start_all
-        cluster.next_leader.id.should eq 200
+        cluster.next_leader.should eq cluster.controllers[1]
+      end
+    end
+  end
+
+  # Its raft state has its clustering id by then, but no log
+  it "elects the node in the etcd backend's ISR also when the nodes restarted before the first leader",
+    tags: %w[etcd slow] do
+    with_etcd do
+      LavinMQ::Etcd.new("127.0.0.1:12379").put("lavinmq/isr", 200.to_s(36))
+      with_controllers(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
+        cluster.controllers.dup.each { |c| cluster.restart(c) }
+        cluster.next_leader.should eq cluster.controllers[1]
       end
     end
   end

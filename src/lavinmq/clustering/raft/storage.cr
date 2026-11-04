@@ -7,8 +7,13 @@ module LavinMQ::Clustering::Raft
   # file, fsync it, rename over the old one and fsync the directory.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 3u8
-    Format  = IO::ByteFormat::LittleEndian
+    VERSION = 5u8
+    # Without the node's clustering id, which was kept in .clustering_id. A
+    # build of #2299 also wrote version 4, with whether the node's votes were
+    # known instead.
+    VERSION_3 = 3u8
+    VERSION_4 = 4u8
+    Format    = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
     MAX_ENTRIES = 1 << 20
 
@@ -51,12 +56,8 @@ module LavinMQ::Clustering::Raft
       io.write MAGIC.to_slice
       io.write_byte VERSION
       io.write_bytes state.term, Format
-      if voted_for = state.voted_for
-        io.write_byte 1u8
-        io.write_bytes voted_for, Format
-      else
-        io.write_byte 0u8
-      end
+      write_id(io, state.voted_for)
+      write_id(io, state.node_id)
       io.write_bytes state.snapshot_index, Format
       io.write_bytes state.snapshot_term, Format
       Codec.write_isr(io, state.snapshot_isr)
@@ -67,15 +68,33 @@ module LavinMQ::Clustering::Raft
     private def decode(io) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
-      raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
+      unless version.in?(VERSION, VERSION_3, VERSION_4)
+        raise CorruptError.new("#{@path} has unsupported version #{version}")
+      end
       term = io.read_bytes Int64, Format
-      voted_for = io.read_bytes(Int32, Format) if Codec.read_bool(io)
+      voted_for = read_id(io)
+      node_id = read_id(io) if version == VERSION
+      Codec.read_bool(io) if version == VERSION_4
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
       snapshot_membership = Codec.read_membership(io)
       entries = Codec.read_entries(io, MAX_ENTRIES)
-      HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership)
+      HardState.new(term, voted_for, snapshot_index, snapshot_term, snapshot_isr, entries, snapshot_membership,
+        node_id)
+    end
+
+    private def write_id(io, id : Int32?) : Nil
+      if id
+        io.write_byte 1u8
+        io.write_bytes id, Format
+      else
+        io.write_byte 0u8
+      end
+    end
+
+    private def read_id(io) : Int32?
+      io.read_bytes(Int32, Format) if Codec.read_bool(io)
     end
   end
 end

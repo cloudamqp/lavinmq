@@ -151,7 +151,10 @@ module LavinMQ
           elsif (check = @member_check) && !check.call
             # Refused by the leader, keep retrying: we may be added back, and
             # exiting would only make a supervisor restart us in a loop.
-            Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
+            Log.warn do
+              "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, " \
+              "shut it down or add it with add_cluster_member"
+            end
             break if closed_while_not_member?(check)
           else
             Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }

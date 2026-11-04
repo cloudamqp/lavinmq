@@ -23,8 +23,10 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # the HTTP API's fibers
   @stopping = Atomic(Bool).new(false)
 
-  def initialize(@config : Config)
-    @id = clustering_id
+  # *id*: this node's unique id, for tracking the ISR. The etcd backend keeps
+  # it in .clustering_id, see .clustering_id, the raft backend in its raft
+  # state, see RaftController.
+  def initialize(@config : Config, @id : Int32)
     @advertised_uri = @config.clustering_advertised_uri_or_default
   end
 
@@ -49,18 +51,22 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
     @stopping.set(true)
   end
 
-  # Each node in a cluster has an unique id, for tracking ISR
-  private def clustering_id : Int32
-    id_file_path = File.join(@config.data_dir, ".clustering_id")
-    begin
-      id = File.read(id_file_path).to_i(36)
-    rescue File::NotFoundError
+  # The id in .clustering_id, generated if there's none
+  protected def self.clustering_id(config : Config) : Int32
+    stored_clustering_id(config) || begin
       id = rand(Int32::MAX)
-      Dir.mkdir_p @config.data_dir
-      File.write(id_file_path, id.to_s(36))
+      Dir.mkdir_p config.data_dir
+      File.write(File.join(config.data_dir, ".clustering_id"), id.to_s(36))
       Log.info { "Generated new clustering ID" }
+      id
     end
-    id
+  end
+
+  # The id in .clustering_id, nil if there's none
+  protected def self.stored_clustering_id(config : Config) : Int32?
+    File.read(File.join(config.data_dir, ".clustering_id")).to_i(36)
+  rescue File::NotFoundError
+    nil
   end
 
   # Replicate from the leader until this node becomes the leader itself.

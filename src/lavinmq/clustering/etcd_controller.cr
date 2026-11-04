@@ -14,7 +14,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   end
 
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
-    super(config)
+    super(config, Controller.clustering_id(config))
     @elected_leader = BoolChannel.new(false)
   end
 
