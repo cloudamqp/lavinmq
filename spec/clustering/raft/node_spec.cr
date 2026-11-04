@@ -754,32 +754,6 @@ describe Raft::Storage do
     end
   end
 
-  # The clustering id was kept in .clustering_id then; version 4 also has
-  # whether the node's votes were known, from a build of #2299
-  {3u8, 4u8}.each do |version|
-    it "reads a version #{version} state, without the clustering id" do
-      with_datadir do |dir|
-        storage = Raft::Storage.new(dir)
-        format = IO::ByteFormat::LittleEndian
-        io = IO::Memory.new
-        io.write "LMQRAFT".to_slice
-        io.write_byte version
-        io.write_bytes 7i64, format
-        io.write_byte 1u8
-        io.write_bytes 2i32, format
-        io.write_byte 1u8 if version == 4
-        io.write_bytes 3i64, format
-        io.write_bytes 6i64, format
-        Raft::Codec.write_isr(io, Set{1, 2})
-        Raft::Codec.write_membership(io, nil)
-        Raft::Codec.write_entries(io, [Raft::Entry.new(7, nil)])
-        io.write_bytes Digest::CRC32.checksum(io.to_slice), format
-        File.write(storage.path, io.to_slice)
-        storage.load.should eq Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil)])
-      end
-    end
-  end
-
   it "round-trips the membership of the snapshot and of the entries" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
@@ -787,7 +761,7 @@ describe Raft::Storage do
       state = Raft::HardState.new(7, nil, 3, 6, Set{1, 2}, [
         Raft::Entry.new(7, nil),
         Raft::Entry.new(7, Set{2}, Raft::Membership.new(Set{1, 2}, Set(Int32).new, {1 => "a:1", 2 => "b:1"})),
-      ], members)
+      ], members, node_id: 42)
       storage.save(state)
       loaded = storage.load.should_not(be_nil)
       loaded.should eq state
@@ -795,10 +769,19 @@ describe Raft::Storage do
     end
   end
 
+  # The votes are only safe with the id they were granted under
+  it "refuses a state without the clustering id" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      storage.save(Raft::HardState.new(7, 2, 0, 0, nil, [] of Raft::Entry))
+      expect_raises(Raft::Storage::CorruptError, /no clustering id/) { storage.load }
+    end
+  end
+
   it "detects a corrupt state file" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
-      storage.save(Raft::HardState.new(7, nil, 0, 0, nil, [] of Raft::Entry))
+      storage.save(Raft::HardState.new(7, nil, 0, 0, nil, [] of Raft::Entry, node_id: 42))
       bytes = File.read(storage.path).to_slice.dup
       bytes[10] ^= 0xff
       File.write(storage.path, bytes)

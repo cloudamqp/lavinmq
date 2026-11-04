@@ -47,10 +47,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # cluster has a first leader
     no_log = state.nil? || (state.snapshot_index == 0 && state.entries.empty?)
     prior_in_sync = has_data && no_log && self.class.prior_in_sync?(config)
-    id = state.try(&.node_id) || self.class.new_raft_id(config, state)
-    if state.nil? || state.node_id.nil?
+    unless id = state.try(&.node_id)
+      id = self.class.new_raft_id
       # Before anyone learns it, so it's never another id after a restart
-      state = (state || Raft::HardState.new(0, nil, 0, 0, nil, Array(Raft::Entry).new)).copy_with(node_id: id)
+      state = Raft::HardState.new(0, nil, 0, 0, nil, Array(Raft::Entry).new, node_id: id)
       storage.save(state)
     end
     super(config, id)
@@ -61,15 +61,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
-  # The clustering id is kept in the raft state, see Raft::HardState. A
-  # state written before that ran with the id in .clustering_id. Without a
-  # state the node is a new one, also when it was a member before: it can't
+  # The clustering id is kept in the raft state, see Raft::HardState. Without
+  # a state the node is a new one, also when it was a member before: it can't
   # tell which terms it voted in, so it mustn't vote again with that id.
-  protected def self.new_raft_id(config : Config, state : Raft::HardState?) : Int32
-    if state
-      return stored_clustering_id(config) || raise Error.new("#{config.data_dir}/.raft_state has no clustering id, " \
-                                                             "and there's no .clustering_id")
-    end
+  protected def self.new_raft_id : Int32
     id = rand(Int32::MAX)
     Log.info do
       "No raft state, starting as a new node with clustering id #{id.to_s(36)}. If this node was a member " \

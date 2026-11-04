@@ -10,7 +10,8 @@ module LavinMQ::Clustering::Raft
   # What must be on disk before any message produced alongside it is sent.
   # With the node's clustering id, so the votes can't be lost while the id
   # is kept: a node without them is a new node, with an id of its own, and
-  # can't vote twice in a term. Nil in states written before it was kept.
+  # can't vote twice in a term. Always set in a saved state, see Storage, nil
+  # only in states built in memory, e.g. by specs.
   record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
     entries : Array(Entry), snapshot_membership : Membership? = nil, node_id : Int32? = nil

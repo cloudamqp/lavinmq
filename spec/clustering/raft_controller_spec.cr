@@ -258,22 +258,6 @@ private def raft_config(data_dir : String) : LavinMQ::Config
 end
 
 # A .raft_state as versions before the clustering id was kept in it wrote it
-private def write_v3_raft_state(data_dir : String, term : Int64) : Nil
-  format = IO::ByteFormat::LittleEndian
-  io = IO::Memory.new
-  io.write "LMQRAFT".to_slice
-  io.write_byte 3u8
-  io.write_bytes term, format
-  io.write_byte 0u8 # no vote
-  io.write_bytes 0i64, format
-  io.write_bytes 0i64, format
-  LavinMQ::Clustering::Raft::Codec.write_isr(io, nil)
-  LavinMQ::Clustering::Raft::Codec.write_membership(io, nil)
-  LavinMQ::Clustering::Raft::Codec.write_entries(io, [] of LavinMQ::Clustering::Raft::Entry)
-  io.write_bytes Digest::CRC32.checksum(io.to_slice), format
-  File.write(File.join(data_dir, ".raft_state"), io.to_slice)
-end
-
 describe LavinMQ::Clustering::RaftController do
   it "stops following once this node is the leader" do
     with_datadir do |data_dir|
@@ -456,17 +440,6 @@ describe LavinMQ::Clustering::RaftController do
       # Not even the etcd backend's id, kept from before a migration
       File.write(File.join(data_dir, ".clustering_id"), id.to_s(36))
       LavinMQ::Clustering::RaftController.new(config).id.should_not eq id
-    end
-  end
-
-  it "keeps the id that a raft state written by an earlier version ran with" do
-    with_datadir do |data_dir|
-      File.write(File.join(data_dir, ".clustering_id"), 1234.to_s(36))
-      write_v3_raft_state(data_dir, term: 7)
-      LavinMQ::Clustering::RaftController.new(raft_config(data_dir)).id.should eq 1234
-      state = LavinMQ::Clustering::Raft::Storage.new(data_dir).load.should_not(be_nil)
-      state.node_id.should eq 1234
-      state.term.should eq 7
     end
   end
 

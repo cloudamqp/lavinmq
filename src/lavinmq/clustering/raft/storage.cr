@@ -8,12 +8,7 @@ module LavinMQ::Clustering::Raft
   class Storage
     MAGIC   = "LMQRAFT"
     VERSION = 5u8
-    # Without the node's clustering id, which was kept in .clustering_id. A
-    # build of #2299 also wrote version 4, with whether the node's votes were
-    # known instead.
-    VERSION_3 = 3u8
-    VERSION_4 = 4u8
-    Format    = IO::ByteFormat::LittleEndian
+    Format  = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
     MAX_ENTRIES = 1 << 20
 
@@ -68,13 +63,10 @@ module LavinMQ::Clustering::Raft
     private def decode(io) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
-      unless version.in?(VERSION, VERSION_3, VERSION_4)
-        raise CorruptError.new("#{@path} has unsupported version #{version}")
-      end
+      raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
       term = io.read_bytes Int64, Format
       voted_for = read_id(io)
-      node_id = read_id(io) if version == VERSION
-      Codec.read_bool(io) if version == VERSION_4
+      node_id = read_id(io) || raise CorruptError.new("#{@path} has no clustering id")
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
