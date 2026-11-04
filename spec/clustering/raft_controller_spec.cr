@@ -490,6 +490,20 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  # Asked over the lavinmqctl socket only while the node doesn't serve, also
+  # by a leader that hasn't finished its startup, which `transfer_leadership
+  # --wait` mustn't take for the serving leader's own answer
+  it "reports its own view, not serving, also as a leader", tags: "slow" do
+    with_controllers(size: 1) do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      status = JSON.parse(leader.cluster_status.should_not(be_nil))
+      status["leader"].as_s.should eq cluster.address(leader)
+      status["local"].as_bool.should be_true
+      status["leader_serving"].as_bool.should be_false
+    end
+  end
+
   it "doesn't count a leftover socket or schema backups as broker data" do
     with_datadir do |data_dir|
       File.write(File.join(data_dir, ".clustering_id"), "1")
