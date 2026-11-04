@@ -36,6 +36,10 @@ module LavinMQ
       private def handle_client(client, target_host, target_port)
         target = TCPSocket.new(target_host, target_port)
         set_socket_opts(target)
+        # A client that stops reading must not keep the connection open: the
+        # copy loop would block in its write forever, and never see that the
+        # leader closed the connection after its own tcp_send_timeout
+        client.write_timeout = Config.instance.tcp_send_timeout.seconds
         if client.is_a? TCPSocket
           set_socket_opts(client)
           if @proxy_header
