@@ -783,6 +783,33 @@ module PrometheusMqttSpecs
   end
 
   describe "LavinMQ::HTTP::PrometheusController MQTT metrics" do
+    it "leaves out MQTT series until an MQTT client has connected" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+          amqp = AMQP::Client.new(port: port, name: "prometheus-spec").connect
+          http.get("/metrics").body.should_not contain("mqtt")
+          amqp.close
+        end
+      end
+    end
+
+    it "writes all MQTT series once an MQTT client has connected, before any publish" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            disconnect(io)
+          end
+          # Stays after the client is gone, so rate() sees the counters before they first move
+          should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
+          %w[0 1 2].each do |qos|
+            metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => qos}).should be >= 0
+          end
+        end
+      end
+    end
+
     it "counts open MQTT connections and leaves out AMQP ones" do
       with_server do |s|
         serve_metrics(s) do |http|
@@ -803,23 +830,24 @@ module PrometheusMqttSpecs
     it "counts MQTT publishes by QoS" do
       with_server do |s|
         serve_metrics(s) do |http|
-          key = "lavinmq_mqtt_messages_published_total"
-          # The counters are process-wide, so compare with the values before publishing
-          qos0_before = metric_value(http, key, {"qos" => "0"})
-          qos1_before = metric_value(http, key, {"qos" => "1"})
-          qos2_before = metric_value(http, key, {"qos" => "2"})
+          key = "lavinmq_global_mqtt_messages_published_total"
           with_client_io(s) do |io|
             connect(io, client_id: "metrics")
+            # The counters are process-wide, so compare with the values before publishing.
+            # They're only written once an MQTT client has connected.
+            qos0_before = metric_value(http, key, {"qos" => "0"})
+            qos1_before = metric_value(http, key, {"qos" => "1"})
+            qos2_before = metric_value(http, key, {"qos" => "2"})
             2.times { publish(io, topic: "a/b", qos: 0u8) }
             # QoS 2 is answered with a PUBACK like QoS 1 (#2314)
             publish(io, topic: "a/b", qos: 2u8)
             # Waits for the PUBACK, so the publishes before it are counted too
             publish(io, topic: "a/b", qos: 1u8)
+            metric_value(http, key, {"qos" => "0"}).should eq qos0_before + 2
+            metric_value(http, key, {"qos" => "1"}).should eq qos1_before + 1
+            metric_value(http, key, {"qos" => "2"}).should eq qos2_before + 1
             disconnect(io)
           end
-          metric_value(http, key, {"qos" => "0"}).should eq qos0_before + 2
-          metric_value(http, key, {"qos" => "1"}).should eq qos1_before + 1
-          metric_value(http, key, {"qos" => "2"}).should eq qos2_before + 1
         end
       end
     end

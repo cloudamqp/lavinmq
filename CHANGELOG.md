@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
-- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`)
+- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `global_mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`), exported once an MQTT client has connected since startup
 
 ### Fixed
 
