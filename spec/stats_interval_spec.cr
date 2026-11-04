@@ -21,7 +21,7 @@ module LavinMQ
     end
 
     def x_rate
-      @x_rate
+      current_stats_details[:x_details][:rate]
     end
   end
 
