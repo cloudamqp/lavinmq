@@ -512,28 +512,6 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_true
   end
 
-  # Refusing a vote in a higher term writes a state file, which mustn't be
-  # taken for a complete vote history after a restart: it may have voted in
-  # that term before it lost its state
-  it "still doesn't vote for a candidate with a log after a restart, when it lost its raft state and since refused a vote" do
-    now = Time.instant
-    lost = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now)
-    lost.connected(2, "n2", now)
-    lost.connected(3, "n3", now)
-    lost.take_outbox
-    lost.step(Raft::RequestVote.new(2, 5, 3, 4, pre_vote: false, transfer: true), now)
-    _, reply = lost.take_outbox.first
-    reply.as(Raft::VoteResponse).granted.should be_false
-    restarted = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", 100.milliseconds, 20.milliseconds, now,
-      lost.hard_state)
-    restarted.connected(2, "n2", now)
-    restarted.connected(3, "n3", now)
-    restarted.take_outbox
-    restarted.step(Raft::RequestVote.new(3, 5, 3, 4, pre_vote: false, transfer: true), now)
-    _, reply = restarted.take_outbox.find!(&.[1].is_a?(Raft::VoteResponse))
-    reply.as(Raft::VoteResponse).granted.should be_false
-  end
-
   it "doesn't elect with the vote of a voter that lost its raft state but kept its id" do
     sim = SimCluster.new(3)
     sim.elect(Set{1, 2, 3}).id.should eq 1

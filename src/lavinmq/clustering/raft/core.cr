@@ -10,7 +10,7 @@ module LavinMQ::Clustering::Raft
   # What must be on disk before any message produced alongside it is sent.
   record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry), snapshot_membership : Membership? = nil, votes_known : Bool = true
+    entries : Array(Entry), snapshot_membership : Membership? = nil
 
   enum TransferResult
     # TimeoutNow was sent to the target
@@ -218,9 +218,7 @@ module LavinMQ::Clustering::Raft
     @trust_moved = false
     # Whether every vote this node has granted is on disk: it started with
     # its raft state, or it has voted for the first leader of a new cluster
-    # since it started without one, see #may_vote_for_log?. Persisted with
-    # the state, as a node that lost its state saves one on its first term
-    # change, which doesn't make the votes from before it known.
+    # since it started without one, see #may_vote_for_log?
     @votes_known = false
 
     # Bumped whenever something the owner publishes or connects to may have
@@ -237,7 +235,7 @@ module LavinMQ::Clustering::Raft
       @now = now
       @leaderless_since = now
       if state
-        @votes_known = state.votes_known
+        @votes_known = true
         @term = state.term
         @voted_for = state.voted_for
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
@@ -251,7 +249,7 @@ module LavinMQ::Clustering::Raft
 
     def hard_state : HardState
       HardState.new(@term, @voted_for, @snapshot.index, @snapshot.term, @snapshot.isr, @entries.dup,
-        @snapshot.membership, @votes_known)
+        @snapshot.membership)
     end
 
     def persisted : Nil
@@ -706,10 +704,7 @@ module LavinMQ::Clustering::Raft
         @voted_for = msg.from
         @dirty = true
       end
-      if granted && !@votes_known
-        @votes_known = true
-        @dirty = true
-      end
+      @votes_known = true if granted
       @election_deadline = now + randomized_election_timeout if granted
       send msg.from, VoteResponse.new(@id, @term, granted, pre_vote: false)
     end
