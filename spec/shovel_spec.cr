@@ -4,6 +4,10 @@ require "http/server"
 require "wait_group"
 
 class LavinMQ::Shovel::Runner
+  def self.delivery_backoff_for_spec(failures : Int32) : Time::Span
+    delivery_backoff(failures)
+  end
+
   def self.reconnect_backoff_for_spec(delay : Time::Span, retries : Int) : Time::Span
     reconnect_backoff(delay, retries)
   end
@@ -2166,15 +2170,15 @@ describe LavinMQ::Shovel do
 
   describe "delivery backoff" do
     it "ramps 0.5s, doubling, capped at 30s" do
-      LavinMQ::Shovel::Runner.delivery_backoff(0).should eq 0.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(1).should eq 0.5.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(2).should eq 1.second
-      LavinMQ::Shovel::Runner.delivery_backoff(3).should eq 2.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(4).should eq 4.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(5).should eq 8.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(6).should eq 16.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(7).should eq 30.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(50).should eq 30.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(0).should eq 0.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(1).should eq 0.5.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(2).should eq 1.second
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(3).should eq 2.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(4).should eq 4.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(5).should eq 8.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(6).should eq 16.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(7).should eq 30.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(50).should eq 30.seconds
     end
 
     it "counts a burst of Retry outcomes as one failing round" do
