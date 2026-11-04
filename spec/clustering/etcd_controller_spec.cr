@@ -527,7 +527,8 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
             run_done.close
           rescue SpecExit
           end
-          wait_for { launcher.@server }
+          # The metrics server is pointed at the leader at the end of startup
+          wait_for { launcher.@metrics_server.try { |metrics| metrics.@source.leader } }
 
           # Exiting from the signal handler while #run still closed the replicator
           # closed the log backend under it, and the leader exited with code 1
