@@ -17,12 +17,32 @@ private class SelfLeaderEtcd < LavinMQ::Etcd
 end
 
 private class SelfLeaderController < LavinMQ::Clustering::EtcdController
-  def follow_leader_public
-    follow_leader
+  # A follower monitor of the term of *elected*
+  def follow_leader_public(elected : BoolChannel)
+    follow_leader { follow_leader_changes(elected) }
   end
 
-  def mark_elected_for_spec
-    @elected_leader.set(true)
+  def repli_client : LavinMQ::Clustering::Client?
+    @repli_client.get
+  end
+end
+
+# Observes the leaders a spec sends
+private class ScriptedEtcd < LavinMQ::Etcd
+  getter leaders = Channel(String).new
+
+  def initialize
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    while uri = @leaders.receive?
+      yield uri
+    end
+  end
+
+  def get(_key) : String?
+    "secret"
   end
 end
 
@@ -33,7 +53,7 @@ private class UnmonitoredController < LavinMQ::Clustering::EtcdController
     @repli_client.set(client)
   end
 
-  private def follow_leader_changes
+  private def follow_leader_changes(elected)
   end
 end
 
@@ -326,22 +346,54 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
       controller = SelfLeaderController.new(config, etcd, coordinator)
       done = Channel(Exception?).new(1)
+      elected = BoolChannel.new(false)
 
       spawn(name: "self leader follower monitor spec") do
-        controller.follow_leader_public
+        controller.follow_leader_public(elected)
         done.send nil
       rescue ex
         done.send ex
       end
 
       etcd.observed.receive
-      controller.mark_elected_for_spec
+      elected.set(true)
 
       select
       when ex = done.receive
         ex.should be_nil
       when timeout(500.milliseconds)
         fail "follower monitor kept waiting after this node won the election"
+      end
+    end
+  end
+
+  # A short term can end before its monitor sees this node's own URI, the
+  # next term has a monitor of its own
+  it "doesn't follow from a follower monitor of a term that has ended" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      own_uri = config.clustering_advertised_uri = "tcp://localhost:5688"
+      etcd = ScriptedEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      elected = BoolChannel.new(false)
+      elected.set(true) # this node was elected in that term
+      [own_uri, "tcp://127.0.0.1:1"].each do |leader|
+        done = Channel(Exception?).new(1)
+        spawn(name: "follower monitor of an ended term") do
+          controller.follow_leader_public(elected)
+          done.send nil
+        rescue ex
+          done.send ex
+        end
+        etcd.leaders.send leader
+        select
+        when ex = done.receive
+          ex.should be_nil
+        when timeout(5.seconds)
+          fail "follower monitor of an ended term kept following"
+        end
+        controller.repli_client.should be_nil
       end
     end
   end

@@ -7,6 +7,9 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   getter coordinator : EtcdCoordinator
 
   @lease : Etcd::Lease? = nil
+  # Makes ending a term's following and the follower monitor setting a
+  # replication client one step each, see #stop_following
+  @follow_lock = Mutex.new
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -15,7 +18,6 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
 
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
     super(config, Controller.clustering_id(config))
-    @elected_leader = BoolChannel.new(false)
   end
 
   # Follows the leader, and yields to start serving whenever this node is
@@ -29,16 +31,16 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         lease.release rescue nil
         return
       end
-      @elected_leader = BoolChannel.new(false)
-      spawn(follow_leader, name: "Follower monitor")
+      # This term's, a follower monitor of an earlier term stops at its next
+      # event, see #follow_leader_changes
+      elected = BoolChannel.new(false)
+      spawn(name: "Follower monitor") { follow_leader { follow_leader_changes(elected) } }
       wait_to_be_insync(lease)
       return if @stopping.get
       @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
-      @elected_leader.set(true)
+      stop_following(elected)
       ensure_in_isr!
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-      @repli_client.swap(nil).try &.close
-      leader_host_changed # connections wait for this node to serve
       lead(lease) { yield }
       execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
       return if @stopping.get
@@ -82,15 +84,28 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @lease.try &.release
   end
 
-  # Listens for leader change events
-  private def follow_leader_changes
+  # This node was elected in the term of *elected*: its follower monitor
+  # sets no replication client from here on, and it stops at its next event
+  private def stop_following(elected : BoolChannel) : Nil
+    client = @follow_lock.synchronize do
+      elected.set(true)
+      @repli_client.swap(nil)
+    end
+    client.try &.close
+    leader_host_changed # connections wait for this node to serve
+  end
+
+  # Follows whoever leads until this node is elected in the term of
+  # *elected*, see #stop_following
+  private def follow_leader_changes(elected : BoolChannel)
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
+      return if elected.value || @stopping.get
       if repli_client = @repli_client.get # is currently following a leader
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
           repli_client.close
-          @repli_client.set(nil)
+          @repli_client.compare_and_set(repli_client, nil)
           leader_host_changed
         end
       end
@@ -100,30 +115,42 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       end
       if uri == @advertised_uri # if this instance has become leader
         select
-        when @elected_leader.when_true.receive
+        when elected.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
-          @elected_leader.close
           return
         when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")
         end
       end
-      Log.info { "Leader: #{uri}" }
-      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-      secret = @etcd.get(key)
-      until secret # the leader might not have had time to set the secret yet
-        Log.debug { "Clustering secret is missing, watching for it" }
-        @etcd.watch(key) do |value|
-          secret = value
-          break
-        end
-      end
-      r = Clustering::Client.new(@config, @id, secret)
-      r.on_host_change = ->leader_host_changed
-      @repli_client.set(r)
-      spawn r.follow(uri), name: "Clustering client #{uri}"
-      SystemD.notify_ready
+      return unless follow(uri, elected)
     end
+  end
+
+  # Starts replicating from the leader at *uri*. False if this node was
+  # elected in the term of *elected* meanwhile, e.g. while waiting for the
+  # secret.
+  private def follow(uri : String, elected : BoolChannel) : Bool
+    Log.info { "Leader: #{uri}" }
+    key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+    secret = @etcd.get(key)
+    until secret # the leader might not have had time to set the secret yet
+      Log.debug { "Clustering secret is missing, watching for it" }
+      @etcd.watch(key) do |value|
+        secret = value
+        break
+      end
+    end
+    r = Clustering::Client.new(@config, @id, secret)
+    r.on_host_change = ->leader_host_changed
+    following = @follow_lock.synchronize do
+      next false if elected.value || @stopping.get
+      @repli_client.set(r)
+      true
+    end
+    return false unless following
+    spawn r.follow(uri), name: "Clustering client #{uri}"
+    SystemD.notify_ready
+    true
   end
 
   # A queued election candidacy can outlive ISR membership: this node may have

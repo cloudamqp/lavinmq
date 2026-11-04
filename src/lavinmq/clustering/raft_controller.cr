@@ -181,7 +181,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # node is stopped first.
   private def await_promotion : Bool
     @promoted = Channel(Nil).new
-    spawn(follow_leader, name: "Follower monitor")
+    spawn(name: "Follower monitor") { follow_leader { follow_leader_changes } }
     select
     when @promoted.receive?
     when @stop_signal.receive?

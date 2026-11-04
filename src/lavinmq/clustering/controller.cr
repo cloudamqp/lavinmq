@@ -126,9 +126,10 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
     nil
   end
 
-  # Replicate from the leader until this node becomes the leader itself.
-  private def follow_leader
-    follow_leader_changes
+  # Runs a follower monitor, which replicates from the leader until this node
+  # becomes the leader itself
+  private def follow_leader(&)
+    yield
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
@@ -136,8 +137,6 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
   end
-
-  private abstract def follow_leader_changes
 
   # The leader it replicates from, which client connections are forwarded to
   def leader_host : String?

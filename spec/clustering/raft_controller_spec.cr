@@ -8,7 +8,7 @@ private class SpecController < LavinMQ::Clustering::RaftController
   getter fake_serving = BoolChannel.new(false)
 
   def follow_leader_public
-    follow_leader
+    follow_leader { follow_leader_changes }
   end
 
   private def serving : BoolChannel

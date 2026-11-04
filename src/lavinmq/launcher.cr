@@ -85,7 +85,7 @@ module LavinMQ
       started_at = Time.instant
       # A fresh replicator for each term this node leads, see #demote
       @replicator = @runner.new_replicator
-      @server = server = LavinMQ::Server.new(@config, @replicator)
+      @server = server = new_server
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
@@ -273,6 +273,15 @@ module LavinMQ
       nil
     end
 
+    # Replicated writes in it fail once leadership is lost, but what it opened
+    # before that wouldn't be closed when stopping to serve, so it exits
+    private def new_server : LavinMQ::Server
+      LavinMQ::Server.new(@config, @replicator)
+    rescue ex : Clustering::Coordinator::StaleLeadership
+      Log.fatal { "Lost leadership while loading the broker, exiting: #{ex.message}" }
+      exit 3
+    end
+
     private def load_definitions(amqp_server)
       path = @config.load_definitions
       return if path.empty?
@@ -286,6 +295,8 @@ module LavinMQ
     rescue ex : JSON::ParseException
       Log.error { "Failed to load definitions: invalid JSON in '#{path}': #{ex.message}" }
       exit 1
+    rescue ex : Clustering::Coordinator::StaleLeadership
+      raise ex # lost leadership, the controller stops serving
     rescue ex
       Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
       exit 1
