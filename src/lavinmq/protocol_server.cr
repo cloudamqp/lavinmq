@@ -257,7 +257,9 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-
+      # A follower's whatever the trusted sources are, they may list only the
+      # load balancers in front of the nodes
+      from_follower(client).try { |parsed_proxy| return parsed_proxy }
       if @config.tcp_proxy_protocol?
         parsed_proxy = ProxyProtocol.parse(client)
         if trusted_proxy_source?(remote_address.address)
@@ -265,8 +267,6 @@ module LavinMQ
         else
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
         end
-      else
-        from_follower(client).try { |parsed_proxy| return parsed_proxy }
       end
       ConnectionInfo.new(remote_address, client.local_address)
     end
