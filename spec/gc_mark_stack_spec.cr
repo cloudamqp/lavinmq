@@ -1,4 +1,3 @@
-{% skip_file if flag?(:darwin) %} # Homebrew's libgc is shared and unpatched
 require "spec"
 
 lib LibGC
@@ -36,7 +35,7 @@ describe "libgc" do
     fibers.times { done.send nil }
     # The stack never shrinks, so only the last collection says whether it grew
     if overflows.last > 0 && !ENV["CI"]?
-      pending!("stock libgc, see packaging/libgc/build.sh")
+      pending!("stock libgc, build with make to link the patched one")
     end
     overflows.last.should eq 0
   end

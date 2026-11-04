@@ -8,8 +8,6 @@ RUN if grep -q 'PLATFORM_ID="platform:el9"' /etc/os-release; then \
     fi
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
     rpmdevtools rpmlint systemd-rpm-macros make help2man git lz4-devel openssl openssl-devel zlib-devel patch
-COPY packaging/libgc /tmp/libgc
-RUN /tmp/libgc/build.sh
 RUN rpmdev-setuptree
 COPY packaging/rpm/lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
@@ -20,6 +18,7 @@ COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
+COPY packaging/libgc/ packaging/libgc/
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
 ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec

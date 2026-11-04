@@ -8,6 +8,12 @@ VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
+# bdwgc with packaging/libgc/mark-stack-overflow.patch, linked statically in
+# place of the system libgc. `make LIBGC=` links the system libgc instead.
+LIBGC ?= ext/libgc.a
+ifneq ($(LIBGC),)
+export CRYSTAL_LIBRARY_PATH := $(abspath $(dir $(LIBGC))):$(shell crystal env CRYSTAL_LIBRARY_PATH)
+endif
 .DELETE_ON_ERROR:
 
 .DEFAULT_GOAL := all
@@ -15,30 +21,35 @@ override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .PHONY: all
 all: $(BINS)
 
-bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
+bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) $(LIBGC) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) $(LIBGC) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
-bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
+bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/stress: extras/stress.cr lib | bin
+bin/stress: extras/stress.cr lib $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 SHOVEL_TEST_SOURCES := $(shell find extras/shovel_test -name '*.cr' 2> /dev/null)
-bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib | bin
+bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+ext/libgc.a: packaging/libgc/Makefile packaging/libgc/mark-stack-overflow.patch packaging/libgc/mark_stack_test.c
+	$(MAKE) -C packaging/libgc
+	mkdir -p $(@D)
+	cp packaging/libgc/bdwgc/.libs/libgc.a $@
 
 .PHONY: shovel-test
 shovel-test: bin/shovel-test
@@ -117,7 +128,7 @@ lint-openapi:
 	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
-test: lib views
+test: lib views $(LIBGC)
 	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
