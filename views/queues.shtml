@@ -109,7 +109,7 @@
             <a class="arg-tooltip" data-tag="x-delayed-retry-min" data-value="1000">Retry min delay
               <span class="tooltiptext">Enables automatic retries with backoff: the initial delay (milliseconds)
                 before a message rejected with requeue=true is redelivered. Retries end when the delivery limit
-                is reached (defaults to 20 when unset).</span>
+                is reached, and never end without one.</span>
             </a>
             <a class="arg-tooltip" data-tag="x-delayed-retry-multiplier">Retry multiplier
               <span class="tooltiptext">Backoff shape: omit for linear (delay × attempt), 1 for constant,

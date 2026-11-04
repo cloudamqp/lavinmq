@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Raft clustering password can be set through config, environment or CLI; group or other access to `password_file` now produces a warning instead of preventing startup [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - The clustering `advertised_uri` defaults to `tcp://<bind>:<port>` when `bind` is a specific address, and to the hostname only when bound to all interfaces (`::` or `0.0.0.0`). It was always the hostname. With the raft backend, `raft_advertised_address` defaults to the host of `advertised_uri` with `raft_port`, so it rarely needs to be set [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - Followers and the leader's replication port authenticate each other with an HMAC-SHA256 challenge-response instead of the follower sending the clustering password in clear text (replication protocol v3; v1 and v2 peers, such as 2.11.0-rc.1 nodes, still connect the old way, except with the raft backend) [#2321](https://github.com/cloudamqp/lavinmq/pull/2321)
+- Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
 ### Fixed
 
