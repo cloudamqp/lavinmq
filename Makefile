@@ -51,11 +51,6 @@ ext/libgc.a: packaging/libgc/Makefile packaging/libgc/mark-stack-overflow.patch 
 	mkdir -p $(@D)
 	cp packaging/libgc/bdwgc/.libs/libgc.a $@
 
-.PHONY: clean-libgc
-clean-libgc:
-	$(MAKE) -C packaging/libgc clean
-	$(RM) ext/libgc.a
-
 .PHONY: shovel-test
 shovel-test: bin/shovel-test
 	bin/shovel-test
