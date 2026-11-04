@@ -178,6 +178,17 @@ def restart_server(server : LavinMQ::Server)
   Fiber.yield
 end
 
+def with_stats_interval(ms : Int32, &)
+  cfg = LavinMQ::Config.instance
+  orig = cfg.stats_interval
+  begin
+    cfg.stats_interval = ms
+    yield
+  ensure
+    cfg.stats_interval = orig
+  end
+end
+
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
