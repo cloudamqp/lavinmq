@@ -1,3 +1,5 @@
+require "./stat_log"
+
 module LavinMQ
   module Stats
     # log_keys are gauges sampled as log_type; the vhost totals need UInt64
