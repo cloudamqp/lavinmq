@@ -42,6 +42,15 @@ module LavinMQ
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       getter streamed_bytes = 0_u64
+
+      # To a HTTP::PrometheusWriter, see Runner#write_metrics
+      def write_metrics(writer) : Nil
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: @streamed_bytes,
+                      type:  "counter",
+                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
+      end
+
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).

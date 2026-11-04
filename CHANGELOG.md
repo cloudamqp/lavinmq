@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A clustered follower that was stopped while waiting to get back in sync logged a fatal error and exited with code 3, as if its etcd lease had expired. It now stops normally [#2610](https://github.com/cloudamqp/lavinmq/pull/2610)
 - A clustering follower whose replication handshake with the leader failed, such as on a password mismatch, stopped replicating until it was restarted or the leader changed. It now logs the failure and retries, waiting twice as long each time, up to a minute [#2613](https://github.com/cloudamqp/lavinmq/pull/2613)
 - A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
 - Since 2.11.0-rc.1, a power loss could renumber a stream and make confirmed messages unreadable, because a segment that only got unconfirmed publishes was never synced. A finished stream segment is now synced right after rollover, so no confirm is sent before every earlier segment is on disk, as in 2.10
