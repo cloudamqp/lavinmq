@@ -243,12 +243,7 @@ module LavinMQ
       end
 
       private def set_socket_opts(socket)
-        if keepalive = @config.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        @config.apply_tcp_keepalive(socket)
       end
 
       private def sync_files(socket, lz4)
@@ -413,10 +408,9 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them
+            next if child.in?(NODE_LOCAL_FILES) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
