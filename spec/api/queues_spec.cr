@@ -206,6 +206,26 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "counts messages read from a stream as get_no_ack" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("stats_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { q.publish_confirm "m" }
+        end
+        body = %({ "count": 2, "offset": "first" })
+        response = http.post("/api/queues/%2f/stats_stream/stream", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.size.should eq 2
+
+        body = JSON.parse(http.get("/api/queues/%2f/stats_stream").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
+        body = JSON.parse(http.get("/api/vhosts/%2f").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
+      end
+    end
+
     it "writes message_stats only once" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_queue("stats_q", false, false)
