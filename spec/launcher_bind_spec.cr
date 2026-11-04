@@ -38,6 +38,28 @@ private class StoppingRunner < LavinMQ::StandaloneRunner
   end
 end
 
+# Not the leader anymore, as the coordinator reports it
+private class StaleCoordinator < LavinMQ::Clustering::Coordinator
+  def update_isr(synced_node_ids : Set(Int32)) : Nil
+    raise LavinMQ::Clustering::Coordinator::StaleLeadership.new("Not the leader (spec)")
+  end
+
+  def password : String
+    "spec"
+  end
+end
+
+# Serves with a replicator that has lost leadership, as when it's lost
+# while the broker loads
+private class StaleLeaderRunner < LavinMQ::StandaloneRunner
+  def initialize(@config : LavinMQ::Config)
+  end
+
+  def new_replicator : LavinMQ::Clustering::Server?
+    LavinMQ::Clustering::Server.new(@config, StaleCoordinator.new, 1)
+  end
+end
+
 # Runs *launcher* until #run returns, when the process would exit
 private def run_until_stopped(launcher : LavinMQ::Launcher) : Nil
   done = Channel(Nil).new
@@ -159,6 +181,31 @@ describe LavinMQ::Launcher do
       end
     ensure
       lock.try &.release
+    end
+  end
+
+  # What Server.new opened before a replicated write failed couldn't be
+  # closed when stopping to serve
+  it "exits when it loses leadership while the broker loads" do
+    with_datadir do |data_dir|
+      config = standalone_config(data_dir)
+      launcher = LavinMQ::Launcher.new(config)
+      launcher.runner_for_spec = StaleLeaderRunner.new(config)
+      exited = Channel(Int32?).new(1)
+      spawn(name: "launcher spec") do
+        launcher.run
+        exited.send nil
+      rescue ex : SpecExit
+        exited.send ex.code
+      end
+      select
+      when code = exited.receive
+        code.should eq 3
+      when timeout(10.seconds)
+        fail "launcher didn't exit"
+      end
+    ensure
+      launcher.try &.stop
     end
   end
 end
