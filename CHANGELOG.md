@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Followers and the leader's replication port authenticate each other with an HMAC-SHA256 challenge-response instead of the follower sending the clustering password in clear text (replication protocol v3; v1 and v2 peers, such as 2.11.0-rc.1 nodes, still connect the old way) [#2613](https://github.com/cloudamqp/lavinmq/pull/2613)
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
 ### Fixed
 
+- A clustering follower whose replication handshake with the leader failed, such as on a password mismatch, stopped replicating until it was restarted or the leader changed. It now logs the failure and retries, waiting twice as long each time, up to a minute [#2613](https://github.com/cloudamqp/lavinmq/pull/2613)
 - A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
 - Since 2.11.0-rc.1, a power loss could renumber a stream and make confirmed messages unreadable, because a segment that only got unconfirmed publishes was never synced. A finished stream segment is now synced right after rollover, so no confirm is sent before every earlier segment is on disk, as in 2.10
 - Since 2.11.0-rc.1, a power loss within about 30 seconds of the first start on a new data dir could leave `schema_version` empty, and every later start failed with `Invalid Int32: ""`. Publish confirms no longer sync the whole data dir, so nothing made the file durable. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
