@@ -12,6 +12,15 @@ rescue ex : LavinMQ::Config::Error
 end
 
 {% unless flag?(:gc_none) %}
+  case grow_mark_stack = ENV["LAVINMQ_EXPERIMENTAL_GC_GROW_MARK_STACK"]?
+  when nil, "", "0"
+  when "1"
+    abort "Error: LAVINMQ_EXPERIMENTAL_GC_GROW_MARK_STACK needs the patched libgc, build with make" unless GC::PATCHED
+    GC.grow_mark_stack = true
+    LavinMQ::Log.for("gc").info { "LAVINMQ_EXPERIMENTAL_GC_GROW_MARK_STACK=1: growing the GC mark stack" }
+  else
+    LavinMQ::Log.for("gc").warn { "Ignoring LAVINMQ_EXPERIMENTAL_GC_GROW_MARK_STACK=#{grow_mark_stack}, set it to 1 to switch it on" }
+  end
   if config.raise_gc_warn?
     LibGC.set_warn_proc ->(msg, _word) {
       raise String.new(msg)

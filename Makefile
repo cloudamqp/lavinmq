@@ -13,6 +13,8 @@ override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 LIBGC ?= ext/libgc.a
 ifneq ($(LIBGC),)
 export CRYSTAL_LIBRARY_PATH := $(abspath $(dir $(LIBGC))):$(shell crystal env CRYSTAL_LIBRARY_PATH)
+override CRYSTAL_FLAGS += -Dpatched_libgc
+SPEC_FLAGS := -Dpatched_libgc
 endif
 .DELETE_ON_ERROR:
 
@@ -129,7 +131,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib views $(LIBGC)
-	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
+	crystal spec $(SPEC_FLAGS) --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
 format:
