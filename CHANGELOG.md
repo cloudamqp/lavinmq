@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - RPM packages are built for Enterprise Linux 10 (AlmaLinux 10, RHEL 10, Rocky Linux 10 etc) [#2741](https://github.com/cloudamqp/lavinmq/pull/2741)
 
+### Changed
+
+- Channels free their publish body buffer after one to two minutes without publishing. The buffer grew to the largest single-frame message the channel had received and was kept for the channel's lifetime, and copying into it left the connection's read loop with a 32 KiB deeper stack. A connection that once published a 120 KB message now uses about 140 KiB less memory once idle [#2626](https://github.com/cloudamqp/lavinmq/pull/2626)
+
 ### Fixed
 
 - A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
