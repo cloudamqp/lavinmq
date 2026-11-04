@@ -1,4 +1,5 @@
 require "spec"
+require "../src/stdlib/gc"
 
 lib LibGC
   fun set_log_fd = GC_set_log_fd(fd : LibC::Int)
@@ -38,5 +39,39 @@ describe "libgc" do
       pending!("stock libgc, build with make to link the patched one")
     end
     overflows.last.should eq 0
+  end
+
+  it "pushes parked fiber stacks with GC_push_all_grow" do
+    if !GC.push_all_grow? && !ENV["CI"]?
+      pending!("stock libgc, build with make to link the patched one")
+    end
+    GC.push_all_grow?.should be_true
+  end
+
+  # More parked fibers than the initial mark stack has entries, so pushing
+  # every stack with a plain GC_push_all would abort with "Unexpected mark
+  # stack overflow"
+  it "keeps objects referenced only from parked fiber stacks" do
+    fibers = 20_000
+    done = Channel(Nil).new
+    results = Channel(Bool).new
+    fibers.times do |i|
+      spawn do
+        obj = Array.new(4, i)
+        done.receive
+        results.send obj.all?(i)
+      end
+    end
+    Fiber.yield
+    garbage = 0
+    4.times do
+      GC.collect
+      # Reuse memory freed by a collection that missed a stack
+      garbage += Array.new(fibers) { Array.new(4, -1) }.size
+    end
+    fibers.times { done.send nil }
+    intact = Array.new(fibers) { results.receive }
+    intact.count(false).should eq 0
+    garbage.should eq fibers * 4
   end
 end

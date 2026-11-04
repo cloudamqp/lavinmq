@@ -8,7 +8,7 @@ VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
-# bdwgc with packaging/libgc/mark-stack-overflow.patch, linked statically in
+# bdwgc with the patches in packaging/libgc/, linked statically in
 # place of the system libgc. `make LIBGC=` links the system libgc instead.
 LIBGC ?= ext/libgc.a
 ifneq ($(LIBGC),)
@@ -46,7 +46,7 @@ SHOVEL_TEST_SOURCES := $(shell find extras/shovel_test -name '*.cr' 2> /dev/null
 bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib $(LIBGC) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-ext/libgc.a: packaging/libgc/Makefile packaging/libgc/mark-stack-overflow.patch packaging/libgc/mark_stack_test.c
+ext/libgc.a: packaging/libgc/Makefile $(wildcard packaging/libgc/*.patch packaging/libgc/*_test.c)
 	$(MAKE) -C packaging/libgc
 	mkdir -p $(@D)
 	cp packaging/libgc/bdwgc/.libs/libgc.a $@
