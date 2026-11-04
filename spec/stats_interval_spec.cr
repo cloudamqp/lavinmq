@@ -42,6 +42,25 @@ module LavinMQ
   end
 
   describe Server do
+    it "spans the time since the previous tick when a reload shortens the interval meanwhile" do
+      with_stats_interval(1000) do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          with_channel(s) do |ch|
+            q = ch.queue("slept")
+            ticks = s.stats_ticks
+            wait_for { s.stats_ticks > ticks } # the loop is in its 1 s sleep
+            LavinMQ::Config.instance.stats_interval = 30
+            3.times { q.publish_confirm "m" }
+            size = vhost.stats_details[:publish_details][:log].size
+            wait_for { vhost.stats_details[:publish_details][:log].size > size }
+            # Three messages over the second it slept; the 30 ms ticks after it log 0
+            vhost.stats_details[:publish_details][:log][size].should be_close(3.0, 0.2)
+          end
+        end
+      end
+    end
+
     it "keeps checking free disk space while out of file descriptors" do
       with_stats_interval(50) do
         with_amqp_server do |s|
