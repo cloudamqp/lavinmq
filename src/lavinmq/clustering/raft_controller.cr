@@ -45,17 +45,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     storage = Raft::Storage.new(@config.data_dir)
     state = storage.load
     has_data = Clustering.broker_data?(@config.data_dir)
-    if state.nil? && !@new_id
-      Log.warn do
-        "No raft state (#{storage.path}) but a clustering id: unless the seeds form a new cluster, " \
-        "this node won't vote until it's removed from the cluster and added back, see docs/clustering.md"
-      end
-    end
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
       has_data: has_data, prior_in_sync: has_data && state.nil? && self.class.prior_in_sync?(@config, @id),
-      state: state, new_id: @new_id, execution_context: raft_context)
+      state: state, execution_context: raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 

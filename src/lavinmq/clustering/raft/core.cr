@@ -216,13 +216,11 @@ module LavinMQ::Clustering::Raft
     # node campaigns, see at_home?. Cleared on hearing from a leader, and by
     # a leader once it has recorded the new addresses.
     @trust_moved = false
-    # Whether every vote this node has granted is on disk, so it may vote and
-    # campaign once it has a log, see #may_vote_for_log?. It started with its
-    # raft state or a new clustering id, or without them agreed with the seeds on the first leader of
-    # a new cluster, or was removed and added back as a learner since, see
-    # #settle_unknown_votes. Persisted with the state, as a node that lost its
-    # state saves one on its first term change, which doesn't make the votes
-    # from before it known.
+    # Whether every vote this node has granted is on disk: it started with
+    # its raft state, or it has voted for the first leader of a new cluster
+    # since it started without one, see #may_vote_for_log?. Persisted with
+    # the state, as a node that lost its state saves one on its first term
+    # change, which doesn't make the votes from before it known.
     @votes_known = false
 
     # Bumped whenever something the owner publishes or connects to may have
@@ -234,7 +232,7 @@ module LavinMQ::Clustering::Raft
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
                    now : Time::Instant, state : HardState? = nil, @random : Random = Random.new,
-                   @has_data = false, @prior_in_sync = false, new_id = false)
+                   @has_data = false, @prior_in_sync = false)
       @seed_addresses = seeds.reject(@address).uniq!
       @now = now
       @leaderless_since = now
@@ -245,14 +243,10 @@ module LavinMQ::Clustering::Raft
         @snapshot = Snapshot.new(state.snapshot_index, state.snapshot_term, state.snapshot_isr,
           state.snapshot_membership)
         @entries = state.entries.dup
-      else
-        # No earlier process can have voted with a clustering id that's new
-        @votes_known = new_id
       end
       @election_deadline = now + randomized_election_timeout
       @heartbeat_due = now
       refresh_membership
-      settle_unknown_votes
     end
 
     def hard_state : HardState
@@ -412,7 +406,6 @@ module LavinMQ::Clustering::Raft
       identified(address, id)
       manage_membership
       announce(id)
-      settle_unknown_votes
     end
 
     def disconnected(id : Int32, address : String) : Nil
@@ -441,7 +434,6 @@ module LavinMQ::Clustering::Raft
       # It connected to us first, under the name it advertises, which wasn't
       # a peer to connect to then, so the announce from #connected was lost
       announce(id) if (live = @live[id]?) && live != address
-      settle_unknown_votes
     end
 
     # Leader whose no-op of this term is committed, i.e. it has applied every
@@ -714,6 +706,10 @@ module LavinMQ::Clustering::Raft
         @voted_for = msg.from
         @dirty = true
       end
+      if granted && !@votes_known
+        @votes_known = true
+        @dirty = true
+      end
       @election_deadline = now + randomized_election_timeout if granted
       send msg.from, VoteResponse.new(@id, @term, granted, pre_vote: false)
     end
@@ -822,31 +818,6 @@ module LavinMQ::Clustering::Raft
     private def record_seed_info(msg : SeedInfo) : Nil
       @seed_info[msg.from] = msg
       changed
-      settle_unknown_votes
-    end
-
-    # A node without its raft state, but with its clustering id, may have
-    # voted in any term up to the one it reached before it lost the state,
-    # and a log doesn't tell which, so it neither votes nor campaigns once it
-    # has one (see #may_vote_for_log?, #may_campaign?) until its votes are
-    # known again:
-    # - While no seed has a log, and the seeds agree on the first leader of a
-    #   new cluster, or it's a single node cluster: no leader has existed.
-    # - Once it's a learner, i.e. it was removed and added back: a learner
-    #   entry is appended only after the removal is committed, in some term
-    #   R, and the voters that committed it had at most term R, so every term
-    #   it voted in is at most R. Its term is at least R by then, and it takes
-    #   the vote in that term itself.
-    private def settle_unknown_votes : Nil
-      return if @votes_known
-      if m = latest_membership
-        return unless m.learners.includes?(@id)
-        @voted_for ||= @id
-      else
-        return unless last_index == 0 && (@seed_addresses.empty? || bootstrap_choice)
-      end
-      @votes_known = true
-      @dirty = true
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -907,9 +878,7 @@ module LavinMQ::Clustering::Raft
       # unless there has been no leader to do so for a long time
       return false if moved_from && !@trust_moved
       return false unless in_isr?(latest_isr, @id)
-      # Its own vote is one too, see #settle_unknown_votes
-      return @votes_known if last_index > 0
-      @seed_addresses.empty? || bootstrap_choice == @id
+      last_index > 0 || @seed_addresses.empty? || bootstrap_choice == @id
     end
 
     private def start_pre_vote(now : Time::Instant) : Nil
@@ -1099,10 +1068,9 @@ module LavinMQ::Clustering::Raft
       isr.nil? || isr.includes?(node_id)
     end
 
-    # Our raft state may have been lost while the clustering id was kept, so
-    # we may not know which terms we already voted in. Voting again could
-    # elect a second leader: with a log, vote only once our votes are known
-    # again, see #settle_unknown_votes. Without one, only vote for the first
+    # Without a log we may not know whether we already voted in this term:
+    # our raft state may have been lost while the clustering id was kept.
+    # Voting again could elect a second leader, so only vote for the first
     # leader of a new cluster, see #bootstrap_choice. A candidate with a log
     # is in the ISR, so it replicated from a leader, and the other voters
     # that did too have a log.
@@ -1112,12 +1080,11 @@ module LavinMQ::Clustering::Raft
     # when it appended its first entry but went down before anyone else got
     # it: its voters have no log, and it has a membership, so the seeds no
     # longer agree on a first leader. Without voting for it no leader is
-    # ever elected. The seeds agree on a first leader only while none has a
-    # log, so a node that has lost its state can't have voted in a later
-    # term before.
+    # ever elected. A vote for the first leader is granted only while no
+    # seed has a log, so a node that has lost its state can't have voted in
+    # a later term before granting it.
     private def may_vote_for_log?(candidate : Int32, candidate_last_index : Int64) : Bool
-      return @votes_known if last_index > 0
-      return true if @votes_known && candidate_last_index > 0
+      return true if last_index > 0 || (@votes_known && candidate_last_index > 0)
       candidate_last_index == 0 && bootstrap_choice == candidate
     end
 
@@ -1175,7 +1142,6 @@ module LavinMQ::Clustering::Raft
       # Forget what we knew about peers that left, they may come back as new
       @progress.reject! { |p, _| !tracked?(p) }
       @peers.each { |p| @progress[p] ||= Progress.new(last_index + 1, @now) }
-      settle_unknown_votes
     end
 
     private def send_append(peer : Int32) : Nil
