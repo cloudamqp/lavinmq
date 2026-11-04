@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Channels free their publish body buffer after one to two minutes without publishing. The buffer grew to the largest single-frame message the channel had received and was kept for the channel's lifetime, and copying into it left the connection's read loop with a 32 KiB deeper stack. A connection that once published a 120 KB message now uses about 140 KiB less memory once idle [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
+- Channels free their publish body buffer after one to two minutes without publishing. The buffer grew to the largest single-frame message the channel had received and was kept for the channel's lifetime, and copying into it left the connection's read loop with a 32 KiB deeper stack. A connection that once published a 120 KB message now uses about 140 KiB less memory once idle [#2626](https://github.com/cloudamqp/lavinmq/pull/2626)
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
 ### Fixed
