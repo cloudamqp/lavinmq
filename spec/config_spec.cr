@@ -707,6 +707,27 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "stats_log_size" do
+    it "rejects non-positive values" do
+      [0, -10].each do |n|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            stats_log_size = #{n}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          expect_raises(LavinMQ::Config::Error, /stats_log_size/) do
+            config.parse(["-c", config_file.path])
+          end
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
