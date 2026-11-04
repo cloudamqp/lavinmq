@@ -56,7 +56,6 @@ module LavinMQ
       print_data_dir_read_ahead
 
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
-      @replicator = @runner.new_replicator
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path)
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
@@ -74,6 +73,7 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
+      @replicator = @runner.new_replicator
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
@@ -113,7 +113,7 @@ module LavinMQ
       end
       @client_listeners.close
       @control_socket.close
-      @replicator.try &.close
+      @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
     ensure
       @run_done.close
