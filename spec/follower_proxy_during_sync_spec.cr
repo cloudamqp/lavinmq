@@ -1,7 +1,7 @@
+require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
 require "mqtt-protocol"
 
@@ -27,9 +27,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
   end
 end
 
-describe "extract_conn_info during full_sync with syncing_followers", tags: %w[etcd slow] do
-  add_etcd_around_each
-
+describe "extract_conn_info during full_sync with syncing_followers", tags: "slow" do
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
@@ -51,7 +49,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
         begin
           follower_config = leader_config.dup.tap &.data_dir = follower_data_dir
           follower_config.metrics_http_port = -1
-          follower_client = LavinMQ::Clustering::Client.new(follower_config, 2, slow_replicator.password, proxy: false)
+          follower_client = LavinMQ::Clustering::Client.new(follower_config, 2, slow_replicator.password)
 
           spawn(name: "slow follower sync") do
             follower_client.follow("localhost", leader_tcp_server.local_address.port)
@@ -157,6 +155,33 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
           client_socket.close rescue nil
         end
 
+        cluster.stop
+      end
+    end
+  end
+
+  # The trusted sources may list only the load balancers in front of the nodes
+  it "takes a follower's PROXY header in front of TLS also when it isn't a trusted proxy source" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator, extra_tls_listener: true) do |leader_s|
+        leader_s.@config.clustering = true
+        with_proxy_protocol([LavinMQ::IPMatcher.parse("10.0.0.1")]) do
+          wait_for { cluster.replicator.followers.first? }
+          tls_port = amqp_tls_port(leader_s)
+          socket = TCPSocket.new("localhost", tls_port)
+          socket.write "PROXY TCP4 192.168.1.100 127.0.0.1 54321 #{tls_port}\r\n".to_slice
+          ctx = OpenSSL::SSL::Context::Client.new
+          ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+          Log.capture("lmq.server", :info) do |logs|
+            tls = OpenSSL::SSL::Socket::Client.new(socket, ctx, sync_close: true)
+            tls.write "AMQP\u0000\u0000\t\u0001".to_slice
+            tls.flush
+            tls.read_byte.should eq 1 # a method frame, Connection.Start
+            logs.check(:info, /^192\.168\.1\.100:54321 connected with/)
+          ensure
+            tls.try &.close
+          end
+        end
         cluster.stop
       end
     end
