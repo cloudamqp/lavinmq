@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Stats logs in the HTTP API are formatted in a stack buffer, 9x faster per log than through the JSON builder [#2619](https://github.com/cloudamqp/lavinmq/pull/2619)
 - Less memory and CPU for stats history: a stat only keeps a history buffer while its value changes within the last `stats_log_size` samples, and drops it once the window is one value; a closed object's buffers go with it. A rate's history starts with an object's second sample, as the first spans a partial interval. At 100k idle queues the history no longer takes ~1.4 GB of heap and a stats tick takes 16 ms instead of 71 ms [#2618](https://github.com/cloudamqp/lavinmq/pull/2618)
 - `deliver_get` is derived from `deliver`, `deliver_no_ack`, `get` and `get_no_ack` at each stats tick instead of counted on its own: one atomic add less per delivery, the same values [#2622](https://github.com/cloudamqp/lavinmq/pull/2622)
 - `/api/overview` reads its message history from totals the stats loop records per vhost instead of summing every queue's log on each request, so the history also keeps the messages of since deleted queues [#2617](https://github.com/cloudamqp/lavinmq/pull/2617)
