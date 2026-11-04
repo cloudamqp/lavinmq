@@ -187,7 +187,7 @@ module LavinMQ
       # Backoff before the next delivery attempt after `failures` consecutive
       # transient failures: 0.5s, 1s, 2s, 4s, … doubling, capped at
       # MAX_DELIVERY_DELAY, then holding there.
-      def self.delivery_backoff(failures : Int32) : Time::Span
+      protected def self.delivery_backoff(failures : Int32) : Time::Span
         return 0.seconds if failures <= 0
         secs = Math.min(MAX_DELIVERY_DELAY.to_f, 0.5 * 2.0 ** Math.min(failures - 1, 6))
         secs.seconds
