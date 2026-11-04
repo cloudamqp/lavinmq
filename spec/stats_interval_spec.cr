@@ -1,16 +1,5 @@
 require "./spec_helper"
 
-private def with_stats_interval(ms : Int32, &)
-  cfg = LavinMQ::Config.instance
-  orig = cfg.stats_interval
-  begin
-    cfg.stats_interval = ms
-    yield
-  ensure
-    cfg.stats_interval = orig
-  end
-end
-
 module LavinMQ
   private class IntervalProbe
     include Stats
@@ -59,6 +48,19 @@ module LavinMQ
             rate.should be > 0.0
             rate.should be < 10.0 # over the 30 ms a reload set it would be 100
           end
+        end
+      end
+    end
+
+    it "ends its stats loop on close without waiting out the interval" do
+      loops = -> { fibers = [] of Fiber; Fiber.list { |f| fibers << f if f.name == "Server#stats_loop" }; fibers }
+      before = loops.call
+      with_stats_interval(3_600_000) do
+        with_amqp_server do |s|
+          wait_for { s.stats_ticks > 0 }
+          stats_fiber = (loops.call - before).first
+          s.close
+          wait_for { stats_fiber.dead? }
         end
       end
     end
