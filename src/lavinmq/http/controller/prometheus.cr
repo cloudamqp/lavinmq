@@ -429,10 +429,18 @@ module LavinMQ
         mqtt_published_metrics(writer)
       end
 
+      # MQTT series are left out until the first MQTT client connects, so servers
+      # without MQTT export none. From then on they're written, at 0 too, so
+      # the first publish shows up in rate().
+      private def mqtt_client_connected? : Bool
+        @server.vhosts.any? { |_, v| v.mqtt_broker.client_connected? }
+      end
+
       private def mqtt_published_metrics(writer)
-        writer.write_header("mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
+        return unless mqtt_client_connected?
+        writer.write_header("global_mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
         MQTT::Exchange::PUBLISHED_QOS_LEVELS.each do |qos|
-          writer.write_value("mqtt_messages_published_total",
+          writer.write_value("global_mqtt_messages_published_total",
             MQTT::Exchange.published_count(qos), {qos: qos.to_s})
         end
       end
@@ -479,10 +487,12 @@ module LavinMQ
                       value: connections,
                       type:  "gauge",
                       help:  "Connections currently open"})
-        writer.write({name:  "mqtt_connections",
-                      value: mqtt_connections,
-                      type:  "gauge",
-                      help:  "MQTT connections currently open"})
+        if mqtt_client_connected?
+          writer.write({name:  "mqtt_connections",
+                        value: mqtt_connections,
+                        type:  "gauge",
+                        help:  "MQTT connections currently open"})
+        end
         writer.write({name:  "channels",
                       value: channels,
                       type:  "gauge",
