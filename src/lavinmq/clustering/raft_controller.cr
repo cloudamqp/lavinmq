@@ -41,7 +41,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   def initialize(config : Config)
-    Dir.mkdir_p config.data_dir
+    FileSystem.mkdir_p config.data_dir
     storage = Raft::Storage.new(config.data_dir)
     state = storage.load
     has_data = Clustering.broker_data?(config.data_dir)

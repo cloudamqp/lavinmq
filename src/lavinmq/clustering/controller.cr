@@ -1,4 +1,5 @@
 require "systemd"
+require "../filesystem"
 require "./client"
 require "./coordinator"
 require "../runner"
@@ -55,8 +56,8 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   protected def self.clustering_id(config : Config) : Int32
     stored_clustering_id(config) || begin
       id = rand(Int32::MAX)
-      Dir.mkdir_p config.data_dir
-      File.write(File.join(config.data_dir, ".clustering_id"), id.to_s(36))
+      FileSystem.mkdir_p config.data_dir
+      FileSystem.replace(File.join(config.data_dir, ".clustering_id"), &.print(id.to_s(36)))
       Log.info { "Generated new clustering ID" }
       id
     end

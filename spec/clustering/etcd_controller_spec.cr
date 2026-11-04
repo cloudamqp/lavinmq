@@ -310,6 +310,17 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     lease.try &.release
   end
 
+  it "creates the data dir and keeps its clustering id across restarts" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = File.join(data_dir, "new")
+      id = LavinMQ::Clustering::EtcdController.new(config).id
+      File.read(File.join(config.data_dir, ".clustering_id")).should eq id.to_s(36)
+      File.exists?(File.join(config.data_dir, ".clustering_id.tmp")).should be_false
+      LavinMQ::Clustering::EtcdController.new(config).id.should eq id
+    end
+  end
+
   it "grants its lease with the configured TTL" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new

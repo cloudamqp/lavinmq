@@ -1,5 +1,6 @@
 require "../stdlib/copy_file_range"
 require "./clustering"
+require "./filesystem"
 
 module LavinMQ
   module Schema
@@ -76,7 +77,10 @@ module LavinMQ
         vhosts do |vhost_dir|
           VhostMigrator.new(vhost_dir).migrate
         end
-        File.write(File.join(@data_dir, "schema_version"), Schema::VERSION)
+        # Written durably: a confirm no longer syncs the whole data dir, so
+        # nothing else makes this file durable, and a power loss could
+        # leave it empty, which stops every later start
+        FileSystem.replace(File.join(@data_dir, "schema_version"), &.print(Schema::VERSION))
       end
 
       private def vhosts(&)
