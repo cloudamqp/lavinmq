@@ -13,6 +13,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+      - packaging/libgc/**
       - packaging/debian/**
   workflow_dispatch:
 concurrency:

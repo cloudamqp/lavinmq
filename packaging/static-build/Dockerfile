@@ -2,7 +2,9 @@
 #   docker buildx build -f packaging/static-build/Dockerfile --output=bin .
 
 FROM 84codes/crystal:latest-alpine AS builder
-RUN apk add curl openssl lz4-dev lz4-static
+RUN apk add curl patch openssl lz4-dev lz4-static
+COPY packaging/libgc /tmp/libgc
+RUN /tmp/libgc/build.sh
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production

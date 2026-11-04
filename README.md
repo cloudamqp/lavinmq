@@ -102,6 +102,17 @@ make
 sudo make install # optional
 ```
 
+The packages and Docker images link a patched Boehm GC (`packaging/libgc/`):
+stock bdwgc 8.2.12 never grows its mark stack when thousands of connections
+and queues overflow it, which made every collection several times slower.
+A source build uses the system libgc unless you build the patched one first
+and let the compiler find it:
+
+```sh
+packaging/libgc/build.sh ~/lib/lavinmq-gc
+export CRYSTAL_LIBRARY_PATH=~/lib/lavinmq-gc:$(crystal env CRYSTAL_LIBRARY_PATH)
+```
+
 ## Using LavinMQ
 
 ### Getting Started

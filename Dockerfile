@@ -1,6 +1,8 @@
 # Base layer
 FROM 84codes/crystal:latest-ubuntu-24.04 AS base
 RUN apt-get update && apt-get install -y liblz4-dev dpkg-dev
+COPY packaging/libgc /tmp/libgc
+RUN /tmp/libgc/build.sh
 WORKDIR /usr/src/lavinmq
 COPY shard.yml shard.lock .
 RUN shards install --production
