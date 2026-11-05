@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
+### Added
+
+- `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
+
 ### Fixed
 
 - Since 2.11.0-rc.1, a queue with `x-max-length` and `x-overflow=reject-publish` could drop, or dead-letter, confirmed messages from its head when several publishers were active: the length limit was checked before the publisher waited for the message store lock, so a message pushed after another publisher filled the queue went past the limit and the head was dropped. The limit is now checked under the lock and the publish is nacked instead, and a reject-publish queue never drops stored messages for its limit [#2629](https://github.com/cloudamqp/lavinmq/pull/2629)

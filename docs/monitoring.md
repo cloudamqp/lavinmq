@@ -130,6 +130,7 @@ Crystal GC stats, prefixed with `<prefix>_gc_`.
 | `gc_before_recent_collection_reclaimed_bytes_total` | counter | Approximate reclaimed bytes before the recent GC (value may wrap) |
 | `gc_since_recent_collection_explicitly_freed_bytes` | counter | Bytes freed explicitly since the recent GC |
 | `gc_from_os_obtained_bytes_total` | counter | Total memory obtained from OS, in bytes |
+| `gc_pause_seconds` | histogram | Stop-the-world GC pause durations in seconds (buckets 1 ms to 2.5 s) |
 
 #### Scrape telemetry
 
