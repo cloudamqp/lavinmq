@@ -162,6 +162,33 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should stop waiting for higher priority consumers when closed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("prio-wait-close")
+          sq = s.vhosts["/"].queue("prio-wait-close")
+          # Never acks, and doesn't get enough messages to run out of capacity
+          high_prio = AMQP::Client::Arguments.new({"x-priority" => 10})
+          q.subscribe(no_ack: false, args: high_prio) { |_| }
+          low = nil
+          with_channel(s) do |ch2|
+            ch2.queue("prio-wait-close").subscribe(no_ack: false) { |_| }
+            wait_for { sq.consumers_size == 2 }
+            consumer = sq.consumers.find! { |c| c.priority == 0 }.as(LavinMQ::AMQP::Consumer)
+            low = consumer
+            q.publish_confirm("m")
+            # The low priority deliver loop waits for the high priority consumer
+            # to run out of capacity, which it never does
+            wait_for { sq.unacked_count == 1 }
+            consumer.@deliver_loop_running.get.should be_true
+          end
+          low = low.should_not be_nil
+          # Closing the low priority consumer's channel must end that wait
+          wait_for { !low.@deliver_loop_running.get }
+        end
+      end
+    end
   end
 
   describe "on-demand deliver_loop" do
