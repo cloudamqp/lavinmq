@@ -262,4 +262,67 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       end
     end
   end
+
+  it "syncs before unlinking a priority queue segment that messages were moved out of" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-max-priority"            => 1,
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        8.times { src.publish "x" * 100_000 }
+        src_segment = File.join(queue_dir(s, "src"), "prio.000", "msgs.0000000001")
+        wait_for { !File.exists?(src_segment) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs before unlinking a delayed exchange segment that messages were released from" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("delayed", "direct", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+        ch.queue("dst").bind(x.name, "dst")
+        props = AMQ::Protocol::Properties.new(headers: AMQP::Client::Arguments.new({"x-delay" => 1}))
+        8.times { x.publish "x" * 100_000, "dst", props: props }
+        delayed_segment = File.join(queue_dir(s, "amq.delayed-delayed"), "msgs.0000000001")
+        wait_for { !File.exists?(delayed_segment) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "doesn't sync before unlinking a segment that was only consumed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("plain")
+        q.subscribe(no_ack: false, &.ack)
+        8.times { q.publish "x" * 100_000 }
+        segment = File.join(queue_dir(s, "plain"), "msgs.0000000001")
+        wait_for { !File.exists?(segment) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+
+  it "doesn't sync before an unlink when sync is disabled" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.sync = false
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        8.times { src.publish "x" * 100_000 }
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        wait_for { !File.exists?(src_segment) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
 end
