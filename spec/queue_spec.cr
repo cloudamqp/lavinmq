@@ -395,6 +395,9 @@ describe LavinMQ::AMQP::Queue do
           # Try to consume, which will trigger the close due to corrupt data
           q.subscribe(tag: "tag", no_ack: false, &.ack)
           should_eventually(be_true) { queue.state.closed? }
+          # The deliver loop closes the queue itself, and must not wait for
+          # itself to exit, or the close never gets to close the store
+          should_eventually(be_true) { queue.@msg_store.closed }
 
           # Delete corrupted segment file
           File.delete(mfile.path)

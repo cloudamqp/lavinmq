@@ -48,7 +48,7 @@ module LavinMQ
         return if @closed
         return if @deliver_loop_running.swap(true, :acquire_release)
         fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
-        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
+        @queue.spawn_deliver_loop(fiber_name) { deliver_loop }
       end
 
       @notify_closed = ::Channel(Nil).new
