@@ -504,9 +504,9 @@ module LavinMQ
                 next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               rescue ex : ClosedError
                 # Only raised in ack mode, where requeuing is up to the caller.
-                # The channel closed after the message was shifted, so close
-                # didn't requeue it.
-                q.requeue(env.segment_position)
+                # The channel closed after the message was shifted, so it was
+                # never recorded as unacked and close won't requeue it.
+                q.requeue_undelivered(env.segment_position)
                 raise ex
               end
               unless frame.no_ack # track unacked messages
