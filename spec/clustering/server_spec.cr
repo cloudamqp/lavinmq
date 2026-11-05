@@ -1,6 +1,5 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
 require "lz4"
 
 # Drives the clustering handshake + the two full-sync passes (requesting no
@@ -29,9 +28,7 @@ private def sync_fake_follower(server, port, id : Int32) : {TCPSocket, Compress:
   {io, lz4}
 end
 
-describe LavinMQ::Clustering::Server, tags: "etcd" do
-  add_etcd_around_each
-
+describe LavinMQ::Clustering::Server do
   # A leader that loses leadership right after it started to serve can close
   # its replicator before the listener fiber runs
   it "doesn't listen once closed, nor overwrite the checksums it didn't restore" do

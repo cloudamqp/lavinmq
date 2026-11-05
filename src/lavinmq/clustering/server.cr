@@ -46,12 +46,26 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
+      # Registered with the coordinator while this server is open
+      @member_removed : Int32 ->
+
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
+        @member_removed = ->drop_follower(Int32)
+        @coordinator.add_member_removed_listener(@member_removed)
+      end
+
+      # Disconnects a follower that was removed from the cluster. It stays out
+      # of the ISR and is refused when it reconnects.
+      private def drop_follower(id : Int32) : Nil
+        follower = @lock.synchronize { @followers.find { |f| f.id == id } }
+        return unless follower
+        Log.warn { "Disconnecting follower id=#{id.to_s(36)}, it was removed from the cluster" }
+        follower.close
       end
 
       def clear
@@ -365,6 +379,10 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
+        unless @coordinator.member?(follower.id)
+          Log.warn { "Refusing follower id=#{follower.id.to_s(36)}, it is not a member of the cluster" }
+          return
+        end
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
             Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
@@ -452,7 +470,7 @@ module LavinMQ
           # A dead follower may linger in @followers until its handler fiber
           # runs its cleanup; it must not re-enter the ISR meanwhile (flush_isr
           # races that cleanup when a confirm is pending).
-          ids.add(f.id) if f.synced? && !f.dead?
+          ids.add(f.id) if f.synced? && !f.dead? && @coordinator.member?(f.id)
         end
         ids.add(@id)
         # Closed, its followers were disconnected: they mustn't leave the ISR
@@ -557,6 +575,9 @@ module LavinMQ
 
       def close
         @fenced.set(true)
+        # A node makes a new server for each term it leads, the coordinator
+        # outlives them
+        @coordinator.remove_member_removed_listener(@member_removed)
         @lock.synchronize do
           @listeners.each &.close
           @followers.each &.close

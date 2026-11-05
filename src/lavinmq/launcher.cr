@@ -38,9 +38,8 @@ module LavinMQ
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
-    @metrics_server : LavinMQ::HTTP::MetricsServer?
     # The lavinmqctl socket, bound once for the process: the broker's API
-    # while this node serves, a follower's 503 otherwise
+    # while this node serves, the runner's view of the cluster otherwise
     @control_socket : HTTP::ControlSocket
     # The client ports, bound once for the process: the broker's while this
     # node serves, forwarded to the leader otherwise
@@ -61,8 +60,7 @@ module LavinMQ
 
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
       @runner.on_demote { |hand_over| demote(hand_over) }
-      @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
-      @control_socket = HTTP::ControlSocket.new(@config.control_unix_path)
+      @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, -> { @runner.cluster_status })
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
       @runner.on_leader_host_change { @client_listeners.leader_host_changed }
 
@@ -79,8 +77,8 @@ module LavinMQ
 
     private def start : self
       # #stop may have run since the runner decided to serve, e.g. while the
-      # controller checked the ISR: nothing started from here on would be
-      # closed. A #stop from now on leaves the broker to this startup,
+      # raft controller committed the ISR: nothing started from here on would
+      # be closed. A #stop from now on leaves the broker to this startup,
       # closing it under it would fail what's still to come, e.g. loading
       # definitions exits 1, and #run closes it once the runner returns.
       return self unless @role_lock.synchronize { @starting = !@closed }
@@ -92,7 +90,7 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server,
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
         @control_socket.path, runner_metrics)
       start_clustering_listener
       @client_listeners.serve(ClientListeners::Brokers.new(amqp_server, mqtt_server, http_server))
@@ -113,7 +111,11 @@ module LavinMQ
     end
 
     def run
-      start_metrics_server
+      begin
+        start_metrics_server unless @config.metrics_http_port == -1
+      rescue ex : Socket::BindError
+        abort "Error: #{ex.message}"
+      end
       bind_control_socket
       begin
         @client_listeners.bind(@amqp_tls_context, @mqtt_tls_context, @http_tls_context)
@@ -139,13 +141,14 @@ module LavinMQ
       @run_done.close
     end
 
-    # Stops serving as the leader, without exiting: the controller makes this
-    # node follow the new leader, and the next time it's elected #start
-    # serves again. When leadership was lost (no *hand_over*) the followers
-    # are disconnected first, so nothing more can be confirmed. When it's
-    # handed over the clients are disconnected first, and leadership is
-    # handed over once the followers have acked everything and before
-    # they're disconnected, so the target is still in the ISR.
+    # Stops serving as the leader, without exiting: the raft controller keeps
+    # its raft node running and makes this node follow the new leader, and
+    # the next time it's elected #start serves again. When leadership was
+    # lost (no *hand_over*) the followers are disconnected first, so nothing
+    # more can be confirmed. When it's handed over the clients are
+    # disconnected first, and leadership is handed over once the followers
+    # have acked everything and before they're disconnected, so the target
+    # is still in the ISR.
     private def demote(hand_over : Proc(Nil)?) : Nil
       @role_lock.synchronize do
         return if @closed
@@ -299,21 +302,19 @@ module LavinMQ
       exit 1
     end
 
-    private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
-      ->@runner.write_metrics(HTTP::PrometheusWriter)
-    end
-
-    # Bound once, before the node knows its role, and kept until shutdown so
-    # that the port isn't rebound when a follower becomes leader
+    # One metrics server for the rest of the process, bound before a clustered
+    # node knows its role, so followers and nodes without a leader are
+    # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
-      return unless metrics_server = @metrics_server
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
-    rescue ex : Socket::BindError
-      stop
-      abort "Error: #{ex.message}"
+    end
+
+    private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
+      ->@runner.write_metrics(HTTP::PrometheusWriter)
     end
 
     # A clustered node may share the machine with another node serving the

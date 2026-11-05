@@ -11,7 +11,9 @@ module LavinMQ
     # The internal UNIX socket used by lavinmqctl. The Launcher binds it once
     # for the process and keeps it through the node's role changes: while the
     # node serves, requests go to the broker's HTTP API (#api=). Otherwise
-    # they get a 503 saying it's a follower.
+    # they get a 503 saying it's a follower, or with *cluster_status*,
+    # GET /api/cluster gets this node's view of the cluster, so it can be
+    # inspected also when there's no leader to proxy to.
     class ControlSocket
       Log = LavinMQ::Log.for "http.control_socket"
 
@@ -42,7 +44,7 @@ module LavinMQ
       @api_lock = Mutex.new
       @bound = false
 
-      def initialize(@path : String)
+      def initialize(@path : String, @cluster_status : Proc(String?)? = nil)
         @http = ::HTTP::Server.new { |context| handle(context) }
       end
 
@@ -91,6 +93,12 @@ module LavinMQ
       private def handle(context : ::HTTP::Server::Context) : Nil
         if api = @api_lock.synchronize { @api }
           return api.call(context)
+        end
+        if (status = @cluster_status) && context.request.method == "GET" &&
+           context.request.path == "/api/cluster" && (json = status.call)
+          context.response.content_type = "application/json"
+          context.response.print json
+          return
         end
         context.response.status_code = 503
         context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \

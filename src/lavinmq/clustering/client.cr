@@ -94,6 +94,18 @@ module LavinMQ
         @leader_host.get
       end
 
+      # Whether the leader's replication server has let this node in. A
+      # leader binds that listener after its client listeners, so it's
+      # serving then.
+      def connected? : Bool
+        !@leader_host.get.nil?
+      end
+
+      # Tells whether this node is part of the cluster, to explain why the
+      # leader keeps refusing the connection. Set by controllers that have
+      # a membership.
+      property member_check : Proc(Bool)? = nil
+
       # Called after #host changed, set before #follow
       property on_host_change : Proc(Nil)? = nil
 
@@ -113,9 +125,6 @@ module LavinMQ
       end
 
       PROTOCOL_VERSION = 3
-
-      # The longest a follower waits between failed handshakes
-      MAX_HANDSHAKE_RETRY_INTERVAL = 1.minute
 
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
@@ -146,7 +155,15 @@ module LavinMQ
             # each time.
             Log.error { "Handshake with server #{host}:#{port} failed (#{ex.message}), retrying in #{handshake_retry.total_seconds.to_i}s" }
             break if closed_while_waiting?(handshake_retry)
-            handshake_retry = Math.min(handshake_retry * 2, MAX_HANDSHAKE_RETRY_INTERVAL)
+            handshake_retry = Math.min(handshake_retry * 2, NOT_MEMBER_RETRY_INTERVAL)
+          elsif (check = @member_check) && !check.call
+            # Refused by the leader, keep retrying: we may be added back, and
+            # exiting would only make a supervisor restart us in a loop.
+            Log.warn do
+              "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, " \
+              "shut it down or add it with add_cluster_member"
+            end
+            break if closed_while_not_member?(check)
           else
             Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
             break if closed_while_waiting?(1.second)
@@ -154,6 +171,22 @@ module LavinMQ
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      # How long a node that isn't a member waits before it's refused again,
+      # and both it and the leader log it again; also the longest a follower
+      # waits between failed handshakes
+      NOT_MEMBER_RETRY_INTERVAL = 1.minute
+
+      # Waits until this node is added back, or NOT_MEMBER_RETRY_INTERVAL in
+      # case it was and doesn't know it yet
+      private def closed_while_not_member?(member_check : Proc(Bool)) : Bool
+        deadline = Time.instant + NOT_MEMBER_RETRY_INTERVAL
+        while Time.instant < deadline
+          return true if closed_while_waiting?(1.second)
+          break if member_check.call
+        end
+        false
       end
 
       private def closed_while_waiting?(span : Time::Span) : Bool
@@ -791,6 +824,12 @@ module LavinMQ
           else              raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
           end
         raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}") if version >= @protocol_version
+        # Raft clusters have no older nodes, so an older "leader" would be
+        # someone trying to get the password in clear text
+        if @config.clustering_backend.raft?
+          Log.error { "Leader only supports replication protocol version #{version}, refusing to send it the password" }
+          raise IO::Error.new("Replication protocol version mismatch")
+        end
         Log.warn { "Leader only supports replication protocol version #{version}, reconnecting with it" }
         @protocol_version = version
         raise IO::Error.new("Replication protocol version mismatch")

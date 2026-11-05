@@ -1,6 +1,6 @@
 module LavinMQ
   # Decides when this node serves clients: StandaloneRunner right away, a
-  # clustering controller (Clustering::Controller) once it leads. The
+  # clustering controller (Clustering::Controller) whenever it leads. The
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner
@@ -22,6 +22,10 @@ module LavinMQ
     def new_replicator : Clustering::Server?
     end
 
+    # The raft cluster, for its HTTP API
+    def raft : Clustering::RaftController?
+    end
+
     # The leader's host, which client connections are forwarded to while this
     # node doesn't serve, nil when there's none to forward to
     def leader_host : String?
@@ -29,6 +33,12 @@ module LavinMQ
 
     # Registers what to call after what #leader_host returns may have changed
     def on_leader_host_change(&_block : ->) : Nil
+    end
+
+    # This node's view of the cluster, which the lavinmqctl socket answers
+    # GET /api/cluster with while this node doesn't serve, see
+    # HTTP::ControlSocket. Nil to answer as a follower.
+    def cluster_status : String?
     end
 
     # Writes the runner's own metrics to every Prometheus scrape, whatever the

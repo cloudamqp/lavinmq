@@ -4,13 +4,17 @@ require "./client"
 require "./coordinator"
 require "../runner"
 
-# Elects the leader and makes the other nodes follow it. Subclasses do the
-# leader election and ISR storage, e.g. with an etcd cluster (EtcdController).
+# Elects the leader and makes the other nodes follow it. The leader election
+# and ISR storage are done by an etcd cluster (EtcdController) or by the nodes
+# themselves with Raft (RaftController), chosen by `[clustering] backend`.
 abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   Log = LavinMQ::Log.for "clustering.controller"
 
   def self.create(config : Config) : Controller
-    EtcdController.new(config)
+    case config.clustering_backend
+    in .etcd? then EtcdController.new(config)
+    in .raft? then RaftController.new(config)
+    end
   end
 
   getter id : Int32
@@ -29,11 +33,11 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # never keeps serving
   property demotion_timeout : Time::Span = 60.seconds
 
-  # *id*: this node's unique id, for tracking the ISR, e.g. the one in
-  # .clustering_id, see .clustering_id
+  # *id*: this node's unique id, for tracking the ISR. The etcd backend keeps
+  # it in .clustering_id, see .clustering_id, the raft backend in its raft
+  # state, see RaftController.
   def initialize(@config : Config, @id : Int32)
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @advertised_uri = @config.clustering_advertised_uri_or_default
   end
 
   abstract def coordinator : Coordinator
@@ -174,3 +178,4 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 end
 
 require "./etcd_controller"
+require "./raft_controller"

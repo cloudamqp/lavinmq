@@ -54,8 +54,11 @@ describe LavinMQ::SchemaVersion do
 end
 
 describe LavinMQ::Schema do
+  # The raft node runs, and replaces its state file, while the broker starts
+  # and migrates
   it "neither backs up nor restores the node's own clustering files, nor sockets" do
     with_datadir do |data_dir|
+      File.write(File.join(data_dir, ".raft_state"), "current")
       File.write(File.join(data_dir, ".clustering_id"), "id")
       File.write(File.join(data_dir, "vhosts.json"), "[]")
       # Like lavinmqctl's, when it's configured in the data dir
@@ -67,11 +70,11 @@ describe LavinMQ::Schema do
       socket.try &.close
     end
     with_datadir do |data_dir|
-      File.write(File.join(data_dir, ".clustering_id"), "id")
+      File.write(File.join(data_dir, ".raft_state"), "current")
       File.write(File.join(data_dir, "vhosts.json"), "not json")
       socket = UNIXServer.new(File.join(data_dir, "control.sock"))
       expect_raises(JSON::ParseException) { LavinMQ::Schema.migrate(data_dir, nil) }
-      File.read(File.join(data_dir, ".clustering_id")).should eq "id"
+      File.read(File.join(data_dir, ".raft_state")).should eq "current"
       File.read(File.join(data_dir, "vhosts.json")).should eq "not json"
       File.info(File.join(data_dir, "control.sock")).type.socket?.should be_true
     ensure

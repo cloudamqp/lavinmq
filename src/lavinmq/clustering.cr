@@ -22,19 +22,31 @@ module LavinMQ
     RESPONSE_SIZE  = 32 # HMAC-SHA256
 
     # This node's own files in the data dir, never replicated nor restored:
-    # the data dir lock and the clustering identity
-    NODE_LOCAL_FILES = {".lock", ".clustering_id"}
+    # the data dir lock, the clustering identity and the raft state. Losing
+    # or rolling back .raft_state could let the node vote twice in a term.
+    NODE_LOCAL_FILES = {".lock", ".clustering_id", ".raft_state", ".raft_state.tmp"}
 
     # Entries of the data dir that aren't the broker's: the schema migration
-    # backups, this node's own files (NODE_LOCAL_FILES), and sockets, like the
-    # lavinmqctl one when it's configured in the data dir (a crashed process
-    # leaves it behind, copying it fails and a live one mustn't be deleted).
-    # Also an entry that's gone. Schema.migrate neither backs these up nor
-    # restores them.
+    # backups, this node's own files (NODE_LOCAL_FILES), which the raft node
+    # may be replacing meanwhile, and sockets, like the lavinmqctl one when
+    # it's configured in the data dir (a crashed process leaves it behind,
+    # copying it fails and a live one mustn't be deleted). Also an entry
+    # that's gone. Schema.migrate neither backs these up nor restores them.
     def self.node_local?(data_dir : String, child : String) : Bool
       return true if child == "backups" || child.in?(NODE_LOCAL_FILES)
       type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
       type.nil? || type.socket? || type.pipe?
+    end
+
+    # Whether the data dir has broker data, i.e. anything but the replication
+    # checksums and node local entries (see .node_local?)
+    def self.broker_data?(data_dir : String) : Bool
+      return false unless Dir.exists?(data_dir)
+      Dir.each_child(data_dir) do |child|
+        next if child.starts_with?("checksums.sha1") || node_local?(data_dir, child)
+        return true
+      end
+      false
     end
 
     enum Role
@@ -44,7 +56,8 @@ module LavinMQ
 
     # What *role* answers in the version 3 handshake, a MAC over both sides'
     # nonces. The role is part of it so one side's answer can't be replayed
-    # as the other's.
+    # as the other's, and the header so neither can be replayed against the
+    # raft port, which uses the same password.
     def self.challenge_response(password : String, role : Role, leader_nonce : Bytes,
                                 follower_nonce : Bytes) : Bytes
       signed = IO::Memory.new

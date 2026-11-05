@@ -137,5 +137,20 @@ describe "control socket" do
     ensure
       File.delete?(socket_path) if socket_path
     end
+
+    it "answers GET /api/cluster with the given cluster status while there's no API" do
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      socket = LavinMQ::HTTP::ControlSocket.new(socket_path, -> { %({"leader":null}).as(String?) })
+      socket.bind.should be_true
+      client = HTTP::Client.new(UNIXSocket.new(socket_path))
+      response = client.get("/api/cluster")
+      response.status_code.should eq 200
+      response.body.should eq %({"leader":null})
+      client.get("/api/queues").status_code.should eq 503
+    ensure
+      client.try &.close
+      socket.try &.close
+      File.delete?(socket_path) if socket_path
+    end
   end
 end
