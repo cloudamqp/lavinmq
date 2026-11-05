@@ -704,6 +704,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = [] of Unack
         notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
@@ -715,20 +716,39 @@ module LavinMQ
             end
             @unacked.clear
           else # redeliver to the original recipient
-            @unacked.reject! do |unack|
-              next if delivery_tag_is_in_tx?(unack.tag)
-              if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
-              else
-                unack.queue.requeue(unack.sp)
-                true
-              end
-            end
+            redeliver = retag_unacked_for_redelivery
           end
         end
+        redeliver.each do |unack|
+          next unless consumer = unack.consumer
+          unack.queue.read(unack.sp) do |env|
+            deliver_frame = AMQP::Frame::Basic::Deliver.new(@id, consumer.tag, unack.tag, true,
+              env.message.exchange_name, env.message.routing_key)
+            deliver(deliver_frame, env.message, true)
+          end
+        rescue MessageStore::ClosedError
+          # The queue was deleted, and the message with it
+        end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      rescue ClosedError
+        # Closed during the redelivery, close has requeued the retagged messages
+      end
+
+      # Replaces the Unacks of open consumers with ones under new delivery tags,
+      # under @unack_lock, so that #close requeues either the old or the new ones
+      private def retag_unacked_for_redelivery : Array(Unack)
+        redeliver = [] of Unack
+        @unacked.reject! do |unack|
+          next false if delivery_tag_is_in_tx?(unack.tag)
+          if (consumer = unack.consumer) && !consumer.closed?
+            redeliver << unack.copy_with(tag: @delivery_tag.add(1, :relaxed), delivered_at: RoughTime.instant)
+          else
+            unack.queue.requeue(unack.sp)
+          end
+          true
+        end
+        @unacked.concat(redeliver)
+        redeliver
       end
 
       private def delivery_tag_is_in_tx?(delivery_tag) : Bool
