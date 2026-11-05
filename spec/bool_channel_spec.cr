@@ -35,4 +35,33 @@ describe BoolChannel do
     end
     mismatches.should eq 0
   end
+
+  it "counts fibers in wait_until_true as waiting until they resume" do
+    bc = BoolChannel.new(false)
+    abort = Channel(Nil).new
+    done = Channel(Bool).new(2)
+    2.times { spawn { done.send bc.wait_until_true(abort) } }
+    Fiber.yield
+    bc.waiting?.should be_true
+    bc.set(true)
+    bc.waiting?.should be_true # woken, but not yet resumed
+    done.receive.should be_true
+    done.receive.should be_true
+    bc.waiting?.should be_false
+  end
+
+  it "re-parks a woken waiter if the value turned false before it resumed" do
+    bc = BoolChannel.new(false)
+    abort = Channel(Nil).new
+    done = Channel(Bool).new(1)
+    spawn { done.send bc.wait_until_true(abort) }
+    Fiber.yield
+    bc.set(true)
+    bc.set(false)
+    Fiber.yield
+    bc.waiting?.should be_true
+    abort.close
+    done.receive.should be_false
+    bc.waiting?.should be_false
+  end
 end

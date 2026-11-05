@@ -40,6 +40,8 @@ class BoolChannel
   # Makes updating the value and switching the active channel one step, so
   # concurrent sets can't leave them disagreeing
   @lock = Mutex.new
+  # Fibers in #wait_until_true, parked or woken but not yet resumed
+  @waiting = Atomic(Int32).new(0)
 
   def initialize(value : Bool)
     @value = Atomic.new(value)
@@ -77,6 +79,33 @@ class BoolChannel
     else
       @when_true.deactivate
       @when_false.activate
+    end
+  end
+
+  # Whether any fiber is in #wait_until_true. A fiber that stays out of the
+  # wait while others are in it should yield before it takes what they're
+  # waiting for, or it can win every race and starve them.
+  def waiting? : Bool
+    @waiting.get(:relaxed) > 0
+  end
+
+  # Blocks until the value is true. Returns false if *abort* is closed or
+  # receives first. All waiters are woken when the value turns true, and the
+  # first one to run gets it. The others re-park directly, without yielding,
+  # so they keep their place in line.
+  def wait_until_true(abort : ::Channel) : Bool
+    @waiting.add(1, :relaxed)
+    begin
+      until value
+        select
+        when @when_true.receive
+        when abort.receive?
+          return false
+        end
+      end
+      true
+    ensure
+      @waiting.sub(1, :relaxed)
     end
   end
 
