@@ -46,6 +46,20 @@ private class ScriptedEtcd < LavinMQ::Etcd
   end
 end
 
+# The clustering secret is only there once a spec sends it
+private class SecretlessEtcd < ScriptedEtcd
+  getter watching = Channel(Nil).new(1)
+  getter secret = Channel(String).new
+
+  def get(_key) : String?
+  end
+
+  def watch(_key, &)
+    @watching.send nil
+    yield @secret.receive
+  end
+end
+
 # No follower monitor: a replication client set with #following_for_spec is
 # left to #run, as when this node is elected before the monitor sees it
 private class UnmonitoredController < LavinMQ::Clustering::EtcdController
@@ -395,6 +409,39 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
         end
         controller.repli_client.should be_nil
       end
+    end
+  end
+
+  # A replication client takes over checksums.sha1 when it's made
+  it "makes no replication client in a term that ended while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://localhost:5689"
+      checksums = File.join(data_dir, "checksums.sha1")
+      File.write(checksums, "#{Digest::SHA1.digest("a").hexstring} 1 *a\n")
+      etcd = SecretlessEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      elected = BoolChannel.new(false)
+      done = Channel(Exception?).new(1)
+      spawn(name: "follower monitor waiting for the secret") do
+        controller.follow_leader_public(elected)
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      etcd.leaders.send "tcp://127.0.0.1:1"
+      etcd.watching.receive
+      elected.set(true) # this node was elected meanwhile
+      etcd.secret.send "secret"
+      select
+      when ex = done.receive
+        ex.should be_nil
+      when timeout(5.seconds)
+        fail "follower monitor didn't return"
+      end
+      controller.repli_client.should be_nil
+      File.read(checksums).should_not be_empty
     end
   end
 
