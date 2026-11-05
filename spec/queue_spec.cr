@@ -411,6 +411,35 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "should not restart a queue until its close has finished" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("restart_during_close", durable: true)
+          queue = s.vhosts["/"].queue("restart_during_close").as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "test message"
+          closed = Channel(Nil).new
+          # Hold the store lock, so that the close stops before it closes the store
+          queue.@msg_store_lock.synchronize do
+            spawn do
+              queue.close
+            ensure
+              closed.send nil
+            end
+            should_eventually(be_true) { queue.closed? }
+            # Restarting now would let the close go on to close the new store
+            queue.restart!.should be_false
+          end
+          closed.receive
+
+          queue.restart!.should be_true
+          queue.@msg_store.closed.should be_false
+          queue.message_count.should eq 1
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.body_io.to_s.should eq "test message"
+        end
+      end
+    end
+
     it "should expire msgs after restarting a queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

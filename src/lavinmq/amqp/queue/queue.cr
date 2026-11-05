@@ -333,6 +333,8 @@ module LavinMQ::AMQP
     # The connection that declared this exclusive queue, told when the queue is deleted
     property exclusive_owner : AMQP::Client?
     getter? closed = false
+    # Set once #close has torn everything down, see #restart!
+    @close_finished = Atomic(Bool).new(false)
     getter state = QueueState::Running
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
@@ -390,6 +392,9 @@ module LavinMQ::AMQP
 
     def restart! : Bool
       return false unless @closed
+      # A close still in progress would otherwise go on to close the new
+      # message store, e.g. while it waits for deliver loops to exit
+      return false unless @close_finished.get(:acquire)
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -476,6 +481,7 @@ module LavinMQ::AMQP
 
     private def reset_queue_state
       @closed = false
+      @close_finished.set(false, :release)
       @consumers_closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
@@ -877,6 +883,7 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
+      @close_finished.set(true, :release)
       Fiber.yield
       @log.debug { "Closed" }
       true
