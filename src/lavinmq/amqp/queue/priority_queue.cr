@@ -179,6 +179,10 @@ module LavinMQ::AMQP
         store_for sp, &.envelope(sp, redelivered)
       end
 
+      def mark_moved(sp : SegmentPosition) : Nil
+        store_for sp, &.mark_moved(sp)
+      end
+
       def delete(sp) : Nil
         raise ClosedError.new if @closed
         store_for sp, &.delete(sp)
