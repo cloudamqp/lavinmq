@@ -601,6 +601,24 @@ describe LavinMQ::Server do
   end
 end
 
+describe LavinMQ::Auth::Password::RabbitPassword do
+  it "hashes and verifies salted passwords like OpenSSL::Digest does" do
+    salt = Bytes[1, 2, 3, 4]
+    {
+      LavinMQ::Auth::Password::MD5Password    => "MD5",
+      LavinMQ::Auth::Password::SHA256Password => "SHA256",
+      LavinMQ::Auth::Password::SHA512Password => "SHA512",
+    }.each do |klass, algorithm|
+      expected = OpenSSL::Digest.new(algorithm).update(salt).update("s3cret").final
+      klass.new(Base64.strict_encode(salt + expected)).verify("s3cret").should be_true
+      klass.new(Base64.strict_encode(salt + expected)).verify("s3cret!").should be_false
+      created = klass.create("s3cret")
+      created.verify("s3cret").should be_true
+      created.verify("").should be_false
+    end
+  end
+end
+
 describe LavinMQ::Tag do
   it "parse comma separated list" do
     # Management
