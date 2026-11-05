@@ -500,7 +500,15 @@ module LavinMQ
             end
             @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
-              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+              delivery_tag = begin
+                next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+              rescue ex : ClosedError
+                # Only raised in ack mode, where requeuing is up to the caller.
+                # The channel closed after the message was shifted, so close
+                # didn't requeue it.
+                q.requeue(env.segment_position)
+                raise ex
+              end
               unless frame.no_ack # track unacked messages
                 q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
               end
@@ -514,6 +522,9 @@ module LavinMQ
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
         end
+      rescue ClosedError
+        # Closed from another fiber during the get, e.g. from the management
+        # API. The client gets a Channel::Close, the connection stays open.
       end
 
       private def delete_unacked(delivery_tag) : Unack?
