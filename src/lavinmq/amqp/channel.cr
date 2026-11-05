@@ -50,8 +50,6 @@ module LavinMQ
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @basic_get_unacked_count = Atomic(UInt32).new(0)
-      # Number of consumers waiting in Consumer#wait_for_global_capacity
-      getter global_capacity_waiters = Atomic(Int32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?

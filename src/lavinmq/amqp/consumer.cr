@@ -112,30 +112,16 @@ module LavinMQ
         raise ex
       end
 
-      # All consumers waiting here are woken when capacity frees up, and the
-      # first one to run takes it. Waiters keep their place in line: they park
-      # without yielding and re-park directly if they lose the race, and a
-      # consumer that didn't wait defers to the waiters. Otherwise the consumer
-      # that delivered last can win every race and starve the others.
+      # A consumer that didn't wait for capacity defers to those that did,
+      # otherwise the one that delivered last can win every race and starve
+      # the others (see BoolChannel#wait_until_true)
       private def wait_for_global_capacity
         ch = @channel
-        Fiber.yield unless ch.global_capacity_waiters.get(:relaxed).zero?
+        Fiber.yield if ch.has_capacity.waiting?
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        ch.global_capacity_waiters.add(1, :relaxed)
-        begin
-          @channel.flush
-          until ch.has_capacity?
-            select
-            when ch.has_capacity.when_true.receive
-            when @notify_closed.receive
-              return true
-            end
-          end
-        ensure
-          ch.global_capacity_waiters.sub(1, :relaxed)
-        end
-        nil
+        ch.flush
+        true unless ch.has_capacity.wait_until_true(@notify_closed)
       end
 
       private def wait_for_single_active_consumer
