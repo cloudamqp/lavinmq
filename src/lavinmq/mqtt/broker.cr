@@ -16,6 +16,8 @@ module LavinMQ
 
     class Broker
       getter vhost, sessions
+      # Set on the first client and never cleared, see PrometheusController#mqtt_client_connected?
+      getter? client_connected = false
       Log = LavinMQ::Log.for "mqtt.broker"
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
@@ -79,6 +81,7 @@ module LavinMQ
           end
         end
         @clients[packet.client_id] = client
+        @client_connected = true
         @vhost.add_connection client
         client
       end

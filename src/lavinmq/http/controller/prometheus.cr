@@ -56,6 +56,7 @@ module LavinMQ
                            NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(dead_letter_strategy: String) |
+                           NamedTuple(qos: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
                            NamedTuple(channel: String, vhost: String, connection: String)
@@ -425,6 +426,23 @@ module LavinMQ
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
         dead_lettered_metrics(writer, deleted_stats)
+        mqtt_published_metrics(writer)
+      end
+
+      # MQTT series are left out until the first MQTT client connects, so servers
+      # without MQTT export none. From then on they're written, at 0 too, so
+      # the first publish shows up in rate().
+      private def mqtt_client_connected? : Bool
+        @server.vhosts.any? { |_, v| v.mqtt_broker.client_connected? }
+      end
+
+      private def mqtt_published_metrics(writer)
+        return unless mqtt_client_connected?
+        writer.write_header("global_mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
+        MQTT::Exchange::PUBLISHED_QOS_LEVELS.each do |qos|
+          writer.write_value("global_mqtt_messages_published_total",
+            MQTT::Exchange.published_count(qos), {qos: qos.to_s})
+        end
       end
 
       DEAD_LETTER_REASONS = {
@@ -449,12 +467,14 @@ module LavinMQ
 
       private def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
+        mqtt_connections = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections_size
           vhost.each_connection do |conn|
+            mqtt_connections += 1 if conn.is_a?(MQTT::Client)
             channels += conn.channel_count
             conn.each_channel do |ch|
               consumers += ch.consumers_size
@@ -467,6 +487,12 @@ module LavinMQ
                       value: connections,
                       type:  "gauge",
                       help:  "Connections currently open"})
+        if mqtt_client_connected?
+          writer.write({name:  "mqtt_connections",
+                        value: mqtt_connections,
+                        type:  "gauge",
+                        help:  "MQTT connections currently open"})
+        end
         writer.write({name:  "channels",
                       value: channels,
                       type:  "gauge",
