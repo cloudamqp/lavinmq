@@ -13,7 +13,7 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      # stored is false when a destination was closed; the source keeps the message
+      # stored is false when a closing vhost closed a destination; the source keeps the message
       alias MessageRoutedCallback = Proc(Bool, Nil)
       alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
@@ -173,8 +173,8 @@ module LavinMQ::AMQP
               dst_q, msg = task
               begin
                 dst_q.strip_delivery_count(msg)
-                # Dropped on overflow
-                if dst_q.publish_internal(msg, dlx_tasks: tasks).closed?
+                # Dropped on overflow, or by a queue closed on an error while it stays bound
+                if dst_q.publish_internal(msg, dlx_tasks: tasks).closed? && @vhost.closed?
                   dst_closed = true
                 end
               rescue ex : Exception

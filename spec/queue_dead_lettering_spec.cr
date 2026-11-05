@@ -1142,7 +1142,34 @@ module DeadLetteringSpec
         end
       end
 
-      it "keeps the source message when the dead letter destination is closed" do
+      it "restores the source message when the vhost closes the dead letter destination" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("src", args: AMQP::Client::Arguments.new({
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dst",
+            }))
+            ch.queue("dst")
+            ch.default_exchange.publish_confirm("msg", "src")
+            vhost = s.vhosts["/"]
+            vhost.queue("dst").close
+            vhost.@closed.@value.set(true) # closed? as in VHost#close, without waking its waiters
+            begin
+              get_n(1, ch.queue("src", passive: true), &.reject(requeue: false))
+              ch.queue("src", passive: true) # round trip: the server has handled the reject
+            ensure
+              vhost.@closed.@value.set(false)
+            end
+          end
+          restart_server(s)
+          with_channel(s) do |ch|
+            ch.queue("src", passive: true).message_count.should eq 1
+          end
+        end
+      end
+
+      # A queue closed on an error stays bound, so keeping messages for it would fill the disk
+      it "drops the dead-lettered copy when a destination closes while the vhost runs" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
             ch.queue("src", args: AMQP::Client::Arguments.new({
@@ -1156,7 +1183,7 @@ module DeadLetteringSpec
           end
           restart_server(s)
           with_channel(s) do |ch|
-            ch.queue("src", passive: true).message_count.should eq 1
+            ch.queue("src", passive: true).message_count.should eq 0
           end
         end
       end
