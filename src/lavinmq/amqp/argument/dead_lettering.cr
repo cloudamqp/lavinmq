@@ -13,9 +13,9 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      # Called with whether a copy was sent to another queue, and whether the
-      # copies were stored: stored is false when a closing vhost closed a
-      # destination, and the source keeps the message
+      # Called with whether a copy was sent to another durable queue, and
+      # whether the copies were stored: stored is false when a closing vhost
+      # closed a destination, and the source keeps the message
       alias MessageRoutedCallback = Proc(Bool, Bool, Nil)
       record Routed, callback : MessageRoutedCallback, copied : Bool
       alias Task = {AMQP::Queue, Message} | Routed
@@ -142,7 +142,7 @@ module LavinMQ::AMQP
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
               ctx.enqueue({q, dead_letter_msg})
-              copied = true
+              copied = true if q.durable?
             end
           end
           ctx.enqueue(Routed.new(routed, copied))

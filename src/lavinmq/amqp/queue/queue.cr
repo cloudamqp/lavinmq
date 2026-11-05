@@ -1175,7 +1175,7 @@ module LavinMQ::AMQP
           raise ex
         end
       else
-        delete_message sp
+        delete_message sp, moved: false
       end
     end
 
@@ -1245,7 +1245,7 @@ module LavinMQ::AMQP
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
-            delete_message(sp)
+            delete_message(sp, moved: false)
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
@@ -1303,11 +1303,11 @@ module LavinMQ::AMQP
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
+      delete_message(sp, moved: false)
     end
 
     # *moved*: the message was copied to another queue, see MessageStore#mark_moved
-    protected def delete_message(sp : SegmentPosition, moved : Bool = false) : Nil
+    protected def delete_message(sp : SegmentPosition, *, moved : Bool) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone

@@ -377,6 +377,50 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "doesn't sync before an unlink when messages were dead-lettered only into a transient queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("transient", durable: false)
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "transient",
+        }))
+        8.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+
+  it "syncs after sync is re-enabled for messages moved while it was disabled" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        dead_letter = true
+        src.subscribe(no_ack: false) { |m| dead_letter ? m.reject : m.ack }
+        LavinMQ::Config.instance.sync = false
+        # Five messages fill segment 1, and all of them are dead-lettered
+        5.times { src.publish "x" * 100_000 }
+        wait_for { s.vhosts["/"].queue("dst").message_count == 5 }
+        # From here on only plain acks: the rollover unlinks segment 1 while
+        # sync is disabled, so only the earlier moves can call for a sync
+        dead_letter = false
+        src.publish "x" * 100_000
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+        s.persister.last_sync.should be_nil
+        LavinMQ::Config.instance.sync = true
+        5.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000002")) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
   it "doesn't sync before unlinking a delayed exchange segment whose messages routed nowhere" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
