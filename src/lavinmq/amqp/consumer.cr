@@ -240,7 +240,7 @@ module LavinMQ
           # close won't requeue it. When recovering, the channel still holds
           # the original Unack, so it's not requeued here. The segment lease
           # is released by the caller.
-          @queue.requeue_undelivered(sp) unless recover
+          @queue.requeue(sp) unless recover
           raise ex
         end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,

@@ -125,9 +125,6 @@ module LavinMQ::AMQP
 
     def requeue(sp : SegmentPosition)
     end
-
-    def requeue_undelivered(sp : SegmentPosition) : Nil
-    end
   end
 end
 

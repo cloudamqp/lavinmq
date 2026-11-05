@@ -193,10 +193,7 @@ describe LavinMQ::Client::Channel::Consumer do
     it "should requeue a message shifted after the channel closed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          # With no delivery attempt to spare, the message is dropped if the
-          # delivery that never reached the client counts as one
-          args = AMQP::Client::Arguments.new({"x-delivery-limit" => 0})
-          q = ch.queue("consumer-close-shift", args: args)
+          q = ch.queue("consumer-close-shift")
           q.publish_confirm("m")
           sq = s.vhosts["/"].queue("consumer-close-shift")
           server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
@@ -214,16 +211,8 @@ describe LavinMQ::Client::Channel::Consumer do
           wait_for { sq.message_count == 1 }
           sq.unacked_count.should eq 0
           sq.consumers.should be_empty
-          sq.reject_count.should eq 0
-        end
-        with_channel(s) do |ch|
-          msg = ch.basic_get("consumer-close-shift", no_ack: false).should_not be_nil
-          # Redelivered, so it was shifted and requeued by the consumer rather
-          # than stopped by the closed check before the shift, but it's still
-          # on its first counted delivery
-          msg.redelivered.should be_true
-          msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
-          msg.ack
+          # Requeued by the consumer, not by the closed check before the shift
+          sq.reject_count.should eq 1
         end
       end
     end
