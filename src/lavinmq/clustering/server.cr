@@ -340,14 +340,31 @@ module LavinMQ
         @coordinator.password
       end
 
+      # Guarded by @lock
       @listeners = Array(TCPServer).new(1)
+      # Whether the checksums were restored, which #close stores, guarded by
+      # @file_index
+      @restored = false
 
+      # Does nothing but close *server* once this server is closed, which can
+      # happen before it runs, see #close
       def listen(server : TCPServer)
         server.listen
-        # called before accepting followers, no lock needed
-        @file_index.lock { |_files, checksums| checksums.restore }
+        @file_index.lock do |_files, checksums|
+          next if fenced?
+          checksums.restore
+          @restored = true
+        end
+        listening = @lock.synchronize do
+          next false if fenced?
+          @listeners << server
+          true
+        end
+        unless listening
+          server.close
+          return
+        end
         Log.info { "Listening on #{server.local_address}" }
-        @listeners << server
 
         AcceptLoop.each(server, "Clustering listener") do |socket|
           spawn(name: "Clustering follower") { handle_socket(socket) }
@@ -561,13 +578,14 @@ module LavinMQ
         # A node makes a new server for each term it leads, the coordinator
         # outlives them
         @coordinator.remove_member_removed_listener(@member_removed)
-        @listeners.each &.close
         @lock.synchronize do
+          @listeners.each &.close
           @followers.each &.close
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
-        @file_index.lock { |_files, checksums| checksums.store }
+        # Unrestored they're empty, the replication client's would be lost
+        @file_index.lock { |_files, checksums| checksums.store if @restored }
       end
 
       # Dispatch a replicated change to all synced followers, then commit a

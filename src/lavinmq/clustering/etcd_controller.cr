@@ -140,14 +140,16 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         break
       end
     end
-    r = Clustering::Client.new(@config, @id, secret)
-    r.on_host_change = ->leader_host_changed
-    following = @follow_lock.synchronize do
-      next false if elected.value || @stopping.get
-      @repli_client.set(r)
-      true
+    # Only made when it's used: it opens the data dir and takes over
+    # checksums.sha1
+    r = @follow_lock.synchronize do
+      next if elected.value || @stopping.get
+      client = Clustering::Client.new(@config, @id, secret)
+      client.on_host_change = ->leader_host_changed
+      @repli_client.set(client)
+      client
     end
-    return false unless following
+    return false unless r
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     true
