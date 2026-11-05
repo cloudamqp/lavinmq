@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Since 2.10.3, when several consumers shared a channel with a global prefetch, one consumer could get every freed slot and drain its queue before the others got any deliveries. Consumers waiting for global prefetch capacity now keep their place in line, so the slots go round between them [#2628](https://github.com/cloudamqp/lavinmq/issues/2628)
+- Since Crystal 1.22, when several consumers shared a channel with a global prefetch, one consumer could get every freed slot and drain its queue before the others got any deliveries. Consumers waiting for global prefetch capacity now keep their place in line, so the slots go round between them [#2628](https://github.com/cloudamqp/lavinmq/issues/2628)
 - Since 2.11.0-rc.1, a power loss could renumber a stream and make confirmed messages unreadable, because a segment that only got unconfirmed publishes was never synced. A finished stream segment is now synced right after rollover, so no confirm is sent before every earlier segment is on disk, as in 2.10
 - Since 2.11.0-rc.1, a power loss within about 30 seconds of the first start on a new data dir could leave `schema_version` empty, and every later start failed with `Invalid Int32: ""`. Publish confirms no longer sync the whole data dir, so nothing made the file durable. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
 - Since 2.11.0-rc.1, a power loss soon after a clustered node's first start could leave `.clustering_id` empty, and every later start of that node failed. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
