@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The HTTP API docs at `/docs/` listed no endpoints when LavinMQ is behind a cookie-based auth proxy such as Cloudflare Access, as the spec's referenced files were fetched without cookies [#2539](https://github.com/cloudamqp/lavinmq/pull/2539)
+- Deleting or purging multiple queues in the management UI got stuck if any selected queue failed, for example because of missing permissions or because it was already deleted. The action now completes for the other queues and lists the queues it failed on
 
 ## [2.11.0-rc.2] - 2026-10-23
 

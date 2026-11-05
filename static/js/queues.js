@@ -20,10 +20,11 @@ const tableOptions = {
 }
 const performMultiAction = (el) => {
   const action = el.target.dataset.action
-  const elems = document.querySelectorAll('input[data-name]:checked')
-  const totalCount = elems.length
-  let performed = 0
-  elems.forEach(el => {
+  const elems = Array.from(document.querySelectorAll('input[data-name]:checked'))
+  const failed = []
+  // Act on every selected queue even if some fail, e.g. due to missing permissions
+  // or the queue already being deleted
+  const requests = elems.map(el => {
     const data = el.dataset
     let url
     switch (action) {
@@ -34,19 +35,17 @@ const performMultiAction = (el) => {
         url = HTTP.url`api/queues/${data.vhost}/${data.name}/contents`
         break
     }
-    if (!url) return
-    HTTP.request('DELETE', url).then(() => {
-      performed += 1
-      if (performed === totalCount) {
-        multiSelectControls.classList.add('hide')
-        elems.forEach(e => { e.checked = false })
-        document.getElementById('multi-check-all').checked = false
-        queuesTable.reload()
-      }
-    }).catch(() => {
-      DOM.toast.error(`Failed to perform action on ${data.name}`)
-      queuesTable.reload()
-    })
+    if (!url) return Promise.resolve()
+    return HTTP.request('DELETE', url).catch(() => failed.push(data.name))
+  })
+  Promise.all(requests).then(() => {
+    multiSelectControls.classList.add('hide')
+    elems.forEach(e => { e.checked = false })
+    document.getElementById('multi-check-all').checked = false
+    if (failed.length > 0) {
+      DOM.toast.error(`Failed to ${action} ${failed.length} of ${elems.length} queues: ${failed.join(', ')}`)
+    }
+    queuesTable.reload()
   })
 }
 const multiSelectControls = document.getElementById('multiselect-controls')
