@@ -228,7 +228,7 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
-          sync_before_unlink
+          sync
           select_next_read_segment if sp.segment == @rfile_id
           if a = @acks.delete(sp.segment)
             delete_file(a)
@@ -317,7 +317,7 @@ module LavinMQ
     # Messages moved out of a segment (dead-lettered, delayed, retried) can be
     # unsynced in their destinations, and the unlink must not become durable
     # first. One syncfs instead of tracking the destinations, as on tx commit.
-    private def sync_before_unlink : Nil
+    private def sync : Nil
       @persister.try &.sync
     end
 
@@ -843,7 +843,7 @@ module LavinMQ
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
           if sync_first
-            sync_before_unlink
+            sync
             sync_first = false
           end
           select_next_read_segment if seg == @rfile_id
