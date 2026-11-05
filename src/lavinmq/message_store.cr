@@ -31,6 +31,8 @@ module LavinMQ
     @rfile_since : Time::Instant = RoughTime.instant
     # Set once a publish to this store is synced, see #readahead_for_writes
     @synced_writes = false
+    # Set when a message is moved out of this store, see #mark_moved
+    @moved = false
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -54,7 +56,7 @@ module LavinMQ
       unless @closed
         load_stats_from_segments
         prune_orphaned_acks
-        delete_unused_segments(sync_first: false) # nothing was moved yet
+        delete_unused_segments
       end
       readahead_for_writes(@wfile) unless @closed
       @empty.set empty? unless @closed
@@ -211,6 +213,13 @@ module LavinMQ
       end
     end
 
+    # Call before deleting a message whose copy the broker wrote to another
+    # queue (dead-lettered, delayed, retried). The copy isn't synced, so the
+    # next segment unlink syncs first, see #sync_before_unlink
+    def mark_moved(sp : SegmentPosition) : Nil
+      @moved = true
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       # A message routed outside the lock can have its segment purged meanwhile,
@@ -314,11 +323,14 @@ module LavinMQ
       FileUtils.rm_rf @msg_dir
     end
 
-    # Messages moved out of a segment (dead-lettered, delayed, retried) can be
-    # unsynced in their destinations, and the unlink must not become durable
-    # first. One syncfs instead of tracking the destinations, as on tx commit.
+    # Messages moved out of a segment can be unsynced in their destinations,
+    # and the unlink must not become durable first. One syncfs instead of
+    # tracking the destinations, as on tx commit. Only after a move, as plain
+    # acks and purges leave nothing behind that needs it.
     private def sync_before_unlink : Nil
-      @persister.try &.sync
+      return unless @moved
+      @moved = false
+      @persister.try &.sync if Config.instance.sync?
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -503,7 +515,7 @@ module LavinMQ
       @replicator.try &.append_value path, Schema::VERSION, 0i64
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
-      delete_unused_segments(sync_first: true)
+      delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
     end
@@ -835,17 +847,14 @@ module LavinMQ
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
-    private def delete_unused_segments(sync_first : Bool) : Nil
+    private def delete_unused_segments : Nil
       current_seg = @segments.last_key
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
-          if sync_first
-            sync_before_unlink
-            sync_first = false
-          end
+          sync_before_unlink
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg

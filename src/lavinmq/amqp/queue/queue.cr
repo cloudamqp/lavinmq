@@ -722,7 +722,7 @@ module LavinMQ::AMQP
       retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
       return false unless retry_queue.delay(retry_msg)
-      delete_message(sp)
+      delete_message(sp, moved: true)
       true
     end
 
@@ -1165,7 +1165,7 @@ module LavinMQ::AMQP
           @dead_letter.route(env.message, reason, dlx_tasks) do
             routed = true
             begin
-              delete_message sp
+              delete_message sp, moved: true
             ensure
               env.release
             end
@@ -1306,7 +1306,8 @@ module LavinMQ::AMQP
       delete_message(sp)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    # *moved*: the message was copied to another queue, see MessageStore#mark_moved
+    protected def delete_message(sp : SegmentPosition, moved : Bool = false) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1317,6 +1318,7 @@ module LavinMQ::AMQP
       {% end %}
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
+        @msg_store.mark_moved(sp) if moved
         @msg_store.delete(sp)
       end
     end
