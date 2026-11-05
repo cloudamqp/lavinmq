@@ -780,10 +780,14 @@ module LavinMQ
         @client.close_channel(self)
       end
 
+      # Raises ClosedError if the channel is closed, so that no unacked message
+      # is recorded after #close has requeued them. An Unack recorded under
+      # the lock while the channel is still running is always requeued by close.
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
           @unack_lock.synchronize do
+            raise ClosedError.new("Channel is closed") unless @running
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
           end
           add = consumer ? 0u32 : 1u32

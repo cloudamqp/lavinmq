@@ -162,6 +162,33 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should not strand a message when the channel closes during delivery" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("consumer-close-strand")
+          999.times { q.publish("m") }
+          q.publish_confirm("m")
+          sq = s.vhosts["/"].queue("consumer-close-strand")
+          subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 1})
+          20.times do
+            with_channel(s) do |cch|
+              cch.prefetch 100
+              delivered = Channel(Nil).new(100)
+              cch.queue("consumer-close-strand").subscribe(no_ack: false, args: subscriber_args) do |_|
+                delivered.send nil
+              end
+              delivered.receive
+            end
+            # The deliver loop exits once it notices the closed channel
+            sq.deliver_loop_wg.wait
+            sq.consumers.should be_empty
+            sq.unacked_count.should eq 0
+            sq.message_count.should eq 1000
+          end
+        end
+      end
+    end
   end
 
   describe "on-demand deliver_loop" do
