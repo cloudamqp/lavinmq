@@ -49,6 +49,9 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
+      # Moves made before a restart or failover can still be unsynced in the
+      # page cache, and acked messages are the only ones that can have moved
+      @moved = !@acks.empty?
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key

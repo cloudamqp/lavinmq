@@ -8,6 +8,26 @@ private def last_sync(s : LavinMQ::Server) : LavinMQ::Persister::SyncRecord
   s.persister.last_sync.should_not be_nil
 end
 
+class LavinMQ::Persister
+  {% unless flag?(:release) %}
+    def spec_forget_last_sync : Nil
+      @last_sync = nil
+    end
+  {% end %}
+end
+
+# Rejects (requeue: true) a message the first time it's delivered, so it goes
+# to the retry queue, and acks it when the retry queue releases it back
+private def reject_once_into_retry_queue(q)
+  q.subscribe(no_ack: false) do |m|
+    if m.properties.headers.try &.has_key?("x-delivery-count")
+      m.ack
+    else
+      m.reject(requeue: true)
+    end
+  end
+end
+
 private class ConfirmReceiver
   include LavinMQ::Persister::ConfirmTarget
   getter confirms = Channel(UInt64).new(1)
@@ -290,6 +310,99 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         8.times { x.publish "x" * 100_000, "dst", props: props }
         delayed_segment = File.join(queue_dir(s, "amq.delayed-delayed"), "msgs.0000000001")
         wait_for { !File.exists?(delayed_segment) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs before unlinking a segment that messages were rejected into the retry queue from" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        reject_once_into_retry_queue(q)
+        8.times { q.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs before unlinking a retry queue segment that messages were released from" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 500}))
+        reject_once_into_retry_queue(q)
+        8.times { q.publish "x" * 100_000 }
+        # The primary's own unlink, after the rejects, syncs first
+        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
+        s.persister.spec_forget_last_sync
+        wait_for { !File.exists?(File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs before unlinking a retry queue segment that messages expired out of" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({
+          "x-delayed-retry-min"       => 60_000,
+          "x-message-ttl"             => 500,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        reject_once_into_retry_queue(q)
+        8.times { q.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
+        s.persister.spec_forget_last_sync
+        wait_for { !File.exists?(File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "doesn't sync before an unlink when the dead-letter exchange routes nowhere" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "missing",
+        }))
+        8.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+
+  it "doesn't sync before unlinking a delayed exchange segment whose messages routed nowhere" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("delayed", "direct", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+        props = AMQ::Protocol::Properties.new(headers: AMQP::Client::Arguments.new({"x-delay" => 1}))
+        8.times { x.publish "x" * 100_000, "unbound", props: props }
+        wait_for { !File.exists?(File.join(queue_dir(s, "amq.delayed-delayed"), "msgs.0000000001")) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+
+  it "syncs before the first unlink after a restart, when a store was loaded with acks" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("restarted")
+        8.times { q.publish "x" * 100_000 }
+        q.get(no_ack: true).should_not be_nil
+      end
+      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
+      queue.close
+      queue.restart!.should be_true
+      s.persister.spec_forget_last_sync
+      with_channel(s) do |ch|
+        ch.queue("restarted", passive: true).subscribe(no_ack: false, &.ack)
+        wait_for { !File.exists?(File.join(queue_dir(s, "restarted"), "msgs.0000000001")) }
         last_sync(s).syncfs.should be_true
       end
     end

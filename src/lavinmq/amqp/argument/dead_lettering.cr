@@ -13,9 +13,12 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      # stored is false when a closing vhost closed a destination; the source keeps the message
-      alias MessageRoutedCallback = Proc(Bool, Nil)
-      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
+      # Called with whether a copy was sent to another queue, and whether the
+      # copies were stored: stored is false when a closing vhost closed a
+      # destination, and the source keeps the message
+      alias MessageRoutedCallback = Proc(Bool, Bool, Nil)
+      record Routed, callback : MessageRoutedCallback, copied : Bool
+      alias Task = {AMQP::Queue, Message} | Routed
 
       struct Tasks
         @pending_tasks = Deque(Task).new
@@ -93,8 +96,8 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           target = @target.get(:acquire)
-          return routed.call(true) unless dlx = (msg.dlx || target.dlx)
-          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call(true)
+          return routed.call(false, true) unless dlx = (msg.dlx || target.dlx)
+          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call(false, true)
 
           dlrk = msg.dlrk || target.dlrk
 
@@ -119,7 +122,7 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return routed.call(true) if queues.empty?
+          return routed.call(false, true) if queues.empty?
 
           # The first dead lettering in a chain gets its own tasks, as the
           # queue can dead letter on several fibers/threads at once, while
@@ -132,15 +135,17 @@ module LavinMQ::AMQP
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
 
+          copied = false
           queues.each do |q|
             if cycle?(q.name, props, reason)
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
               ctx.enqueue({q, dead_letter_msg})
+              copied = true
             end
           end
-          ctx.enqueue(routed)
+          ctx.enqueue(Routed.new(routed, copied))
 
           drain_chain(ctx) if first_in_chain
         end
@@ -161,11 +166,11 @@ module LavinMQ::AMQP
           dst_closed = false
           while task = tasks.dequeue?
             case task
-            when MessageRoutedCallback
+            when Routed
               stored = !dst_closed
               dst_closed = false
               begin
-                task.call(stored)
+                task.callback.call(task.copied, stored)
               rescue ex
                 @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
