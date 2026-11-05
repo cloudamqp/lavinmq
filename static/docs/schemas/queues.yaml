@@ -30,6 +30,22 @@ queue:
     ready:
       type: integer
       description: Number of ready messages in the queue.
+    messages_ready_details:
+      type: object
+      description: History of the ready message count, sampled every stats interval.
+      properties:
+        log:
+          type: array
+          items:
+            type: integer
+    messages_unacknowledged_details:
+      type: object
+      description: History of the unacknowledged message count, sampled every stats interval.
+      properties:
+        log:
+          type: array
+          items:
+            type: integer
     ready_bytes:
       type: integer
       description: Total size of ready messages in the queue.

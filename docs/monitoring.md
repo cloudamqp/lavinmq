@@ -190,6 +190,8 @@ LavinMQ collects rate statistics at a configurable interval:
 
 The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
 
+`GET /api/queues/{vhost}/{name}` also carries the queue's message count history as `messages_ready_details.log` and `messages_unacknowledged_details.log`, which the queue and stream pages chart above the rates. List endpoints leave these logs out.
+
 ## Logging
 
 | Config Key | Section | Description |

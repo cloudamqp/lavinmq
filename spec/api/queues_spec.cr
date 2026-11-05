@@ -98,6 +98,19 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+  describe "GET /api/queues" do
+    it "does not include count history logs in list rows" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("list_q", false, false)
+        response = http.get("/api/queues")
+        body = JSON.parse(response.body)
+        body.as_a.each do |q|
+          q.as_h.has_key?("messages_ready_details").should be_false
+        end
+      end
+    end
+  end
+
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
       with_http_server do |http, s|
@@ -157,6 +170,30 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, _|
         response = http.get("/api/queues/%2f/404")
         response.status_code.should eq 404
+      end
+    end
+
+    it "should expose queued message logs" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("log_q", false, false)
+        response = http.get("/api/queues/%2f/log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+      end
+    end
+
+    it "should expose queued message logs for mqtt sessions" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.log_q", true, false, mqtt_args)
+        response = http.get("/api/queues/%2f/mqtt.log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+        body["message_stats"]["publish_details"]["log"].as_a?.should_not be_nil
       end
     end
 
