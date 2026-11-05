@@ -1028,6 +1028,35 @@ describe LavinMQ::Server do
     end
   end
 
+  it "supports recover without requeue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("recover-no-requeue")
+        q.publish "m1"
+        q.publish_confirm "m2"
+        sq = s.vhosts["/"].queue("recover-no-requeue")
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        first = msgs.receive
+        ch.basic_recover(requeue: false)
+        redelivered = msgs.receive
+        redelivered.body_io.to_s.should eq "m1"
+        redelivered.redelivered.should be_true
+        redelivered.delivery_tag.should_not eq first.delivery_tag
+        redelivered.ack
+        # The consumer's prefetch capacity is freed by acking the new tag
+        second = msgs.receive
+        second.body_io.to_s.should eq "m2"
+        second.ack
+        wait_for { sq.unacked_count.zero? }
+        ch.close
+        # The first delivery tag isn't left to requeue m1 on close
+        sq.message_count.should eq 0
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
