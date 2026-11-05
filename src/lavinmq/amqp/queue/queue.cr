@@ -955,10 +955,13 @@ module LavinMQ::AMQP
         end
         d.add(msg)
       end
-      return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
       pushed = false
       @msg_store_lock.synchronize do
+        # Checked under the lock: other publishers can fill the queue while
+        # this one waits for it, and a message pushed past the limit would
+        # make drop_overflow drop the confirmed head
+        return PublishResult::Overflow if reject_on_overflow?(msg)
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
@@ -1014,6 +1017,9 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
       settings = self.settings
+      # In reject-publish mode publishes past the limit are refused instead,
+      # and a stored message is never dropped for the limit
+      return if settings.reject_on_overflow?
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb

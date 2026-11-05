@@ -1169,6 +1169,44 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "reject-publish overflow" do
+    # Regression: the length limit was only checked before taking
+    # @msg_store_lock. A publisher that then waited for the lock while another
+    # publisher filled the queue pushed its message past the limit, and
+    # drop_overflow dropped (or dead-lettered) the confirmed head instead of
+    # rejecting the new publish
+    it "rejects a publish that waited for the store lock while the queue filled up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rp", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"}))
+        q = vhost.queue("rp").as(LavinMQ::AMQP::Queue)
+        lock = q.@msg_store_lock
+        lock.lock
+        result = LavinMQ::AMQP::Queue::PublishResult::Closed
+        started = Atomic(Bool).new(false)
+        done = WaitGroup.new(1)
+        spawn(name: "second publisher") do
+          started.set(true)
+          # Passes the limit check on the empty queue, then waits for the lock
+          result = q.publish(LavinMQ::Message.new("", q.name, "second"))
+        ensure
+          done.done
+        end
+        should_eventually(be_true) { started.get }
+        sleep 20.milliseconds
+        # The lock is reentrant, so this publish fills the queue while the
+        # other one is waiting for it
+        q.publish(LavinMQ::Message.new("", q.name, "first")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+        lock.unlock
+        done.wait
+        result.should eq LavinMQ::AMQP::Queue::PublishResult::Overflow
+        q.message_count.should eq 1
+        q.basic_get(true) { |env| String.new(env.message.body).should eq "first" }.should be_true
+      end
+    end
+  end
+
   describe "effective arguments" do
     arguments = {
       {"x-dead-letter-exchange": "dlx", "x-dead-letter-routing-key": "dlrk"},
