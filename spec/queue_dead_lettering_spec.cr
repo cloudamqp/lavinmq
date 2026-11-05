@@ -1142,6 +1142,25 @@ module DeadLetteringSpec
         end
       end
 
+      it "keeps the source message when the dead letter destination is closed" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("src", args: AMQP::Client::Arguments.new({
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dst",
+            }))
+            ch.queue("dst")
+            ch.default_exchange.publish_confirm("msg", "src")
+            s.vhosts["/"].queue("dst").close
+            get_n(1, ch.queue("src", passive: true), &.reject(requeue: false))
+          end
+          restart_server(s)
+          with_channel(s) do |ch|
+            ch.queue("src", passive: true).message_count.should eq 1
+          end
+        end
+      end
+
       # Regression for "Unexpected error in dead letter routed callback"
       # caused by MessageStore::ClosedError. The stress driver churns
       # queues while publishing into max-length+DLX configs, so close()
