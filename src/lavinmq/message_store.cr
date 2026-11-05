@@ -331,9 +331,9 @@ module LavinMQ
     # tracking the destinations, as on tx commit. Only after a move, as plain
     # acks and purges leave nothing behind that needs it.
     private def sync : Nil
-      return unless @moved
+      return unless @moved && Config.instance.sync?
       @moved = false
-      @persister.try &.sync if Config.instance.sync?
+      @persister.try &.sync
     end
 
     private def delete_file(file : MFile, including_meta = false)
