@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
+- A closed TLS connection kept its OpenSSL state, about 150 KB, until a GC finalizer freed it, and under connection churn the finalizers of closed connections made Boehm force collections. The SSL object is now freed when the connection closes [#2637](https://github.com/cloudamqp/lavinmq/pull/2637)
 - Every password check at login created an `OpenSSL::Digest`, whose GC finalizer made Boehm collect more often under connection churn. The salted hash is now computed on a plain EVP context freed right away [#2584](https://github.com/cloudamqp/lavinmq/pull/2584)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
 - The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)
