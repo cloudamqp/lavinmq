@@ -506,7 +506,7 @@ module LavinMQ
                 # Only raised in ack mode, where requeuing is up to the caller.
                 # The channel closed after the message was shifted, so it was
                 # never recorded as unacked and close won't requeue it.
-                q.requeue(env.segment_position)
+                q.requeue_undelivered(env.segment_position)
                 raise ex
               end
               unless frame.no_ack # track unacked messages
