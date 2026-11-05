@@ -227,8 +227,14 @@ module LavinMQ
           # Only raised in ack mode. The channel closed before it recorded the
           # message as unacked, so close won't requeue it. The segment lease
           # is released by the caller.
-          reject(sp) if recover
-          @queue.requeue(sp)
+          if recover
+            # Recovered messages reached the client before and weren't
+            # shifted again by Queue#get, so there's no count to undo
+            reject(sp)
+            @queue.requeue(sp)
+          else
+            @queue.requeue_undelivered(sp)
+          end
           raise ex
         end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
