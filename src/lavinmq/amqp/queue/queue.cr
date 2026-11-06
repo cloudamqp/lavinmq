@@ -399,16 +399,29 @@ module LavinMQ::AMQP
 
     private def unlink_kept_segments : Nil
       persister = @vhost.persister
-      while drain = @msg_store_lock.synchronize { @msg_store.kept_segment_drain }
+      while drain = next_kept_segment_drain
         persister.wait_drain(drain)
         @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
         # At shutdown the persister's loop has exited, and nothing syncs
-        break if Config.instance.sync? && !persister.drain_synced?(drain)
+        if Config.instance.sync? && !persister.drain_synced?(drain)
+          @unlinking_kept_segments.set(false)
+          break
+        end
       end
     rescue ex
-      @log.error(exception: ex) { "Failed to unlink emptied segments" }
-    ensure
       @unlinking_kept_segments.set(false)
+      @log.error(exception: ex) { "Failed to unlink emptied segments" }
+    end
+
+    # Ends the fiber under the same lock that the store keeps a segment
+    # under, so a segment kept right after either sees the flag cleared and
+    # spawns a new fiber, or is seen by this one's next round
+    private def next_kept_segment_drain : UInt64?
+      @msg_store_lock.synchronize do
+        drain = @msg_store.kept_segment_drain
+        @unlinking_kept_segments.set(false) unless drain
+        drain
+      end
     end
 
     private def start_message_expire_loop
