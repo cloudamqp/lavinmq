@@ -722,7 +722,7 @@ module LavinMQ::AMQP
       retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
       return false unless retry_queue.delay(retry_msg)
-      delete_message(sp, moved: true)
+      delete_message(sp, copied: true)
       true
     end
 
@@ -1165,7 +1165,7 @@ module LavinMQ::AMQP
           @dead_letter.route(env.message, reason, dlx_tasks) do |copied, stored|
             routed = true
             begin
-              delete_message sp, moved: copied if stored
+              delete_message sp, copied: copied if stored
             ensure
               env.release
             end
@@ -1175,7 +1175,7 @@ module LavinMQ::AMQP
           raise ex
         end
       else
-        delete_message sp, moved: false
+        delete_message sp, copied: false
       end
     end
 
@@ -1245,7 +1245,7 @@ module LavinMQ::AMQP
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
-            delete_message(sp, moved: false)
+            delete_message(sp, copied: false)
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
@@ -1303,11 +1303,11 @@ module LavinMQ::AMQP
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp, moved: false)
+      delete_message(sp, copied: false)
     end
 
-    # *moved*: the message was copied to another queue, see MessageStore#mark_moved
-    protected def delete_message(sp : SegmentPosition, *, moved : Bool) : Nil
+    # *copied*: the message was copied to another queue, see MessageStore#copied_out
+    protected def delete_message(sp : SegmentPosition, *, copied : Bool) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1318,7 +1318,7 @@ module LavinMQ::AMQP
       {% end %}
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
-        @msg_store.mark_moved(sp) if moved
+        @msg_store.copied_out(sp) if copied
         @msg_store.delete(sp)
       end
     end

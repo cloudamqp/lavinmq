@@ -31,8 +31,9 @@ module LavinMQ
     @rfile_since : Time::Instant = RoughTime.instant
     # Set once a publish to this store is synced, see #readahead_for_writes
     @synced_writes = false
-    # Set when a message is moved out of this store, see #mark_moved
-    @moved = false
+    # Messages of this store were copied to other queues without a sync, so
+    # the next segment unlink must sync first, see #copied_out
+    @unsynced_copies = false
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -49,9 +50,9 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
-      # Moves made before a restart or failover can still be unsynced in the
-      # page cache, and acked messages are the only ones that can have moved
-      @moved = !@acks.empty?
+      # Copies made before a restart or failover can still be unsynced in the
+      # page cache, and only acked messages can have been copied out
+      @unsynced_copies = !@acks.empty?
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
@@ -218,9 +219,10 @@ module LavinMQ
 
     # Call before deleting a message whose copy the broker wrote to another
     # queue (dead-lettered, delayed, retried). The copy isn't synced, so the
-    # next segment unlink syncs first, see #sync
-    def mark_moved(sp : SegmentPosition) : Nil
-      @moved = true
+    # next segment unlink syncs first, see #sync_copies_before_unlink. The
+    # position isn't needed here, PriorityMessageStore picks its sub-store by it.
+    def copied_out(_sp : SegmentPosition) : Nil
+      @unsynced_copies = true
     end
 
     def delete(sp) : Nil
@@ -240,7 +242,7 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
-          sync
+          sync_copies_before_unlink
           select_next_read_segment if sp.segment == @rfile_id
           if a = @acks.delete(sp.segment)
             delete_file(a)
@@ -326,13 +328,13 @@ module LavinMQ
       FileUtils.rm_rf @msg_dir
     end
 
-    # Messages moved out of a segment can be unsynced in their destinations,
-    # and the unlink must not become durable first. One syncfs instead of
-    # tracking the destinations, as on tx commit. Only after a move, as plain
-    # acks and purges leave nothing behind that needs it.
-    private def sync : Nil
-      return unless @moved && Config.instance.sync?
-      @moved = false
+    # Copies of messages from a segment can be unsynced in their destination
+    # queues, and the segment's unlink must not become durable first. One
+    # syncfs instead of tracking the destinations, as on tx commit. Plain acks
+    # and purges copy nothing, so their unlinks skip it.
+    private def sync_copies_before_unlink : Nil
+      return unless @unsynced_copies && Config.instance.sync?
+      @unsynced_copies = false
       @persister.try &.sync
     end
 
@@ -857,7 +859,7 @@ module LavinMQ
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
-          sync
+          sync_copies_before_unlink
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
