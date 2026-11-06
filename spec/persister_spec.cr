@@ -35,6 +35,22 @@ private def move_without_drain(s : LavinMQ::Server, name : String) : Nil
   wait_for { s.vhosts["/"].queue("dst").message_count == 2 }
 end
 
+# Publishes from a connection of its own, and closes the returned channel when
+# done. Once the expiry waits for a drain under the queue's lock, the server
+# stops reading that connection, and the publishes that don't fit in the
+# socket buffers (small on macOS) block the publisher until the drain runs.
+private def publish_in_background(s : LavinMQ::Server, queue : String, count : Int, body : String) : Channel(Nil)
+  published = Channel(Nil).new
+  spawn do
+    with_channel(s) do |ch|
+      count.times { ch.basic_publish(body, "", queue) }
+    end
+  ensure
+    published.close
+  end
+  published
+end
+
 # Whether a drain synced a file in *dir*, or the whole filesystem
 private def synced_in?(s : LavinMQ::Server, dir : String) : Bool
   s.persister.syncs.any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
@@ -335,8 +351,8 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "waits for the drain once it keeps more emptied segments than the limit" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        dst = ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+        ch.queue("dst")
+        ch.queue("src", args: AMQP::Client::Arguments.new({
           "x-message-ttl"             => 1,
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dst",
@@ -344,15 +360,17 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         # Five messages fill a segment, so 40 empty seven: more than the limit
         per_segment = 5
         limit = LavinMQ::MessageStore::MAX_KEPT_SEGMENTS
-        with_drain_held do
-          40.times { src.publish "x" * 100_000 }
+        published = with_drain_held do
+          publisher = publish_in_background(s, "src", 40, "x" * 100_000)
           moved = (limit + 1) * per_segment
-          wait_for { s.vhosts["/"].queue("dst").message_count >= moved }
+          wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count >= moved }
           sleep 100.milliseconds
           # The expiry waits for the drain after the segment past the limit
           s.vhosts["/"].queue("dst").message_count.should eq moved
+          publisher
         end
-        wait_for { dst.message_count == 40 }
+        published.receive?
+        wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 40 }
       end
     end
   end
@@ -361,23 +379,22 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+        ch.queue("src", args: AMQP::Client::Arguments.new({
           "x-message-ttl"             => 1,
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dst",
         }))
         moved = (LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1) * 5 # five messages fill a segment
-        with_drain_held do
-          40.times { src.publish "x" * 100_000 }
-          # Counted on the server: the expiry can wait for the drain before
-          # all publishes are in, and then holds back the ones behind it on
-          # this connection, so a passive declare would never be answered
+        published = with_drain_held do
+          publisher = publish_in_background(s, "src", 40, "x" * 100_000)
           wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count >= moved }
           sleep 100.milliseconds # the expiry now waits for the drain, under the queue's lock
           # A SIGHUP reload can turn sync off while it waits: the drains that
           # follow skip their sync, and must not leave it waiting
           LavinMQ::Config.instance.sync = false
+          publisher
         end
+        published.receive?
         wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 40 }
       end
     end
