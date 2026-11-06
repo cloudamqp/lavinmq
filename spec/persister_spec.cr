@@ -519,6 +519,9 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         # Five messages fill segment 1, and all of them are dead-lettered
         5.times { src.publish "x" * 100_000 }
         wait_for { s.vhosts["/"].queue("dst").message_count == 5 }
+        # A confirm makes a drain run while sync is disabled: it takes the
+        # copies' marks without syncing them
+        ch.queue("confirmed").publish_confirm "x"
         # From here on only plain acks: the rollover unlinks segment 1 while
         # sync is disabled, so only the earlier copies can call for a sync
         dead_letter = false
