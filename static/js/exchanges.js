@@ -37,7 +37,7 @@ const performMultiAction = (el) => {
   const action = el.target.dataset.action
   const elems = document.querySelectorAll('input[data-name]:checked')
   const totalCount = elems.length
-  let settled = 0
+  let performed = 0
   elems.forEach(el => {
     const data = el.dataset
     let url
@@ -47,18 +47,17 @@ const performMultiAction = (el) => {
         break
     }
     if (!url) return
-    const onSettled = () => {
-      settled += 1
-      if (settled === totalCount) {
+    HTTP.request('DELETE', url).then(() => {
+      performed += 1
+      if (performed === totalCount) {
         multiSelectControls.classList.add('hide')
         elems.forEach(e => { e.checked = false })
         document.getElementById('multi-check-all').checked = false
         exchangeTable.reload()
       }
-    }
-    HTTP.request('DELETE', url).then(onSettled).catch(() => {
+    }).catch(() => {
       DOM.toast.error(`Failed to perform action on ${data.name}`)
-      onSettled()
+      exchangeTable.reload()
     })
   })
 }
