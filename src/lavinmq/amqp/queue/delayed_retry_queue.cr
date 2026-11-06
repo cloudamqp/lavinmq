@@ -21,11 +21,12 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
-    # Its primary queue recreates it once it's closed, see Queue#active_retry_queue,
-    # and a restart that reopened it meanwhile would load a second store from
-    # the same files
+    # Its primary queue recreates it once it's closed, see
+    # Queue#active_retry_queue, so a restart goes through it: reopening this
+    # instance as well would load a second store from the same files
     def restart! : Bool
-      false
+      return false unless @closed
+      !@primary_queue.recreate_retry_queue.nil?
     end
 
     def delay(msg : Message) : Bool

@@ -732,6 +732,12 @@ module LavinMQ::AMQP
       @retry_queue_lock.synchronize { create_retry_queue }
     end
 
+    # For DelayedRetryQueue#restart!, e.g. through the management API, so
+    # its delayed messages are released without waiting for another reject
+    protected def recreate_retry_queue : DelayedRetryQueue?
+      active_retry_queue
+    end
+
     # Recreates the retry queue if it was deleted or closed itself on a store error.
     private def active_retry_queue : DelayedRetryQueue?
       closed_retry_queue = @retry_queue_lock.synchronize do
