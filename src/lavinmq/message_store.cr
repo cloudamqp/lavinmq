@@ -348,7 +348,7 @@ module LavinMQ
     # for the oldest one's drain, when the drains can't keep up with the moves.
     private def unlink_segment(segment : MFile, acks : MFile) : Nil
       persister = @persister
-      if persister.nil? || copies_synced?(@copies_drain)
+      if persister.nil? || drain_done?(@copies_drain)
         return unlink_now(segment, acks)
       end
       @unlink_after << KeptSegment.new(@copies_drain, segment, acks)
@@ -362,7 +362,7 @@ module LavinMQ
     end
 
     private def unlink_synced_segments : Nil
-      while (kept = @unlink_after.first?) && copies_synced?(kept.drain)
+      while (kept = @unlink_after.first?) && drain_done?(kept.drain)
         @unlink_after.shift
         unlink_now(kept.segment, kept.acks)
       end
@@ -375,16 +375,23 @@ module LavinMQ
 
     # Whether the copies counted by *drain* (see #copied_out) are durable, or
     # don't have to be
-    private def copies_synced?(drain : UInt64) : Bool
+    private def drain_done?(drain : UInt64) : Bool
       persister = @persister
       persister.nil? || !Config.instance.sync? || persister.drain_synced?(drain)
+    end
+
+    # Whether every copy of this store's messages in other queues is durable,
+    # see #copied_out. A store that loads the same files doesn't know about
+    # them, and unlinks the segments they were copied from at once.
+    def copies_synced? : Bool
+      drain_done?(@copies_drain)
     end
 
     # Before the whole store is unlinked: copies of its messages in other
     # queues can still be unsynced. At shutdown the persister's loop has
     # exited, and #sync falls back to a syncfs.
     private def sync_copies : Nil
-      @persister.try &.sync unless copies_synced?(@copies_drain)
+      @persister.try &.sync unless copies_synced?
     end
 
     private def delete_file(file : MFile, including_meta = false)

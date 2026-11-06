@@ -20,6 +20,21 @@ private def reject_once_into_retry_queue(q)
   end
 end
 
+# Dead-letters two small messages out of queue *name* into "dst". They don't
+# empty a segment, so nothing requests the drain that syncs the copies.
+private def move_without_drain(s : LavinMQ::Server, name : String) : Nil
+  with_channel(s) do |ch|
+    ch.queue("dst")
+    q = ch.queue(name, args: AMQP::Client::Arguments.new({
+      "x-message-ttl"             => 1,
+      "x-dead-letter-exchange"    => "",
+      "x-dead-letter-routing-key" => "dst",
+    }))
+    2.times { q.publish "x" }
+  end
+  wait_for { s.vhosts["/"].queue("dst").message_count == 2 }
+end
+
 # Whether a drain synced a file in *dir*, or the whole filesystem
 private def synced_in?(s : LavinMQ::Server, dir : String) : Bool
   s.persister.syncs.any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
@@ -622,11 +637,9 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "syncs before a restarted queue reloads its store" do
+  it "syncs before a restarted queue reloads its store, when it moved messages that aren't synced" do
     with_amqp_server do |s|
-      with_channel(s) do |ch|
-        ch.queue("restarted").publish "x"
-      end
+      move_without_drain(s, "restarted")
       queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
       queue.close
       s.persister.spec_forget_syncs
@@ -635,11 +648,22 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "keeps a restarted queue closed until the sync before its reload is done" do
+  it "doesn't sync before a restarted queue reloads its store, when it has no unsynced copies" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("restarted").publish "x"
       end
+      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
+      queue.close
+      s.persister.spec_forget_syncs
+      queue.restart!.should be_true
+      s.persister.syncs.should be_empty
+    end
+  end
+
+  it "keeps a restarted queue closed until the sync before its reload is done" do
+    with_amqp_server do |s|
+      move_without_drain(s, "restarted")
       queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
       queue.close
       results = Channel(Bool).new(2)
@@ -648,14 +672,30 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         sleep 50.milliseconds
         queue.closed?.should be_true
       end
-      # Both waited for the sync, only one of them reopens the queue
+      # Only one of them reopens the queue
       [results.receive, results.receive].sort_by! { |r| r ? 1 : 0 }.should eq [false, true]
       queue.closed?.should be_false
-      queue.message_count.should eq 1
     end
   end
 
-  it "syncs before it recreates a retry queue that closed itself" do
+  it "syncs before it recreates a retry queue that closed itself, when it released messages that aren't synced" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        reject_once_into_retry_queue(q)
+        prim = s.vhosts["/"].queue("prim").as(LavinMQ::AMQP::Queue)
+        q.publish "x" # released back to prim, and acked there
+        wait_for { prim.@ack_count.get == 1 }
+        s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        synced = s.persister.syncs.size
+        q.publish "y" # rejected into the retry queue, which is recreated
+        wait_for { prim.@ack_count.get == 2 }
+        s.persister.syncs[synced..].any?(&.syncfs).should be_true
+      end
+    end
+  end
+
+  it "doesn't sync before it recreates a retry queue that closed itself, when it has no unsynced copies" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
@@ -666,7 +706,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         synced = s.persister.syncs.size
         q.publish "y" # rejected into the retry queue, which is recreated
         wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 2 }
-        s.persister.syncs[synced..].any?(&.syncfs).should be_true
+        s.persister.syncs[synced..].none?(&.syncfs).should be_true
       end
     end
   end

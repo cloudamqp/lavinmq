@@ -183,6 +183,10 @@ module LavinMQ::AMQP
         store_for sp, &.copied_out(sp)
       end
 
+      def copies_synced? : Bool
+        @stores.all? &.copies_synced?
+      end
+
       def delete(sp) : Nil
         raise ClosedError.new if @closed
         store_for sp, &.delete(sp)

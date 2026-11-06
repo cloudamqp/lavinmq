@@ -361,13 +361,19 @@ module LavinMQ::AMQP
       end
     end
 
+    # A store loaded from the same files doesn't know which messages the
+    # closed one copied to other queues, and would unlink the segments they
+    # were copied from at once
+    protected def sync_copies_of_closed_store : Nil
+      @vhost.persister.sync unless @msg_store.copies_synced?
+    end
+
     def restart! : Bool
       @restart_lock.synchronize do
         return false unless @closed
-        # The new store doesn't know what the old one copied to other queues.
         # Synced while the queue is still closed, so nothing uses the old
-        # store meanwhile, and a delete that ran meanwhile wins.
-        @vhost.persister.sync if durable?
+        # store meanwhile, and a delete that ran meanwhile wins
+        sync_copies_of_closed_store
         return false if @deleted
         reset_queue_state
         @msg_store = init_msg_store(@data_dir)
@@ -696,11 +702,11 @@ module LavinMQ::AMQP
         if retry_queue = @delayed_retry_queue
           next retry_queue unless retry_queue.closed?
           @delayed_retry_queue = nil
+          closed_retry_queue = retry_queue
         end
         next if @deleted || @closed
         @log.info { "Recreating retry queue" }
-        # The new store doesn't know what the closed one copied, see #restart!
-        @vhost.persister.sync if durable?
+        closed_retry_queue.try &.sync_copies_of_closed_store
         create_retry_queue
       end
     rescue ex
