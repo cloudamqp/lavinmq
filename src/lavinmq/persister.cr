@@ -39,6 +39,16 @@ module LavinMQ
       getter waiters = Array(::Channel(Nil)).new
       # A store waits for this drain, see #request_drain
       property? requested = false
+      # Someone blocks on this drain, so it doesn't wait for more requests,
+      # see #request_drain(defer)
+      property? urgent = false
+
+      # Confirms and #sync callers wait for the drain. A drain only kept
+      # segments asked for can wait a while, to batch them, see
+      # #publish_confirm_loop
+      def urgent? : Bool
+        @urgent || !acks.empty? || !waiters.empty?
+      end
 
       def drainable? : Bool
         requested? || !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
@@ -168,15 +178,24 @@ module LavinMQ
 
     # Requests a drain even if nothing else is pending, for the copies an
     # emptied segment waits for (see #copy_drain), also when their drain ran
-    # while sync was disabled. Returns false once the loop has exited at
-    # shutdown.
-    def request_drain : Bool
-      @pending.lock &.requested = true
+    # while sync was disabled. With *defer* the drain can wait up to
+    # KEPT_SEGMENT_DRAIN_DELAY for more requests, see #publish_confirm_loop.
+    # Returns false once the loop has exited at shutdown.
+    def request_drain(defer = false) : Bool
+      @pending.lock do |batch|
+        batch.requested = true
+        batch.urgent = true unless defer
+      end
       @publish_confirm_requested.try_send true
       true
     rescue ::Channel::ClosedError
       false
     end
+
+    # How long a drain that only emptied segments asked for waits for more
+    # requests, so several segments share one sync. Prototype: set from the
+    # environment to measure it.
+    KEPT_SEGMENT_DRAIN_DELAY = (ENV["LAVINMQ_KEPT_DRAIN_DELAY_MS"]? || "0").to_i.milliseconds
 
     # Blocks until the drain numbered *seq* by #copy_drain, or a later one,
     # has synced. Returns without it at shutdown and while sync is disabled,
@@ -230,6 +249,7 @@ module LavinMQ
         # While syncing, new requests accumulate in @pending and are flushed
         # by the next iteration — batching emerges without any delay.
         @publish_confirm_requested.receive
+        wait_for_more_requests
         drain
       end
     rescue ::Channel::ClosedError
@@ -239,6 +259,24 @@ module LavinMQ
       # Nothing syncs after this, the waiters see their drain unsynced
       release_drain_waiters
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+    end
+
+    # A drain that nothing blocks on waits for KEPT_SEGMENT_DRAIN_DELAY, or
+    # until something that does is requested, so the kept segments of a
+    # burst of moves share one sync
+    private def wait_for_more_requests : Nil
+      delay = KEPT_SEGMENT_DRAIN_DELAY
+      return if delay.zero?
+      deadline = Time.instant + delay
+      until @pending.lock(&.urgent?)
+        remaining = deadline - Time.instant
+        break unless remaining.positive?
+        select
+        when @publish_confirm_requested.receive
+        when timeout(remaining)
+          break
+        end
+      end
     end
 
     private def drain : Nil

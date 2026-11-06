@@ -368,11 +368,13 @@ module LavinMQ
       @unlink_after << KeptSegment.new(@copies_drain, segment, acks)
       @on_kept_segment.try &.call
       if @unlink_after.size > MAX_KEPT_SEGMENTS
+        @log.warn { "Prototype: waiting for a drain under the lock, #{@unlink_after.size} kept segments" }
         persister.wait_drain(@unlink_after.first.drain)
         unlink_synced_segments
       else
-        # Copies don't request their drain, see Persister#copy_drain
-        persister.request_drain
+        # Copies don't request their drain, see Persister#copy_drain. Nothing
+        # waits for it, so it can be batched with other kept segments'.
+        persister.request_drain(defer: true)
       end
     end
 
