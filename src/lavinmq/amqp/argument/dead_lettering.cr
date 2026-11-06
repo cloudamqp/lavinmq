@@ -131,10 +131,8 @@ module LavinMQ::AMQP
           first_in_chain = dlx_tasks.nil?
           ctx = dlx_tasks || take_tasks
 
-          dead_letter_msg = Message.new(
-            RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-            props, msg.bodysize, IO::Memory.new(msg.body))
-          dead_letter_msg.moved = true
+          dead_letter_msg = Message.moved_copy(msg, timestamp: RoughTime.unix_ms,
+            exchange_name: dlx.to_s, routing_key: routing_rk.to_s, properties: props)
 
           copied = false
           queues.each do |q|

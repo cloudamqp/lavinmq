@@ -81,10 +81,9 @@ module LavinMQ
     property? needs_sync = false
     # Set for transactional publishes, the commit syncs the data dir
     property? synced_by_commit = false
-    # Set for copies the broker makes of another queue's messages
-    # (dead-lettered, delayed, retried), so the segments they're written to
-    # are synced before the segment they were moved out of is unlinked, see
-    # MessageStore#copied_out
+    # Set for copies the broker makes of another queue's messages, see
+    # .moved_copy, so the segments they're written to are synced before the
+    # segment they were moved out of is unlinked, see MessageStore#copied_out
     property? moved = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
@@ -97,6 +96,17 @@ module LavinMQ
       @timestamp = RoughTime.unix_ms
       @bodysize = body.bytesize.to_u64
       @body_io = IO::Memory.new(body)
+    end
+
+    # A copy of a stored message that the broker moves to another queue
+    # (dead-lettered, delayed, retried). Build every such copy with this, so
+    # it's marked moved.
+    def self.moved_copy(msg : BytesMessage, *, timestamp = msg.timestamp,
+                        exchange_name = msg.exchange_name, routing_key = msg.routing_key,
+                        properties = msg.properties) : self
+      copy = new(timestamp, exchange_name, routing_key, properties, msg.bodysize, IO::Memory.new(msg.body))
+      copy.moved = true
+      copy
     end
 
     def bytesize
