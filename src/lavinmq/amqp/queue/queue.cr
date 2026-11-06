@@ -362,6 +362,8 @@ module LavinMQ::AMQP
     def restart! : Bool
       return false unless @closed
       reset_queue_state
+      # The new store doesn't know what the old one copied to other queues
+      @vhost.persister.sync if durable?
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       start.tap do |started|

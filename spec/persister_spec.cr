@@ -433,22 +433,40 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "syncs before the first unlink after a restart, when a store was loaded with acks" do
+  it "syncs the data dir once before the stores load" do
+    with_amqp_server do |s|
+      s.persister.local_syncs.should eq 1
+      restart_server(s)
+      s.persister.local_syncs.should eq 1
+    end
+  end
+
+  it "doesn't sync at the first unlink after a server restart, which synced before loading" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("restarted")
         8.times { q.publish "x" * 100_000 }
         q.get(no_ack: true).should_not be_nil
       end
-      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
-      queue.close
-      queue.restart!.should be_true
-      s.persister.spec_forget_last_sync
+      restart_server(s)
       with_channel(s) do |ch|
         ch.queue("restarted", passive: true).subscribe(no_ack: false, &.ack)
         wait_for { !File.exists?(File.join(queue_dir(s, "restarted"), "msgs.0000000001")) }
-        last_sync(s).syncfs.should be_true
+        s.persister.last_sync.should be_nil
       end
+    end
+  end
+
+  it "syncs before a restarted queue reloads its store" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("restarted").publish "x"
+      end
+      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
+      queue.close
+      s.persister.spec_forget_last_sync
+      queue.restart!.should be_true
+      last_sync(s).syncfs.should be_true
     end
   end
 
