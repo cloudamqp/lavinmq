@@ -904,18 +904,22 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "doesn't sync before it recreates a retry queue that closed itself, when it has no unsynced copies" do
+  it "waits for a drain, not a syncfs, before it recreates a retry queue that closed itself, also when it has no unsynced copies" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
         reject_once_into_retry_queue(q)
         q.publish "x"
         wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 1 }
-        s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        retry_queue = s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+        retry_queue.close
+        retry_queue.@msg_store.copies_synced?.should be_true
         drains = s.persister.drains
+        synced = s.persister.syncs.size
         q.publish "y" # rejected into the retry queue, which is recreated
         wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 2 }
-        s.persister.drains.should eq drains
+        s.persister.drains.should be > drains
+        s.persister.syncs[synced..].none?(&.syncfs).should be_true
       end
     end
   end
