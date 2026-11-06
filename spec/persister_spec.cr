@@ -356,7 +356,10 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         moved = (LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1) * 5 # five messages fill a segment
         with_drains_held do
           40.times { src.publish "x" * 100_000 }
-          wait_for { dst.message_count >= moved }
+          # Counted on the server: the expiry can wait for the drain before
+          # all publishes are in, and then holds back the ones behind it on
+          # this connection, so a passive declare would never be answered
+          wait_for { s.vhosts["/"].queue("dst").message_count >= moved }
           sleep 100.milliseconds # the expiry now waits for the drain, under the queue's lock
           # A SIGHUP reload can turn sync off while it waits: the drains that
           # follow skip their sync, and must not leave it waiting
