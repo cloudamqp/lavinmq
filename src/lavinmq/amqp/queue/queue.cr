@@ -365,7 +365,7 @@ module LavinMQ::AMQP
     # closed one copied to other queues, and would unlink the segments they
     # were copied from at once
     protected def sync_copies_of_closed_store : Nil
-      @vhost.persister.sync unless @msg_store.copies_synced?
+      @msg_store.sync_copies
     end
 
     def restart! : Bool
@@ -698,16 +698,28 @@ module LavinMQ::AMQP
 
     # Recreates the retry queue if it was deleted or closed itself on a store error.
     private def active_retry_queue : DelayedRetryQueue?
-      @retry_queue_lock.synchronize do
-        if retry_queue = @delayed_retry_queue
-          next retry_queue unless retry_queue.closed?
+      closed_retry_queue = @retry_queue_lock.synchronize do
+        retry_queue = @delayed_retry_queue
+        return retry_queue if retry_queue && !retry_queue.closed?
+        retry_queue
+      end
+      return if @deleted || @closed
+      # Outside the locks: a delete of this queue holds the vhost's definitions
+      # lock while it waits for @retry_queue_lock
+      closed_retry_queue.try &.sync_copies_of_closed_store
+      # In the order a delete takes them, as create_retry_queue registers the
+      # queue in the definitions
+      @vhost.synchronize_definitions do
+        @retry_queue_lock.synchronize do
+          retry_queue = @delayed_retry_queue
+          next retry_queue if retry_queue && !retry_queue.closed?
+          # Closed or deleted meanwhile, without the sync above
+          next unless retry_queue.same?(closed_retry_queue)
+          next if @deleted || @closed
           @delayed_retry_queue = nil
-          closed_retry_queue = retry_queue
+          @log.info { "Recreating retry queue" }
+          create_retry_queue
         end
-        next if @deleted || @closed
-        @log.info { "Recreating retry queue" }
-        closed_retry_queue.try &.sync_copies_of_closed_store
-        create_retry_queue
       end
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
