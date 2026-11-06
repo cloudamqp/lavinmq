@@ -20,16 +20,22 @@ private def reject_once_into_retry_queue(q)
   end
 end
 
+# Declares "dst", and queue *name* that dead-letters into it, after *ttl* ms
+private def declare_dead_lettering(ch, name = "src", ttl : Int32? = 1)
+  ch.queue("dst")
+  args = AMQP::Client::Arguments.new({
+    "x-dead-letter-exchange"    => "",
+    "x-dead-letter-routing-key" => "dst",
+  })
+  args["x-message-ttl"] = ttl if ttl
+  ch.queue(name, args: args)
+end
+
 # Dead-letters two small messages out of queue *name* into "dst". They don't
 # empty a segment, so nothing requests the drain that syncs the copies.
 private def move_without_drain(s : LavinMQ::Server, name : String) : Nil
   with_channel(s) do |ch|
-    ch.queue("dst")
-    q = ch.queue(name, args: AMQP::Client::Arguments.new({
-      "x-message-ttl"             => 1,
-      "x-dead-letter-exchange"    => "",
-      "x-dead-letter-routing-key" => "dst",
-    }))
+    q = declare_dead_lettering(ch, name)
     2.times { q.publish "x" }
   end
   wait_for { s.vhosts["/"].queue("dst").message_count == 2 }
@@ -51,6 +57,28 @@ private def publish_in_background(s : LavinMQ::Server, queue : String, count : I
   published
 end
 
+# Publishes 40 messages into "src" (see #declare_dead_lettering) while the
+# drains are held, five to a segment, so the expiry keeps more emptied segments
+# than MAX_KEPT_SEGMENTS, and yields once it waits for a drain. Returns once
+# every message is dead-lettered after the drains are released.
+private def stall_past_kept_limit(s : LavinMQ::Server, &) : Nil
+  with_channel(s) { |ch| declare_dead_lettering(ch) }
+  dst = s.vhosts["/"].queue("dst")
+  moved = (LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1) * 5
+  published = with_drain_held do
+    publisher = publish_in_background(s, "src", 40, "x" * 100_000)
+    wait_for(timeout: 5.seconds) { dst.message_count >= moved }
+    sleep 100.milliseconds
+    # The expiry waits, under the queue's lock, for the drain after the
+    # segment past the limit
+    dst.message_count.should eq moved
+    yield
+    publisher
+  end
+  published.receive?
+  wait_for(timeout: 5.seconds) { dst.message_count == 40 }
+end
+
 # Whether a drain synced a file in *dir*, or the whole filesystem
 private def synced_in?(s : LavinMQ::Server, dir : String) : Bool
   s.persister.syncs.any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
@@ -60,12 +88,32 @@ end
 # messages it copied out once their drain is done, at its next delete or
 # rollover (see MessageStore#unlink_segment), which the block causes.
 private def wait_unlinked(path : String, &) : Nil
-  deadline = Time.instant + 15.seconds
-  while File.exists?(path)
-    fail "#{path} wasn't unlinked" if Time.instant > deadline
+  wait_for do
+    next true unless File.exists?(path)
     yield
-    sleep 20.milliseconds
+    sleep 20.milliseconds # each call publishes
+    false
   end
+end
+
+# Spec instrumentation: fails the unlink of *path*
+class MFile
+  class_property fail_delete_of : String? = nil
+
+  def delete(*, raise_on_missing = true) : Nil
+    raise File::Error.new("Spec unlink failure", file: @path) if @@fail_delete_of == @path
+    previous_def
+  end
+end
+
+# A store with three messages to a segment, whose first two segments are full
+# and the third holds one message
+private def store_with_three_segments(data_dir, persister) : LavinMQ::MessageStore
+  store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+  body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+  7.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+  store.@segments.keys.should eq [1u32, 2u32, 3u32]
+  store
 end
 
 private class ConfirmReceiver
@@ -276,7 +324,7 @@ describe LavinMQ::Persister do
         4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
         store.@segments.size.should eq 2
         persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
-        persister.last_sync.should be_nil
+        persister.drains.should eq 0
       ensure
         store.close
         persister.close
@@ -313,6 +361,23 @@ describe LavinMQ::Persister do
       replicator.syncfs_requests.get.should eq 0
     end
   end
+
+  it "asks followers for a syncfs after sync is re-enabled, as they skipped their fsyncs too" do
+    replicator = SyncfsCountingReplicator.new
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("confirmed")
+        LavinMQ::Config.instance.sync = false
+        q.publish_confirm("x").should be_true
+        requests = replicator.syncfs_requests.get
+        LavinMQ::Config.instance.sync = true
+        q.publish_confirm("y").should be_true
+        replicator.syncfs_requests.get.should eq requests + 1
+        q.publish_confirm("z").should be_true
+        replicator.syncfs_requests.get.should eq requests + 1
+      end
+    end
+  end
 end
 
 private class SyncfsCountingReplicator < NoOpReplicator
@@ -327,12 +392,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "keeps a segment until the drain that syncs its dead-lettered copies has run, without a syncfs" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch)
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         with_drain_held do
           # Plain publishes: no confirm requests a sync, only the copies can
@@ -348,54 +408,73 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "waits for the drain once it keeps more emptied segments than the limit" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        ch.queue("dst")
-        ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
-        # Five messages fill a segment, so 40 empty seven: more than the limit
-        per_segment = 5
-        limit = LavinMQ::MessageStore::MAX_KEPT_SEGMENTS
-        published = with_drain_held do
-          publisher = publish_in_background(s, "src", 40, "x" * 100_000)
-          moved = (limit + 1) * per_segment
-          wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count >= moved }
-          sleep 100.milliseconds
-          # The expiry waits for the drain after the segment past the limit
-          s.vhosts["/"].queue("dst").message_count.should eq moved
-          publisher
+  it "waits for the drain that syncs the copies before a purge unlinks a segment they were moved out of" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = store_with_three_segments(data_dir, persister)
+      segment = File.join(data_dir, "msgs.0000000001")
+      begin
+        moved = store.shift?.should_not(be_nil).segment_position
+        store.shift? # stays unacked, so the move doesn't empty segment 1
+        store.shift?
+        store.shift? # the reader moves on to segment 2
+        purged = Channel(Nil).new
+        with_drain_held do
+          store.copied_out(moved)
+          store.delete(moved)
+          spawn { store.purge_all; purged.close }
+          sleep 50.milliseconds
+          File.exists?(segment).should be_true
         end
-        published.receive?
-        wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 40 }
+        purged.receive?
+        File.exists?(segment).should be_false
+        store.copies_synced?.should be_true
+      ensure
+        store.close
+        persister.close
       end
     end
   end
 
+  it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = store_with_three_segments(data_dir, persister)
+      segment = File.join(data_dir, "msgs.0000000001")
+      begin
+        sps = Array.new(4) { store.shift?.should_not(be_nil).segment_position }
+        with_drain_held do
+          sps.first(3).each do |sp|
+            store.copied_out(sp)
+            store.delete(sp)
+          end
+        end
+        wait_for { store.copies_synced? }
+        File.exists?(segment).should be_true # kept until the next delete
+        MFile.fail_delete_of = File.join(data_dir, "acks.0000000001")
+        expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
+        File.exists?(segment).should be_true
+        MFile.fail_delete_of = nil
+        store.purge(1)
+        File.exists?(segment).should be_false
+      ensure
+        MFile.fail_delete_of = nil
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "waits for the drain once it keeps more emptied segments than the limit" do
+    with_amqp_server { |s| stall_past_kept_limit(s) { } }
+  end
+
   it "stops waiting for a drain when sync is disabled while it waits" do
     with_amqp_server do |s|
-      with_channel(s) do |ch|
-        ch.queue("dst")
-        ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
-        moved = (LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1) * 5 # five messages fill a segment
-        published = with_drain_held do
-          publisher = publish_in_background(s, "src", 40, "x" * 100_000)
-          wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count >= moved }
-          sleep 100.milliseconds # the expiry now waits for the drain, under the queue's lock
-          # A SIGHUP reload can turn sync off while it waits: the drains that
-          # follow skip their sync, and must not leave it waiting
-          LavinMQ::Config.instance.sync = false
-          publisher
-        end
-        published.receive?
-        wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 40 }
+      stall_past_kept_limit(s) do
+        # A SIGHUP reload can turn sync off while it waits: the drains that
+        # follow skip their sync, and must not leave it waiting
+        LavinMQ::Config.instance.sync = false
       end
     end
   end
@@ -538,11 +617,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "syncs after sync is re-enabled for messages moved while it was disabled" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch, ttl: nil)
         dead_letter = true
         src.subscribe(no_ack: false) { |m| dead_letter ? m.reject : m.ack }
         LavinMQ::Config.instance.sync = false
@@ -550,14 +625,16 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         5.times { src.publish "x" * 100_000 }
         wait_for { s.vhosts["/"].queue("dst").message_count == 5 }
         # A confirm makes a drain run while sync is disabled: it takes the
-        # copies' marks without syncing them
-        ch.queue("confirmed").publish_confirm "x"
+        # copies' marks without syncing them. On a channel of its own, so the
+        # publishes below aren't confirmed.
+        with_channel(s, &.queue("confirmed").publish_confirm("x"))
+        drains = s.persister.drains
         # From here on only plain acks: the rollover unlinks segment 1 while
         # sync is disabled, so only the earlier copies can call for a sync
         dead_letter = false
         src.publish "x" * 100_000
         wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
-        s.persister.syncs.should be_empty
+        s.persister.drains.should eq drains
         LavinMQ::Config.instance.sync = true
         5.times { src.publish "x" * 100_000 }
         wait_unlinked(File.join(queue_dir(s, "src"), "msgs.0000000002")) { src.publish "x" }
@@ -570,16 +647,11 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "doesn't drain for moved messages until a segment they were moved out of is emptied" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch)
         3.times { src.publish "x" }
         wait_for { s.vhosts["/"].queue("dst").message_count == 3 }
         sleep 50.milliseconds
-        s.persister.syncs.should be_empty
+        s.persister.drains.should eq 0
       end
     end
   end
@@ -587,12 +659,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "keeps the readahead of queues that moved messages are written to" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch)
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
         reject_once_into_retry_queue(q)
         8.times { src.publish "x" * 100_000 }
@@ -625,18 +692,16 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       s.persister.local_syncs.should eq 1
       restart_server(s)
       s.persister.local_syncs.should eq 1
+      LavinMQ::Config.instance.sync = false
+      restart_server(s)
+      s.persister.local_syncs.should eq 0
     end
   end
 
   it "deletes the segments a store kept at shutdown at the next start, after its sync" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        declare_dead_lettering(ch)
       end
       src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
       with_drain_held do
@@ -659,9 +724,9 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       move_without_drain(s, "restarted")
       queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
       queue.close
-      s.persister.spec_forget_syncs
+      synced = s.persister.syncs.size
       queue.restart!.should be_true
-      last_sync(s).syncfs.should be_true
+      s.persister.syncs[synced..].any?(&.syncfs).should be_true
     end
   end
 
@@ -672,9 +737,9 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       end
       queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
       queue.close
-      s.persister.spec_forget_syncs
+      drains = s.persister.drains
       queue.restart!.should be_true
-      s.persister.syncs.should be_empty
+      s.persister.drains.should eq drains
     end
   end
 
@@ -712,6 +777,46 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "deletes a queue while the retry queue it recreates waits for its sync" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        reject_once_into_retry_queue(q)
+        prim = s.vhosts["/"].queue("prim").as(LavinMQ::AMQP::Queue)
+        q.publish "x" # released back to prim, unsynced
+        wait_for { prim.@ack_count.get == 1 }
+        s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        deleted = Channel(Nil).new
+        with_drain_held do
+          q.publish "y" # rejected, the retry queue's recreation waits for the drain
+          sleep 50.milliseconds
+          # The delete holds the definitions lock while it takes prim's retry queue lock
+          spawn { s.vhosts["/"].delete_queue("prim"); deleted.close }
+          sleep 50.milliseconds
+        end
+        select
+        when deleted.receive?
+        when timeout(5.seconds)
+          fail "the queue delete deadlocked with the retry queue's recreation"
+        end
+        s.vhosts["/"].declare_queue("after", true, false)
+        s.vhosts["/"].queue?("after").should_not be_nil
+      end
+    end
+  end
+
+  it "doesn't restart a retry queue, its primary queue recreates it" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+      end
+      retry_queue = s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+      retry_queue.close
+      retry_queue.restart!.should be_false
+      retry_queue.closed?.should be_true
+    end
+  end
+
   it "doesn't sync before it recreates a retry queue that closed itself, when it has no unsynced copies" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -731,12 +836,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "syncs the copies of a queue's messages before the queue is deleted" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch)
         src_dir = queue_dir(s, "src")
         queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
         deleted = Channel(Nil).new
@@ -772,16 +872,11 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.sync = false
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src = declare_dead_lettering(ch)
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
-        s.persister.last_sync.should be_nil
+        s.persister.drains.should eq 0
       end
     end
   end

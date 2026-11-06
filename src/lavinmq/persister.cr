@@ -73,8 +73,10 @@ module LavinMQ
         @syncs_lock.synchronize { @syncs.last? }
       end
 
-      def spec_forget_syncs : Nil
-        @syncs_lock.synchronize { @syncs.clear }
+      # Spec instrumentation: drains that took a batch, also the ones that
+      # skipped their sync
+      def drains : UInt64
+        @pending.lock { @drains_started }
       end
     {% end %}
 
@@ -83,7 +85,7 @@ module LavinMQ
     @drains_started = 0u64
     @drains_synced = Atomic(UInt64).new(0u64)
     # A drain skipped its sync while sync was disabled, and the files it took
-    # are no longer marked, so the next drain that syncs does a local syncfs
+    # are no longer marked, so the next drain that syncs does a syncfs
     @skipped_sync = false
     # Callers of #wait_drain, with the drain they wait for
     @drain_waiters = Sync::Exclusive(Array({UInt64, ::Channel(Nil)})).new(Array({UInt64, ::Channel(Nil)}).new, :unchecked)
@@ -211,7 +213,8 @@ module LavinMQ
     # copies can still be in the page cache, so they're made durable before
     # any segment unlink.
     private def sync_local : Nil
-      syncfs_data_dir if Config.instance.sync?
+      return unless Config.instance.sync?
+      syncfs_data_dir
       {% unless flag?(:release) %}
         @local_syncs += 1
       {% end %}
@@ -258,7 +261,10 @@ module LavinMQ
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       sync = Config.instance.sync?
-      syncfs = batch.syncfs? || !batch.waiters.empty? ||
+      # A drain that skipped its sync left the files it took unmarked, so the
+      # next one that syncs syncs the whole data dir. On the followers too:
+      # they skip fsync requests while their sync is disabled as well.
+      syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
@@ -277,12 +283,9 @@ module LavinMQ
       end
       begin
         if sync
-          # The followers synced what skipped drains sent them, only this
-          # node has to catch up on the files those drains took
-          if paths && !@skipped_sync
+          if paths
             syncfs = fsync_paths(batch.files, batch.paths, dirs)
           else
-            syncfs = true
             syncfs_data_dir
           end
         end

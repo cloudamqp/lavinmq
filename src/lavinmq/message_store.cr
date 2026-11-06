@@ -236,7 +236,6 @@ module LavinMQ
 
     def delete(sp) : Nil
       raise ClosedError.new if @closed
-      unlink_synced_segments
       # A message routed outside the lock can have its segment purged meanwhile,
       # and @acks would otherwise create an ack file for the deleted segment
       return unless @segments.has_key?(sp.segment)
@@ -245,6 +244,7 @@ module LavinMQ
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
+        unlink_synced_segments
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -286,6 +286,7 @@ module LavinMQ
         delete(sp) if @segments.has_key?(sp.segment)
       end
 
+      wait_for_copies_of_middle_segments
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
@@ -327,6 +328,15 @@ module LavinMQ
       @empty.set true
     end
 
+    # Messages moved out of the segments between the read and the write
+    # segment, which #purge_all unlinks, can have copies that aren't synced
+    # yet, see #unlink_segment
+    private def wait_for_copies_of_middle_segments : Nil
+      return if copies_synced?
+      return unless @segments.each_key.any? { |id| id != @rfile_id && id != @wfile_id }
+      @persister.try &.wait_drain(@copies_drain)
+    end
+
     def delete
       @closed = true
       @empty.close
@@ -363,8 +373,8 @@ module LavinMQ
 
     private def unlink_synced_segments : Nil
       while (kept = @unlink_after.first?) && drain_done?(kept.drain)
+        unlink_now(kept.segment, kept.acks) # a later call retries it if it raises
         @unlink_after.shift
-        unlink_now(kept.segment, kept.acks)
       end
     end
 
@@ -387,10 +397,11 @@ module LavinMQ
       drain_done?(@copies_drain)
     end
 
-    # Before the whole store is unlinked: copies of its messages in other
-    # queues can still be unsynced. At shutdown the persister's loop has
-    # exited, and #sync falls back to a syncfs.
-    private def sync_copies : Nil
+    # Syncs the copies of this store's messages in other queues that aren't
+    # synced yet, before the whole store is unlinked or a store that doesn't
+    # know about them loads the same files. At shutdown the persister's loop
+    # has exited, and #sync falls back to a syncfs.
+    def sync_copies : Nil
       @persister.try &.sync unless copies_synced?
     end
 
