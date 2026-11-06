@@ -367,7 +367,7 @@ module LavinMQ::AMQP
     # A store loaded from the same files doesn't know which messages the
     # closed one copied to other queues, and would unlink the segments they
     # were copied from at once
-    protected def sync_copies_of_closed_store : Nil
+    private def sync_copies_of_closed_store : Nil
       @msg_store.sync_copies
     end
 
@@ -746,7 +746,7 @@ module LavinMQ::AMQP
       return if @deleted || @closed
       # Outside the locks: a delete of this queue holds the vhost's definitions
       # lock while it waits for @retry_queue_lock
-      closed_retry_queue.try &.sync_copies_of_closed_store
+      sync_copies_so_far if closed_retry_queue
       # In the order a delete takes them, as create_retry_queue registers the
       # queue in the definitions
       @vhost.synchronize_definitions do
@@ -764,6 +764,18 @@ module LavinMQ::AMQP
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
       nil
+    end
+
+    # Before a retry queue that closed itself is recreated. A release in flight
+    # when it closed can record its copy in the closed store after any check
+    # of it, so this waits for a drain that covers every copy written so far.
+    # At shutdown the persister's loop has exited, and #sync falls back to a
+    # syncfs.
+    private def sync_copies_so_far : Nil
+      persister = @vhost.persister
+      drain = persister.copy_drain
+      persister.wait_drain(drain)
+      persister.sync if Config.instance.sync? && !persister.drain_synced?(drain)
     end
 
     # Only call while holding @retry_queue_lock
