@@ -153,6 +153,35 @@ module LavinMQ::AMQP
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
     getter deliver_loop_wg = WaitGroup.new
+    # The wait group each running deliver loop fiber is counted in, see
+    # #spawn_deliver_loop and #stop_counting_current_deliver_loop
+    @deliver_loop_fibers = Sync::Exclusive(Hash(Fiber, WaitGroup)).new(Hash(Fiber, WaitGroup).new, :unchecked)
+
+    # Spawns a consumer's deliver loop, counted in @deliver_loop_wg so that
+    # #close can wait for it to stop reading from the message store
+    def spawn_deliver_loop(name : String, &block : ->) : Nil
+      wg = @deliver_loop_wg
+      wg.add
+      spawn(name: name) do
+        @deliver_loop_fibers.lock { |fibers| fibers[Fiber.current] = wg }
+        block.call
+      ensure
+        # #close may already have stopped counting this fiber
+        if @deliver_loop_fibers.lock(&.delete(Fiber.current))
+          wg.done
+        end
+      end
+    end
+
+    # A deliver loop can close the queue itself, e.g. on a MessageStore::Error
+    # while it delivers, and would then wait for itself in #close forever. It
+    # only unwinds after #close returns, and the lease it may still hold keeps
+    # its segment mapped, so it doesn't have to be waited for.
+    private def stop_counting_current_deliver_loop : Nil
+      if wg = @deliver_loop_fibers.lock(&.delete(Fiber.current))
+        wg.done
+      end
+    end
 
     getter paused = BoolChannel.new(false)
 
@@ -304,6 +333,8 @@ module LavinMQ::AMQP
     # The connection that declared this exclusive queue, told when the queue is deleted
     property exclusive_owner : AMQP::Client?
     getter? closed = false
+    # Set once #close has torn everything down, see #restart!
+    @close_finished = Atomic(Bool).new(false)
     getter state = QueueState::Running
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
@@ -361,6 +392,9 @@ module LavinMQ::AMQP
 
     def restart! : Bool
       return false unless @closed
+      # A close still in progress would otherwise go on to close the new
+      # message store, e.g. while it waits for deliver loops to exit
+      return false unless @close_finished.get(:acquire)
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -447,6 +481,7 @@ module LavinMQ::AMQP
 
     private def reset_queue_state
       @closed = false
+      @close_finished.set(false, :release)
       @consumers_closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
@@ -836,7 +871,8 @@ module LavinMQ::AMQP
         @exclusive_consumer = false
         @has_priority_consumers = false
       end
-      Fiber.yield           # Let deliver_loop fibers start and react to closed channels
+      Fiber.yield # Let deliver_loop fibers start and react to closed channels
+      stop_counting_current_deliver_loop
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
@@ -847,6 +883,7 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
+      @close_finished.set(true, :release)
       Fiber.yield
       @log.debug { "Closed" }
       true
