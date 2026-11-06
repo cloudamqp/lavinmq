@@ -583,6 +583,69 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "keeps a restarted queue closed until the sync before its reload is done" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("restarted").publish "x"
+      end
+      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
+      queue.close
+      results = Channel(Bool).new(2)
+      with_drains_held do
+        2.times { spawn { results.send queue.restart! } }
+        sleep 50.milliseconds
+        queue.closed?.should be_true
+      end
+      # Both waited for the sync, only one of them reopens the queue
+      [results.receive, results.receive].sort_by! { |r| r ? 1 : 0 }.should eq [false, true]
+      queue.closed?.should be_false
+      queue.message_count.should eq 1
+    end
+  end
+
+  it "syncs before it recreates a retry queue that closed itself" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        reject_once_into_retry_queue(q)
+        q.publish "x"
+        wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 1 }
+        s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        synced = s.persister.syncs.size
+        q.publish "y" # rejected into the retry queue, which is recreated
+        wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 2 }
+        s.persister.syncs[synced..].any?(&.syncfs).should be_true
+      end
+    end
+  end
+
+  it "syncs the copies of a queue's messages before the queue is deleted" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        src_dir = queue_dir(s, "src")
+        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
+        deleted = Channel(Nil).new
+        with_drains_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          spawn { queue.delete; deleted.close }
+          sleep 50.milliseconds
+          # The delete waits for the sync, the moved-out segment is still there
+          File.exists?(File.join(src_dir, "msgs.0000000001")).should be_true
+        end
+        deleted.receive?
+        Dir.exists?(src_dir).should be_false
+        synced_in?(s, queue_dir(s, "dst")).should be_true
+      end
+    end
+  end
+
   it "doesn't sync before unlinking a segment that was only consumed" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

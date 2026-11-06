@@ -361,9 +361,12 @@ module LavinMQ::AMQP
 
     def restart! : Bool
       return false unless @closed
-      reset_queue_state
-      # The new store doesn't know what the old one copied to other queues
+      # The new store doesn't know what the old one copied to other queues.
+      # Synced while the queue is still closed, so nothing uses the old store
+      # meanwhile, and a restart or delete that ran meanwhile wins.
       @vhost.persister.sync if durable?
+      return false if !@closed || @deleted
+      reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       start.tap do |started|
@@ -692,6 +695,8 @@ module LavinMQ::AMQP
         end
         next if @deleted || @closed
         @log.info { "Recreating retry queue" }
+        # The new store doesn't know what the closed one copied, see #restart!
+        @vhost.persister.sync if durable?
         create_retry_queue
       end
     rescue ex
