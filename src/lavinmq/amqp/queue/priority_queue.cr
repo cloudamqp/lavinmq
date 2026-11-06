@@ -179,8 +179,8 @@ module LavinMQ::AMQP
         store_for sp, &.envelope(sp, redelivered)
       end
 
-      def mark_moved(sp : SegmentPosition) : Nil
-        store_for sp, &.mark_moved(sp)
+      def copied_out(sp : SegmentPosition) : Nil
+        store_for sp, &.copied_out(sp)
       end
 
       def delete(sp) : Nil

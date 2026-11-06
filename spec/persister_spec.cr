@@ -408,7 +408,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         5.times { src.publish "x" * 100_000 }
         wait_for { s.vhosts["/"].queue("dst").message_count == 5 }
         # From here on only plain acks: the rollover unlinks segment 1 while
-        # sync is disabled, so only the earlier moves can call for a sync
+        # sync is disabled, so only the earlier copies can call for a sync
         dead_letter = false
         src.publish "x" * 100_000
         wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
