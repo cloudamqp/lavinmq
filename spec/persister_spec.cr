@@ -344,6 +344,29 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "stops waiting for a drain when sync is disabled while it waits" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        dst = ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        moved = (LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1) * 5 # five messages fill a segment
+        with_drains_held do
+          40.times { src.publish "x" * 100_000 }
+          wait_for { dst.message_count >= moved }
+          sleep 100.milliseconds # the expiry now waits for the drain, under the queue's lock
+          # A SIGHUP reload can turn sync off while it waits: the drains that
+          # follow skip their sync, and must not leave it waiting
+          LavinMQ::Config.instance.sync = false
+        end
+        wait_for { dst.message_count == 40 }
+      end
+    end
+  end
+
   it "keeps a priority queue segment until the drain that syncs its copies has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
