@@ -134,6 +134,8 @@ module LavinMQ::AMQP
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
+          # Synced like a confirmed publish, see MessageStore#copied_out
+          dead_letter_msg.needs_sync = true
 
           copied = false
           queues.each do |q|

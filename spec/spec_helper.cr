@@ -133,6 +133,17 @@ private def rebind_tcp(address : String, port : Int32) : TCPServer
   end
 end
 
+# Lets a spec hold the publish confirm loop's drain, so what happens before
+# the data is durable can be observed
+class LavinMQ::Persister
+  class_property drain_gate : ::Channel(Nil)? = nil
+
+  private def drain : Nil
+    @@drain_gate.try &.receive?
+    previous_def
+  end
+end
+
 def restart_server(server : LavinMQ::Server)
   # Read the raw ivars (not the lazy getters) so we don't build a frontend a
   # spec never had just to capture its state.

@@ -1,16 +1,5 @@
 require "../spec_helper"
 
-# Lets a spec hold the publish confirm loop's drain, so what is acked before
-# the data is durable can be observed
-class LavinMQ::Persister
-  class_property drain_gate : ::Channel(Nil)? = nil
-
-  private def drain : Nil
-    @@drain_gate.try &.receive?
-    previous_def
-  end
-end
-
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
