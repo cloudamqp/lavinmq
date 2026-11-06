@@ -155,8 +155,10 @@ def with_drain_held(&)
   end
 end
 
+# A timed out example releases its gate when it ends, and must not release
+# the gate a later example holds
 def release_drain(gate : ::Channel(Nil)) : Nil
-  LavinMQ::Persister.drain_gate = nil
+  LavinMQ::Persister.drain_gate = nil if LavinMQ::Persister.drain_gate.same?(gate)
   gate.close
 end
 

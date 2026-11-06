@@ -345,7 +345,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "stops waiting for a drain when sync is disabled while it waits" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        dst = ch.queue("dst")
+        ch.queue("dst")
         src = ch.queue("src", args: AMQP::Client::Arguments.new({
           "x-message-ttl"             => 1,
           "x-dead-letter-exchange"    => "",
@@ -357,13 +357,13 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           # Counted on the server: the expiry can wait for the drain before
           # all publishes are in, and then holds back the ones behind it on
           # this connection, so a passive declare would never be answered
-          wait_for { s.vhosts["/"].queue("dst").message_count >= moved }
+          wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count >= moved }
           sleep 100.milliseconds # the expiry now waits for the drain, under the queue's lock
           # A SIGHUP reload can turn sync off while it waits: the drains that
           # follow skip their sync, and must not leave it waiting
           LavinMQ::Config.instance.sync = false
         end
-        wait_for { dst.message_count == 40 }
+        wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 40 }
       end
     end
   end
