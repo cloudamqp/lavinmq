@@ -62,9 +62,7 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      released = Message.new(msg.timestamp, @exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      released.moved = true
+      released = Message.moved_copy(msg, exchange_name: @exchange_name)
       result = @vhost.exchange(@exchange_name).route_msg released
       delete_message sp, copied: result.routed?
     end

@@ -736,9 +736,7 @@ module LavinMQ::AMQP
       h["x-delay"] = delay_from(msg, delay_ms)
       h["x-delivery-count"] = delivery_count
       props.headers = h
-      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        props, msg.bodysize, IO::Memory.new(msg.body))
-      retry_msg.moved = true
+      retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp, copied: true)
       true
