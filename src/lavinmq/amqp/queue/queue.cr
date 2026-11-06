@@ -105,6 +105,8 @@ module LavinMQ::AMQP
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
+    # Serializes restarts, which wait for a sync before they load the store
+    @restart_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -360,17 +362,19 @@ module LavinMQ::AMQP
     end
 
     def restart! : Bool
-      return false unless @closed
-      # The new store doesn't know what the old one copied to other queues.
-      # Synced while the queue is still closed, so nothing uses the old store
-      # meanwhile, and a restart or delete that ran meanwhile wins.
-      @vhost.persister.sync if durable?
-      return false if !@closed || @deleted
-      reset_queue_state
-      @msg_store = init_msg_store(@data_dir)
-      @empty = @msg_store.empty
-      start.tap do |started|
-        reapply_policy if started
+      @restart_lock.synchronize do
+        return false unless @closed
+        # The new store doesn't know what the old one copied to other queues.
+        # Synced while the queue is still closed, so nothing uses the old
+        # store meanwhile, and a delete that ran meanwhile wins.
+        @vhost.persister.sync if durable?
+        return false if @deleted
+        reset_queue_state
+        @msg_store = init_msg_store(@data_dir)
+        @empty = @msg_store.empty
+        start.tap do |started|
+          reapply_policy if started
+        end
       end
     end
 
