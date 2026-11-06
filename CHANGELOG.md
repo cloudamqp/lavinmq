@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Select and delete multiple exchanges at once on the exchanges page of the management UI, like on the queues page. The built-in exchanges, which can't be deleted, can't be selected [#2534](https://github.com/cloudamqp/lavinmq/pull/2534)
+
 ### Changed
 
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
