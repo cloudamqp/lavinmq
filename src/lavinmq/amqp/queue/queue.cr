@@ -1543,13 +1543,21 @@ module LavinMQ::AMQP
     end
 
     # Used for when channel recovers without requeue
-    # eg. redelivers messages it already has unacked
-    def read(sp : SegmentPosition) : Envelope
-      @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+    # eg. redelivers messages it already has unacked.
+    # The segment stays mapped while yielding, even if the message is acked.
+    def read(sp : SegmentPosition, & : Envelope -> _) : Nil
+      env = begin
+        @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true).lease }
+      rescue ex : MessageStore::Error
+        @log.error(ex) { "Queue closed due to error" }
+        close
+        raise ex
+      end
+      begin
+        yield env
+      ensure
+        env.release
+      end
     end
 
     def durable?

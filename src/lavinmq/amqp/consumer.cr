@@ -227,8 +227,8 @@ module LavinMQ
         true
       end
 
-      def deliver(msg, sp, redelivered = false, recover = false)
-        unless @no_ack || recover
+      def deliver(msg, sp, redelivered = false)
+        unless @no_ack
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
