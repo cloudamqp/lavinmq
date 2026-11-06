@@ -49,7 +49,6 @@ module LavinMQ
       FileSystem.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
-      @persister.sync_local
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)

@@ -4,22 +4,6 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  def self.with_drain_held(&)
-    gate = ::Channel(Nil).new
-    LavinMQ::Persister.drain_gate = gate
-    begin
-      yield gate
-    ensure
-      LavinMQ::Persister.drain_gate = nil
-      gate.close
-    end
-  end
-
-  def self.release_drain(gate) : Nil
-    LavinMQ::Persister.drain_gate = nil
-    gate.close
-  end
-
   describe "QoS 1 PUBACK durability" do
     it "sends the PUBACK once the publish is durable, without blocking the read loop" do
       with_server do |server|

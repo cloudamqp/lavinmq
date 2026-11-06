@@ -58,16 +58,23 @@ module LavinMQ
 
     {% unless flag?(:release) %}
       record SyncRecord, syncfs : Bool, paths : Array(String)
-      # Spec instrumentation: what the most recent drain that synced synced
-      getter last_sync : SyncRecord?
-      # Spec instrumentation: calls of #sync_local
+      # Spec instrumentation: syncs of the data dir at start, see #sync_local
       getter local_syncs = 0
-      # Spec instrumentation: every drain that synced, oldest first
+      # Spec instrumentation: the latest drains that synced, oldest first
       @syncs = Array(SyncRecord).new
       @syncs_lock = Mutex.new
 
       def syncs : Array(SyncRecord)
         @syncs_lock.synchronize { @syncs.dup }
+      end
+
+      # Spec instrumentation: what the most recent drain that synced synced
+      def last_sync : SyncRecord?
+        @syncs_lock.synchronize { @syncs.last? }
+      end
+
+      def spec_forget_syncs : Nil
+        @syncs_lock.synchronize { @syncs.clear }
       end
     {% end %}
 
@@ -76,7 +83,7 @@ module LavinMQ
     @drains_started = 0u64
     @drains_synced = Atomic(UInt64).new(0u64)
     # A drain skipped its sync while sync was disabled, and the files it took
-    # are no longer marked, so the next drain that syncs does a syncfs
+    # are no longer marked, so the next drain that syncs does a local syncfs
     @skipped_sync = false
     # Callers of #wait_drain, with the drain they wait for
     @drain_waiters = Sync::Exclusive(Array({UInt64, ::Channel(Nil)})).new(Array({UInt64, ::Channel(Nil)}).new, :unchecked)
@@ -90,6 +97,7 @@ module LavinMQ
     def initialize(@data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
+      sync_local
       # Run on a dedicated thread so the blocking syscalls only stall this
       # thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
@@ -197,12 +205,13 @@ module LavinMQ
       waiter.receive?
     end
 
-    # Syncs this node's data dir now, without a drain or a wait for followers.
-    # Run before the stores load: a store doesn't know which of its messages
-    # an earlier process copied to other queues, and those copies can still be
-    # in the page cache, so they're made durable before any segment unlink.
-    def sync_local : Nil
-      FileSystem.syncfs(@data_dir_fd) if Config.instance.sync?
+    # Syncs this node's data dir, without a drain or a wait for followers.
+    # Run on creation, before the stores load: a store doesn't know which of
+    # its messages an earlier process copied to other queues, and those
+    # copies can still be in the page cache, so they're made durable before
+    # any segment unlink.
+    private def sync_local : Nil
+      syncfs_data_dir if Config.instance.sync?
       {% unless flag?(:release) %}
         @local_syncs += 1
       {% end %}
@@ -249,7 +258,7 @@ module LavinMQ
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       sync = Config.instance.sync?
-      syncfs = batch.syncfs? || !batch.waiters.empty? || @skipped_sync ||
+      syncfs = batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
@@ -268,9 +277,12 @@ module LavinMQ
       end
       begin
         if sync
-          if paths
+          # The followers synced what skipped drains sent them, only this
+          # node has to catch up on the files those drains took
+          if paths && !@skipped_sync
             syncfs = fsync_paths(batch.files, batch.paths, dirs)
           else
+            syncfs = true
             syncfs_data_dir
           end
         end
@@ -281,8 +293,10 @@ module LavinMQ
       {% unless flag?(:release) %}
         if sync
           record = SyncRecord.new(syncfs, paths || Array(String).new)
-          @last_sync = record
-          @syncs_lock.synchronize { @syncs << record }
+          @syncs_lock.synchronize do
+            @syncs.shift if @syncs.size >= 1024 # debug builds run for long
+            @syncs << record
+          end
         end
       {% end %}
 
