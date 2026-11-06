@@ -399,10 +399,14 @@ module LavinMQ
 
     # Syncs the copies of this store's messages in other queues that aren't
     # synced yet, before the whole store is unlinked or a store that doesn't
-    # know about them loads the same files. At shutdown the persister's loop
-    # has exited, and #sync falls back to a syncfs.
+    # know about them loads the same files: waits for the drain that syncs
+    # them, like a kept segment does, see #unlink_segment. At shutdown the
+    # persister's loop has exited, and #sync falls back to a syncfs.
     def sync_copies : Nil
-      @persister.try &.sync unless copies_synced?
+      return if copies_synced?
+      persister = @persister || return
+      persister.wait_drain(@copies_drain)
+      persister.sync unless copies_synced?
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -497,9 +501,11 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      # A moved copy isn't synced per drain like a confirmed publish, but
-      # with the unlink of the segment it was moved out of, so it doesn't
-      # switch the store to random access, see #readahead_for_writes
+      # A moved copy is synced by the next drain, like a confirmed publish,
+      # but nothing waits for that drain until the segment it was moved out
+      # of is emptied. It doesn't switch the store to random access, so a
+      # store that only gets moved copies keeps its readahead, see
+      # #readahead_for_writes
       if (msg.needs_sync? || msg.moved?) && (persister = @persister)
         persister.mark_dirty(wfile)
       end

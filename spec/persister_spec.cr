@@ -79,9 +79,10 @@ private def stall_past_kept_limit(s : LavinMQ::Server, &) : Nil
   wait_for(timeout: 5.seconds) { dst.message_count == 40 }
 end
 
-# Whether a drain synced a file in *dir*, or the whole filesystem
-private def synced_in?(s : LavinMQ::Server, dir : String) : Bool
-  s.persister.syncs.any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
+# Whether a drain synced a file in *dir*, or the whole filesystem, from the
+# drain recorded *since* syncs ago on
+private def synced_in?(s : LavinMQ::Server, dir : String, since = 0) : Bool
+  s.persister.syncs[since..].any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
 end
 
 # Waits until *path* is unlinked. A store unlinks an emptied segment whose
@@ -675,6 +676,29 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "keeps a segment until the drain that syncs the messages dead-lettered into a stream has run" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        with_drain_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(src_segment).should be_true
+        end
+        wait_unlinked(src_segment) { src.publish "x" }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
+        s.vhosts["/"].queue("dst").as(LavinMQ::AMQP::Stream).@msg_store.@synced_writes.should be_false
+      end
+    end
+  end
+
   it "doesn't sync before unlinking a delayed exchange segment whose messages routed nowhere" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -726,7 +750,29 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       queue.close
       synced = s.persister.syncs.size
       queue.restart!.should be_true
-      s.persister.syncs[synced..].any?(&.syncfs).should be_true
+      synced_in?(s, queue_dir(s, "dst"), synced).should be_true
+      s.persister.syncs[synced..].none?(&.syncfs).should be_true
+    end
+  end
+
+  it "syncs before a restarted priority queue reloads its store, when a sub-store moved messages that aren't synced" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        q = ch.queue("restarted", args: AMQP::Client::Arguments.new({
+          "x-max-priority"            => 1,
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        2.times { q.publish "x", props: AMQP::Client::Properties.new(priority: 1u8) }
+      end
+      wait_for { s.vhosts["/"].queue("dst").message_count == 2 }
+      queue = s.vhosts["/"].queue("restarted").as(LavinMQ::AMQP::Queue)
+      queue.close
+      synced = s.persister.syncs.size
+      queue.restart!.should be_true
+      synced_in?(s, queue_dir(s, "dst"), synced).should be_true
     end
   end
 
@@ -772,7 +818,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         synced = s.persister.syncs.size
         q.publish "y" # rejected into the retry queue, which is recreated
         wait_for { prim.@ack_count.get == 2 }
-        s.persister.syncs[synced..].any?(&.syncfs).should be_true
+        synced_in?(s, queue_dir(s, "prim"), synced).should be_true
       end
     end
   end
@@ -825,10 +871,10 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         q.publish "x"
         wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 1 }
         s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
-        synced = s.persister.syncs.size
+        drains = s.persister.drains
         q.publish "y" # rejected into the retry queue, which is recreated
         wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 2 }
-        s.persister.syncs[synced..].none?(&.syncfs).should be_true
+        s.persister.drains.should eq drains
       end
     end
   end
@@ -851,6 +897,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         deleted.receive?
         Dir.exists?(src_dir).should be_false
         synced_in?(s, queue_dir(s, "dst")).should be_true
+        s.persister.syncs.none?(&.syncfs).should be_true
       end
     end
   end
