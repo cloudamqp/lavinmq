@@ -32,7 +32,9 @@ module LavinMQ
     # Set once a publish to this store is synced, see #readahead_for_writes
     @synced_writes = false
     # Messages of this store were copied to other queues without a sync, so
-    # the next segment unlink must sync first, see #copied_out
+    # the next segment unlink must sync first, see #copied_out. Copies made
+    # by an earlier process are synced before the stores load, see
+    # Persister#sync_local
     @unsynced_copies = false
     getter closed
     getter bytesize = 0u64
@@ -50,9 +52,6 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
-      # Copies made before a restart or failover can still be unsynced in the
-      # page cache, and only acked messages can have been copied out
-      @unsynced_copies = !@acks.empty?
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key

@@ -58,6 +58,8 @@ module LavinMQ
       record SyncRecord, syncfs : Bool, paths : Array(String)
       # Spec instrumentation: what the most recent drain synced
       getter last_sync : SyncRecord?
+      # Spec instrumentation: calls of #sync_local
+      getter local_syncs = 0
     {% end %}
 
     @data_dir_fd : Int32 = -1
@@ -134,6 +136,17 @@ module LavinMQ
         return
       end
       waiter.receive?
+    end
+
+    # Syncs this node's data dir now, without a drain or a wait for followers.
+    # Run before the stores load: a store doesn't know which of its messages
+    # an earlier process copied to other queues, and those copies can still be
+    # in the page cache, so they're made durable before any segment unlink.
+    def sync_local : Nil
+      FileSystem.syncfs(@data_dir_fd) if Config.instance.sync?
+      {% unless flag?(:release) %}
+        @local_syncs += 1
+      {% end %}
     end
 
     def close : Nil
