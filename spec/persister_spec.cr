@@ -892,6 +892,35 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "deletes a queue directly while the retry queue it recreates waits for the definitions lock" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        reject_once_into_retry_queue(q)
+        prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+        q.publish "x"
+        wait_for { prim.@ack_count.get == 1 }
+        vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        deleted = Channel(Nil).new
+        vhost.synchronize_definitions do
+          q.publish "y" # rejected, the retry queue's recreation waits for the definitions lock
+          sleep 100.milliseconds
+          # Not through the definitions, like an auto-delete when the last consumer cancels
+          spawn { prim.delete; deleted.close }
+          sleep 100.milliseconds
+        end
+        select
+        when deleted.receive?
+        when timeout(5.seconds)
+          fail "the queue delete deadlocked with the retry queue's recreation"
+        end
+        vhost.declare_queue("after", true, false)
+        vhost.queue?("after").should_not be_nil
+      end
+    end
+  end
+
   it "doesn't restart a retry queue, its primary queue recreates it" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

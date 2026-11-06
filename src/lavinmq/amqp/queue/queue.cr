@@ -935,12 +935,13 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      @retry_queue_lock.synchronize do
-        if retry_queue = @delayed_retry_queue
-          @delayed_retry_queue = nil
-          retry_queue.delete
-        end
+      # Deleted outside @retry_queue_lock: its delete takes the vhost's
+      # definitions lock, which #active_retry_queue holds while it waits for
+      # @retry_queue_lock. @deleted keeps it from recreating the retry queue.
+      retry_queue = @retry_queue_lock.synchronize do
+        @delayed_retry_queue.tap { @delayed_retry_queue = nil }
       end
+      retry_queue.try &.delete
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
