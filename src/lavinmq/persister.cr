@@ -37,7 +37,7 @@ module LavinMQ
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
-      # A store waits for this drain, see #copy_drain
+      # A store waits for this drain, see #request_drain
       property? requested = false
 
       def drainable? : Bool
@@ -156,9 +156,10 @@ module LavinMQ
       @drains_synced.get(:acquire) >= seq
     end
 
-    # Requests a drain even if nothing else is pending: one that syncs is
-    # needed for a copy whose drain ran while sync was disabled. Returns
-    # false once the loop has exited at shutdown.
+    # Requests a drain even if nothing else is pending, for the copies an
+    # emptied segment waits for (see #copy_drain), also when their drain ran
+    # while sync was disabled. Returns false once the loop has exited at
+    # shutdown.
     def request_drain : Bool
       @pending.lock &.requested = true
       @publish_confirm_requested.try_send true
