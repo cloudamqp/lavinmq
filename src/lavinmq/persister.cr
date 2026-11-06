@@ -174,9 +174,10 @@ module LavinMQ
     end
 
     # Blocks until the drain numbered *seq* by #copy_drain, or a later one,
-    # has synced. Returns without it at shutdown.
+    # has synced. Returns without it at shutdown and while sync is disabled,
+    # also when a reload disables it during the wait: the caller checks again.
     def wait_drain(seq : UInt64) : Nil
-      return if drain_synced?(seq)
+      return if drain_synced?(seq) || !Config.instance.sync?
       waiter = ::Channel(Nil).new
       @drain_waiters.lock &.push({seq, waiter})
       return if drain_synced?(seq) # a drain released the waiters meanwhile
@@ -229,10 +230,7 @@ module LavinMQ
       # but not yet confirmed before exiting.
       drain
       # Nothing syncs after this, the waiters see their drain unsynced
-      @drain_waiters.lock do |waiters|
-        waiters.each { |_, waiter| waiter.close }
-        waiters.clear
-      end
+      release_drain_waiters
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
     end
 
@@ -312,12 +310,21 @@ module LavinMQ
         end
       else
         @skipped_sync = true
+        # No drain syncs while sync is disabled, so nothing waits for one
+        release_drain_waiters
       end
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)
       end
       batch.waiters.each &.close
+    end
+
+    private def release_drain_waiters : Nil
+      @drain_waiters.lock do |waiters|
+        waiters.each { |_, waiter| waiter.close }
+        waiters.clear
+      end
     end
 
     # Returns whether it fell back to syncing the whole filesystem
