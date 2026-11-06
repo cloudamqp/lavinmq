@@ -41,7 +41,7 @@ module LavinMQ
     @copies_drain = 0u64
     # Emptied segments, with their ack files, whose unlink waits for that
     # drain, see #unlink_segment
-    @unlink_after = Deque({UInt64, MFile, MFile?}).new
+    @unlink_after = Deque(KeptSegment).new
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -253,11 +253,9 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          acks = @acks.delete(sp.segment)
+          @acks.delete(sp.segment)
           if seg = @segments.delete(sp.segment)
-            unlink_segment(seg, acks)
-          elsif acks
-            delete_file(acks)
+            unlink_segment(seg, afile)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -335,11 +333,8 @@ module LavinMQ
       sync_copies
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
-      while entry = @unlink_after.shift?
-        _, segment, acks = entry
-        acks.try { |a| delete_file(a) }
-        delete_file(segment, including_meta: true)
-      end
+      @unlink_after.each { |kept| unlink_now(kept.segment, kept.acks) }
+      @unlink_after.clear
       FileUtils.rm_rf @msg_dir
     end
 
@@ -351,41 +346,45 @@ module LavinMQ
     # left at shutdown are fully acked, so the next start deletes them, after
     # its sync (see Persister#sync_local). Past MAX_KEPT_SEGMENTS it waits
     # for the oldest one's drain, when the drains can't keep up with the moves.
-    private def unlink_segment(segment : MFile, acks : MFile?) : Nil
+    private def unlink_segment(segment : MFile, acks : MFile) : Nil
       persister = @persister
-      if persister && Config.instance.sync? && !persister.drain_synced?(@copies_drain)
-        @unlink_after << {@copies_drain, segment, acks}
-        if @unlink_after.size > MAX_KEPT_SEGMENTS
-          persister.wait_drain(@unlink_after.first[0])
-          unlink_synced_segments
-        else
-          # The copies are synced by this drain, nothing requested it before
-          persister.request_drain
-        end
-      else
-        acks.try { |a| delete_file(a) }
-        delete_file(segment, including_meta: true)
+      if persister.nil? || copies_synced?(@copies_drain)
+        return unlink_now(segment, acks)
       end
-    end
-
-    # Before the whole store is unlinked: copies of its messages in other
-    # queues can still be unsynced, see #copied_out. At shutdown the
-    # persister's loop has exited, and #sync falls back to a syncfs.
-    private def sync_copies : Nil
-      persister = @persister || return
-      return if !Config.instance.sync? || persister.drain_synced?(@copies_drain)
-      persister.sync
+      @unlink_after << KeptSegment.new(@copies_drain, segment, acks)
+      if @unlink_after.size > MAX_KEPT_SEGMENTS
+        persister.wait_drain(@unlink_after.first.drain)
+        unlink_synced_segments
+      else
+        # Copies don't request their drain, see Persister#copy_drain
+        persister.request_drain
+      end
     end
 
     private def unlink_synced_segments : Nil
-      return if @unlink_after.empty?
-      persister = @persister || return
-      while (first = @unlink_after.first?) &&
-            (!Config.instance.sync? || persister.drain_synced?(first[0]))
-        _, segment, acks = @unlink_after.shift
-        acks.try { |a| delete_file(a) }
-        delete_file(segment, including_meta: true)
+      while (kept = @unlink_after.first?) && copies_synced?(kept.drain)
+        @unlink_after.shift
+        unlink_now(kept.segment, kept.acks)
       end
+    end
+
+    private def unlink_now(segment : MFile, acks : MFile) : Nil
+      delete_file(acks)
+      delete_file(segment, including_meta: true)
+    end
+
+    # Whether the copies counted by *drain* (see #copied_out) are durable, or
+    # don't have to be
+    private def copies_synced?(drain : UInt64) : Bool
+      persister = @persister
+      persister.nil? || !Config.instance.sync? || persister.drain_synced?(drain)
+    end
+
+    # Before the whole store is unlinked: copies of its messages in other
+    # queues can still be unsynced. At shutdown the persister's loop has
+    # exited, and #sync falls back to a syncfs.
+    private def sync_copies : Nil
+      @persister.try &.sync unless copies_synced?(@copies_drain)
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -410,28 +409,19 @@ module LavinMQ
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
       # the delivery releases it (see Envelope#lease)
+      @segments.each_value { |f| close_file(f) }
+      @acks.each_value { |f| close_file(f) }
       # Segments kept for a later unlink stay on disk, the next start deletes them
-      @unlink_after.each do |_, segment, acks|
-        @replicator.try &.register_file(segment.path)
-        segment.close
-        if acks
-          @replicator.try &.register_file(acks.path)
-          acks.close
-        end
+      @unlink_after.each do |kept|
+        close_file(kept.segment)
+        close_file(kept.acks)
       end
-      if replicator = @replicator
-        @segments.each_value do |segment|
-          replicator.register_file segment.path
-          segment.close
-        end
-        @acks.each_value do |ackfile|
-          replicator.register_file ackfile.path
-          ackfile.close
-        end
-      else
-        @segments.each_value &.close
-        @acks.each_value &.close
-      end
+    end
+
+    # The replicator reads a closed file by its path
+    private def close_file(file : MFile) : Nil
+      @replicator.try &.register_file(file.path)
+      file.close
     end
 
     # Called without the queue's lock (HTTP API, stats), so @size and
@@ -925,7 +915,8 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          unlink_segment(mfile, @acks.delete(seg))
+          @acks.delete(seg)
+          unlink_segment(mfile, acks)
           true
         else
           false
@@ -958,6 +949,9 @@ module LavinMQ
         io.write raw[-10..]
       end
     end
+
+    # An emptied segment kept until *drain* has synced, see #unlink_segment
+    private record KeptSegment, drain : UInt64, segment : MFile, acks : MFile
 
     class ClosedError < ::Channel::ClosedError; end
 

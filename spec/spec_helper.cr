@@ -84,7 +84,6 @@ class LavinMQ::Server
     Dir.mkdir_p @data_dir
     LavinMQ::Schema.migrate(@data_dir, @replicator)
     @persister = LavinMQ::Persister.new(@data_dir)
-    @persister.sync_local
     @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
     @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
     @vhosts = LavinMQ::VHostStore.new(@data_dir, @users, @replicator, @persister)
@@ -142,6 +141,23 @@ class LavinMQ::Persister
     @@drain_gate.try &.receive?
     previous_def
   end
+end
+
+# Holds the persister's drains until the block returns or #release_drain is
+# called with the gate it yields
+def with_drain_held(&)
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield gate
+  ensure
+    release_drain(gate)
+  end
+end
+
+def release_drain(gate : ::Channel(Nil)) : Nil
+  LavinMQ::Persister.drain_gate = nil
+  gate.close
 end
 
 def restart_server(server : LavinMQ::Server)
@@ -571,6 +587,8 @@ end
 # (which previously caused "Invalid memory access"). On normal completion the
 # dir is removed.
 Spec.around_each do |example|
+  # A timed out example skips its ensure, and can leave the drains held
+  LavinMQ::Persister.drain_gate.try { |gate| release_drain(gate) }
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
   config = init_config(LavinMQ::Config.new)
