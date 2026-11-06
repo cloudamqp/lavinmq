@@ -332,6 +332,7 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
+      sync_copies
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       while entry = @unlink_after.shift?
@@ -364,6 +365,15 @@ module LavinMQ
         acks.try { |a| delete_file(a) }
         delete_file(segment, including_meta: true)
       end
+    end
+
+    # Before the whole store is unlinked: copies of its messages in other
+    # queues can still be unsynced, see #copied_out. At shutdown the
+    # persister's loop has exited, and #sync falls back to a syncfs.
+    private def sync_copies : Nil
+      persister = @persister || return
+      return if !Config.instance.sync? || persister.drain_synced?(@copies_drain)
+      persister.sync
     end
 
     private def unlink_synced_segments : Nil
