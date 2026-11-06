@@ -107,6 +107,8 @@ module LavinMQ::AMQP
     @retry_queue_lock = Mutex.new
     # Serializes restarts, which wait for a sync before they load the store
     @restart_lock = Mutex.new
+    # A fiber unlinks the segments the store keeps, see #unlink_kept_segments_later
+    @unlinking_kept_segments = Atomic(Bool).new(false)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -333,6 +335,7 @@ module LavinMQ::AMQP
         @vhost.replicator.try &.register_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
+      @msg_store.on_kept_segment = ->unlink_kept_segments_later
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       begin
@@ -377,11 +380,35 @@ module LavinMQ::AMQP
         return false if @deleted
         reset_queue_state
         @msg_store = init_msg_store(@data_dir)
+        @msg_store.on_kept_segment = ->unlink_kept_segments_later
         @empty = @msg_store.empty
         start.tap do |started|
           reapply_policy if started
         end
       end
+    end
+
+    # Called under @msg_store_lock when the store keeps an emptied segment for
+    # the drain that syncs the copies of its messages (see
+    # MessageStore#unlink_segment). The store unlinks it at its next delete or
+    # rollover after that drain, this unlinks it also when none follows.
+    private def unlink_kept_segments_later : Nil
+      return if @unlinking_kept_segments.swap(true)
+      spawn(name: "Queue#unlink_kept_segments #{@vhost.name}/#{@name}") { unlink_kept_segments }
+    end
+
+    private def unlink_kept_segments : Nil
+      persister = @vhost.persister
+      while drain = @msg_store_lock.synchronize { @msg_store.kept_segment_drain }
+        persister.wait_drain(drain)
+        @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
+        # At shutdown the persister's loop has exited, and nothing syncs
+        break if Config.instance.sync? && !persister.drain_synced?(drain)
+      end
+    rescue ex
+      @log.error(exception: ex) { "Failed to unlink emptied segments" }
+    ensure
+      @unlinking_kept_segments.set(false)
     end
 
     private def start_message_expire_loop

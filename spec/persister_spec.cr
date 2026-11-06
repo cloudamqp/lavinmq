@@ -466,6 +466,47 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "unlinks a kept segment once its drain is done, when nothing else happens on the queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        with_drain_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(src_segment).should be_true
+        end
+        # No publish or delete on src from here
+        wait_for { !File.exists?(src_segment) }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
+      end
+    end
+  end
+
+  it "unlinks a kept priority queue segment once its drain is done, when nothing else happens on its priority" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-max-priority"            => 1,
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        src_segment = File.join(queue_dir(s, "src"), "prio.001", "msgs.0000000001")
+        props = AMQP::Client::Properties.new(priority: 1u8)
+        with_drain_held do
+          8.times { src.publish "x" * 100_000, props: props }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(src_segment).should be_true
+        end
+        wait_for { !File.exists?(src_segment) }
+      end
+    end
+  end
+
   it "waits for the drain once it keeps more emptied segments than the limit" do
     with_amqp_server { |s| stall_past_kept_limit(s) { } }
   end

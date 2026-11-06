@@ -42,6 +42,10 @@ module LavinMQ
     # Emptied segments, with their ack files, whose unlink waits for that
     # drain, see #unlink_segment
     @unlink_after = Deque(KeptSegment).new
+    # Called, under the lock that guards the store, when it keeps an emptied
+    # segment, so its owner can unlink it once the drain is done, also if
+    # nothing else happens on the store, see #unlink_synced_segments
+    property on_kept_segment : Proc(Nil)? = nil
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -362,6 +366,7 @@ module LavinMQ
         return unlink_now(segment, acks)
       end
       @unlink_after << KeptSegment.new(@copies_drain, segment, acks)
+      @on_kept_segment.try &.call
       if @unlink_after.size > MAX_KEPT_SEGMENTS
         persister.wait_drain(@unlink_after.first.drain)
         unlink_synced_segments
@@ -371,11 +376,22 @@ module LavinMQ
       end
     end
 
-    private def unlink_synced_segments : Nil
+    # The drain the oldest kept segment waits for, nil if none is kept
+    def kept_segment_drain : UInt64?
+      @unlink_after.first?.try &.drain unless @closed
+    end
+
+    # Unlinks the kept segments whose drain is done, returns how many. A
+    # closed store leaves them to the next start.
+    def unlink_synced_segments : Int32
+      return 0 if @closed
+      count = 0
       while (kept = @unlink_after.first?) && drain_done?(kept.drain)
         unlink_now(kept.segment, kept.acks) # a later call retries it if it raises
         @unlink_after.shift
+        count += 1
       end
+      count
     end
 
     private def unlink_now(segment : MFile, acks : MFile) : Nil
