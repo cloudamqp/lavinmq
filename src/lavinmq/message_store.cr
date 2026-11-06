@@ -278,11 +278,18 @@ module LavinMQ
     end
 
     def purge_all
+      purge_all { }
+    end
+
+    # Calls on_requeued with each requeued message: the only purged messages
+    # that can have been delivered before
+    def purge_all(&on_requeued : SegmentPosition ->)
       # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
         delete(sp) if @segments.has_key?(sp.segment)
+        on_requeued.call(sp)
       end
 
       # Delete all segments except the current rfile and wfile

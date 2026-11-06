@@ -1283,6 +1283,27 @@ describe LavinMQ::AMQP::Queue do
       end
     {% end %}
 
+    it "keeps the delivery count of a message in flight when the queue is purged" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("dl-inflight", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 10}))
+        q = vhost.queue("dl-inflight").as(LavinMQ::AMQP::Queue)
+        2.times { q.publish(LavinMQ::Message.new("", q.name, "body")) }
+        sps = Array(LavinMQ::SegmentPosition).new
+        2.times { q.basic_get(false) { |env| sps << env.segment_position } }
+        sps.each { |sp| q.reject(sp, requeue: true) }
+        in_flight = Array(LavinMQ::SegmentPosition).new
+        q.basic_get(false) { |env| in_flight << env.segment_position }
+        # A reject decrements the unacked count before it requeues the message,
+        # so a purge can run while the message is counted as neither
+        q.@unacked_count.sub(1)
+        q.purge.should eq 1
+        q.@deliveries.size.should eq 1
+        q.@deliveries[in_flight.first].should eq 2
+      end
+    end
+
     it "drops delivery counts acked after the delivery limit policy is removed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
