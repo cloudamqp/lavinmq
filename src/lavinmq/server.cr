@@ -58,6 +58,37 @@ module LavinMQ
       end
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+      spawn release_idle_buffers_loop, name: "Server#release_idle_buffers_loop"
+    end
+
+    IDLE_RELEASE_INTERVAL = 60.seconds
+    # Objects visited between yields, so a pass over many objects doesn't hold
+    # up other fibers.
+    IDLE_RELEASE_YIELD_EVERY = 1000
+
+    private def release_idle_buffers_loop
+      until closed?
+        sleep IDLE_RELEASE_INTERVAL
+        break if closed?
+        begin
+          elapsed = Time.measure { release_idle_buffers }
+          Log.debug { "Releasing idle buffers took #{elapsed.total_milliseconds.round(1)} ms" }
+        rescue ex
+          Log.error(exception: ex) { "Releasing idle buffers failed" }
+        end
+      end
+    end
+
+    # Iterates copies of the connection and channel lists, as it yields and a
+    # connection can close in the meantime.
+    def release_idle_buffers : Nil
+      visited = 0
+      connections.each do |connection|
+        connection.channels.each do |ch|
+          ch.release_idle_buffers
+          Fiber.yield if (visited += 1) % IDLE_RELEASE_YIELD_EVERY == 0
+        end
+      end
     end
 
     getter persister : Persister
