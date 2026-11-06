@@ -28,6 +28,36 @@ private def reject_once_into_retry_queue(q)
   end
 end
 
+# Whether a drain synced a file in *dir*, or the whole filesystem
+private def synced_in?(s : LavinMQ::Server, dir : String) : Bool
+  s.persister.syncs.any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
+end
+
+# Waits until *path* is unlinked. A store unlinks an emptied segment whose
+# messages it copied out once their drain is done, at its next delete or
+# rollover (see MessageStore#unlink_segment), which the block causes.
+private def wait_unlinked(path : String, &) : Nil
+  deadline = Time.instant + 15.seconds
+  while File.exists?(path)
+    fail "#{path} wasn't unlinked" if Time.instant > deadline
+    yield
+    sleep 20.milliseconds
+  end
+end
+
+# Holds the persister's drains for the block, so a spec can check what a
+# store does before the copies it made are synced
+private def with_drains_held(&) : Nil
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield
+  ensure
+    LavinMQ::Persister.drain_gate = nil
+    gate.close
+  end
+end
+
 private class ConfirmReceiver
   include LavinMQ::Persister::ConfirmTarget
   getter confirms = Channel(UInt64).new(1)
@@ -265,7 +295,7 @@ describe LavinMQ::Persister do
 end
 
 describe LavinMQ::Persister, "messages the broker moves between queues" do
-  it "syncs the filesystem before an emptied segment is unlinked" do
+  it "keeps a segment until the drain that syncs its dead-lettered copies has run, without a syncfs" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
@@ -274,16 +304,47 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dst",
         }))
-        # Plain publishes: no confirm requests a sync, only the segment delete can
-        8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
-        wait_for { !File.exists?(src_segment) }
-        last_sync(s).syncfs.should be_true
+        with_drains_held do
+          # Plain publishes: no confirm requests a sync, only the copies can
+          8.times { src.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds # the sources are deleted right after their copies
+          File.exists?(src_segment).should be_true
+        end
+        wait_unlinked(src_segment) { src.publish "x" }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
+        s.persister.syncs.none?(&.syncfs).should be_true
       end
     end
   end
 
-  it "syncs before unlinking a priority queue segment that messages were moved out of" do
+  it "waits for the drain once it keeps more emptied segments than the limit" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        dst = ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        # Five messages fill a segment, so 40 empty seven: more than the limit
+        per_segment = 5
+        limit = LavinMQ::MessageStore::MAX_KEPT_SEGMENTS
+        with_drains_held do
+          40.times { src.publish "x" * 100_000 }
+          moved = (limit + 1) * per_segment
+          wait_for { s.vhosts["/"].queue("dst").message_count >= moved }
+          sleep 100.milliseconds
+          # The expiry waits for the drain after the segment past the limit
+          s.vhosts["/"].queue("dst").message_count.should eq moved
+        end
+        wait_for { dst.message_count == 40 }
+      end
+    end
+  end
+
+  it "keeps a priority queue segment until the drain that syncs its copies has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
@@ -293,56 +354,77 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dst",
         }))
-        8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "prio.000", "msgs.0000000001")
-        wait_for { !File.exists?(src_segment) }
-        last_sync(s).syncfs.should be_true
+        with_drains_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(src_segment).should be_true
+        end
+        wait_unlinked(src_segment) { src.publish "x" }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
       end
     end
   end
 
-  it "syncs before unlinking a delayed exchange segment that messages were released from" do
+  it "keeps a delayed exchange segment until the drain that syncs the released messages has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange("delayed", "direct", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
         ch.queue("dst").bind(x.name, "dst")
         props = AMQ::Protocol::Properties.new(headers: AMQP::Client::Arguments.new({"x-delay" => 1}))
-        8.times { x.publish "x" * 100_000, "dst", props: props }
         delayed_segment = File.join(queue_dir(s, "amq.delayed-delayed"), "msgs.0000000001")
-        wait_for { !File.exists?(delayed_segment) }
-        last_sync(s).syncfs.should be_true
+        with_drains_held do
+          8.times { x.publish "x" * 100_000, "dst", props: props }
+          wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(delayed_segment).should be_true
+        end
+        wait_unlinked(delayed_segment) { x.publish "x", "dst", props: props }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
       end
     end
   end
 
-  it "syncs before unlinking a segment that messages were rejected into the retry queue from" do
+  it "keeps a segment until the drain that syncs the messages rejected into the retry queue has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
-        reject_once_into_retry_queue(q)
-        8.times { q.publish "x" * 100_000 }
-        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
-        last_sync(s).syncfs.should be_true
+        prim_segment = File.join(queue_dir(s, "prim"), "msgs.0000000001")
+        with_drains_held do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          wait_for { s.vhosts["/"].queue("amq.retry-prim").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(prim_segment).should be_true
+        end
+        wait_unlinked(prim_segment) { q.publish "x" }
+        synced_in?(s, queue_dir(s, "amq.retry-prim")).should be_true
       end
     end
   end
 
-  it "syncs before unlinking a retry queue segment that messages were released from" do
+  it "keeps a retry queue segment until the drain that syncs the messages it released has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 500}))
-        reject_once_into_retry_queue(q)
-        8.times { q.publish "x" * 100_000 }
-        # The primary's own unlink, after the rejects, syncs first
-        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
-        s.persister.spec_forget_last_sync
-        wait_for { !File.exists?(File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")) }
-        last_sync(s).syncfs.should be_true
+        retry_segment = File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")
+        with_drains_held do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          retry_q = s.vhosts["/"].queue("amq.retry-prim")
+          wait_for { retry_q.message_count == 8 }
+          wait_for(timeout: 5.seconds) { retry_q.message_count == 0 }
+          sleep 50.milliseconds
+          File.exists?(retry_segment).should be_true
+        end
+        wait_unlinked(retry_segment) { q.publish "x" }
+        synced_in?(s, queue_dir(s, "prim")).should be_true
       end
     end
   end
 
-  it "syncs before unlinking a retry queue segment that messages expired out of" do
+  it "keeps a retry queue segment until the drain that syncs the messages that expired out of it has run" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
@@ -352,12 +434,16 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dst",
         }))
-        reject_once_into_retry_queue(q)
-        8.times { q.publish "x" * 100_000 }
-        wait_for { !File.exists?(File.join(queue_dir(s, "prim"), "msgs.0000000001")) }
-        s.persister.spec_forget_last_sync
-        wait_for { !File.exists?(File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")) }
-        last_sync(s).syncfs.should be_true
+        retry_segment = File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")
+        with_drains_held do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          wait_for(timeout: 5.seconds) { s.vhosts["/"].queue("dst").message_count == 8 }
+          sleep 50.milliseconds
+          File.exists?(retry_segment).should be_true
+        end
+        wait_unlinked(retry_segment) { q.publish "x" }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
       end
     end
   end
@@ -412,11 +498,12 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         dead_letter = false
         src.publish "x" * 100_000
         wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
-        s.persister.last_sync.should be_nil
+        s.persister.syncs.should be_empty
         LavinMQ::Config.instance.sync = true
         5.times { src.publish "x" * 100_000 }
-        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000002")) }
-        last_sync(s).syncfs.should be_true
+        wait_unlinked(File.join(queue_dir(s, "src"), "msgs.0000000002")) { src.publish "x" }
+        # The drains that took the copies skipped their sync, so it's a syncfs
+        s.persister.syncs.any?(&.syncfs).should be_true
       end
     end
   end

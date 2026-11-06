@@ -723,6 +723,7 @@ module LavinMQ::AMQP
       props.headers = h
       retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_msg.needs_sync = true # see MessageStore#copied_out
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp, copied: true)
       true
