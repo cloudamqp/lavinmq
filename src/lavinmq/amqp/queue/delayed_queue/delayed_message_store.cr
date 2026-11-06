@@ -104,11 +104,12 @@ module LavinMQ::AMQP
         sp
       end
 
-      def purge_all
+      def purge_all(&on_requeued : SegmentPosition ->)
         while sp = @requeued.shift?
           @size -= 1
           @bytesize -= sp.bytesize
           delete(sp) if @segments.has_key?(sp.segment)
+          on_requeued.call(sp)
         end
         @empty.set true
       end
