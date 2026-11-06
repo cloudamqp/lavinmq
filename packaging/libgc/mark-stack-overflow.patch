@@ -1,0 +1,20 @@
+--- a/mark.c
++++ b/mark.c
+@@ -485,10 +485,13 @@
+ {
+     GC_mark_state = MS_INVALID;
+ #   ifdef PARALLEL_MARK
+-      /* We are using a local_mark_stack in parallel mode, so   */
+-      /* do not signal the global mark stack to be resized.     */
+-      /* That will be done if required in GC_return_mark_stack. */
+-      if (!GC_parallel)
++      /* A local_mark_stack in parallel mode is resized, if required, */
++      /* in GC_return_mark_stack.  An overflow of the global mark     */
++      /* stack (as when the initiating thread pushes many roots)      */
++      /* needs the flag in parallel mode too, or it never grows. msp  */
++      /* is one past the last entry when it overflows.                */
++      if (!GC_parallel || ((word)msp >= (word)GC_mark_stack
++                           && (word)msp <= (word)GC_mark_stack_limit))
+         GC_mark_stack_too_small = TRUE;
+ #   else
+       GC_mark_stack_too_small = TRUE;
