@@ -143,17 +143,11 @@ module LavinMQ
     # For a message the broker copied to another queue (dead-lettered,
     # delayed, retried), after the copy was written and marked dirty there.
     # Returns the number of the drain that makes the copy durable, see
-    # #drain_synced?, and requests that drain, so it runs without a confirm.
+    # #drain_synced?. It doesn't request that drain: a store does when it
+    # has to keep a segment for it (see #request_drain), so a burst of moves
+    # costs a drain per emptied segment, not one per message.
     def copy_drain : UInt64
-      seq = @pending.lock do |batch|
-        batch.requested = true
-        @drains_started + 1
-      end
-      @publish_confirm_requested.try_send true
-      seq
-    rescue ::Channel::ClosedError
-      # Shutdown: nothing is synced any more, the next start syncs first
-      seq || 0u64
+      @pending.lock { @drains_started + 1 }
     end
 
     # Whether the drain numbered *seq* by #copy_drain, or a later one, has
