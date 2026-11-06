@@ -56,7 +56,7 @@ module LavinMQ::AMQP
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
       retried = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      retried.needs_sync = true # see MessageStore#copied_out
+      retried.moved = true
       result = @primary_queue.publish_internal(retried)
       return redelay(env) unless result.ok?
       delete_message sp, copied: true
@@ -74,7 +74,7 @@ module LavinMQ::AMQP
       msg.properties.headers = h
       redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      redelayed.needs_sync = true # see MessageStore#copied_out
+      redelayed.moved = true
       if delay(redelayed)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
         delete_message sp, copied: true

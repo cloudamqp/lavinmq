@@ -64,7 +64,7 @@ module LavinMQ::AMQP
       end
       released = Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      released.needs_sync = true # see MessageStore#copied_out
+      released.moved = true
       result = @vhost.exchange(@exchange_name).route_msg released
       delete_message sp, copied: result.routed?
     end

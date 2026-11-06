@@ -223,9 +223,9 @@ module LavinMQ
     end
 
     # Call before deleting a message whose copy the broker wrote to another
-    # queue (dead-lettered, delayed, retried), with needs_sync set, so the
-    # copy is synced by the next persister drain, like a confirmed publish.
-    # Segments emptied before that drain is done are unlinked after it, see
+    # queue (dead-lettered, delayed, retried), with moved set, so the copy
+    # is marked dirty and synced by the next persister drain. Segments
+    # emptied before that drain is done are unlinked after it, see
     # #unlink_segment. The position isn't needed here, PriorityMessageStore
     # picks its sub-store by it.
     def copied_out(_sp : SegmentPosition) : Nil
@@ -359,6 +359,7 @@ module LavinMQ
           persister.wait_drain(@unlink_after.first[0])
           unlink_synced_segments
         else
+          # The copies are synced by this drain, nothing requested it before
           persister.request_drain
         end
       else
@@ -488,7 +489,10 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      if msg.needs_sync? && (persister = @persister)
+      # A moved copy isn't synced per drain like a confirmed publish, but
+      # with the unlink of the segment it was moved out of, so it doesn't
+      # switch the store to random access, see #readahead_for_writes
+      if (msg.needs_sync? || msg.moved?) && (persister = @persister)
         persister.mark_dirty(wfile)
       end
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
