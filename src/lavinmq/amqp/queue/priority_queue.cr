@@ -203,8 +203,8 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def purge_all(&on_requeued : SegmentPosition ->)
+        @stores.each(&.purge_all(&on_requeued))
         @empty.set true
       end
 
