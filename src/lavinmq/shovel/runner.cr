@@ -187,7 +187,7 @@ module LavinMQ
       # Backoff before the next delivery attempt after `failures` consecutive
       # transient failures: 0.5s, 1s, 2s, 4s, … doubling, capped at
       # MAX_DELIVERY_DELAY, then holding there.
-      def self.delivery_backoff(failures : Int32) : Time::Span
+      protected def self.delivery_backoff(failures : Int32) : Time::Span
         return 0.seconds if failures <= 0
         secs = Math.min(MAX_DELIVERY_DELAY.to_f, 0.5 * 2.0 ** Math.min(failures - 1, 6))
         secs.seconds
@@ -230,11 +230,18 @@ module LavinMQ
 
       def exponential_reconnect_delay
         @retries += 1
-        if @retries > RETRY_THRESHOLD
-          sleep Math.min(MAX_DELAY, @reconnect_delay.seconds ** (@retries - RETRY_THRESHOLD)).seconds
-        else
-          sleep @reconnect_delay
-        end
+        sleep self.class.reconnect_backoff(@reconnect_delay, @retries)
+      end
+
+      # `delay`, then past RETRY_THRESHOLD attempts `delay` in seconds (at least
+      # 2, so 0 and 1 second grow) to the power of the extra attempts, capped at
+      # MAX_DELAY seconds but never below `delay`. Float math, as the power
+      # keeps growing past the cap and would overflow an Int.
+      protected def self.reconnect_backoff(delay : Time::Span, retries : Int) : Time::Span
+        return delay if retries <= RETRY_THRESHOLD
+        base = Math.max(2.0, delay.total_seconds)
+        backoff = Math.min(MAX_DELAY.to_f, base ** (retries - RETRY_THRESHOLD))
+        Math.max(delay, backoff.seconds)
       end
 
       def details_tuple
