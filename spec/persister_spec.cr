@@ -921,15 +921,24 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "doesn't restart a retry queue, its primary queue recreates it" do
+  it "restarts a closed retry queue through its primary queue, which releases its delayed messages" do
     with_amqp_server do |s|
+      vhost = s.vhosts["/"]
       with_channel(s) do |ch|
-        ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 300}))
+        reject_once_into_retry_queue(q)
+        prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+        q.publish "x"
+        wait_for { vhost.queue("amq.retry-prim").message_count == 1 }
+        retry_queue = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+        retry_queue.close
+        # Like PUT /api/queues/:vhost/:name/restart, without another reject
+        retry_queue.restart!.should be_true
+        recreated = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+        recreated.should_not be retry_queue
+        recreated.closed?.should be_false
+        wait_for { prim.@ack_count.get == 1 } # released back to prim and acked
       end
-      retry_queue = s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
-      retry_queue.close
-      retry_queue.restart!.should be_false
-      retry_queue.closed?.should be_true
     end
   end
 

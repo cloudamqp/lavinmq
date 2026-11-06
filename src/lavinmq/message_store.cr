@@ -338,7 +338,7 @@ module LavinMQ
     private def wait_for_copies_of_middle_segments : Nil
       return if copies_synced?
       return unless @segments.each_key.any? { |id| id != @rfile_id && id != @wfile_id }
-      @persister.try &.wait_drain(@copies_drain)
+      sync_copies
     end
 
     def delete
