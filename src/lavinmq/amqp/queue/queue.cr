@@ -364,19 +364,15 @@ module LavinMQ::AMQP
       end
     end
 
-    # A store loaded from the same files doesn't know which messages the
-    # closed one copied to other queues, and would unlink the segments they
-    # were copied from at once
-    private def sync_copies_of_closed_store : Nil
-      @msg_store.sync_copies
-    end
-
     def restart! : Bool
       @restart_lock.synchronize do
         return false unless @closed
-        # Synced while the queue is still closed, so nothing uses the old
-        # store meanwhile, and a delete that ran meanwhile wins
-        sync_copies_of_closed_store
+        # A store loaded from the same files doesn't know which messages the
+        # closed one copied to other queues, and would unlink the segments
+        # they were copied from at once. Synced while the queue is still
+        # closed, so nothing uses the old store meanwhile, and a delete that
+        # ran meanwhile wins.
+        @msg_store.sync_copies
         return false if @deleted
         reset_queue_state
         @msg_store = init_msg_store(@data_dir)
@@ -747,8 +743,10 @@ module LavinMQ::AMQP
       # Outside the locks: a delete of this queue holds the vhost's definitions
       # lock while it waits for @retry_queue_lock
       sync_copies_so_far if closed_retry_queue
-      # In the order a delete takes them, as create_retry_queue registers the
-      # queue in the definitions
+      # The definitions lock first, as create_retry_queue registers the queue
+      # there. A delete through the definitions takes them in the same order,
+      # and a direct #delete releases @retry_queue_lock before it takes the
+      # definitions lock.
       @vhost.synchronize_definitions do
         @retry_queue_lock.synchronize do
           retry_queue = @delayed_retry_queue
