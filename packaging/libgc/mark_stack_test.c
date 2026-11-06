@@ -2,7 +2,7 @@
  * overflows while the roots are pushed (Crystal pushes every parked fiber's
  * stack with GC_push_all_eager) and never grows, so every collection falls
  * back to a serial heap rescan. With mark-stack-overflow.patch it grows.
- * Built by build.sh inside the bdwgc source tree, for the private header. */
+ * Built by the Makefile inside the bdwgc source tree, for the private header. */
 #include <stdio.h>
 #include <stdlib.h>
 #include "private/gc_priv.h"
