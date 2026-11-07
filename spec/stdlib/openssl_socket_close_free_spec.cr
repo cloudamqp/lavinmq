@@ -1,4 +1,5 @@
 require "spec"
+require "../../src/stdlib/openssl_ktls"
 require "../../src/stdlib/openssl_socket_close_free"
 
 private def tls_pair(sync_close = true, &)
@@ -31,6 +32,19 @@ describe OpenSSL::SSL::Socket do
       server.close
       server.@ssl_freed.get.should be_true
       server.finalize # what the GC would call: must not free it again
+    end
+  end
+
+  it "raises from accessors once the SSL object is freed" do
+    tls_pair do |server, _client|
+      server.tls_version.should_not be_empty
+      server.close
+      expect_raises(IO::Error, "Closed stream") { server.tls_version }
+      expect_raises(IO::Error, "Closed stream") { server.cipher }
+      expect_raises(IO::Error, "Closed stream") { server.hostname }
+      expect_raises(IO::Error, "Closed stream") { server.alpn_protocol }
+      expect_raises(IO::Error, "Closed stream") { server.peer_certificate }
+      expect_raises(IO::Error, "Closed stream") { server.ktls_status }
     end
   end
 
