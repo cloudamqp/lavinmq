@@ -935,6 +935,46 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "redelivers requeued messages with their offset, in any order" do
+    queue_name = Random::Secure.hex
+    data = "x" * 1000
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue(queue_name, args: stream_queue_args)
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+        1500.times { stream.publish(LavinMQ::Message.new("", queue_name, data)) }
+        store.@segments.size.should be > 2
+        offsets = Hash(LavinMQ::SegmentPosition, Int64).new
+        store.@segments.each_key do |seg|
+          pos = 4u32
+          while env = store.read(seg, pos)
+            offsets[env.segment_position] = offsets.size.to_i64 + 1
+            pos += env.segment_position.bytesize
+          end
+        end
+        offsets.size.should eq 1500
+
+        ch.flow(false) # the spec drives the redeliveries
+        ch.prefetch 1
+        q.subscribe(no_ack: false) { }
+        wait_for { stream.@consumers.size == 1 }
+        consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+        {offsets.keys, offsets.keys.shuffle!}.each do |sps|
+          sps.each { |sp| stream.push_requeued(consumer, sp) }
+          sps.each do |sp|
+            env = stream.@msg_store_lock.synchronize { store.shift?(consumer) }.should_not be_nil
+            env.segment_position.should eq sp
+            headers = env.message.properties.headers.should_not be_nil
+            headers["x-stream-offset"].should eq offsets[sp]
+          end
+        end
+        # Only the segments that are read or written keep their index
+        store.@offset_index.keys.to_set.should eq Set{consumer.segment, store.@segments.last_key}
+      end
+    end
+  end
+
   it "can start consume from last segment even if queue is empty" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
