@@ -229,6 +229,25 @@ describe LavinMQ::Server do
       end
     end
 
+    it "doesn't time out a client that sends heartbeats when socket_buffer_size is 0" do
+      config = LavinMQ::Config.new
+      config.socket_buffer_size = 0
+      with_amqp_server(config: config) do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          # Longer than the heartbeat timeout (1 s + 5 s), with a pause
+          # between heartbeats that lets the server's read time out
+          8.times do
+            io.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+            io.flush
+            sleep 1.second
+          end
+          client.closed?.should be_false
+        end
+      end
+    end
+
     it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
       with_amqp_server do |s|
         with_raw_amqp_connection(s) do |io, stream|
