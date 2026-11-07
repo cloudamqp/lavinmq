@@ -21,6 +21,14 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
+    # Its primary queue recreates it once it's closed, see
+    # Queue#active_retry_queue, so a restart goes through it: reopening this
+    # instance as well would load a second store from the same files
+    def restart! : Bool
+      return false unless @closed
+      !@primary_queue.recreate_retry_queue.nil?
+    end
+
     def delay(msg : Message) : Bool
       return false if @closed
       @msg_store_lock.synchronize do
@@ -51,13 +59,12 @@ module LavinMQ::AMQP
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { |stored| delete_message sp if stored }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { |copied, stored| delete_message sp, copied: copied if stored }
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+      result = @primary_queue.publish_internal(Message.moved_copy(msg))
       return redelay(env) unless result.ok?
-      delete_message sp
+      delete_message sp, copied: true
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
@@ -70,11 +77,9 @@ module LavinMQ::AMQP
       backoff = @primary_queue.retry_delay_for(delivery_count)
       h["x-delay"] = @primary_queue.delay_from(msg, backoff)
       msg.properties.headers = h
-      redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      if delay(redelayed)
+      if delay(Message.moved_copy(msg))
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
-        delete_message sp
+        delete_message sp, copied: true
       else
         @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
       end
