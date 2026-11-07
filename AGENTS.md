@@ -1,7 +1,7 @@
 LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 
 ## Commands
-- `make test SPEC=spec/foo_spec.cr` — one spec (iterate with this); `make test` — full suite, once at the end
+- `make test SPEC=spec/foo_spec.cr` — one spec (iterate with this); `make test` — full suite in parallel processes, once at the end (reproduce a run with the `SPEC_JOBS`/`SPEC_SEED` it prints)
 - `make lint`; `crystal tool format`
 - `make bin/lavinmq CRYSTAL_FLAGS=` — debug build; `bin/lavinmq --data-dir ./tmp/data --debug` — run
 - Frontend (views/, static/js/): `make views`, then `make test-frontend [SPEC=spec/frontend/foo.spec.js]` against a running server
