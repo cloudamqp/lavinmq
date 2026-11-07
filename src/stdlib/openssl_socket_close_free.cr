@@ -1,5 +1,6 @@
 {% unless flag?(:gc_none) %}
   require "openssl"
+  require "./openssl_ktls"
 
   # Free the SSL object on close rather than in the finalizer, and drop the finalizer.
   # A fiber can be suspended inside SSL_read or SSL_write when another closes the
@@ -35,6 +36,19 @@
         leave_ssl
       end
     end
+
+    # These read the SSL object too, which is gone once closed
+    {% for method in %w[alpn_protocol hostname cipher tls_version peer_certificate ktls_send? ktls_recv?] %}
+      def {{ method.id }}
+        @ssl_calls.add(1)
+        begin
+          raise IO::Error.new("Closed stream") if @ssl_freed.get
+          previous_def
+        ensure
+          leave_ssl
+        end
+      end
+    {% end %}
 
     def finalize
       LibSSL.ssl_free(@ssl) unless @ssl_freed.swap(true)
