@@ -377,6 +377,32 @@ describe "Retry Queue" do
       end
     end
 
+    it "should not leak mmaps when the retry queue store can't be loaded" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000})
+          q = ch.queue("retry-load-error", args: args)
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-load-error")
+          retry_q.close
+          # MFile can't open a directory, so recreating the retry queue fails
+          Dir.mkdir(File.join(retry_q.@msg_store.@msg_dir, "msgs.0000000002"))
+
+          q.publish_confirm "msg"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          count_before = MFile.mmap_count
+          5.times do
+            msg = wait_for { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
+          MFile.mmap_count.should eq count_before
+
+          q.delete
+          s.vhosts["/"].queue?("amq.retry-retry-load-error").should be_nil
+        end
+      end
+    end
+
     it "should purge delayed messages with the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
