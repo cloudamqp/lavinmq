@@ -527,7 +527,9 @@ module FollowerSpec
 
         # Fill the socket buffers (the client side never reads), then stop at
         # the first blocked write, so a later flush of the pending LZ4 data
-        # must block on the event loop.
+        # must block on the event loop. Nothing reads the client side, so the
+        # writes can only time out, and a short timeout gets there sooner.
+        follower_socket.write_timeout = 200.milliseconds
         filled = Channel(Nil).new(1)
         spawn(name: "socket filler") do
           junk = Bytes.new(65536)
@@ -543,8 +545,9 @@ module FollowerSpec
           fail "socket buffers never filled"
         end
 
-        # ack_loop on the default context keeps a read pending on the fd.
-        spawn { follower.ack_loop }
+        # ack_loop on the default context keeps a read pending on the fd. Its
+        # ack timeout also bounds its blocked writes.
+        spawn { follower.ack_loop(200.milliseconds) }
         sleep 20.milliseconds
 
         result = Channel(Bool | Exception).new(1)
@@ -555,7 +558,8 @@ module FollowerSpec
         end
 
         # The follower never acks; eventually ack_loop gives up (its own
-        # blocked flush times out) and unblocks the waiter with false. The
+        # blocked flush times out, or the ack deadline passes) and unblocks
+        # the waiter with false. The
         # old direct flush instead raised RuntimeError here: the blocked
         # write tried to move the fd to the isolated context's event loop
         # while ack_loop's read was pending on the default one.

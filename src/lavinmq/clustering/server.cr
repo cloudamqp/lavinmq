@@ -44,7 +44,11 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
+      # `ack_timeout` (see Follower::ACK_TIMEOUT) and `isr_retry_interval`
+      # (see #flush_isr) are only lowered by specs.
+      def initialize(config : Config, @coordinator : Coordinator, @id : Int32,
+                     @ack_timeout : Time::Span = Follower::ACK_TIMEOUT,
+                     @isr_retry_interval : Time::Span = 0.5.seconds)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
@@ -391,7 +395,7 @@ module LavinMQ
           end
         end
         # Wait for follower to disconnect or be closed
-        follower.ack_loop
+        follower.ack_loop(@ack_timeout)
       ensure
         # Covers everything after registration, including a full_sync that
         # raised or an update_isr that failed right after mark_synced! — a
@@ -460,7 +464,7 @@ module LavinMQ
           return
         rescue ex
           Log.warn(exception: ex) { "Failed to update ISR, retrying" }
-          sleep 0.5.seconds
+          sleep @isr_retry_interval
         end
       end
 
