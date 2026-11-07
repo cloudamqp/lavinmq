@@ -988,6 +988,46 @@ module ClientSyncSpec
         end
       end
 
+      # The leader's fsync requests only cover what it wrote since its last
+      # drain, so data received while sync was disabled here must be synced
+      # before the first ack once it's enabled again
+      it "syncs the whole data dir before the first ack after sync is enabled again" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 0
+          client.fsynced_paths.should be_empty
+
+          client.@config.sync = true
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 1
+
+          # Only once, later requests are fsynced as usual
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 1
+          client.fsynced_paths.last.should eq File.join(data_dir, filename)
+          client_socket.close
+        end
+      end
+
       it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
