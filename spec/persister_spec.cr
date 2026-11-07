@@ -437,6 +437,28 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "unlinks an emptied segment before its acks, so a crash in between doesn't bring its messages back" do
+    with_datadir do |data_dir|
+      store = store_with_three_segments(data_dir, nil)
+      begin
+        sps = Array.new(3) { store.shift?.should_not(be_nil).segment_position }
+        # Like a crash between the two unlinks
+        MFile.fail_delete_of = File.join(data_dir, "msgs.0000000001")
+        sps.first(2).each { |sp| store.delete(sp) }
+        expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[2]) }
+      ensure
+        MFile.fail_delete_of = nil
+        store.close
+      end
+      reloaded = LavinMQ::MessageStore.new(data_dir, nil)
+      begin
+        reloaded.size.should eq 4
+      ensure
+        reloaded.close
+      end
+    end
+  end
+
   it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -452,7 +474,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         end
         wait_for { store.copies_synced? }
         File.exists?(segment).should be_true # kept until the next delete
-        MFile.fail_delete_of = File.join(data_dir, "acks.0000000001")
+        MFile.fail_delete_of = segment
         expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
         File.exists?(segment).should be_true
         MFile.fail_delete_of = nil
