@@ -305,6 +305,19 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "unmaps the segments it opened when loading raises" do
+    mktmpdir do |dir|
+      File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+      # MFile can't open a directory, so loading fails after segment 1 is mapped
+      Dir.mkdir(File.join(dir, "msgs.0000000002"))
+      count_before = MFile.mmap_count
+      10.times do
+        expect_raises(File::Error) { LavinMQ::MessageStore.new(dir, nil) }
+      end
+      MFile.mmap_count.should eq count_before
+    end
+  end
+
   it "ignores a delete for a segment purged after the message was shifted" do
     with_store do |store, dir|
       msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
