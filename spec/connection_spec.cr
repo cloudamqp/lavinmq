@@ -201,6 +201,8 @@ describe LavinMQ::Server do
 
   describe "unexpected frames" do
     it "doesn't time out a client whose frames never start at a socket read" do
+      LavinMQ::Config.instance.heartbeat_timeout_grace = 1.second
+      heartbeat_timeout = 2.seconds # 1 s heartbeat + 1 s grace
       with_amqp_server do |s|
         with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
           wait_for { s.connections.size == 1 }
@@ -209,22 +211,27 @@ describe LavinMQ::Server do
           frame.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
           bytes = frame.to_slice
           # Every write ends in the middle of a frame, for longer than the
-          # heartbeat timeout (1 s + 5 s), then the client goes quiet
+          # heartbeat timeout, then the client goes quiet
           straddling = IO::Memory.new
           straddling.write bytes[4, 4]
           straddling.write bytes[0, 4]
           io.write bytes[0, 4]
           io.flush
-          deadline = Time.instant + 7.seconds
+          deadline = Time.instant + heartbeat_timeout + 0.5.seconds
           while Time.instant < deadline
             io.write straddling.to_slice
             io.flush
             sleep 100.milliseconds
           end
+          # The server's clock, which it stamps the reads with
+          last_write = RoughTime.instant
           io.write bytes[4, 4]
           io.flush
-          sleep 1.5.seconds
-          client.closed?.should be_false
+          # Timed out for the missed heartbeats only once nothing was read for
+          # the whole timeout, not at the first read timeout (0.5 s) as if
+          # nothing was read during the writes
+          wait_for { client.closed? }
+          (RoughTime.instant - last_write).should be >= heartbeat_timeout
         end
       end
     end
@@ -412,7 +419,7 @@ describe LavinMQ::Server do
       with_amqp_server do |s|
         # small messages go through the socket's write buffer
         with_stuck_consumer(s, "tcp_send_timeout_resend", body_size: 100, count: 100_000) do |client, io, stream|
-          sleep 1.5.seconds # the first write has timed out, the connection is closing
+          wait_for { client.closed? } # the first write has timed out, the connection is closing
           io.read_timeout = 10.seconds
           frames = 0
           loop do
@@ -453,7 +460,7 @@ describe LavinMQ::Server do
           Log.capture("lmq.amqp.client", :info) do |logs|
             closed = Channel(Nil).new
             spawn do
-              client.close("Closed via management plugin", force_close_timeout: 1.second)
+              client.close("Closed via management plugin", force_close_timeout: 100.milliseconds)
               closed.send nil
             end
             select
@@ -462,7 +469,7 @@ describe LavinMQ::Server do
               fail "close didn't complete within force_close_timeout"
             end
             client.closed?.should be_true
-            logs.check(:info, /Sending the Close frame didn't complete within 1.0s/)
+            logs.check(:info, /Sending the Close frame didn't complete within 0.1s/)
           end
         end
       end
@@ -470,6 +477,7 @@ describe LavinMQ::Server do
 
     it "closes a connection through the HTTP API while a delivery to it is blocked" do
       LavinMQ::Config.instance.tcp_send_timeout = 30
+      LavinMQ::Config.instance.http_api_force_close_timeout = 100.milliseconds
       with_http_server do |http, s|
         with_stuck_consumer(s, "tcp_send_timeout_api_close") do |client|
           name = URI.encode_path(client.name)
@@ -509,15 +517,19 @@ describe LavinMQ::Server do
         with_stuck_consumer(s, "tcp_send_timeout_slow_reader", body_size: 32 * 1024 * 1024, count: 2) do |client, io|
           # reads too slowly for the delivery to finish, but fast enough for
           # the write not to time out
+          read_bytes = 0
           spawn do
             buf = Bytes.new(1024)
             loop do
-              break if io.read(buf).zero?
+              count = io.read(buf)
+              break if count.zero?
+              read_bytes += count
               sleep 10.milliseconds
             end
           rescue IO::Error
           end
-          sleep 0.5.seconds # the delivery is in progress, holding the write lock
+          # A delivery has started, and is in progress, holding the write lock
+          wait_for { read_bytes > 0 }
           closed = Channel(Nil).new
           spawn do
             client.force_close
