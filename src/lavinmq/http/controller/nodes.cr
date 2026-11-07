@@ -98,6 +98,7 @@ module LavinMQ
           bytes_reclaimed_since_gc:  ps.bytes_reclaimed_since_gc,
           reclaimed_bytes_before_gc: ps.reclaimed_bytes_before_gc,
           expl_freed_bytes_since_gc: ps.expl_freed_bytes_since_gc,
+          tuner:                     GCTuner.stats,
           obtained_from_os_bytes:    ps.obtained_from_os_bytes,
         }
       end

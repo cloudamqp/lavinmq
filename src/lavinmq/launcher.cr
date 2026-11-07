@@ -15,6 +15,7 @@ require "./clustering/controller"
 require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
+require "./gc_tuner"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -67,6 +68,7 @@ module LavinMQ
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
+      {% unless flag?(:gc_none) %} GCTuner.setup {% end %}
     end
 
     private def start : self
