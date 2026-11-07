@@ -290,7 +290,8 @@ describe LavinMQ::Client::Channel::Consumer do
           msgs.receive.should eq "first"
 
           # Wait for deliver_loop to idle out
-          sleep 300.milliseconds
+          consumer = s.vhosts["/"].queue("idle-respawn").consumers.first.as(LavinMQ::AMQP::Consumer)
+          wait_for { !consumer.@deliver_loop_running.get(:acquire) }
 
           q.publish "after-idle"
           select

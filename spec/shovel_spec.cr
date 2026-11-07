@@ -548,7 +548,7 @@ describe LavinMQ::Shovel do
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qf_shovel", vhost)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qf_shovel", vhost, delivery_backoff: 10.milliseconds)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           q1 = ch.queue("qf_q1")
@@ -598,7 +598,7 @@ describe LavinMQ::Shovel do
           addr = server.bind_unused_port
           spawn server.listen
           dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
-          shovel = LavinMQ::Shovel::Runner.new(source, dest, "nw_shovel", vhost)
+          shovel = LavinMQ::Shovel::Runner.new(source, dest, "nw_shovel", vhost, delivery_backoff: 10.milliseconds)
           x.publish_confirm "m1", "nw_q1"
           x.publish_confirm "m2", "nw_q1"
           shovel.run
@@ -751,7 +751,7 @@ describe LavinMQ::Shovel do
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qr_shovel", vhost)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qr_shovel", vhost, delivery_backoff: 10.milliseconds)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           q1 = ch.queue("qr_q1")
@@ -1274,7 +1274,8 @@ describe LavinMQ::Shovel do
           [URI.parse(s.amqp_server.url)],
           "#{queue_name}q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::Never,
-          direct_user: s.users.direct_user
+          direct_user: s.users.direct_user,
+          batch_ack_timeout: 50.milliseconds # flush the acks waited for below sooner
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "#{queue_name}q2",
@@ -1847,10 +1848,12 @@ describe LavinMQ::Shovel do
     it "stops delivering once the shovel is paused, mid-stream (#1612 part 2 / #5.4)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)
+        answered = Atomic(Int32).new(0)
         server = HTTP::Server.new do |context|
           received.add(1)
           sleep 0.3.seconds
           context.response.print "ok"
+          answered.add(1)
           context
         end
         addr = server.bind_unused_port
@@ -1860,7 +1863,8 @@ describe LavinMQ::Shovel do
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec", [URI.parse(s.amqp_server.url)], "pf_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pf_shovel", vhost)
+        # A short backoff makes a retry after the pause (the bug) come quickly
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pf_shovel", vhost, delivery_backoff: 50.milliseconds)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           ch.queue("pf_q1")
@@ -1871,9 +1875,9 @@ describe LavinMQ::Shovel do
           shovel.state.paused?.should be_true
           # Delivery must halt promptly: at most an in-flight/buffered straggler
           # drains, then it stops. The bug let retries continue after pause.
-          sleep 1.second
+          wait_for { answered.get == received.get }
           settled = received.get
-          sleep 1.second
+          sleep 0.5.seconds              # 10x the delivery backoff a retry would wait out
           received.get.should eq settled # no ongoing retries after pause
           settled.should be < 6          # halted mid-stream, didn't drain
         end
