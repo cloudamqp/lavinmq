@@ -728,46 +728,73 @@ module LavinMQ::AMQP
       end
     end
 
+    # The definitions lock first, as #register_retry_queue takes them
     private def init_retry_queue
-      @retry_queue_lock.synchronize { create_retry_queue }
+      @vhost.synchronize_definitions do
+        @retry_queue_lock.synchronize { create_retry_queue }
+      end
     end
 
     # For DelayedRetryQueue#restart!, e.g. through the management API, so
     # its delayed messages are released without waiting for another reject
     protected def recreate_retry_queue : DelayedRetryQueue?
-      active_retry_queue
+      active_retry_queue(register_later: false)
     end
 
-    # Recreates the retry queue if it was deleted or closed itself on a store error.
-    private def active_retry_queue : DelayedRetryQueue?
+    # Recreates the retry queue if it was deleted or closed itself on a store
+    # error. A reject calls this while its channel holds the lock that the
+    # channel's deliver loops wait for, and a queue delete through the
+    # definitions waits for those loops while it holds the definitions lock:
+    # so a reject never takes the definitions lock here, and *register_later*
+    # registers the new retry queue in the definitions from another fiber.
+    private def active_retry_queue(*, register_later = true) : DelayedRetryQueue?
       closed_retry_queue = @retry_queue_lock.synchronize do
         retry_queue = @delayed_retry_queue
         return retry_queue if retry_queue && !retry_queue.closed?
         retry_queue
       end
       return if @deleted || @closed
-      # Outside the locks: a delete of this queue holds the vhost's definitions
-      # lock while it waits for @retry_queue_lock
+      # Outside the lock: a delete of this queue takes it
       sync_copies_so_far if closed_retry_queue
-      # The definitions lock first, as create_retry_queue registers the queue
-      # there. A delete through the definitions takes them in the same order,
-      # and a direct #delete releases @retry_queue_lock before it takes the
-      # definitions lock.
-      @vhost.synchronize_definitions do
-        @retry_queue_lock.synchronize do
-          retry_queue = @delayed_retry_queue
-          next retry_queue if retry_queue && !retry_queue.closed?
-          # Closed or deleted meanwhile, without the sync above
-          next unless retry_queue.same?(closed_retry_queue)
-          next if @deleted || @closed
-          @delayed_retry_queue = nil
-          @log.info { "Recreating retry queue" }
-          create_retry_queue
-        end
+      retry_queue, recreated = replace_retry_queue(closed_retry_queue)
+      return retry_queue unless recreated && retry_queue
+      if register_later
+        spawn(name: "Queue#register_retry_queue #{@vhost.name}/#{@name}") { register_retry_queue(retry_queue) }
+      else
+        register_retry_queue(retry_queue)
       end
+      retry_queue
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
       nil
+    end
+
+    # Creates a new retry queue in place of *closed_retry_queue*, and returns
+    # it with true. Returns the open retry queue with false if another fiber
+    # recreated it meanwhile, and nil if this queue was deleted or closed, or
+    # the retry queue was closed or deleted again, without the sync before.
+    private def replace_retry_queue(closed_retry_queue) : {DelayedRetryQueue?, Bool}
+      @retry_queue_lock.synchronize do
+        retry_queue = @delayed_retry_queue
+        return {retry_queue, false} if retry_queue && !retry_queue.closed?
+        return {nil, false} unless retry_queue.same?(closed_retry_queue)
+        return {nil, false} if @deleted || @closed
+        @log.info { "Recreating retry queue" }
+        {@delayed_retry_queue = DelayedRetryQueue.create(@vhost, self), true}
+      end
+    end
+
+    # Replaces the closed retry queue in the definitions, unless this queue
+    # was deleted, or the retry queue closed or was replaced, meanwhile. The
+    # definitions lock first, the order a delete through the definitions
+    # takes them in.
+    private def register_retry_queue(retry_queue : DelayedRetryQueue) : Nil
+      @vhost.synchronize_definitions do
+        current = @retry_queue_lock.synchronize { @delayed_retry_queue.same?(retry_queue) }
+        @vhost.register_queue(retry_queue) if current && !retry_queue.closed?
+      end
+    rescue ex
+      @log.error(ex) { "Failed to register the recreated retry queue" }
     end
 
     # Before a retry queue that closed itself is recreated. A release in flight
@@ -782,7 +809,7 @@ module LavinMQ::AMQP
       persister.sync if Config.instance.sync? && !persister.drain_synced?(drain)
     end
 
-    # Only call while holding @retry_queue_lock
+    # Only call while holding the definitions lock and @retry_queue_lock
     private def create_retry_queue : DelayedRetryQueue
       if queue = @delayed_retry_queue
         return queue
@@ -940,7 +967,7 @@ module LavinMQ::AMQP
       return false if @deleted
       @deleted = true
       # Deleted outside @retry_queue_lock: its delete takes the vhost's
-      # definitions lock, which #active_retry_queue holds while it waits for
+      # definitions lock, which #register_retry_queue holds while it takes
       # @retry_queue_lock. @deleted keeps it from recreating the retry queue.
       retry_queue = @retry_queue_lock.synchronize do
         @delayed_retry_queue.tap { @delayed_retry_queue = nil }
