@@ -10,7 +10,7 @@ require "./federation/upstream_store"
 require "./sortable_json"
 require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
-require "digest/sha1"
+require "./evp_digest"
 require "./amqp/queue"
 require "./queue"
 require "./schema"
@@ -246,7 +246,7 @@ module LavinMQ
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
-      @dir = Digest::SHA1.hexdigest(@name)
+      @dir = EVPDigest.sha1_hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       FileSystem.mkdir_p @data_dir
       FileUtils.rm_rf File.join(@data_dir, "transient")

@@ -1,4 +1,4 @@
-require "digest/sha1"
+require "../evp_digest"
 require "./protocol"
 require "../mqtt"
 require "../amqp/queue/queue"
@@ -66,7 +66,7 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
         data_dir = File.join(
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
-          Digest::SHA1.hexdigest(@name)
+          EVPDigest.sha1_hexdigest(@name)
         )
         created = durable? && !Dir.exists?(data_dir)
         Dir.mkdir_p(data_dir)

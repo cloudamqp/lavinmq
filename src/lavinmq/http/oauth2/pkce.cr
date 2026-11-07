@@ -1,6 +1,7 @@
 require "openssl"
 require "base64"
 require "random/secure"
+require "../../evp_digest"
 
 module LavinMQ
   module HTTP
@@ -11,7 +12,7 @@ module LavinMQ
         def self.generate : {String, String}
           verifier = Random::Secure.urlsafe_base64(32)
           challenge = Base64.urlsafe_encode(
-            OpenSSL::Digest.new("SHA256").update(verifier).final,
+            EVPDigest.digest(LibCrypto.evp_sha256, verifier.to_slice),
             padding: false
           )
           {verifier, challenge}
