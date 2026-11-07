@@ -170,6 +170,10 @@ module LavinMQ
           upstream_uri = named_uri(@upstream.uri)
           params = upstream_uri.query_params
           params["product"] = "LavinMQ"
+          # Without it, Nagle holds back a small frame written right after
+          # another one (like the channel.open after a failed passive declare's
+          # close-ok) until the upstream's delayed ACK, ~40ms, on every connect.
+          params["tcp_nodelay"] = "true"
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
@@ -398,6 +402,7 @@ module LavinMQ
           params = upstream_uri.query_params
           params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
           params["product"] = "LavinMQ"
+          params["tcp_nodelay"] = "true"
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|

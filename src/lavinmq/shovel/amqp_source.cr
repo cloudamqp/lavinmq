@@ -57,6 +57,9 @@ module LavinMQ
           end
           params = uri.query_params
           params["name"] ||= "Shovel #{@name} source"
+          # Don't let Nagle hold back back-to-back small frames (acks, a
+          # channel.open after a failed passive declare) for a delayed ACK.
+          params["tcp_nodelay"] = "true"
           uri.query = params.to_s
         end
         if @queue.nil? && @exchange.nil?
