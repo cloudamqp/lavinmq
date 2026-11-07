@@ -241,6 +241,7 @@ module MqttSpecs
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
               connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+              ping(io) # answered unless the connection is closed
               io.should_not be_closed
             end
           end

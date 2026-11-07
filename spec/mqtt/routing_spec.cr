@@ -58,12 +58,17 @@ module MqttSpecs
             connect(sub, client_id: "sub")
             subscribe(sub, topic_filters: [subtopic(topic_filter, 1u8)])
 
+            # A message routed to the filter, published after, is delivered
+            # first if a/b/c wasn't routed
+            marker_topic = topic_filter.gsub(/[+#]/, "x")
             with_client_io(server) do |pub_io|
               connect(pub_io, client_id: "pub")
               publish(pub_io, topic: "a/b/c", qos: 0u8)
+              publish(pub_io, topic: marker_topic, qos: 0u8)
             end
 
-            expect_raises(::IO::TimeoutError) { MQTT::Protocol::Packet.from_io(sub) }
+            packet = read_packet(sub).should be_a(MQTT::Protocol::Publish)
+            packet.topic.should eq marker_topic
           end
         end
       end

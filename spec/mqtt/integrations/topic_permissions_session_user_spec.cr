@@ -125,7 +125,13 @@ module MqttSpecs
             msg = read_packet(io)
             msg.should be_a(MQTT::Protocol::Publish)
             msg.as(MQTT::Protocol::Publish).payload.should eq("for-all".to_slice)
-            read_packet(io).should be_nil
+            # Nothing more was queued: a marker published now is delivered next
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "pub")
+              publish(pub_io, topic: "public/b", payload: "marker".to_slice, qos: 0u8)
+              pingpong(pub_io)
+            end
+            read_publish(io).payload.should eq("marker".to_slice)
           end
         end
       end

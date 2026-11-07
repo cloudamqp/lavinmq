@@ -61,6 +61,10 @@ module MqttSpecs
             # Publish to unauthorized topic: chat/other/secret does not match
             publish(pub_io, topic: "chat/other/secret", payload: "secret".to_slice, qos: 0u8)
 
+            # A marker on an authorized topic, delivered next if the
+            # unauthorized publish was dropped
+            publish(pub_io, topic: "chat/alice/marker", payload: "marker".to_slice, qos: 0u8)
+
             # Send a ping to flush any buffered events (ensures the second publish
             # would arrive at sub if it was going to)
             ping(pub_io)
@@ -73,9 +77,8 @@ module MqttSpecs
             msg.topic.should eq("chat/alice/room1")
             msg.payload.should eq("hello".to_slice)
 
-            # No second message should arrive
-            next_msg = read_packet(sub_io)
-            next_msg.should be_nil
+            # No message should arrive in between
+            read_publish(sub_io).topic.should eq("chat/alice/marker")
 
             # Publisher connection must still be open
             pub_io.should_not be_closed
@@ -121,11 +124,13 @@ module MqttSpecs
             ack.should be_a(MQTT::Protocol::PubAck)
             ack.as(MQTT::Protocol::PubAck).packet_id.should eq(packet_id)
 
-            # The denied message must not be delivered to the subscriber.
-            next_msg = read_packet(sub_io)
-            next_msg.should be_nil
+            # The denied message must not be delivered to the subscriber, so a
+            # marker on an authorized topic is delivered first.
+            publish(pub_io, topic: "chat/alice/marker", payload: "marker".to_slice, qos: 0u8)
+            read_publish(sub_io).topic.should eq("chat/alice/marker")
 
-            # Publisher connection must still be open.
+            # Publisher connection must still be open, so the ping is answered.
+            ping(pub_io)
             pub_io.should_not be_closed
           end
         end
@@ -151,6 +156,7 @@ module MqttSpecs
           connect(pub_io, client_id: "alice", username: "alice", password: "alice".to_slice)
           ack = publish(pub_io, topic: "chat/other/secret", payload: "secret".to_slice, qos: 1u8)
           ack.should be_a(MQTT::Protocol::PubAck)
+          ping(pub_io) # answered unless the connection is closed
           pub_io.should_not be_closed
         end
       end
