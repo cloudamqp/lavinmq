@@ -36,7 +36,11 @@ def init_config(config = LavinMQ::Config.instance)
   config
 end
 
-LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
+# Data dir for servers created outside an example (e.g. at describe level).
+# Per process, as spec processes may run in parallel.
+SPEC_PROCESS_DATA_DIR = File.tempname("lavinmq", "spec")
+LavinMQ::Config.instance.data_dir = SPEC_PROCESS_DATA_DIR
+at_exit { FileUtils.rm_rf SPEC_PROCESS_DATA_DIR }
 init_config
 
 # Allow creating custom config objects for specs
@@ -144,6 +148,13 @@ def restart_server(server : LavinMQ::Server)
   restore_protocol_listener(server.amqp_server, amqp_state, "amqp listener") if amqp_state
   restore_protocol_listener(server.mqtt_server, mqtt_state, "mqtt listener") if mqtt_state
   Fiber.yield
+end
+
+# A port that is free right now, for configs that must know their port before
+# binding it (e.g. an advertised URI). Kernel-assigned, so it doesn't collide
+# with ports other spec processes hold.
+def free_port : Int32
+  TCPServer.open("127.0.0.1", 0, &.local_address.port)
 end
 
 def with_datadir(&)

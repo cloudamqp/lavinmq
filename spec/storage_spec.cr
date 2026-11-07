@@ -23,16 +23,10 @@ end
 
 describe LavinMQ::AMQP::DurableQueue do
   context "after migration between index version 2 to 3" do
-    before_each do
-      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "/tmp/lavinmq-spec-index-v2")
-    end
-
-    after_each do
-      FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
-    end
-
     it "should successfully convert queue index" do
-      config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
+      data_dir = File.join(LavinMQ::Config.instance.data_dir, "index-v2")
+      FileUtils.cp_r("./spec/resources/data_dir_index_v2", data_dir)
+      config = LavinMQ::Config.new.tap &.data_dir = data_dir
       server = LavinMQ::Server.new(config)
       begin
         q = server.vhosts["/"].queue("queue").as(LavinMQ::AMQP::DurableQueue)

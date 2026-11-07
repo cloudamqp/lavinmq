@@ -11,22 +11,37 @@ end
 # elect its leader sooner and its members notice a lost quorum sooner.
 ETCD_SPEC_TIMING_FLAGS = {"--heartbeat-interval=25", "--election-timeout=250"}
 
+# Client endpoint of the etcd started by the innermost `with_etcd`. Each spec
+# process runs its own etcd on kernel-assigned ports, so parallel spec
+# processes don't share one.
+def spec_etcd_endpoints : String
+  SpecEtcd.endpoints.not_nil!("No etcd running, wrap the spec in with_etcd")
+end
+
+module SpecEtcd
+  class_property endpoints : String?
+end
+
 def with_etcd(&)
   ensure_etcd_in_path!
+  client_port, peer_port = free_port, free_port
+  data_dir = File.tempname("etcd", "spec")
   p = Process.new("etcd", {
-    "--data-dir=/tmp/clustering-spec.etcd",
+    "--data-dir=#{data_dir}",
     "--logger=zap",
     "--log-level=error",
     "--unsafe-no-fsync=true",
     "--force-new-cluster=true",
     *ETCD_SPEC_TIMING_FLAGS,
-    "--listen-peer-urls=http://127.0.0.1:12380",
-    "--listen-client-urls=http://127.0.0.1:12379",
-    "--advertise-client-urls=http://127.0.0.1:12379",
+    "--listen-peer-urls=http://127.0.0.1:#{peer_port}",
+    "--initial-advertise-peer-urls=http://127.0.0.1:#{peer_port}",
+    "--initial-cluster=default=http://127.0.0.1:#{peer_port}",
+    "--listen-client-urls=http://127.0.0.1:#{client_port}",
+    "--advertise-client-urls=http://127.0.0.1:#{client_port}",
   }, output: STDOUT, error: STDERR)
 
   begin
-    client = HTTP::Client.new("127.0.0.1", 12379)
+    client = HTTP::Client.new("127.0.0.1", client_port)
     i = 0
     loop do
       sleep 0.02.seconds
@@ -38,17 +53,19 @@ def with_etcd(&)
     rescue e : IO::Error
       client.close
       i += 1
-      raise "Can't connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
+      raise "Can't connect to etcd on port #{client_port}. Giving up after 100 tries. (#{e.message})" if i >= 100
       next
     end
     client.close
+    SpecEtcd.endpoints = "127.0.0.1:#{client_port}"
     yield
   ensure
+    SpecEtcd.endpoints = nil
     # Reap etcd before removing its data, so it can't outlive the example and
     # hold the ports and data dir the next example's etcd needs
     p.terminate(graceful: false) rescue nil
     p.wait rescue nil
-    FileUtils.rm_rf "/tmp/clustering-spec.etcd"
+    FileUtils.rm_rf data_dir
   end
 end
 

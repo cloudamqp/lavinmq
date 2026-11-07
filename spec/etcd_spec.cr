@@ -303,10 +303,6 @@ class EtcdCluster
     @peer_ports = Array.new(nodes) { free_port }
   end
 
-  private def free_port : Int32
-    TCPServer.open("127.0.0.1", 0, &.local_address.port)
-  end
-
   def endpoints
     @client_ports.map { |p| "127.0.0.1:#{p}" }.join(",")
   end
