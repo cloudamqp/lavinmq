@@ -62,6 +62,10 @@ module LavinMQ
       # Parents of directories this client created, whose new entries aren't
       # fsynced yet, fsynced with the next fsync request (see #make_dirs)
       @created_dirs = Set(String).new
+      # Set when a sync was skipped because sync was disabled. The leader's
+      # fsync requests don't cover what was written before them, so the first
+      # sync after sync is enabled again syncs the whole data dir.
+      @sync_skipped = Atomic(Bool).new(false)
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -674,7 +678,7 @@ module LavinMQ
             end
             item = acks.try_receive? || break
           end
-          if syncfs || fsync_paths.size > @config.syncfs_threshold
+          if sync_reenabled? || syncfs || fsync_paths.size > @config.syncfs_threshold
             # The syncfs covers them. Cleared before it, as #make_dirs can run
             # while it blocks.
             @created_dirs.clear
@@ -690,9 +694,16 @@ module LavinMQ
         socket.close rescue nil
       end
 
+      private def sync_reenabled? : Bool
+        @config.sync? && @sync_skipped.swap(false)
+      end
+
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
-        return unless @config.sync?
+        unless @config.sync?
+          @sync_skipped.set(true)
+          return
+        end
         sync_data_dir
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
@@ -706,7 +717,10 @@ module LavinMQ
       end
 
       private def fsync_to_disk(paths : Set(String)) : Nil
-        return unless @config.sync?
+        unless @config.sync?
+          @sync_skipped.set(true)
+          return
+        end
         begin
           paths.each { |path| fsync_path(path) }
         rescue ex : IO::Error | RuntimeError
