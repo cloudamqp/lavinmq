@@ -51,8 +51,13 @@ module LavinMQ::AMQP
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
-        init_sub_stores(@stores)
-        migrate_from_single_store
+        begin
+          init_sub_stores(@stores)
+          migrate_from_single_store
+        rescue ex
+          @stores.each &.close
+          raise ex
+        end
 
         @empty = BoolChannel.new(empty?)
       end

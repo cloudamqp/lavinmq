@@ -690,7 +690,13 @@ module LavinMQ::AMQP
         end
         next if @deleted || @closed
         @log.info { "Recreating retry queue" }
-        create_retry_queue
+        begin
+          create_retry_queue
+        rescue ex
+          # Keep the closed queue so that #delete removes it from the vhost
+          @delayed_retry_queue = retry_queue
+          raise ex
+        end
       end
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
