@@ -156,7 +156,10 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  args = {port: amqp_port(s), name: name}.merge(args)
+  # Disable Nagle: specs often send a frame without a reply (e.g. a reject)
+  # followed by a request, which would otherwise wait for the server's
+  # delayed ACK (~40 ms) before going out.
+  args = {port: amqp_port(s), name: name, tcp: AMQP::Client::TCPConfig.new(nodelay: true)}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
   yield ch
