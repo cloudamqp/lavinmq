@@ -6,6 +6,11 @@ def ensure_etcd_in_path!
         "Install etcd or exclude these specs with --tag=~etcd"
 end
 
+# Raft timing (ms) for spec etcd members. etcd's defaults (100/1000) are tuned
+# for real networks; on loopback a shorter election timeout makes a new cluster
+# elect its leader sooner and its members notice a lost quorum sooner.
+ETCD_SPEC_TIMING_FLAGS = {"--heartbeat-interval=25", "--election-timeout=250"}
+
 def with_etcd(&)
   ensure_etcd_in_path!
   p = Process.new("etcd", {
@@ -14,6 +19,7 @@ def with_etcd(&)
     "--log-level=error",
     "--unsafe-no-fsync=true",
     "--force-new-cluster=true",
+    *ETCD_SPEC_TIMING_FLAGS,
     "--listen-peer-urls=http://127.0.0.1:12380",
     "--listen-client-urls=http://127.0.0.1:12379",
     "--advertise-client-urls=http://127.0.0.1:12379",
@@ -42,8 +48,8 @@ def with_etcd(&)
     FileUtils.rm_rf "/tmp/clustering-spec.etcd"
     i = 0
     until p.terminated?
-      break if (i &+= 1) > 20
-      sleep 0.1.seconds
+      break if (i &+= 1) > 200
+      sleep 10.milliseconds
     end
   end
 end
