@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
+- Shovel and federation connections set `TCP_NODELAY`, like the broker's own sockets. Starting a federation link or a shovel no longer stalls about 40 ms per round trip on Nagle's algorithm
+- A clustering follower that is closed, e.g. when it's promoted to leader, no longer waits out its 1 second reconnect delay first
 
 ### Fixed
 
