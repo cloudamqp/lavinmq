@@ -290,14 +290,25 @@ describe LavinMQ::Etcd::Lease do
 end
 
 class EtcdCluster
-  @ports : Array(Int32)
+  # Kernel-assigned free ports, so members don't collide with sockets other
+  # specs (or the OS) already hold
+  @client_ports : Array(Int32)
+  @peer_ports : Array(Int32)
+  # Per cluster, so a member of a previous cluster that is still exiting
+  # can't hold (or have its data removed from under it by) this cluster's dirs
+  @data_dir = File.tempname("etcd", "spec")
 
   def initialize(nodes = 3)
-    @ports = (100..999).sample(nodes)
+    @client_ports = Array.new(nodes) { free_port }
+    @peer_ports = Array.new(nodes) { free_port }
+  end
+
+  private def free_port : Int32
+    TCPServer.open("127.0.0.1", 0, &.local_address.port)
   end
 
   def endpoints
-    @ports.map { |p| "127.0.0.1:23#{p}" }.join(",")
+    @client_ports.map { |p| "127.0.0.1:#{p}" }.join(",")
   end
 
   def run(&)
@@ -315,15 +326,15 @@ class EtcdCluster
     # One member at a time: a starting member asks its peers whether the cluster
     # is already bootstrapped, and a peer that has bound its peer port but isn't
     # serving it yet stalls that check for etcd's 1s bootstrap timeout.
-    @ports.map_with_index do |p, i|
-      start_process(p, i).tap { wait_until_serving_peers(p) }
+    Array.new(@client_ports.size) do |i|
+      start_process(i).tap { wait_until_serving_peers(@peer_ports[i]) }
     end
   end
 
   # The peer port serves as soon as the member has started, the client port
   # only once the cluster has a quorum
   private def wait_until_serving_peers(port)
-    client = HTTP::Client.new("127.0.0.1", 24000 + port)
+    client = HTTP::Client.new("127.0.0.1", port)
     client.read_timeout = 1.second
     100.times do
       sleep 20.milliseconds
@@ -336,16 +347,17 @@ class EtcdCluster
     client.try &.close
   end
 
-  def start_process(port, node_number)
-    initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
-    FileUtils.rm_rf "/tmp/l#{node_number}.etcd"
+  def start_process(node_number)
+    initial_cluster = @peer_ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:#{p}" }.join(",")
+    data_dir = "#{@data_dir}/l#{node_number}"
+    FileUtils.rm_rf data_dir
     Process.new("etcd", {
       "--name=l#{node_number}",
-      "--data-dir=/tmp/l#{node_number}.etcd",
-      "--listen-peer-urls=http://127.0.0.1:24#{port}",
-      "--listen-client-urls=http://127.0.0.1:23#{port}",
-      "--advertise-client-urls=http://127.0.0.1:23#{port}",
-      "--initial-advertise-peer-urls=http://127.0.0.1:24#{port}",
+      "--data-dir=#{data_dir}",
+      "--listen-peer-urls=http://127.0.0.1:#{@peer_ports[node_number]}",
+      "--listen-client-urls=http://127.0.0.1:#{@client_ports[node_number]}",
+      "--advertise-client-urls=http://127.0.0.1:#{@client_ports[node_number]}",
+      "--initial-advertise-peer-urls=http://127.0.0.1:#{@peer_ports[node_number]}",
       "--initial-cluster", initial_cluster,
       "--logger=zap",
       "--log-level=error",
@@ -354,15 +366,20 @@ class EtcdCluster
     }, output: STDOUT, error: STDERR)
   end
 
+  # Reap the members before removing their data, so none outlives the cluster
+  # and its ports and files are free for the next one
   def stop(etcds)
-    etcds.each { |p| p.terminate(graceful: false) if p.exists? }
-    etcds.size.times { |i| FileUtils.rm_rf "/tmp/l#{i}.etcd" }
+    etcds.each do |p|
+      p.terminate(graceful: false) rescue nil
+      p.wait rescue nil
+    end
+    FileUtils.rm_rf @data_dir
   end
 
   private def wait_until_online(retries = 3)
-    @ports.each_with_index do |port, idx|
+    @client_ports.each_with_index do |port, idx|
       i = 0
-      client = HTTP::Client.new("127.0.0.1", 23000 + port)
+      client = HTTP::Client.new("127.0.0.1", port)
       loop do
         sleep 20.milliseconds
         response = client.get("/version")
@@ -374,9 +391,9 @@ class EtcdCluster
         i += 1
         if i >= 100
           retries -= 1
-          raise "Etcd on port #{23000 + port} not up? (#{e.message})" if retries == 0
+          raise "Etcd on port #{port} not up? (#{e.message})" if retries == 0
 
-          start_process(port, idx)
+          start_process(idx)
           wait_until_online(retries)
         end
         next

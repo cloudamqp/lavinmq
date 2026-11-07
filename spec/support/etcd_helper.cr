@@ -44,13 +44,11 @@ def with_etcd(&)
     client.close
     yield
   ensure
+    # Reap etcd before removing its data, so it can't outlive the example and
+    # hold the ports and data dir the next example's etcd needs
     p.terminate(graceful: false) rescue nil
+    p.wait rescue nil
     FileUtils.rm_rf "/tmp/clustering-spec.etcd"
-    i = 0
-    until p.terminated?
-      break if (i &+= 1) > 200
-      sleep 10.milliseconds
-    end
   end
 end
 
