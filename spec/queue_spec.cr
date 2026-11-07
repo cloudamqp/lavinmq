@@ -162,14 +162,14 @@ describe LavinMQ::AMQP::Queue do
         dlq = ch.queue("dlq2")
         # Publish message with long TTL (60 seconds)
         q.publish_confirm("long ttl", props: AMQP::Client::Properties.new(expiration: "60000"))
-        # Publish message with short TTL (500ms)
-        q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+        # Publish message with short TTL (100ms)
+        q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "100"))
 
         # Consume the long-TTL message immediately
         msg1 = q.get(no_ack: true).should_not be_nil
         msg1.body_io.to_s.should eq "long ttl"
 
-        # The short-TTL message should expire after ~500ms, not 60 seconds
+        # The short-TTL message should expire after ~100ms, not 60 seconds
         msg = wait_for { dlq.get(no_ack: true) }
         msg.should_not be_nil
         msg.body_io.to_s.should eq "short ttl"
@@ -275,16 +275,19 @@ describe LavinMQ::AMQP::Queue do
           channel = Channel(String).new
 
           # Subscribe on the queue
-          # Wait 1 second and unpause the queue, fail test if we get message during that time
+          # Once the consumer is added a running queue would deliver right
+          # away, so wait a while and unpause the queue, fail test if we get
+          # message during that time
           # Make sure the queue continues
           q.subscribe(no_ack: false) do |msg|
             channel.send msg.body_io.to_s
             ch.basic_ack(msg.delivery_tag)
           end
+          should_eventually(eq 1) { iq.consumers.size }
           select
           when msg = channel.receive
             fail "Consumer should not get a message '#{msg}'"
-          when timeout 1.second
+          when timeout 200.milliseconds
             iq.resume!
           end
           channel.receive.should eq "test message 2"
@@ -416,19 +419,29 @@ describe LavinMQ::AMQP::Queue do
           ))
           queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
-          # Publish a message
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
+          # The clock is paused, so the message can't expire before the
+          # restart however slow the runner
+          RoughTime.paused do |t|
+            # Publish a message
+            q.publish_confirm "test message"
+            queue.message_count.should eq 1
 
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
+            # Close the queue
+            queue.close
+            queue.closed?.should be_true
 
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.message_count.should eq 1
-          should_eventually(be_true) { queue.message_count == 0 }
+            # Restart the queue & verify
+            queue.restart!.should be_true
+            queue.closed?.should be_false
+            queue.message_count.should eq 1
+            t.travel 600.milliseconds
+            # The paused clock doesn't move the expire loop's timer, so wake the
+            # (restarted) loop, like a TTL change does, to expire the message
+            should_eventually(be_true) do
+              queue.@message_ttl_change.try_send?(nil)
+              queue.message_count == 0
+            end
+          end
         end
       end
     end
@@ -764,13 +777,17 @@ describe LavinMQ::AMQP::Queue do
         done = Atomic(Bool).new(false)
         published = Atomic(Int32).new(0)
         purged = Atomic(Int64).new(0)
+        # Bounded by publish progress rather than wall time; the deadline
+        # only caps a slow runner
+        publish_target = 200_000
+        deadline = Time.instant + 2.seconds
         wg = WaitGroup.new(4)
         3.times do
           ctx.spawn do
             msg = LavinMQ::Message.new("", q.name, "body")
             until done.get(:acquire)
               q.publish(msg)
-              published.add(1)
+              done.set(true, :release) if published.add(1) + 1 >= publish_target
             end
           ensure
             wg.done
@@ -783,7 +800,9 @@ describe LavinMQ::AMQP::Queue do
         ensure
           wg.done
         end
-        sleep 2.seconds
+        until done.get(:acquire) || Time.instant >= deadline
+          sleep 1.millisecond
+        end
         done.set(true, :release)
         wg.wait
         (purged.get + q.message_count).should eq published.get
@@ -1553,7 +1572,7 @@ describe LavinMQ::AMQP::Queue do
 
           # Head message has no TTL, so the expire fiber never starts
           q.publish_confirm("no ttl")
-          q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+          q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "100"))
           queue.message_expire_fiber_active?.should be_false
 
           # Partial purge removes the no-TTL head, exposing the short-TTL message.

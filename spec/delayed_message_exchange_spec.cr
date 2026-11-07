@@ -1,5 +1,11 @@
 require "./spec_helper"
 
+# A paused RoughTime doesn't move the delayed queue's expire timer, so wake its
+# loop, like a newly delayed message does, to release what's due by the clock
+private def nudge_expire_loop(s : LavinMQ::Server, delay_q_name : String) : Nil
+  s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::Queue).@message_ttl_change.try_send?(nil)
+end
+
 describe "Delayed Message Exchange" do
   x_name = "delayed-topic"
   delay_q_name = "amq.delayed-#{x_name}"
@@ -59,15 +65,21 @@ describe "Delayed Message Exchange" do
 
     it "should rebuild index on restart", tags: "slow" do
       with_amqp_server do |s|
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
-        with_channel(s) do |ch|
-          ex = ch.exchange(x_name, "topic", args: x_args)
-          ex.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        RoughTime.paused do |t|
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+          with_channel(s) do |ch|
+            ex = ch.exchange(x_name, "topic", args: x_args)
+            ex.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
+          end
+          restart_server(s)
           s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
+          t.travel 1.1.seconds
+          wait_for do
+            nudge_expire_loop(s, delay_q_name)
+            s.vhosts["/"].queue(delay_q_name).message_count == 0
+          end
         end
-        restart_server(s)
-        s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
-        wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
       end
     end
 
@@ -186,16 +198,20 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 300})
-        x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
-        x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        queue = s.vhosts["/"].queue(q_name)
-        queue.message_count.should eq 0
-        wait_for { queue.message_count >= 1 }
-        q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-short")
-        wait_for { queue.message_count == 1 }
-        q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-long")
+        RoughTime.paused do |t|
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 300})
+          x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
+          x.publish_confirm "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          queue = s.vhosts["/"].queue(q_name)
+          queue.message_count.should eq 0
+          t.travel 100.milliseconds
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 1 }
+          q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-short")
+          t.travel 300.milliseconds
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count == 1 }
+          q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-long")
+        end
       end
     end
   end
@@ -207,24 +223,34 @@ describe "Delayed Message Exchange" do
         q = ch.queue(q_name)
         q.bind(x.name, "#")
         queue = s.vhosts["/"].queue(q_name)
-        # Publish three message with delay 3000ms, 2000ms, 1000ms
-        3.downto(1) do |i|
-          delay = i * 1000
-          hdrs = AMQP::Client::Arguments.new({"x-delay" => delay})
-          x.publish_confirm delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          Fiber.yield
+        # The clock only moves when the spec moves it, so what's due at each
+        # step doesn't depend on how fast the runner is
+        RoughTime.paused do |t|
+          # Publish three message with delay 3000ms, 2000ms, 1000ms
+          3.downto(1) do |i|
+            delay = i * 1000
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => delay})
+            x.publish_confirm delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            Fiber.yield
+          end
+          # at 1.5 seconds only the message with delay 1000ms is due
+          t.travel 1.5.seconds
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 1 }
+          queue.message_count.should eq 1
+          # publish another message, with a delay that makes it due (at 2.2s)
+          # after the 2000ms message but before the 3000ms message
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 700})
+          x.publish_confirm "700", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          t.travel 0.6.seconds # 2.1s
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 2 }
+          queue.message_count.should eq 2
+          t.travel 0.2.seconds # 2.3s
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 3 }
+          queue.message_count.should eq 3
+          t.travel 0.8.seconds # 3.1s
+          wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 4 }
+          queue.message_count.should eq 4
         end
-        # by sleeping 1.5 seconds the message with delay 1000ms should be published
-        sleep 1.5.seconds
-        queue.message_count.should eq 1
-        # publish another message, with a delay that makes it due after the
-        # 2000ms message but before the 3000ms message
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 700})
-        x.publish_confirm "700", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        # the 2000ms message and the new 700ms message are published by ~2.2s,
-        # well before the 3000ms message is due
-        wait_for { queue.message_count == 3 }
-        wait_for { queue.message_count == 4 }
         expected = %w[1000 2000 700 3000]
         expected.each do |expected_delay|
           queue.basic_get(no_ack: true) do |env|

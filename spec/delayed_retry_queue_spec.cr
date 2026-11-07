@@ -318,8 +318,11 @@ describe "Retry Queue" do
           q.publish_confirm "block"
           msg.reject(requeue: true)
 
-          sleep 350.milliseconds
-          s.vhosts["/"].queue("amq.retry-retry-overflow-redelay").message_count.should eq 1
+          # Delayed once by the reject, and again when its release found the
+          # primary queue full
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-overflow-redelay")
+          wait_for { retry_q.publish_count >= 2 }
+          should_eventually(eq 1) { retry_q.message_count }
 
           wait_for { q.get(no_ack: true) }.body_io.to_s.should eq "block"
           msg2 = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
