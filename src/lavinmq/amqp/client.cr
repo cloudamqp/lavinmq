@@ -238,10 +238,11 @@ module LavinMQ
         true
       end
 
-      # Reads from the socket so far, nil if the socket isn't buffered
+      # Reads from the socket so far, nil if the socket doesn't buffer reads
+      # (socket_buffer_size = 0), as its buffer is never filled then
       private def socket_reads : UInt32?
         socket = @socket
-        socket.buffer_fills if socket.is_a?(IO::Buffered)
+        socket.buffer_fills if socket.is_a?(IO::Buffered) && socket.read_buffering?
       end
 
       # A client that keeps sending never lets the read time out, so this is
