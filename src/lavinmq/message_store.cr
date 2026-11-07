@@ -63,19 +63,32 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
-      load_segments_from_disk
-      load_acks_from_disk
+      close_on_error do
+        load_segments_from_disk
+        load_acks_from_disk
+      end
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
-      unless @closed
-        load_stats_from_segments
-        prune_orphaned_acks
-        delete_unused_segments
+      close_on_error do
+        unless @closed
+          load_stats_from_segments
+          prune_orphaned_acks
+          delete_unused_segments
+        end
+        readahead_for_writes(@wfile) unless @closed
+        @empty.set empty? unless @closed
       end
-      readahead_for_writes(@wfile) unless @closed
-      @empty.set empty? unless @closed
+    end
+
+    # Unmaps the segments and ack files opened before a failure while
+    # loading, the caller gets no store to close
+    private def close_on_error(&)
+      yield
+    rescue ex
+      close
+      raise ex
     end
 
     def push(msg) : SegmentPosition

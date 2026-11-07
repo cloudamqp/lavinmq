@@ -25,7 +25,7 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        build_index
+        close_on_error { build_index }
       end
 
       def build_index
