@@ -123,7 +123,7 @@ test: lib views
 ifdef SPEC
 	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 else
-	extras/parallel-spec.sh --verbose $(if $(TAGS),--tag '$(TAGS)')
+	spec/run_parallel.sh --verbose $(if $(TAGS),--tag '$(TAGS)')
 endif
 
 .PHONY: format
