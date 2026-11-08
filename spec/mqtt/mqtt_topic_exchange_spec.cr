@@ -424,8 +424,8 @@ module MqttSpecs
       it "refuses queue.bind without read permission on mqtt.default" do
         with_server do |server|
           lim_perms.call(server, /^lim\./)
+          server.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", false, false)
           with_channel(server, user: "lim", password: "pw") do |ch|
-            ch.exchange_declare("lim.mq", "x-mqtt-topic")
             ch.queue_declare("lim.spy")
             expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
               ch.queue_bind("lim.spy", "lim.mq", "#")
@@ -450,14 +450,60 @@ module MqttSpecs
       it "refuses exchange.bind from the exchange without read permission on mqtt.default" do
         with_server do |server|
           lim_perms.call(server, /^lim\./)
+          server.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", false, false)
           with_channel(server, user: "lim", password: "pw") do |ch|
-            ch.exchange_declare("lim.mq", "x-mqtt-topic")
             ch.exchange_declare("lim.fan", "fanout")
             expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
               ch.exchange_bind("lim.mq", "lim.fan", "#")
             end
           end
           server.vhosts["/"].exchange("lim.mq").binding_count.should eq 0
+        end
+      end
+
+      it "refuses exchange.declare without read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^lim\./)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            end
+          end
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            args = AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"})
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              ch.exchange_declare("lim.delayed", "x-delayed-message", args: args)
+            end
+          end
+          server.vhosts["/"].exchange?("lim.mq").should be_nil
+          server.vhosts["/"].exchange?("lim.delayed").should be_nil
+        end
+      end
+
+      it "refuses declaring the exchange over the HTTP API without read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^lim\./)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 403
+          response.body.should contain "mqtt.default"
+          s.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      # Deleting an exchange stores no unbinds, so a binding made to a fanout
+      # came back on boot on an x-mqtt-topic exchange declared with its name
+      it "doesn't restore a deleted exchange's bindings on a redeclared one" do
+        with_server do |server|
+          vhost = server.vhosts["/"]
+          vhost.declare_exchange("lim.x", "fanout", true, false)
+          vhost.declare_exchange("lim.fan", "fanout", true, false)
+          vhost.declare_queue("lim.spy", true, false)
+          vhost.bind_queue("lim.spy", "lim.x", "#")
+          vhost.bind_exchange("lim.fan", "lim.x", "#")
+          vhost.delete_exchange("lim.x")
+          vhost.declare_exchange("lim.x", "x-mqtt-topic", true, false)
+          restart_server(server)
+          server.vhosts["/"].exchange("lim.x").binding_count.should eq 0
         end
       end
 

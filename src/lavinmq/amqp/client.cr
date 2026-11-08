@@ -734,13 +734,17 @@ module LavinMQ
             send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
-          begin
-            @vhost.apply(frame)
-          rescue e : LavinMQ::Error::ExchangeTypeError
-            send_precondition_failed(frame, e.message)
-          end
-          send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
+          declare_new_exchange(frame)
         end
+      end
+
+      private def declare_new_exchange(frame)
+        @vhost.apply(frame, user: @user)
+        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
+      rescue e : LavinMQ::Error::ExchangeTypeError
+        send_precondition_failed(frame, e.message)
+      rescue e : LavinMQ::Exchange::AccessRefused
+        send_access_refused(frame, e.message)
       end
 
       private def redeclare_exchange(e, frame)
