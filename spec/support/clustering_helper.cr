@@ -58,6 +58,14 @@ module ClusteringSpecHelper
       @log_loops_running -= 1
     end
 
+    # Called each time the sync setting is read, so a spec can change it
+    # between the reads of an ack batch
+    property on_sync_read : Proc(Nil)? = nil
+
+    private def sync_enabled? : Bool
+      super.tap { @on_sync_read.try &.call }
+    end
+
     # Paths fsynced on the leader's fsync requests, in order
     getter fsynced_paths = Array(String).new
 

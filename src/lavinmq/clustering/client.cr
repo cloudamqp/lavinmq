@@ -678,14 +678,7 @@ module LavinMQ
             end
             item = acks.try_receive? || break
           end
-          if sync_reenabled? || syncfs || fsync_paths.size > @config.syncfs_threshold
-            # The syncfs covers them. Cleared before it, as #make_dirs can run
-            # while it blocks.
-            @created_dirs.clear
-            sync_to_disk
-          else
-            fsync_to_disk(fsync_paths)
-          end
+          sync_batch(syncfs, fsync_paths)
           fsync_paths.clear
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian if ack_bytes > 0
         end
@@ -694,16 +687,37 @@ module LavinMQ
         socket.close rescue nil
       end
 
-      private def sync_reenabled? : Bool
-        @config.sync? && @sync_skipped.swap(false)
+      # Reads the sync setting once, as a reload can enable it between two
+      # reads and the batch would then be acked without the catch-up syncfs
+      private def sync_batch(syncfs : Bool, fsync_paths : Set(String)) : Nil
+        unless sync_enabled?
+          @sync_skipped.set(true)
+          return
+        end
+        if @sync_skipped.swap(false) || syncfs || fsync_paths.size > @config.syncfs_threshold
+          # The syncfs covers them. Cleared before it, as #make_dirs can run
+          # while it blocks.
+          @created_dirs.clear
+          syncfs_or_exit
+        else
+          fsync_to_disk(fsync_paths)
+        end
+      end
+
+      private def sync_enabled? : Bool
+        @config.sync?
       end
 
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
-        unless @config.sync?
+        if sync_enabled?
+          syncfs_or_exit
+        else
           @sync_skipped.set(true)
-          return
         end
+      end
+
+      private def syncfs_or_exit : Nil
         sync_data_dir
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
@@ -717,10 +731,6 @@ module LavinMQ
       end
 
       private def fsync_to_disk(paths : Set(String)) : Nil
-        unless @config.sync?
-          @sync_skipped.set(true)
-          return
-        end
         begin
           paths.each { |path| fsync_path(path) }
         rescue ex : IO::Error | RuntimeError
