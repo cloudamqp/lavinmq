@@ -263,3 +263,19 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 end
+
+describe LavinMQ::Persister, "segments emptied by plain acks" do
+  it "unlinks the segment without a sync when nothing was moved out" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("plain")
+        # Plain publishes and no_ack gets: nothing requests a sync
+        8.times { q.publish "x" * 100_000 }
+        8.times { q.get(no_ack: true).should_not be_nil }
+        segment = File.join(queue_dir(s, "plain"), "msgs.0000000001")
+        wait_for { !File.exists?(segment) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+end

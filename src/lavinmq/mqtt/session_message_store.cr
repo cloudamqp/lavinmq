@@ -20,7 +20,7 @@ module LavinMQ
         @packet_ids.delete(sp) unless @packet_ids.empty?
       end
 
-      def delete(sp) : Nil
+      def delete(sp, moved = false) : Nil
         super
         forget_packet_id(sp)
       end

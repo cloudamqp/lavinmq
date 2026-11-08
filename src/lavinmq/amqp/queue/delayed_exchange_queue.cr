@@ -64,7 +64,7 @@ module LavinMQ::AMQP
       end
       @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      delete_message sp
+      delete_message sp, moved: true
     end
   end
 
