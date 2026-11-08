@@ -31,8 +31,6 @@ private def declare_dead_lettering(ch, name = "src", ttl : Int32? = 1)
   ch.queue(name, args: args)
 end
 
-# Dead-letters two small messages out of queue *name* into "dst". They don't
-# empty a segment, so nothing requests the drain that syncs the copies.
 # Bytes written to the ack file of *segment* of queue *name*. The files are
 # preallocated, so the size on disk doesn't tell.
 private def acked_bytes(s : LavinMQ::Server, name : String, segment = 1u32) : Int64
@@ -41,9 +39,7 @@ private def acked_bytes(s : LavinMQ::Server, name : String, segment = 1u32) : In
 end
 
 # Publishes from a connection of its own, and closes the returned channel when
-# done. Once the expiry waits for a drain under the queue's lock, the server
-# stops reading that connection, and the publishes that don't fit in the
-# socket buffers (small on macOS) block the publisher until the drain runs.
+# done
 private def publish_in_background(s : LavinMQ::Server, queue : String, count : Int, body : String) : Channel(Nil)
   published = Channel(Nil).new
   spawn do
@@ -56,10 +52,6 @@ private def publish_in_background(s : LavinMQ::Server, queue : String, count : I
   published
 end
 
-# Publishes 40 messages into "src" (see #declare_dead_lettering) while the
-# drains are held, five to a segment, so the expiry keeps more emptied segments
-# than MAX_KEPT_SEGMENTS, and yields once it waits for a drain. Returns once
-# every message is dead-lettered after the drains are released.
 # Dead-letters 40 messages of 100 kB from "src" to "dst" while the drains
 # are held, and yields while they're held
 private def move_while_drains_held(s : LavinMQ::Server, &) : Nil
@@ -823,6 +815,42 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         File.exists?(File.join(data_dir, "acks.0000000001")).should be_false
       ensure
         MFile.fail_delete_of = nil
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "waits for the drain once it keeps more emptied segments than the limit" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+      emptied = LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1
+      segments = (1..emptied).map { |id| File.join(data_dir, "msgs.#{id.to_s.rjust(10, '0')}") }
+      deleted = Channel(Nil).new
+      begin
+        # Three messages to a segment, and one more in the segment after them
+        (emptied * 3 + 1).times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        sps = Array.new(emptied * 3) { store.shift?.should_not(be_nil).segment_position }
+        with_drain_held do
+          moved = store.shift?.should_not(be_nil).segment_position
+          store.copied_out(moved)
+          store.delete(moved)
+          # Plain acks empty the segments while the move's drain is held
+          spawn do
+            sps.each { |sp| store.delete(sp) }
+          ensure
+            deleted.close
+          end
+          sleep 50.milliseconds
+          deleted.closed?.should be_false
+          segments.all? { |path| File.exists?(path) }.should be_true
+        end
+        deleted.receive?
+        segments.none? { |path| File.exists?(path) }.should be_true
+        store.kept_segment_drain.should be_nil
+      ensure
         store.close
         persister.close
       end
