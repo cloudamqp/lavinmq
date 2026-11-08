@@ -533,6 +533,8 @@ module LavinMQ
       private def fsync_request(filename : String) : Nil
         Log.debug { "Fsync requested for #{filename.empty? ? "data dir" : filename}" }
         if filename.empty?
+          # The syncfs covers them, or the catch-up if sync is disabled
+          @created_dirs.clear
           @acks.send ""
           return
         end
@@ -549,7 +551,8 @@ module LavinMQ
       # fsync request, before the ack that makes anything in it durable, not
       # inline on the replication stream
       private def make_dirs(dir : String) : Nil
-        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent }
+        # Version 1 leaders send no fsync requests, every batch is a syncfs
+        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent if @protocol_version > 1 }
       end
 
       private def delete(filename)
@@ -696,9 +699,6 @@ module LavinMQ
       private def sync_batch(syncfs : Bool, fsync_paths : Set(String)) : Nil
         unless sync_enabled?
           @sync_skipped.set(true)
-          # The catch-up syncfs covers them, and with only whole data dir
-          # requests nothing else would clear them
-          @created_dirs.clear
           return
         end
         if @sync_skipped.swap(false) || syncfs || fsync_paths.size > @config.syncfs_threshold
