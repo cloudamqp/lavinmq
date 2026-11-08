@@ -107,6 +107,8 @@ start_broker() {
 run_one() {
     local name="$1" proto="$2" metrics="$3" args="$4" side="$5" bin="$6" round="$7"
     local data_dir uri out
+    # Keep the data dir on a real disk, not tmpfs: fsync/syncfs are free on
+    # tmpfs, which would hide regressions in when and how often we sync.
     data_dir=$(mktemp -d "${TMPDIR:-/tmp}/perf-data.XXXXXX")
     start_broker "$bin" "$data_dir"
     if [ "$proto" = mqtt ]; then
