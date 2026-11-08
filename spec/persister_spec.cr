@@ -406,6 +406,47 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs a finished queue segment that a syncfs for another queue ran during" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        store.push(LavinMQ::Message.new("", "rk", body))
+        # A transaction commit on another queue syncs the whole filesystem
+        persister.sync
+        persister.last_sync.should eq LavinMQ::Persister::SyncRecord.new(true, [] of String)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        meta = File.join(data_dir, "meta.0000000001")
+        sync = wait_for { persister.last_sync.try { |r| r if r.paths.includes?(meta) } }
+        sync.paths.should contain File.join(data_dir, "msgs.0000000001")
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "leaves a finished queue segment to the kernel when a syncfs finished before it was opened" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      persister.sync
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        sleep 50.milliseconds
+        persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
+        persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "leaves a later finished segment to the kernel when nothing synced it while it was written" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)

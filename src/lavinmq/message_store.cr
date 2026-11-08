@@ -37,6 +37,8 @@ module LavinMQ
     # Set once something synced the segment being written while publishers
     # may still append to it, see #sync_finished_segment
     @wfile_partly_synced = false
+    # Persister#syncfs_mark when the segment being written was opened
+    @wfile_syncfs_mark = 0u64
     # The persister drain that makes the latest copy of a message of this
     # store in another queue durable, see #copied_out. Copies made by an
     # earlier process are synced before the stores load, see
@@ -65,6 +67,7 @@ module LavinMQ
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
       @persister = durable ? persister : nil
+      @wfile_syncfs_mark = @persister.try(&.syncfs_mark) || 0u64
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -634,17 +637,21 @@ module LavinMQ
       delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
       partly_synced, @wfile_partly_synced = @wfile_partly_synced, false
+      if persister = @persister
+        partly_synced ||= persister.syncfs_since?(@wfile_syncfs_mark)
+        @wfile_syncfs_mark = persister.syncfs_mark
+      end
       sync_finished_segment(finished, partly_synced) if finished && !finished.deleted?
       wfile
     end
 
-    # A confirm, a moved copy or a transaction commit syncs the segment while
-    # other publishers may still be appending to it, so the sync can persist
-    # the header of an unconfirmed message but not the rest of its body. A
-    # later sync of the same segment syncs the rest, but after a rollover
-    # nothing would, and a power loss would leave a record that loads as
-    # valid with a zeroed body. A segment that nothing synced is left to the
-    # kernel, as before.
+    # A confirm, a moved copy, a transaction commit or a syncfs started for
+    # any store syncs the segment while publishers may still append to it,
+    # so the sync can persist the header of an unconfirmed message but not
+    # the rest of its body. A later sync of the same segment syncs the rest,
+    # but after a rollover nothing would, and a power loss would leave a
+    # record that loads as valid with a zeroed body. A segment that nothing
+    # synced is left to the kernel, as before.
     private def sync_finished_segment(finished : MFile, partly_synced : Bool) : Nil
       return unless partly_synced
       @persister.try &.sync_soon(finished, meta_file_name(finished))
