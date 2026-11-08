@@ -2296,6 +2296,26 @@ describe LavinMQ::Shovel do
       end
     end
 
+    # A local shovel binds as the direct user, which may read mqtt.default
+    it "raises for an x-mqtt-topic source exchange without read permission on mqtt.default" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", true, false)
+        user = s.users.create("shovel_user7", "pass")
+        s.users.add_permission("shovel_user7", "/", /^lim\./, /^lim\./, /^lim\./)
+        config = JSON.parse({
+          "src-uri":          "amqp:///",
+          "src-exchange":     "lim.mq",
+          "src-exchange-key": "#",
+          "dest-uri":         "https://example.com/webhook",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, /mqtt\.default/) do
+          LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
+        end
+        s.users.add_permission("shovel_user7", "/", /^lim\./, /^(lim\.|mqtt\.default$)/, /^lim\./)
+        LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
+      end
+    end
+
     it "allows an HTTP destination without a dest queue or exchange" do
       config = JSON.parse({
         "src-uri":   "amqp:///test",

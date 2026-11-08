@@ -45,7 +45,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)
+      def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?, vhosts : VHostStore? = nil)
         dest_uris = parse_uris(config["dest-uri"]?)
         src_uris = parse_uris(config["src-uri"]?)
 
@@ -100,8 +100,20 @@ module LavinMQ
             if !(user.can_read?(vhost, x) && user.can_config?(vhost, x))
               raise ConfigError.new("#{user.name} can't access exchange '#{x}' in #{vhost}")
             end
+            validate_mqtt_source!(user, vhosts.try(&.[vhost]?), x)
           end
         end
+      end
+
+      # A local shovel binds as the direct user, which may read everything, so
+      # the creator must have the extra read an x-mqtt-topic source needs.
+      # Declaring an x-mqtt-topic exchange needs that read too, so the creator
+      # can't put one under the name after this check
+      private def self.validate_mqtt_source!(user : Auth::BaseUser, vhost : VHost?, exchange_name : String)
+        return unless vhost
+        return unless vhost.exchange?(exchange_name).is_a?(AMQP::MqttTopicExchange)
+        return if AMQP::MqttTopicExchange.readable_by?(user, vhost.name)
+        raise ConfigError.new(AMQP::MqttTopicExchange.unreadable_message(user, exchange_name))
       end
 
       # A malformed dest-timeout fails the PUT like any other bad field, rather
