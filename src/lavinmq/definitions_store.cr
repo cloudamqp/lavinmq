@@ -448,12 +448,16 @@ module LavinMQ
     # an x-delay, so it ignores x-delayed-exchange. Refused when declared, so
     # it doesn't look delayed, and accepted when loaded, so an exchange that
     # an earlier version stored with it still loads.
-    private def refuse_delayed_mqtt_topic!(type : String, arguments : AMQP::Table) : Nil
+    def self.delayed_mqtt_topic?(type : String, arguments : AMQP::Table) : Bool
       if type.in?("x-delayed-message", "x-delayed-exchange")
-        return unless arguments["x-delayed-type"]? == "x-mqtt-topic"
+        arguments["x-delayed-type"]? == "x-mqtt-topic"
       else
-        return unless type == "x-mqtt-topic" && arguments["x-delayed-exchange"]? == true
+        type == "x-mqtt-topic" && arguments["x-delayed-exchange"]? == true
       end
+    end
+
+    private def refuse_delayed_mqtt_topic!(type : String, arguments : AMQP::Table) : Nil
+      return unless DefinitionsStore.delayed_mqtt_topic?(type, arguments)
       raise Error::ExchangeTypeError.new("An x-mqtt-topic exchange can't be delayed: it only routes MQTT publishes")
     end
 
