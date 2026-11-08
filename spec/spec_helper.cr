@@ -164,6 +164,25 @@ ensure
   conn.try &.close(no_wait: false)
 end
 
+REMOTE_SPEC_USER     = "spec-remote"
+REMOTE_SPEC_PASSWORD = "spec-remote-pw"
+
+# A URI for connecting to the server itself over AMQP, the way a shovel or
+# federation link reaches a remote broker. Such a URI must carry credentials
+# of its own, and not the default user's while it's restricted to localhost
+# clients, as the specs configure it (see Endpoint.check_credentials). So this
+# creates a user for the purpose, with full permissions on `vhost`. The path
+# is left out for the default vhost.
+def remote_amqp_uri(s : LavinMQ::Server, vhost = "/", user = REMOTE_SPEC_USER) : String
+  s.users.create(user, REMOTE_SPEC_PASSWORD)
+  s.users.add_permission(user, vhost, /.*/, /.*/, /.*/)
+  uri = URI.parse(s.amqp_server.url)
+  uri.user = user
+  uri.password = REMOTE_SPEC_PASSWORD
+  uri.path = "/#{URI.encode_path_segment(vhost)}" unless vhost == "/"
+  uri.to_s
+end
+
 def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end

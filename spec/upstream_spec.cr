@@ -10,7 +10,7 @@ module FederationSpecHelpers
   def self.uri(s : LavinMQ::Server, kind : String, vhost : String) : String
     case kind
     when "in-process" then "amqp:///#{vhost}"
-    else                   "#{s.amqp_server.url}/#{vhost}"
+    else                   remote_amqp_uri(s, vhost)
     end
   end
 
@@ -61,8 +61,8 @@ module FederationSpecHelpers
   # A proxy to the server that holds each connection until `gate` closes,
   # to stop a link while it is connecting. `accepted` gets a value for each
   # accepted connection
-  def self.with_gated_proxy(s, &)
-    target = URI.parse(s.amqp_server.url)
+  def self.with_gated_proxy(s, vhost = "/", &)
+    target = URI.parse(remote_amqp_uri(s, vhost))
     proxy = TCPServer.new("127.0.0.1", 0)
     accepted = Channel(Nil).new(16)
     gate = Channel(Nil).new
@@ -122,7 +122,7 @@ describe LavinMQ::Federation do
             env.message.routing_key.should eq "a.b"
             hops = env.message.properties.headers.should_not(be_nil)["x-received-from"].as(Array)
             hop = hops.first.as(AMQ::Protocol::Table)
-            hop["uri"].should eq FederationSpecHelpers.uri(s, kind, "upstream")
+            hop["uri"].should eq LavinMQ::Endpoint.display_uri(URI.parse(FederationSpecHelpers.uri(s, kind, "upstream")))
             hop["exchange"].should eq "fx"
             hop["redelivered"].should be_false
           end
@@ -199,7 +199,7 @@ describe LavinMQ::Federation do
           link["type"].should eq "exchange"
           link["resource"].should eq "fx"
           link["status"].should eq "running"
-          link["uri"].should eq FederationSpecHelpers.uri(s, kind, "upstream")
+          link["uri"].should eq LavinMQ::Endpoint.display_uri(URI.parse(FederationSpecHelpers.uri(s, kind, "upstream")))
           link["consumer-tag"].should eq "federation-link-up"
         end
       end
@@ -569,8 +569,8 @@ describe LavinMQ::Federation do
         with_amqp_server do |s|
           up = s.vhosts.create("upstream")
           down = s.vhosts.create("downstream")
-          FederationSpecHelpers.with_gated_proxy(s) do |url, accepted, gate|
-            params = {"uri" => "#{url}/upstream", "queue" => "uq", "exchange" => "ux"}
+          FederationSpecHelpers.with_gated_proxy(s, "upstream") do |url, accepted, gate|
+            params = {"uri" => url.to_s, "queue" => "uq", "exchange" => "ux"}
             down.add_parameter(LavinMQ::Parameter.new("federation-upstream", "up", JSON.parse(params.to_json)))
             upstream = down.upstreams.find! { |u| u.name == "up" }
             link =
@@ -781,9 +781,23 @@ describe LavinMQ::Federation do
       end
     end
 
+    it "requires credentials of its own on an upstream URI with a host" do
+      validate = ->(uri : String) {
+        LavinMQ::Federation::UpstreamStore.validate_config!("federation-upstream",
+          JSON.parse({"uri" => uri}.to_json), nil)
+      }
+      expect_raises(LavinMQ::Federation::ConfigError, /credentials/) { validate.call("amqp://localhost/secret") }
+      expect_raises(LavinMQ::Federation::ConfigError, /default user/) { validate.call("amqp://guest:guest@localhost/secret") }
+      validate.call("amqp://u:p@remote/secret")
+      expect_raises(LavinMQ::Federation::ConfigError, /credentials/) do
+        LavinMQ::Federation::UpstreamStore.validate_config!("federation-upstream-set",
+          JSON.parse([{"upstream" => "a", "uri" => "amqp://localhost/secret"}].to_json), nil)
+      end
+    end
+
     it "accepts a list of URIs, like RabbitMQ, and uses the first" do
       with_http_server do |http, s|
-        body = {"value" => {"uri" => ["amqp://server-name/%2f", "amqp://other/%2f"]}}.to_json
+        body = {"value" => {"uri" => ["amqp://u:p@server-name/%2f", "amqp://u:p@other/%2f"]}}.to_json
         response = http.put("/api/parameters/federation-upstream/%2f/up", body: body)
         response.status_code.should eq 201
         s.vhosts["/"].upstreams.find!(&.name.== "up").uri.host.should eq "server-name"
@@ -838,7 +852,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         downstream_vhost = s.vhosts.create("downstream")
         store = downstream_vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex"}))
         upstream = store.create_upstream("a", config)
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
         ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
@@ -865,7 +879,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         downstream_vhost = s.vhosts.create("downstream")
         store = downstream_vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex"}))
         upstream = store.create_upstream("a", config)
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
         ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
@@ -876,8 +890,7 @@ describe LavinMQ::Federation do
 
         # Credentials and query options don't change which resources the links
         # declare, so a rotated password must not delete the buffered queue
-        with_creds = s.amqp_server.url.sub("amqp://", "amqp://guest:guest@")
-        config2 = JSON.parse(%({"uri": "#{with_creds}/upstream?heartbeat=10", "exchange": "upstream_ex"}))
+        config2 = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream", "spec-remote2")}?heartbeat=10", "exchange": "upstream_ex"}))
         store.create_upstream("a", config2)
 
         wait_for { link.state.terminated? }
@@ -893,7 +906,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         downstream_vhost = s.vhosts.create("downstream")
         store = downstream_vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex"}))
         upstream = store.create_upstream("a", config)
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
         ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
@@ -905,7 +918,7 @@ describe LavinMQ::Federation do
         # The new links declare resources named after the new exchange, so a
         # kept queue would stay bound to upstream_ex, filling up with nothing
         # consuming it
-        config2 = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex2"}))
+        config2 = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex2"}))
         store.create_upstream("a", config2)
 
         wait_for { !upstream_vhost.queue_exists?(federation_name) }
@@ -920,7 +933,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         downstream_vhost = s.vhosts.create("downstream")
         store = downstream_vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex"}))
         upstream = store.create_upstream("a", config)
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
         ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
@@ -931,7 +944,7 @@ describe LavinMQ::Federation do
 
         # The link declares the upstream queue passively when it exists, so a
         # changed x-expires only lands when the old queue is removed first
-        config2 = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex", "expires": 60000}))
+        config2 = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex", "expires": 60000}))
         upstream2 = store.create_upstream("a", config2)
         link2 = upstream2.link(ex)
         wait_for { link2.state.running? }
@@ -948,7 +961,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         downstream_vhost = s.vhosts.create("downstream")
         store = downstream_vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream", "exchange": "upstream_ex"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}", "exchange": "upstream_ex"}))
         store.create_upstream("a", config)
         store.create_upstream_set("s1", JSON.parse(%([{"upstream": "a"}])))
         downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
@@ -980,7 +993,7 @@ describe LavinMQ::Federation do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        config = JSON.parse(%({"uri": "#{s.amqp_server.url}"}))
+        config = JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"}))
         store.create_upstream("a", config)
         sets = ["s1", "s2", "s3"]
         sets.each { |name| store.create_upstream_set(name, JSON.parse(%([{"upstream": "a"}]))) }
@@ -1002,13 +1015,13 @@ describe LavinMQ::Federation do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"})))
         # The rejected config must leave no stored state behind that a later
         # upstream PUT trips over in the set rebuild
         expect_raises(TypeCastError) do
           store.create_upstream_set("bad", JSON.parse(%([{"upstream": 1}])))
         end
-        store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream("b", JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"})))
         store.map(&.name).sort!.should eq ["a", "b"]
       ensure
         store.try &.stop_all
@@ -1020,7 +1033,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1045,7 +1058,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1069,7 +1082,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         set_config = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
         store.create_upstream_set("set1", set_config)
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1095,7 +1108,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1122,9 +1135,9 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
-          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/upstream"}])))
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{remote_amqp_uri(s, "upstream")}"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
         member = store.get_set?("set1").should_not(be_nil).first
         link = member.link(vhost.exchange("downstream_ex"))
@@ -1133,7 +1146,7 @@ describe LavinMQ::Federation do
         upstream_vhost.queue_exists?(federation_name).should be_true
 
         store.create_upstream_set("set1",
-          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/upstream?heartbeat=10"}])))
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{remote_amqp_uri(s, "upstream")}?heartbeat=10"}])))
 
         store.await_pending_deletes(member.uri, federation_name)
         upstream_vhost.queue_exists?(federation_name).should be_true
@@ -1148,7 +1161,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "queue": "q1"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1175,9 +1188,9 @@ describe LavinMQ::Federation do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"})))
         store.create_upstream_set("set1",
-          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}"}])))
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{remote_amqp_uri(s)}"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
         member = store.get_set?("set1").should_not(be_nil).first
         link = member.link(vhost.exchange("downstream_ex"))
@@ -1187,7 +1200,7 @@ describe LavinMQ::Federation do
 
         # An empty path and "/" both mean the default vhost
         store.create_upstream_set("set1",
-          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{s.amqp_server.url}/"}])))
+          JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "uri": "#{remote_amqp_uri(s)}/"}])))
 
         store.await_pending_deletes(member.uri, federation_name)
         vhost.queue_exists?(federation_name).should be_true
@@ -1202,7 +1215,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex", "expires": 60000}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1231,7 +1244,7 @@ describe LavinMQ::Federation do
         upstream_vhost = s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         set_config = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
         store.create_upstream_set("set1", set_config)
         vhost.declare_exchange("downstream_ex", "topic", false, false)
@@ -1263,7 +1276,7 @@ describe LavinMQ::Federation do
         FederationSpecHelpers.with_gated_proxy(s) do |proxy_url, accepted, _gate|
           # "a" federates from the same vhost, so its delete needs the
           # definitions lock that a declare waiting on the store would hold
-          store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+          store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"})))
           store.create_upstream("hung", JSON.parse(%({"uri": "#{proxy_url}"})))
           store.create_upstream_set("set1",
             JSON.parse(%([{"upstream": "hung", "exchange": "hung_ex"}, {"upstream": "a", "exchange": "src_ex"}])))
@@ -1336,7 +1349,7 @@ describe LavinMQ::Federation do
         vhost = s.vhosts["/"]
         store = vhost.upstreams
         vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream", "a",
-          JSON.parse(%({"uri": "#{s.amqp_server.url}"}))))
+          JSON.parse(%({"uri": "#{remote_amqp_uri(s)}"}))))
         good = JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}]))
         vhost.add_parameter(LavinMQ::Parameter.new("federation-upstream-set", "set1", good))
         member = store.get_set?("set1").should_not(be_nil).first
@@ -1360,7 +1373,7 @@ describe LavinMQ::Federation do
         s.vhosts.create("upstream")
         vhost = s.vhosts["/"]
         store = vhost.upstreams
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}/upstream"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{remote_amqp_uri(s, "upstream")}"})))
         store.create_upstream_set("set1",
           JSON.parse(%([{"upstream": "a", "exchange": "upstream_ex"}])))
         vhost.declare_exchange("downstream_ex", "topic", false, false)

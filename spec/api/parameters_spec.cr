@@ -363,7 +363,7 @@ describe LavinMQ::HTTP::ParametersController do
       end
     end
 
-    it "should skip validation for external URIs" do
+    it "refuses external URIs without credentials" do
       with_http_server do |http, s|
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
@@ -379,7 +379,8 @@ describe LavinMQ::HTTP::ParametersController do
           }
           JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
-        response.status_code.should eq 201
+        response.status_code.should eq 400
+        response.body.should contain "credentials"
       end
     end
 
@@ -412,7 +413,7 @@ describe LavinMQ::HTTP::ParametersController do
           {
             "value": {
               "src-uri": "amqp://",
-              "dest-uri": "amqp://external-host",
+              "dest-uri": "amqp://u:p@external-host",
               "src-exchange": "amq.topic",
               "src-exchange-key": "#",
               "dest-queue": "dest-queue"

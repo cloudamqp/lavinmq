@@ -63,6 +63,9 @@ module LavinMQ
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
         raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
         validate_dest_timeout!(config["dest-timeout"]?)
+        (src_uris + dest_uris).each do |uri|
+          Endpoint.check_credentials(uri).try { |reason| raise ConfigError.new(reason) }
+        end
 
         return unless user
 

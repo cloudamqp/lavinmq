@@ -58,6 +58,7 @@ module LavinMQ
           if component == "federation-upstream" && uris.empty?
             raise ConfigError.new("Field 'uri' is required")
           end
+          uris.each { |uri| Endpoint.check_credentials(uri).try { |reason| raise ConfigError.new(reason) } }
           uris.each { |uri| validate_access!(uri, entry, user) } if user
         end
       end

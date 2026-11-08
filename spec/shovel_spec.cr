@@ -12,7 +12,7 @@ module ShovelSpecHelpers
     path = URI.encode_path_segment(vhost)
     case kind
     when "in-process" then URI.parse("amqp:///#{path}")
-    else                   URI.parse("#{s.amqp_server.url}/#{path}")
+    else                   URI.parse(remote_amqp_uri(s, vhost))
     end
   end
 
@@ -631,6 +631,36 @@ describe LavinMQ::Endpoint do
   end
 
   describe LavinMQ::Endpoint::RemoteSession do
+    it "doesn't open a URI without credentials of its own" do
+      with_amqp_server do |s|
+        bare = URI.parse(s.amqp_server.url)
+        expect_raises(LavinMQ::Endpoint::Error, /credentials/) do
+          LavinMQ::Endpoint::RemoteSession.new(bare, "spec").open
+        end
+        as_default = bare.dup
+        as_default.user = LavinMQ::Config.instance.default_user
+        as_default.password = "guest"
+        expect_raises(LavinMQ::Endpoint::Error, /default user/) do
+          LavinMQ::Endpoint::RemoteSession.new(as_default, "spec").open
+        end
+        s.vhosts["/"].connections_size.should eq 0
+      end
+    end
+
+    it "leaves a shovel whose stored URI has no credentials in error, keeping its parameter" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rs_q", false, false)
+        config = {"src-uri" => s.amqp_server.url, "src-queue" => "rs_q", "dest-uri" => "amqp://", "dest-queue" => "rs_q"}
+        vhost.add_parameter(LavinMQ::Parameter.new("shovel", "rs_bare", JSON.parse(config.to_json)))
+        shovel = vhost.shovels["rs_bare"]
+        should_eventually(be_true) { shovel.state.error? }
+        shovel.details_tuple[:error].to_s.should match(/credentials/)
+        vhost.parameters[{"shovel", "rs_bare"}]?.should_not be_nil
+        vhost.connections_size.should eq 0
+      end
+    end
+
     it "turns a failed passive declare into NotFound and stays usable" do
       with_amqp_server do |s|
         session = ShovelSpecHelpers.session(s, "remote")
@@ -1425,6 +1455,25 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "requires credentials of its own on a URI with a host" do
+      config = ->(src : String, dest : String) {
+        JSON.parse({"src-uri" => src, "src-queue" => "q", "dest-uri" => dest, "dest-queue" => "q"}.to_json)
+      }
+      # Without any, the client would log in as the default user
+      expect_raises(LavinMQ::Shovel::ConfigError, /credentials/) do
+        LavinMQ::Shovel::Store.validate_config!(config.call("amqp://localhost/other", "amqp://"), nil)
+      end
+      expect_raises(LavinMQ::Shovel::ConfigError, /credentials/) do
+        LavinMQ::Shovel::Store.validate_config!(config.call("amqp://", "amqp://localhost/other"), nil)
+      end
+      # The default user is only allowed from localhost, which the broker itself is
+      LavinMQ::Config.instance.default_user_only_loopback?.should be_true
+      expect_raises(LavinMQ::Shovel::ConfigError, /default user/) do
+        LavinMQ::Shovel::Store.validate_config!(config.call("amqp://guest:guest@localhost/other", "amqp://"), nil)
+      end
+      LavinMQ::Shovel::Store.validate_config!(config.call("amqp://u:p@localhost/other", "amqp://"), nil)
+    end
+
     it "requires a source and a destination" do
       expect_raises(LavinMQ::Shovel::ConfigError) do
         LavinMQ::Shovel::Store.validate_config!(JSON.parse(%({"src-uri": "amqp://", "dest-uri": "amqp://", "dest-queue": "q"})), nil)
@@ -1448,13 +1497,13 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts["/"]
         vhost.declare_queue("sr_q1", true, false)
         vhost.declare_queue("sr_q2", true, false)
-        good = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2"}))
+        good = JSON.parse(%({"src-uri": "#{remote_amqp_uri(s)}", "src-queue": "sr_q1", "dest-uri": "#{remote_amqp_uri(s)}", "dest-queue": "sr_q2"}))
         vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", good))
         shovel = vhost.shovels["sr_shovel"]
         wait_for { shovel.running? }
 
         # Passes validate_config! but fails to parse; the update must be a no-op
-        bad = JSON.parse(%({"src-uri": "#{s.amqp_server.url}", "src-queue": "sr_q1", "dest-uri": "#{s.amqp_server.url}", "dest-queue": "sr_q2", "reconnect-delay": "5"}))
+        bad = JSON.parse(%({"src-uri": "#{remote_amqp_uri(s)}", "src-queue": "sr_q1", "dest-uri": "#{remote_amqp_uri(s)}", "dest-queue": "sr_q2", "reconnect-delay": "5"}))
         expect_raises(TypeCastError) do
           vhost.add_parameter(LavinMQ::Parameter.new("shovel", "sr_shovel", bad))
         end

@@ -684,9 +684,9 @@ describe LavinMQ::HTTP::Server do
               "component": "shovel",
               "vhost": "/",
               "value": {
-                "src-uri": "#{s.amqp_server.url}",
+                "src-uri": "#{remote_amqp_uri(s)}",
                 "src-queue": "shovel_will_declare_q1",
-                "dest-uri": "#{s.amqp_server.url}",
+                "dest-uri": "#{remote_amqp_uri(s)}",
                 "dest-queue": "shovel_will_declare_q1"
               }
             }
@@ -714,7 +714,7 @@ describe LavinMQ::HTTP::Server do
               "name": "set_upstream",
               "component": "federation-upstream",
               "vhost": "/",
-              "value": { "uri": "#{s.amqp_server.url}" }
+              "value": { "uri": "#{remote_amqp_uri(s)}" }
             },
             {
               "name": "import_set",
@@ -745,7 +745,7 @@ describe LavinMQ::HTTP::Server do
               "name": "late_upstream",
               "component": "federation-upstream",
               "vhost": "/",
-              "value": { "uri": "#{s.amqp_server.url}" }
+              "value": { "uri": "#{remote_amqp_uri(s)}" }
             }
           ]}
           JSON
@@ -763,7 +763,7 @@ describe LavinMQ::HTTP::Server do
               "name": "applied_upstream",
               "component": "federation-upstream",
               "vhost": "/",
-              "value": { "uri": "#{s.amqp_server.url}" }
+              "value": { "uri": "#{remote_amqp_uri(s)}" }
             },
             {
               "name": "bad_shovel",
@@ -787,7 +787,7 @@ describe LavinMQ::HTTP::Server do
               "name": "bad_set",
               "component": "federation-upstream-set",
               "vhost": "/",
-              "value": [{ "uri": "#{s.amqp_server.url}" }]
+              "value": [{ "uri": "#{remote_amqp_uri(s)}" }]
             }
           ]}
           JSON
@@ -810,9 +810,9 @@ describe LavinMQ::HTTP::Server do
               "component": "shovel",
               "vhost": "/",
               "value": {
-                "src-uri": "#{s.amqp_server.url}",
+                "src-uri": "#{remote_amqp_uri(s)}",
                 "src-queue": "regression_q_2073",
-                "dest-uri": "#{s.amqp_server.url}",
+                "dest-uri": "#{remote_amqp_uri(s)}",
                 "dest-queue": "regression_q_2073"
               }
             },

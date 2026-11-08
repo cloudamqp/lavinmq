@@ -15,6 +15,7 @@ module LavinMQ
       end
 
       def open : Nil
+        Endpoint.check_credentials(@uri).try { |reason| raise Error.new(reason) }
         uri = @uri.dup
         params = uri.query_params
         params["name"] ||= @name
