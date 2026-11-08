@@ -96,6 +96,18 @@ module LavinMQ
       end
     end
 
+    # Checked before anything is imported, so a refused import doesn't leave
+    # the queues and exchanges listed before the refused one behind
+    private def refuse_delayed_mqtt_topic_exchanges(body)
+      body["exchanges"]?.try &.as_a.each do |e|
+        type = e["type"].as_s
+        arguments = AMQP::Table.new(e["arguments"].as_h)
+        if DefinitionsStore.delayed_mqtt_topic?(type, arguments)
+          raise Error::PreconditionFailed.new("Exchange '#{e["name"]}' can't be delayed: an x-mqtt-topic exchange only routes MQTT publishes")
+        end
+      end
+    end
+
     private def import_exchanges(body)
       if exchanges = body["exchanges"]?
         exchanges.as_a.each do |e|
@@ -106,15 +118,6 @@ module LavinMQ
             internal = e["internal"].as_bool
             auto_delete = e["auto_delete"].as_bool
             arguments = AMQP::Table.new(e["arguments"].as_h)
-            # 2.11.0-rc exported these as x-delayed-exchange. Import them as
-            # plain x-mqtt-topic, which is how they behaved, instead of
-            # failing the import halfway
-            if DefinitionsStore.delayed_mqtt_topic?(type, arguments)
-              Log.warn { "Importing x-mqtt-topic exchange #{name} in vhost #{v.name} without x-delayed-exchange: it can't be delayed" }
-              type = "x-mqtt-topic"
-              arguments.delete("x-delayed-type")
-              arguments.delete("x-delayed-exchange")
-            end
             v.declare_exchange(name, type, durable, auto_delete, internal, arguments, fsync: false)
           end
         end
@@ -460,6 +463,7 @@ module LavinMQ
     getter vhosts : Hash(String, VHost)
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
@@ -497,6 +501,7 @@ module LavinMQ
     end
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
       import_vhosts(body)

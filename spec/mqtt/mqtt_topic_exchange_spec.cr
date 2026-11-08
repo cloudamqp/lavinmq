@@ -449,35 +449,42 @@ module MqttSpecs
       end
     end
 
-    # 2.11.0-rc exported a delayed x-mqtt-topic exchange like this
-    rc_export = <<-JSON
+    delayed_definitions = <<-JSON
       {
         "queues": [{"name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}}],
         "exchanges": [{"name": "xmqtt", "vhost": "/", "type": "x-delayed-exchange", "durable": true,
-                       "auto_delete": false, "internal": true, "arguments": {"x-delayed-type": "x-mqtt-topic"}}],
-        "bindings": [{"source": "xmqtt", "vhost": "/", "destination": "q1", "destination_type": "queue",
-                      "routing_key": "a/+", "arguments": {}}]
+                       "auto_delete": false, "internal": true, "arguments": {"x-delayed-type": "x-mqtt-topic"}}]
       }
       JSON
 
-    it "imports a delayed exchange from definitions as not delayed" do
+    it "refuses to import a delayed exchange from definitions and imports nothing" do
       with_http_server do |http, s|
-        response = http.post("/api/definitions", body: rc_export)
-        response.status_code.should eq 200
-        x = s.vhosts["/"].exchange?("xmqtt").should be_a LavinMQ::AMQP::MqttTopicExchange
-        x.arguments["x-delayed-exchange"]?.should be_nil
-        x.bindings_details.map(&.binding_key.routing_key).should eq ["a/+"]
+        response = http.post("/api/definitions", body: delayed_definitions)
+        response.status_code.should eq 400
+        response.body.should contain "can't be delayed"
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
       end
     end
 
-    it "loads a delayed exchange from a definitions file as not delayed" do
+    it "refuses to import a delayed exchange into a vhost and imports nothing" do
+      with_http_server do |http, s|
+        response = http.post("/api/definitions/%2f", body: delayed_definitions)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
+      end
+    end
+
+    it "refuses to load a delayed exchange from a definitions file" do
       tmpfile = File.tempname("lavinmq-defs", ".json")
-      File.write(tmpfile, rc_export)
+      File.write(tmpfile, delayed_definitions)
       begin
         with_amqp_server do |s|
-          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
-          x = s.vhosts["/"].exchange?("xmqtt").should be_a LavinMQ::AMQP::MqttTopicExchange
-          x.arguments["x-delayed-exchange"]?.should be_nil
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be delayed/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+          s.vhosts["/"].exchange?("xmqtt").should be_nil
         end
       ensure
         File.delete?(tmpfile)
