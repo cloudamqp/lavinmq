@@ -1030,9 +1030,46 @@ describe LavinMQ::MessageStore do
           store = LavinMQ::MessageStore.new(dir, nil)
           store.push(synced_message("m"))
           vm_flags(store.@wfile.path).should contain "rr"
-          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
-          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          small = "x" * 500
+          (LavinMQ::Config.instance.segment_size // 500).times { store.push(LavinMQ::Message.new("", "rk", small)) }
           store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
+        end
+      end
+
+      it "gives the write segment readahead again while synced messages average half a page or more" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(synced_message("m"))
+          vm_flags(store.@wfile.path).should contain "rr"
+          large = "x" * 4000
+          until store.@avg_msg_size >= LavinMQ::MessageStore::READAHEAD_FROM_AVG_MSG_SIZE
+            vm_flags(store.@wfile.path).should contain "rr"
+            store.push(synced_message(large))
+          end
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          # Between the two limits it keeps readahead
+          store.push(synced_message("x" * 1500))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          first_segment = store.@wfile
+          (LavinMQ::Config.instance.segment_size // 4000).times { store.push(synced_message(large)) }
+          store.@wfile.should_not eq first_segment
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          vm_flags(first_segment.path).should contain "rr"
+          store.close
+        end
+      end
+
+      it "takes readahead from the write segment again when synced messages get small" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          20.times { store.push(synced_message("x" * 4000)) }
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          until store.@avg_msg_size < LavinMQ::MessageStore::NO_READAHEAD_BELOW_AVG_MSG_SIZE
+            vm_flags(store.@wfile.path).should_not contain "rr"
+            store.push(synced_message("m"))
+          end
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
         end

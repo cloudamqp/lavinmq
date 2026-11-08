@@ -42,6 +42,10 @@ module LavinMQ
     @wfile_tail_marked = false
     # Persister#syncfs_mark when the segment being written was opened
     @wfile_syncfs_mark = 0u64
+    # Moving average of the size of written messages, see #readahead_for_writes
+    @avg_msg_size = 0i64
+    # Whether the segment being written is mapped with readahead
+    @wfile_readahead = false
     # The persister drain that makes the latest copy of a message of this
     # store in another queue durable, see #copied_out. Copies made by an
     # earlier process are synced before the stores load, see
@@ -545,7 +549,9 @@ module LavinMQ
         persister.mark_dirty(wfile)
         @wfile_partly_synced = @wfile_tail_marked = true
       end
-      random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
+      @synced_writes = true if !@synced_writes && synced?(msg)
+      @avg_msg_size += (msg.bytesize.to_i64 - @avg_msg_size) // 16
+      readahead_for_writes(wfile) if readahead_for_writes? != @wfile_readahead
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -555,17 +561,27 @@ module LavinMQ
     end
 
     # The segment being written is mapped with readahead, which caches it in
-    # large folios and halves the CPU time of writing it. But an msync writes
-    # whole folios, so a confirm would write up to 128 KiB for a small
-    # message. Once a publish to the store is synced, its write segments are
-    # mapped without readahead and a sync only writes the pages that changed.
-    private def readahead_for_writes(wfile : MFile) : Nil
-      wfile.advise(MFile::Advice::Normal) unless @synced_writes
+    # large folios and halves the CPU time of writing and reading it. But an
+    # msync writes whole folios, so a confirm would write up to 128 KiB for a
+    # small message. So once a publish to the store is synced, its write
+    # segments are mapped without readahead while its messages are small,
+    # and a sync only writes the pages that changed. Messages of half a page
+    # or more dirty most of the pages a folio holds anyway, and without
+    # readahead each of them costs page faults to write and to read.
+    # The two limits keep a store whose message sizes vary around one limit
+    # from switching back and forth.
+    READAHEAD_FROM_AVG_MSG_SIZE     = 2048
+    NO_READAHEAD_BELOW_AVG_MSG_SIZE = 1024
+
+    private def readahead_for_writes? : Bool
+      return true unless @synced_writes
+      limit = @wfile_readahead ? NO_READAHEAD_BELOW_AVG_MSG_SIZE : READAHEAD_FROM_AVG_MSG_SIZE
+      @avg_msg_size >= limit
     end
 
-    private def random_access_for_sync(wfile : MFile) : Nil
-      @synced_writes = true
-      wfile.advise(MFile::Advice::Random)
+    private def readahead_for_writes(wfile : MFile) : Nil
+      @wfile_readahead = readahead_for_writes?
+      wfile.advise(@wfile_readahead ? MFile::Advice::Normal : MFile::Advice::Random)
     end
 
     # Segments are mapped without readahead. Readahead on a page fault caches
@@ -622,7 +638,7 @@ module LavinMQ
         finished = @wfile
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
-        @wfile.advise(MFile::Advice::Random) unless @synced_writes
+        @wfile.advise(MFile::Advice::Random) if @wfile_readahead
       end
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
