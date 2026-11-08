@@ -139,6 +139,36 @@ test.describe('overview', _ => {
     await expect(legendTime).toHaveText(/^\d{2}:\d{2}:\d{2}$/)
   })
 
+  function yAxisTicks (page, unit, log) {
+    return page.evaluate(async ({ url, unit, log }) => {
+      const Chart = await import(url)
+      const el = document.createElement('div')
+      el.id = 'axisChart'
+      el.style.width = '1400px'
+      document.body.append(el)
+      const chart = Chart.render(el.id, unit)
+      Chart.update(chart, [{ key: 'value', value: log.at(-1), log }])
+      await new Promise(resolve => window.requestAnimationFrame(resolve))
+      const axis = chart.uplot.axes[1]
+      return { splits: axis._splits, labels: axis._values }
+    }, { url: '/js/chart.js', unit, log })
+  }
+
+  const LABEL_SCALES = { K: 1e3, M: 1e6, G: 1e9, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3 }
+
+  function parseLabel (label) {
+    const [, digits, scale] = label.match(/^([\d.,]+)\s*(\w*)/)
+    return Number(digits.replace(/,/g, '')) * (LABEL_SCALES[scale] ?? 1)
+  }
+
+  for (const [unit, value] of [['msgs/s', 0.2], ['msgs/s', 1400], ['bytes/s', 1.4 * 1024 ** 2]]) {
+    test(`y axis labels name their tick values exactly at ${value} ${unit}`, async ({ page }) => {
+      await page.goto('/')
+      const { splits, labels } = await yAxisTicks(page, unit, [value, value])
+      expect(labels.map(parseLabel)).toEqual(splits.map(v => Number(v.toPrecision(12))))
+    })
+  }
+
   test('y axis shrinks after five polls below the range, not five redraws', async ({ page }) => {
     await page.goto('/')
     const maxes = await page.evaluate(async url => {

@@ -180,11 +180,28 @@ function yAxisSize (u, values, axisIdx, cycleNum) {
 const BYTE_INCRS = [0, 1, 2, 3, 4].flatMap(p =>
   [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p))
 
-function fmtAxisBytes (v, perSec) {
+function stepDecimals (incr) {
+  let decimals = 0
+  while (decimals < 20 && Math.abs(incr * 10 ** decimals - Math.round(incr * 10 ** decimals)) > 1e-9) decimals++
+  return decimals
+}
+
+function fmtTick (v, divisor, incr) {
+  return formatDigits(v / divisor, stepDecimals(incr / divisor))
+}
+
+const SI_PREFIXES = [[1e9, 'G'], [1e6, 'M'], [1e3, 'K']]
+
+function fmtAxisNumber (v, incr) {
+  const [divisor, prefix] = SI_PREFIXES.find(([d]) => Math.abs(v) >= d) ?? [1, '']
+  return fmtTick(v, divisor, incr) + prefix
+}
+
+function fmtAxisBytes (v, incr, perSec) {
   if (v === 0) return '0'
-  const { value, prefix } = helpers.scaleBytes(v)
-  const digits = formatDigits(value)
-  return digits + ' ' + prefix + (perSec ? '/s' : '')
+  const unitIdx = helpers.byteUnitIndex(v)
+  const { prefix } = helpers.scaleBytes(v, unitIdx)
+  return fmtTick(v, 1024 ** unitIdx, incr) + ' ' + prefix + (perSec ? '/s' : '')
 }
 
 function xAxisValues (u, vals) {
@@ -249,8 +266,8 @@ function initChart (handle) {
         ticks: { stroke: gridColor, size: 3 },
         ...(bytes && { incrs: BYTE_INCRS }),
         values: bytes
-          ? (u, vals) => vals.map(v => fmtAxisBytes(v, config.unit === 'bytes/s'))
-          : (u, vals) => vals.map(helpers.nFormatter),
+          ? (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisBytes(v, incr, config.unit === 'bytes/s'))
+          : (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisNumber(v, incr)),
         size: yAxisSize,
         gap: 2
       }
