@@ -366,6 +366,73 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs a finished queue segment that a moved copy wrote to" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        moved = LavinMQ::Message.new("", "rk", body)
+        moved.moved = true
+        store.push(moved)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        meta = File.join(data_dir, "meta.0000000001")
+        sync = wait_for { persister.last_sync.try { |r| r if r.paths.includes?(meta) } }
+        sync.paths.should contain File.join(data_dir, "msgs.0000000001")
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "syncs a finished queue segment that a transaction wrote to" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        committed = LavinMQ::Message.new("", "rk", body)
+        committed.synced_by_commit = true
+        store.push(committed)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        meta = File.join(data_dir, "meta.0000000001")
+        wait_for { persister.last_sync.try(&.paths.includes?(meta)) }
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "leaves a later finished segment to the kernel when nothing synced it while it was written" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      receiver = ConfirmReceiver.new
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        confirmed = LavinMQ::Message.new("", "rk", body)
+        confirmed.needs_sync = true
+        store.push(confirmed)
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        # Three to a segment: fills msgs.1, then msgs.2, and opens msgs.3
+        6.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 3
+        wait_for { persister.last_sync.try(&.paths.includes?(File.join(data_dir, "meta.0000000001"))) }
+        sleep 50.milliseconds
+        meta2 = File.join(data_dir, "meta.0000000002")
+        persister.syncs.none?(&.paths.includes?(meta2)).should be_true
+        persister.@pending.lock(&.paths.includes?(meta2)).should be_false
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "leaves a finished queue segment to the kernel when no confirmed publish wrote to the queue" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
