@@ -282,20 +282,25 @@ module LavinMQ
     # acks can reach the disk in any order now.
     private def write_synced_acks : Nil
       return if @writing_acks
+      # Cleared only by the call that set it: a method-level ensure would also
+      # run on the early return of the nested calls (via #write_ack), and let
+      # the next one recurse, once per held back ack
       @writing_acks = true
-      persister = @persister
-      wrote = false
-      while (pending = @pending_acks.first?) && drain_done?(pending.drain)
-        @pending_acks.shift
-        afile = write_ack(pending.sp)
-        if afile && !afile.deleted?
-          persister.try &.mark_dirty(afile)
-          wrote = true
+      begin
+        persister = @persister
+        wrote = false
+        while (pending = @pending_acks.first?) && drain_done?(pending.drain)
+          @pending_acks.shift
+          afile = write_ack(pending.sp)
+          if afile && !afile.deleted?
+            persister.try &.mark_dirty(afile)
+            wrote = true
+          end
         end
+        persister.try &.request_drain if wrote
+      ensure
+        @writing_acks = false
       end
-      persister.try &.request_drain if wrote
-    ensure
-      @writing_acks = false
     end
 
     # Writes all acks held back by #delete, once their copies are synced, see
