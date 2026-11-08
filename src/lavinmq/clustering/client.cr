@@ -618,7 +618,11 @@ module LavinMQ
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           # Fsync the content before the rename, so that a crash can't leave
           # a partially written file under the final name
-          f.fsync if @config.sync?
+          if sync_enabled?
+            f.fsync
+          else
+            @sync_skipped.set(true)
+          end
           f.rename f.path[0..-5]
           @file_digests[filename] = sha1
           @acks.send File.dirname(f.path)
@@ -692,6 +696,9 @@ module LavinMQ
       private def sync_batch(syncfs : Bool, fsync_paths : Set(String)) : Nil
         unless sync_enabled?
           @sync_skipped.set(true)
+          # The catch-up syncfs covers them, and with only whole data dir
+          # requests nothing else would clear them
+          @created_dirs.clear
           return
         end
         if @sync_skipped.swap(false) || syncfs || fsync_paths.size > @config.syncfs_threshold
@@ -711,6 +718,8 @@ module LavinMQ
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
         if sync_enabled?
+          # This syncfs is the catch-up, the first batch needs none
+          @sync_skipped.set(false)
           syncfs_or_exit
         else
           @sync_skipped.set(true)
