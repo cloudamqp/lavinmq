@@ -161,10 +161,11 @@ test.describe('overview', _ => {
     return Number(digits.replace(/,/g, '')) * (LABEL_SCALES[scale] ?? 1)
   }
 
-  for (const [unit, value] of [['msgs/s', 0.2], ['msgs/s', 1400], ['bytes/s', 1.4 * 1024 ** 2]]) {
+  for (const [unit, value] of [['msgs/s', 0.2], ['msgs/s', 1400], ['bytes/s', 0.2], ['bytes/s', 1.4 * 1024 ** 2]]) {
     test(`y axis labels name their tick values exactly at ${value} ${unit}`, async ({ page }) => {
       await page.goto('/')
       const { splits, labels } = await yAxisTicks(page, unit, [value, value])
+      expect(splits.length).toBeGreaterThan(2)
       expect(labels.map(parseLabel)).toEqual(splits.map(v => Number(v.toPrecision(12))))
     })
   }

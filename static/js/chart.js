@@ -177,8 +177,8 @@ function yAxisSize (u, values, axisIdx, cycleNum) {
   return Math.max(24, Math.ceil(size / 8) * 8)
 }
 
-const BYTE_INCRS = [0, 1, 2, 3, 4].flatMap(p =>
-  [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p))
+const BYTE_INCRS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5].concat([0, 1, 2, 3, 4].flatMap(p =>
+  [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p)))
 
 function stepDecimals (incr) {
   let decimals = 0
