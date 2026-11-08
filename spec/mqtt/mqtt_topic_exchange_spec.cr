@@ -439,16 +439,6 @@ module MqttSpecs
       end
     end
 
-    it "still loads a delayed exchange that an earlier version stored" do
-      with_server do |server|
-        vhost = server.vhosts["/"]
-        frame = AMQ::Protocol::Frame::Exchange::Declare.new(0_u16, 0_u16, "xmqtt", "x-mqtt-topic", false, true,
-          false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true}))
-        vhost.@definitions.should_not(be_nil).apply(frame, loading: true)
-        vhost.exchange?("xmqtt").should_not be_nil
-      end
-    end
-
     delayed_definitions = <<-JSON
       {
         "queues": [{"name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}}],
