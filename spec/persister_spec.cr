@@ -125,6 +125,12 @@ private def store_with_three_segments(data_dir, persister) : LavinMQ::MessageSto
   store
 end
 
+# Waits for a drain that takes everything marked so far, so a spec can check
+# what was or wasn't marked without waiting for a time
+private def drain_marked(persister : LavinMQ::Persister) : Nil
+  persister.wait_drain(persister.copy_drain)
+end
+
 private class ConfirmReceiver
   include LavinMQ::Persister::ConfirmTarget
   getter confirms = Channel(UInt64).new(1)
@@ -437,8 +443,7 @@ describe LavinMQ::Persister do
         body = "x" * (LavinMQ::Config.instance.segment_size // 4)
         4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
         store.@segments.size.should eq 2
-        sleep 50.milliseconds
-        persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
+        drain_marked(persister)
         persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
       ensure
         store.close
@@ -463,10 +468,8 @@ describe LavinMQ::Persister do
         6.times { store.push(LavinMQ::Message.new("", "rk", body)) }
         store.@segments.size.should eq 3
         wait_for { persister.last_sync.try(&.paths.includes?(File.join(data_dir, "meta.0000000001"))) }
-        sleep 50.milliseconds
-        meta2 = File.join(data_dir, "meta.0000000002")
-        persister.syncs.none?(&.paths.includes?(meta2)).should be_true
-        persister.@pending.lock(&.paths.includes?(meta2)).should be_false
+        drain_marked(persister)
+        persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000002"))).should be_true
       ensure
         store.close
         persister.close
