@@ -901,28 +901,19 @@ module LavinMQ
         return unless valid_q_bind_unbind?(frame)
         return unless q = bindable_queue?(frame)
 
-        if refusal = queue_bind_refusal(frame)
-          send_access_refused(frame, refusal)
+        if !@user.can_read?(@vhost.name, frame.exchange_name)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
+        elsif !@user.can_write?(@vhost.name, frame.queue_name)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
           begin
-            @vhost.apply(frame)
+            @vhost.apply(frame, user: @user)
             send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
           rescue ex : LavinMQ::Exchange::AccessRefused
             send_access_refused(frame, ex.message)
           end
-        end
-      end
-
-      # Why the user may not bind the queue to the exchange, nil if it may
-      private def queue_bind_refusal(frame) : String?
-        if !@user.can_read?(@vhost.name, frame.exchange_name)
-          "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'"
-        elsif @vhost.exchange?(frame.exchange_name).is_a?(MqttTopicExchange) && !MqttTopicExchange.readable_by?(@user, @vhost.name)
-          MqttTopicExchange.unreadable_message(@user, frame.exchange_name)
-        elsif !@user.can_write?(@vhost.name, frame.queue_name)
-          "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'"
         end
       end
 
@@ -991,15 +982,17 @@ module LavinMQ
           send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
         elsif !@user.can_read?(@vhost.name, frame.source)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
-        elsif source.is_a?(MqttTopicExchange) && !MqttTopicExchange.readable_by?(@user, @vhost.name)
-          send_access_refused(frame, MqttTopicExchange.unreadable_message(@user, frame.source))
         elsif !@user.can_write?(@vhost.name, frame.destination)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
-          @vhost.apply(frame)
-          send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
+          begin
+            @vhost.apply(frame, user: @user)
+            send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
+          rescue ex : LavinMQ::Exchange::AccessRefused
+            send_access_refused(frame, ex.message)
+          end
         end
       end
 

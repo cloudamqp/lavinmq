@@ -7,8 +7,8 @@ module LavinMQ
     @name = ""
 
     class AccessRefused < Error
-      def initialize(@exchange : Exchange)
-        super("Access refused to #{@exchange.name}")
+      def initialize(@exchange : Exchange, message : String? = nil)
+        super(message || "Access refused to #{@exchange.name}")
       end
     end
   end

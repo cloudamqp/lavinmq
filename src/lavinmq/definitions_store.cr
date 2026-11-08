@@ -165,8 +165,10 @@ module LavinMQ
       @sessions.clear
     end
 
+    # *user* is the user a bind is made for, whose permissions on the source
+    # exchange are checked here, see #refuse_unreadable_mqtt_exchange
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false, fsync = true) : Bool
+    def apply(f, loading = false, fsync = true, user : Auth::BaseUser? = nil) : Bool
       @definitions_lock.synchronize do
         case f
         when AMQP::Frame::Exchange::Declare
@@ -193,6 +195,7 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          refuse_unreadable_mqtt_exchange(src, user)
           if dst.is_a?(AMQP::MqttTopicExchange)
             return false if loading
             raise Error::PreconditionFailed.new("Exchange '#{dst.name}' of type x-mqtt-topic only receives MQTT publishes and cannot be a binding destination")
@@ -234,6 +237,7 @@ module LavinMQ
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
+          refuse_unreadable_mqtt_exchange(x, user)
           return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
         when AMQP::Frame::Queue::Unbind
@@ -245,6 +249,15 @@ module LavinMQ
         end
         true
       end
+    end
+
+    # Checked under the lock, on the exchange the bind is made to: a check
+    # before #apply could see another exchange of the same name, as one can
+    # be deleted and redeclared as x-mqtt-topic meanwhile
+    private def refuse_unreadable_mqtt_exchange(x : Exchange, user : Auth::BaseUser?) : Nil
+      return unless user && x.is_a?(AMQP::MqttTopicExchange)
+      return if AMQP::MqttTopicExchange.readable_by?(user, @vhost.name)
+      raise Exchange::AccessRefused.new(x, AMQP::MqttTopicExchange.unreadable_message(user, x.name))
     end
 
     # Bindings are stored so they can be restored on boot. The MQTT exchange is
