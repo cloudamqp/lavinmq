@@ -38,13 +38,14 @@ module LavinMQPerf
     # Parses an integer option value, aborting with a message instead of
     # raising when it isn't a number or is outside min..max.
     private def parse_int(value : String, name : String, min = 0, max = Int32::MAX) : Int32
-      i = value.to_i? || abort "#{name} must be a number, got #{value}"
+      i = value.to_i64? || abort "#{name} must be a number, got #{value}"
       if max == Int32::MAX
+        abort "#{name} must be between #{min} and #{max}, got #{i}" if i > max
         abort "#{name} must be >= #{min}, got #{i}" if i < min
       else
         abort "#{name} must be between #{min} and #{max}, got #{i}" unless min <= i <= max
       end
-      i
+      i.to_i32
     end
 
     macro build_flags

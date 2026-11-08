@@ -63,6 +63,8 @@ describe "LavinMQPerf" do
         {["-a", "-1"], "Ack must be >= 0, got -1"},
         {["-z", "-1"], "Time must be >= 0, got -1"},
         {["-x", "abc"], "Publishers must be a number, got abc"},
+        {["-s", "10240000000000000"], "Message size must be between 0 and 2147483647, got 10240000000000000"},
+        {["-s", "-3000000000"], "Message size must be >= 0, got -3000000000"},
         {["-P", "-1"], "Prefetch must be between 0 and 65535, got -1"},
         {["-P", "65536"], "Prefetch must be between 0 and 65535, got 65536"},
         {["--queue-pattern-from=0"], "Queue pattern from must be >= 1, got 0"},
