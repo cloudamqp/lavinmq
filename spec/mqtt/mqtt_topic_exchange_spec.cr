@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 # In the AMQP namespace because AMQP::Exchange#bind refuses any destination
 # whose class lives outside it.
@@ -411,6 +412,32 @@ module MqttSpecs
         vhost.exchange("xmqtt").binding_count.should eq filters.size
       end
     end
+
+    # The exchange only routes MQTT publishes, so dead-letters into it are
+    # dropped. That's logged once, as a burst would flood the log.
+    {% for dlx in ["xmqtt", "mqtt.default"] %}
+    it "drops messages dead-lettered into {{ dlx.id }} and logs a warning once" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        with_channel(server) do |ch|
+          ch.queue_declare("dst")
+          ch.queue_bind("dst", "xmqtt", "#")
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({
+            "x-message-ttl"             => 1,
+            "x-dead-letter-exchange"    => {{ dlx }},
+            "x-dead-letter-routing-key" => "a/b",
+          }))
+          Log.capture("lmq.queue", :warn) do |logs|
+            3.times { src.publish_confirm "x" }
+            wait_for { vhost.queue("src").message_count.zero? }
+            logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange '{{ dlx.id }}'")).should eq 1
+          end
+          vhost.queue("dst").message_count.should eq 0
+        end
+      end
+    end
+    {% end %}
 
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|

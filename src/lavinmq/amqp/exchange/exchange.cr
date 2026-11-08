@@ -233,6 +233,13 @@ module LavinMQ
       end
 
       abstract def type : String
+
+      # Whether messages routed in from AMQP, e.g. dead-lettered, reach
+      # destinations. MQTT exchanges only route MQTT publishes.
+      def routes_amqp_messages? : Bool
+        true
+      end
+
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
