@@ -341,6 +341,48 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs a finished queue segment that a confirmed publish wrote to" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      receiver = ConfirmReceiver.new
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        confirmed = LavinMQ::Message.new("", "rk", body)
+        confirmed.needs_sync = true
+        store.push(confirmed)
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        # Not confirmed, so only the rollover can sync the rest of msgs.1
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        meta = File.join(data_dir, "meta.0000000001")
+        sync = wait_for { persister.last_sync.try { |r| r if r.paths.includes?(meta) } }
+        sync.paths.should contain File.join(data_dir, "msgs.0000000001")
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "leaves a finished queue segment to the kernel when no confirmed publish wrote to the queue" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
+        persister.last_sync.should be_nil
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "stops collecting paths at the threshold and syncs the whole filesystem instead" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.syncfs_threshold = 4

@@ -599,6 +599,7 @@ module LavinMQ
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unlink_synced_segments
+      finished = @wfile_id.zero? ? nil : @wfile
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
@@ -618,7 +619,18 @@ module LavinMQ
       @wfile = @segments[next_id] = wfile
       delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
+      sync_finished_segment(finished) if finished && !finished.deleted?
       wfile
+    end
+
+    # A confirm syncs its segment while other publishers may still be
+    # appending to it, so the sync can persist the header of an unconfirmed
+    # message but not the rest of its body. A later confirm to the same
+    # segment syncs the rest, but after a rollover nothing would, and a power
+    # loss would leave a record that loads as valid with a zeroed body.
+    private def sync_finished_segment(finished : MFile) : Nil
+      return unless @synced_writes
+      @persister.try &.sync_soon(finished, meta_file_name(finished))
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)

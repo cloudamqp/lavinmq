@@ -321,10 +321,15 @@ module LavinMQ::AMQP
       mfile.dontneed unless @segment_readers.has_key?(seg)
     end
 
+    # Every finished segment is synced, also one that only unconfirmed
+    # publishes wrote to: a power loss could otherwise leave a hole in the
+    # offsets before later, synced segments
+    private def sync_finished_segment(finished : MFile) : Nil
+      @persister.try &.sync_soon(finished, meta_file_name(finished))
+    end
+
     private def open_new_segment(next_msg_size = 0) : MFile
-      finished = @wfile
       super.tap do
-        @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
