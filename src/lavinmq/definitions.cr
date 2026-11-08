@@ -390,7 +390,7 @@ module LavinMQ
           # are exported: their bindings are exported either way, so skipping the
           # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
           v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
-            delayed = e.arguments["x-delayed-exchange"]?
+            delayed = e.arguments["x-delayed-exchange"]?.try &.as?(Bool)
             if delayed
               arguments = e.arguments.clone
               arguments["x-delayed-type"] = e.type
