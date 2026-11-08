@@ -35,8 +35,6 @@ module LavinMQPerf
       exit status
     end
 
-    # Parses an integer option value, aborting with a message instead of
-    # raising when it isn't a number or is outside min..max.
     private def parse_int(value : String, name : String, min = 0, max = Int32::MAX) : Int32
       i = value.to_i64? || abort "#{name} must be a number, got #{value}"
       if max == Int32::MAX
