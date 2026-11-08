@@ -780,7 +780,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
             store.delete(sp)
           end
         end
-        wait_for { store.copies_synced? }
+        store.sync_copies # no owner requests the drain here
         # Writes every held back ack: a nested call per ack would overflow the stack
         store.write_synced_acks
         store.held_ack_drain.should be_nil
@@ -804,7 +804,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
             store.delete(sp)
           end
         end
-        wait_for { store.copies_synced? }
+        store.sync_copies                    # no owner requests the drain here
         File.exists?(segment).should be_true # its acks are held back until the next delete
         MFile.fail_delete_of = segment
         expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
@@ -843,7 +843,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           segments.none? { |path| File.exists?(path) }.should be_true
           store.held_ack_drain.should_not be_nil
         end
-        wait_for { store.copies_synced? }
+        store.sync_copies # no owner requests the drain here
         store.write_synced_acks
         store.held_ack_drain.should be_nil
       ensure
@@ -1091,14 +1091,14 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           sleep 50.milliseconds
           acked_bytes(s, "src").should eq 0
         end
-        # The moves request the drain, nothing else happens on the queue
+        # The queue requests the drain after a delay, nothing else happens on it
         wait_for { acked_bytes(s, "src") == 3 * sizeof(UInt32) }
         synced_in?(s, queue_dir(s, "dst")).should be_true
       end
     end
   end
 
-  it "syncs the held back acks once they're written" do
+  it "doesn't sync the held back acks it writes" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch)
@@ -1106,7 +1106,55 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       end
       acks = File.join(queue_dir(s, "src"), "acks.0000000001")
       wait_for { acked_bytes(s, "src") == 3 * sizeof(UInt32) }
-      wait_for { s.persister.syncs.any? { |r| r.syncfs || r.paths.includes?(acks) } }
+      # A drain they requested would run right after their writes
+      sleep 50.milliseconds
+      s.persister.syncs.none?(&.paths.includes?(acks)).should be_true
+    end
+  end
+
+  it "writes held back acks after a drain that runs anyway, and requests none before the delay" do
+    with_amqp_server do |s|
+      s.persister.ride_along_delay = 2.seconds
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        3.times { src.publish "x" }
+        wait_for { s.vhosts["/"].queue("dst").message_count == 3 }
+        drains = s.persister.drains
+        sleep 200.milliseconds
+        s.persister.drains.should eq drains
+        acked_bytes(s, "src").should eq 0
+        # A confirm drains, and syncs the copies with it
+        ch.queue("confirmed").publish_confirm("x")
+        wait_for(timeout: 1.second) { acked_bytes(s, "src") == 3 * sizeof(UInt32) }
+        synced_in?(s, queue_dir(s, "dst")).should be_true
+      end
+    end
+  end
+
+  it "requests the drain of its held back acks itself once they pile up" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      count = LavinMQ::MessageStore::HELD_ACKS_DRAIN_THRESHOLD
+      begin
+        count.times { store.push(LavinMQ::Message.new("", "rk", "x")) }
+        move = -> do
+          sp = store.shift?.should_not(be_nil).segment_position
+          store.copied_out(sp)
+          store.delete(sp)
+        end
+        # The store has no owner here that requests the drain after a delay
+        (count - 1).times { move.call }
+        sleep 50.milliseconds
+        persister.drains.should eq 0
+        move.call
+        wait_for { store.copies_synced? } # requested by the store itself
+        store.write_synced_acks
+        store.held_ack_drain.should be_nil
+      ensure
+        store.close
+        persister.close
+      end
     end
   end
 

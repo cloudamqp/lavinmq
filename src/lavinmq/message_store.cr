@@ -21,7 +21,11 @@ module LavinMQ
   # Deleted messages are written to acks.#{segment}
   class MessageStore
     PURGE_YIELD_INTERVAL = 16_384
-    Log                  = LavinMQ::Log.for "message_store"
+    # Held back acks a store gathers before it requests their drain itself,
+    # instead of waiting for its owner's delay, see #delete. Bounds their
+    # memory, 16 bytes each, while moves outpace the delay.
+    HELD_ACKS_DRAIN_THRESHOLD = 16_384
+    Log                       = LavinMQ::Log.for "message_store"
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
@@ -263,19 +267,20 @@ module LavinMQ
         return unless @segments.has_key?(sp.segment)
         unless drain_done?(drain)
           @pending_acks << PendingAck.new(drain, sp)
+          # Its owner requests the drain after a delay, see
+          # Persister#wait_drain, unless the held back acks pile up
           @on_held_ack.try &.call
-          # Copies don't request their drain otherwise, see Persister#copy_drain
-          persister.request_drain
+          persister.request_drain if (@pending_acks.size % HELD_ACKS_DRAIN_THRESHOLD).zero?
           return
         end
       end
       write_ack(sp)
     end
 
-    # Writes the acks held back by #delete whose drain is done. Marks the ack
-    # files dirty, so a later drain syncs them: the copies are durable, so the
-    # acks can reach the disk in any order now. A closed store wrote them all,
-    # see #close.
+    # Writes the acks held back by #delete whose drain is done. The copies are
+    # durable, so the acks can reach the disk in any order now, and nothing
+    # syncs them: a lost ack gives a duplicate, like a plain ack does. A
+    # closed store wrote them all, see #close.
     def write_synced_acks : Nil
       return if @closed || @writing_acks
       # Cleared only by the call that set it: a method-level ensure would also
@@ -283,17 +288,10 @@ module LavinMQ
       # the next one recurse, once per held back ack
       @writing_acks = true
       begin
-        persister = @persister
-        wrote = false
         while (pending = @pending_acks.first?) && drain_done?(pending.drain)
           @pending_acks.shift
-          afile = write_ack(pending.sp)
-          if afile && !afile.deleted?
-            persister.try &.mark_dirty(afile)
-            wrote = true
-          end
+          write_ack(pending.sp)
         end
-        persister.try &.request_drain if wrote
       ensure
         @writing_acks = false
       end
@@ -321,8 +319,7 @@ module LavinMQ
       @replicator.try &.append_value(afile.path, sp.position, ack_offset)
     end
 
-    # Returns the ack file it wrote to, nil if the segment is gone
-    private def write_ack(sp : SegmentPosition) : MFile?
+    private def write_ack(sp : SegmentPosition) : Nil
       # A message routed outside the lock can have its segment purged meanwhile,
       # and @acks would otherwise create an ack file for the deleted segment
       return unless @segments.has_key?(sp.segment)
@@ -332,7 +329,7 @@ module LavinMQ
         write_synced_acks
 
         # if all msgs in a segment are deleted then delete the segment
-        return afile if sp.segment == @wfile_id # don't try to delete a segment we still write to
+        return if sp.segment == @wfile_id # don't try to delete a segment we still write to
         ack_count = afile.size // sizeof(UInt32)
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
@@ -345,7 +342,6 @@ module LavinMQ
             unlink_segment(seg, afile)
           end
         end
-        afile
       rescue ex
         raise Error.new(afile, cause: ex)
       end

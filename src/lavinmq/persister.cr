@@ -174,9 +174,9 @@ module LavinMQ
     # For a message the broker copied to another queue (dead-lettered,
     # delayed, retried), after the copy was written and marked dirty there.
     # Returns the number of the drain that makes the copy durable, see
-    # #drain_synced?. It doesn't request that drain: the source store does
-    # when it holds the message's ack back for it (see #request_drain), and
-    # a burst of moves shares the drains that run meanwhile.
+    # #drain_synced?. It doesn't request that drain: the source queue does,
+    # after a delay (see #wait_drain), so a steady stream of moves shares the
+    # drains that run meanwhile.
     def copy_drain : UInt64
       @pending.lock { @drains_started + 1 }
     end
@@ -199,14 +199,29 @@ module LavinMQ
       false
     end
 
+    # How long #wait_drain with *ride_along* waits for a drain that runs
+    # anyway before it requests one
+    property ride_along_delay : Time::Span = 100.milliseconds
+
     # Blocks until the drain numbered *seq* by #copy_drain, or a later one,
-    # has synced. Returns without it at shutdown and while sync is disabled,
-    # also when a reload disables it during the wait: the caller checks again.
-    def wait_drain(seq : UInt64) : Nil
+    # has synced. With *ride_along*, it waits for a drain that runs anyway
+    # (a confirm, a move of another queue) and requests one only after
+    # #ride_along_delay, so a caller that waits again and again costs a drain
+    # per delay, not one per wait. Returns without it at shutdown and while
+    # sync is disabled, also when a reload disables it during the wait: the
+    # caller checks again.
+    def wait_drain(seq : UInt64, *, ride_along = false) : Nil
       return if drain_synced?(seq) || !Config.instance.sync?
       waiter = ::Channel(Nil).new
       @drain_waiters.lock &.push({seq, waiter})
       return if drain_synced?(seq) # a drain released the waiters meanwhile
+      if ride_along
+        select
+        when waiter.receive?
+          return
+        when timeout(@ride_along_delay)
+        end
+      end
       return unless request_drain
       waiter.receive?
     end

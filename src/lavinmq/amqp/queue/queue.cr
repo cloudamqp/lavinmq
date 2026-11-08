@@ -396,7 +396,7 @@ module LavinMQ::AMQP
     private def write_held_acks : Nil
       persister = @vhost.persister
       while drain = next_held_ack_drain
-        persister.wait_drain(drain)
+        persister.wait_drain(drain, ride_along: true)
         @msg_store_lock.synchronize { @msg_store.write_synced_acks }
         # At shutdown the persister's loop has exited, and nothing syncs
         if Config.instance.sync? && !persister.drain_synced?(drain)
