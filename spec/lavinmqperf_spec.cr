@@ -55,6 +55,17 @@ describe "LavinMQPerf" do
       end
     end
 
+    it "should fail with negative publishers or consumers" do
+      ["-x", "-y"].each do |flag|
+        io = IO::Memory.new
+        throughput = LavinMQPerf::AMQP::Throughput.new(io, io)
+        expect_raises(SpecExit) do
+          throughput.run([flag, "-1"])
+        end
+        io.to_s.should contain("must be >= 0, got -1")
+      end
+    end
+
     it "should verify summary averages are correct", tags: "slow" do
       with_amqp_server do |s|
         io = IO::Memory.new
@@ -156,6 +167,17 @@ describe "LavinMQPerf" do
       # abort writes to err_io and calls exit, which raises SpecExit in tests
       expect_raises(SpecExit) do
         throughput.run(["--invalid-flag"])
+      end
+    end
+
+    it "should fail with negative publishers or consumers" do
+      ["-x", "-y"].each do |flag|
+        io = IO::Memory.new
+        throughput = LavinMQPerf::MQTT::Throughput.new(io, io)
+        expect_raises(SpecExit) do
+          throughput.run([flag, "-1"])
+        end
+        io.to_s.should contain("must be >= 0, got -1")
       end
     end
   end

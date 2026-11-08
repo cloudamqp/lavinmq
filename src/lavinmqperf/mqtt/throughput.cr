@@ -30,10 +30,14 @@ module LavinMQPerf
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
-          @publishers = v.to_i
+          publishers = v.to_i
+          abort "Publishers must be >= 0, got #{publishers}" if publishers < 0
+          @publishers = publishers
         end
         @parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
-          @consumers = v.to_i
+          consumers = v.to_i
+          abort "Consumers must be >= 0, got #{consumers}" if consumers < 0
+          @consumers = consumers
         end
         @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
           @size = v.to_i
