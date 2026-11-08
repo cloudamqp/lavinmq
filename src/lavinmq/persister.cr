@@ -87,6 +87,9 @@ module LavinMQ
     # A drain skipped its sync while sync was disabled, and the files it took
     # are no longer marked, so the next drain that syncs does a syncfs
     @skipped_sync = false
+    # Syncs of the whole data dir started and finished, see #syncfs_mark
+    @syncfs_started = Atomic(UInt64).new(0u64)
+    @syncfs_finished = Atomic(UInt64).new(0u64)
     # Callers of #wait_drain, with the drain they wait for
     @drain_waiters = Sync::Exclusive(Array({UInt64, ::Channel(Nil)})).new(Array({UInt64, ::Channel(Nil)}).new, :unchecked)
 
@@ -190,6 +193,19 @@ module LavinMQ
       waiter.receive?
     end
 
+    # A syncfs flushes every file in the data dir, also segments that only
+    # unconfirmed publishes write to. A store takes a mark when it opens a
+    # segment and asks #syncfs_since? at rollover whether a syncfs may have
+    # flushed part of it. The mark counts finished syncs, so a syncfs that
+    # is still running when the segment opens counts as one since the mark.
+    def syncfs_mark : UInt64
+      @syncfs_finished.get
+    end
+
+    def syncfs_since?(mark : UInt64) : Bool
+      @syncfs_started.get > mark
+    end
+
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
@@ -201,7 +217,7 @@ module LavinMQ
       rescue ::Channel::ClosedError
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
-        File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
+        File.open(@data_dir) { |dir| syncfs(dir.fd) } if Config.instance.sync?
         return
       end
       waiter.receive?
@@ -363,7 +379,16 @@ module LavinMQ
     end
 
     private def syncfs_data_dir : Nil
-      FileSystem.syncfs(@data_dir_fd)
+      syncfs(@data_dir_fd)
+    end
+
+    private def syncfs(fd : Int32) : Nil
+      @syncfs_started.add(1)
+      begin
+        FileSystem.syncfs(fd)
+      ensure
+        @syncfs_finished.add(1)
+      end
     end
   end
 end
