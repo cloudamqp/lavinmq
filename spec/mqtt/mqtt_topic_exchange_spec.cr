@@ -614,6 +614,27 @@ module MqttSpecs
           vhost.exchange("lim.mq").binding_count.should eq 0
         end
       end
+
+      # A check before the bind can see another exchange of the same name, as
+      # it can be deleted and redeclared as x-mqtt-topic in between
+      it "refuses the bind where it's applied, under the definitions lock" do
+        with_server do |server|
+          lim_perms.call(server, /^lim\./)
+          lim = server.users["lim"]
+          vhost = server.vhosts["/"]
+          vhost.declare_exchange("lim.mq", "x-mqtt-topic", true, false)
+          vhost.declare_exchange("lim.fan", "fanout", true, false)
+          vhost.declare_queue("lim.spy", true, false)
+          expect_raises(LavinMQ::Exchange::AccessRefused, /mqtt\.default/) do
+            vhost.bind_queue("lim.spy", "lim.mq", "#", user: lim)
+          end
+          expect_raises(LavinMQ::Exchange::AccessRefused, /mqtt\.default/) do
+            vhost.bind_exchange("lim.fan", "lim.mq", "#", user: lim)
+          end
+          vhost.exchange("lim.mq").binding_count.should eq 0
+          vhost.bind_queue("lim.spy", "lim.mq", "#").should be_true # no user: definitions import
+        end
+      end
     end
 
     it "allows exchange.bind with the exchange as source" do
