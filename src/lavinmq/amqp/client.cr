@@ -987,8 +987,12 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
-          @vhost.apply(frame)
-          send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
+          begin
+            @vhost.apply(frame)
+            send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
+          rescue ex : LavinMQ::Exchange::AccessRefused
+            send_access_refused(frame, ex.message)
+          end
         end
       end
 
@@ -1008,8 +1012,12 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
           send_access_refused(frame, "Not allowed to unbind from the default exchange")
         else
-          @vhost.apply(frame)
-          send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
+          begin
+            @vhost.apply(frame)
+            send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
+          rescue ex : LavinMQ::Exchange::AccessRefused
+            send_access_refused(frame, ex.message)
+          end
         end
       end
 
