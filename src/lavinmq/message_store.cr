@@ -35,8 +35,11 @@ module LavinMQ
     # Set once a publish to this store is synced, see #readahead_for_writes
     @synced_writes = false
     # Set once something synced the segment being written while publishers
-    # may still append to it, see #sync_finished_segment
+    # may still append to it, see #wfile_needs_sync?
     @wfile_partly_synced = false
+    # Whether the latest write to the segment being written is marked for the
+    # next drain, which then syncs the whole segment, see #wfile_needs_sync?
+    @wfile_tail_marked = false
     # Persister#syncfs_mark when the segment being written was opened
     @wfile_syncfs_mark = 0u64
     # The persister drain that makes the latest copy of a message of this
@@ -456,6 +459,12 @@ module LavinMQ
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
       # the delivery releases it (see Envelope#lease)
+      # Nothing syncs the segment being written after this, see
+      # #wfile_needs_sync?. At shutdown the persister is closed already, and
+      # Server#close syncs the data dir instead.
+      if (wfile = @segments.last_value?) && !wfile.deleted? && wfile_needs_sync?
+        @persister.try &.sync_soon(wfile, meta_file_name(wfile))
+      end
       @segments.each_value { |f| close_file(f) }
       @acks.each_value { |f| close_file(f) }
       # Segments kept for a later unlink stay on disk, the next start deletes them
@@ -531,11 +540,11 @@ module LavinMQ
       # of is emptied. It doesn't switch the store to random access, so a
       # store that only gets moved copies keeps its readahead, see
       # #readahead_for_writes
+      @wfile_tail_marked = false
       if (msg.needs_sync? || msg.moved?) && (persister = @persister)
         persister.mark_dirty(wfile)
+        @wfile_partly_synced = @wfile_tail_marked = true
       end
-      # A transaction commit syncs the whole filesystem, see Persister#sync
-      @wfile_partly_synced = true if msg.needs_sync? || msg.moved? || msg.synced_by_commit?
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
       @segment_msg_count[wfile_id] += 1
       sp
@@ -607,8 +616,10 @@ module LavinMQ
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unlink_synced_segments
-      finished = @wfile_id.zero? ? nil : @wfile
+      finished_id = @wfile_id
+      finished = nil
       unless @wfile_id.zero?
+        finished = @wfile
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
         @wfile.advise(MFile::Advice::Random) unless @synced_writes
@@ -623,33 +634,45 @@ module LavinMQ
       wfile.pos = 4
       @replicator.try &.register_file wfile
       @replicator.try &.append_value path, Schema::VERSION, 0i64
+      needs_sync = !finished.nil? && wfile_needs_sync?
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
-      delete_unused_segments
-      @wfile.delete unless @durable # mark as deleted if non-durable
-      partly_synced, @wfile_partly_synced = @wfile_partly_synced, false
-      if persister = @persister
-        partly_synced ||= persister.syncfs_since?(@wfile_syncfs_mark)
-        @wfile_syncfs_mark = persister.syncfs_mark
+      @wfile_partly_synced = @wfile_tail_marked = false
+      @wfile_syncfs_mark = @persister.try(&.syncfs_mark) || 0u64
+      begin
+        delete_unused_segments
+      ensure
+        # Not a segment that was emptied, it's unlinked or kept for that
+        if finished && @segments[finished_id]?.same?(finished)
+          sync_finished_segment(finished, needs_sync)
+        end
       end
-      # A follower also runs syncfs by itself (a merged batch of fsync
-      # requests over syncfs_threshold, out of file descriptors, a protocol
-      # v1 leader), which this node can't count. The rollover sync sends the
-      # fsync request that syncs the rest of a message it tore.
-      partly_synced ||= @replicator.try { |r| !r.followers.empty? } || false
-      sync_finished_segment(finished, partly_synced) if finished && !finished.deleted?
+      @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
     end
 
-    # A confirm, a moved copy, a transaction commit or a syncfs started for
-    # any store, here or on a follower, syncs the segment while publishers
-    # may still append to it, so the sync can persist the header of an
-    # unconfirmed message but not the rest of its body. A later sync of the same segment syncs the rest,
-    # but after a rollover nothing would, and a power loss would leave a
-    # record that loads as valid with a zeroed body. A segment that nothing
-    # synced is left to the kernel, as before.
-    private def sync_finished_segment(finished : MFile, partly_synced : Bool) : Nil
-      return unless partly_synced
+    # A confirm, a moved copy or a syncfs started for any store (also a
+    # transaction commit's), here or on a follower, syncs the segment while
+    # publishers may still append to it, so the sync can persist the header
+    # of an unconfirmed message but not the rest of its body. A later sync of
+    # the same segment syncs the rest, but after a rollover or a close nothing
+    # would, and a power loss would leave a record that loads as valid with a
+    # zeroed body. Not needed when the latest write is marked, as the drain
+    # that syncs it syncs the whole segment. A segment that nothing synced is
+    # left to the kernel, as before.
+    private def wfile_needs_sync? : Bool
+      return false if @wfile_tail_marked
+      return true if @wfile_partly_synced
+      return true if @persister.try &.syncfs_since?(@wfile_syncfs_mark)
+      # A follower also runs syncfs by itself (a merged batch of fsync
+      # requests over syncfs_threshold, out of file descriptors, a protocol
+      # v1 leader), which this node can't count. The sync sends the fsync
+      # request that syncs the rest of a message it tore.
+      @replicator.try { |r| !r.followers.empty? } || false
+    end
+
+    private def sync_finished_segment(finished : MFile, needs_sync : Bool) : Nil
+      return unless needs_sync
       @persister.try &.sync_soon(finished, meta_file_name(finished))
     end
 

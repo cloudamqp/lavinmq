@@ -324,7 +324,7 @@ module LavinMQ::AMQP
     # Every finished segment is synced, also one that only unconfirmed
     # publishes wrote to: a power loss could otherwise leave a hole in the
     # offsets before later, synced segments
-    private def sync_finished_segment(finished : MFile, _partly_synced : Bool) : Nil
+    private def sync_finished_segment(finished : MFile, _needs_sync : Bool) : Nil
       @persister.try &.sync_soon(finished, meta_file_name(finished))
     end
 

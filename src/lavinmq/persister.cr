@@ -34,14 +34,23 @@ module LavinMQ
       getter acks = Hash(ConfirmTarget, UInt64).new
       getter files = Array(MFile).new
       getter paths = Set(String).new
+      # Finished segments, their meta files and directories, see #sync_soon.
+      # Kept apart from the files above so they never count toward the
+      # syncfs threshold.
+      getter finished_files = Array(MFile).new
+      getter finished_paths = Set(String).new
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
       # A store waits for this drain, see #request_drain
       property? requested = false
+      # A finished segment wasn't marked while sync was disabled, see
+      # #sync_soon
+      property? skipped_sync = false
 
       def drainable? : Bool
-        requested? || !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
+        requested? || !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty? ||
+          !finished_files.empty? || !finished_paths.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -137,18 +146,27 @@ module LavinMQ
       @pending.lock &.add_path(path)
     end
 
-    # Makes *mfile* and *path* durable in a drain of their own, without
-    # waiting for a confirm to request one. A stream calls it when a segment
-    # is finished: confirms only sync the segments they wrote to, so an
-    # unconfirmed segment could otherwise stay unsynced while later ones
-    # become durable, and a power loss would leave a hole in the offsets.
-    # The directory is synced too, so the entry of the segment opened after
-    # it is durable with the meta file.
+    # Makes a finished segment *mfile* and its meta file *path* durable in a
+    # drain of their own, without waiting for a confirm to request one. See
+    # the callers of StreamMessageStore#sync_finished_segment and
+    # MessageStore#wfile_needs_sync? for why. The directory is synced too, so
+    # the entry of the segment opened after it is durable with the meta file.
+    #
+    # They don't count toward the syncfs threshold: a syncfs makes every
+    # store sync its next finished segment, so if many rollovers could add
+    # up to a syncfs, that would keep them syncing the whole filesystem.
+    # While sync is disabled nothing is marked, but the next drain that
+    # syncs does a syncfs, like after a drain that skipped its sync.
     def sync_soon(mfile : MFile, path : String) : Nil
-      return unless Config.instance.sync?
-      mark_dirty(mfile)
-      mark_dirty(path)
-      mark_dirty(File.dirname(path))
+      unless Config.instance.sync?
+        @pending.lock &.skipped_sync = true
+        return
+      end
+      @pending.lock do |batch|
+        batch.finished_files.push(mfile) unless mfile.mark_needs_msync!
+        batch.finished_paths.add(path)
+        batch.finished_paths.add(File.dirname(path))
+      end
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
     end
@@ -274,15 +292,23 @@ module LavinMQ
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
       batch.files.each &.clear_needs_msync!
+      batch.finished_files.each &.clear_needs_msync!
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
+      finished_dirs = Set(String).new
+      batch.finished_files.each { |f| finished_dirs << File.dirname(f.path) if f.take_created! }
       sync = Config.instance.sync?
       # A drain that skipped its sync left the files it took unmarked, so the
       # next one that syncs syncs the whole data dir. On the followers too:
       # they skip fsync requests while their sync is disabled as well.
-      syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
+      syncfs = (sync && (@skipped_sync || batch.skipped_sync?)) || batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
-      paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
+      unless syncfs
+        files = batch.files + batch.finished_files
+        # One fsync per path, a directory is often marked more than once
+        path_set = batch.paths | batch.finished_paths | dirs | finished_dirs
+        paths = files.map(&.path).concat(path_set)
+      end
       replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
@@ -299,8 +325,8 @@ module LavinMQ
       end
       begin
         if sync
-          if paths
-            syncfs = fsync_paths(batch.files, batch.paths, dirs)
+          if files && path_set
+            syncfs = fsync_paths(files, path_set)
           else
             syncfs_data_dir
           end
@@ -356,14 +382,10 @@ module LavinMQ
     end
 
     # Returns whether it fell back to syncing the whole filesystem
-    private def fsync_paths(files, paths, dirs) : Bool
+    private def fsync_paths(files, paths) : Bool
       files.each &.fsync
       paths.each do |path|
         File.open(path, &.fsync)
-      rescue File::NotFoundError
-      end
-      dirs.each do |dir|
-        File.open(dir, &.fsync)
       rescue File::NotFoundError
       end
       false

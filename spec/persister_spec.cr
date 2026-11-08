@@ -426,18 +426,25 @@ describe LavinMQ::Persister do
     end
   end
 
-  it "syncs a finished queue segment that a transaction wrote to" do
+  it "leaves a finished queue segment to the drain when its last message was confirmed" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      receiver = ConfirmReceiver.new
       begin
         body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-        committed = LavinMQ::Message.new("", "rk", body)
-        committed.synced_by_commit = true
-        store.push(committed)
-        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
-        meta = File.join(data_dir, "meta.0000000001")
-        wait_for { persister.last_sync.try(&.paths.includes?(meta)) }
+        3.times do
+          confirmed = LavinMQ::Message.new("", "rk", body)
+          confirmed.needs_sync = true
+          store.push(confirmed)
+        end
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        # The confirm's drain synced all of msgs.1, so the rollover doesn't
+        store.push(LavinMQ::Message.new("", "rk", body))
+        store.@segments.size.should eq 2
+        drain_marked(persister)
+        persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
       ensure
         store.close
         persister.close
@@ -553,18 +560,91 @@ describe LavinMQ::Persister do
     end
   end
 
-  it "leaves a finished queue segment to the kernel when no confirmed publish wrote to the queue" do
+  it "leaves an emptied finished segment to its unlink" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
       begin
         body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
-        store.@segments.size.should eq 2
-        persister.@pending.lock { |batch| batch.files.empty? && batch.paths.empty? }.should be_true
-        persister.last_sync.should be_nil
+        3.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        persister.sync # marks msgs.1 as partly synced
+        3.times do
+          sp = store.shift?.should_not(be_nil).segment_position
+          store.copied_out(sp)
+          store.delete(sp)
+        end
+        # The rollover finds msgs.1 emptied, and keeps it until its copies sync
+        store.push(LavinMQ::Message.new("", "rk", body))
+        store.kept_segment_drain.should_not be_nil
+        drain_marked(persister)
+        persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
       ensure
         store.close
+        persister.close
+      end
+    end
+  end
+
+  it "syncs a partly synced segment that is being written when the store closes" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        store.push(LavinMQ::Message.new("", "rk", "a"))
+        persister.sync # may catch a message being written to msgs.1
+        store.push(LavinMQ::Message.new("", "rk", "b"))
+        store.close
+        msgs = File.join(data_dir, "msgs.0000000001")
+        wait_for { persister.last_sync.try(&.paths.includes?(msgs)) }
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "syncs a partly synced finished segment after sync is disabled during its rollover" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        store.push(LavinMQ::Message.new("", "rk", body))
+        persister.sync
+        synced_before = persister.syncs.size
+        LavinMQ::Config.instance.sync = false
+        3.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        LavinMQ::Config.instance.sync = true
+        drain_marked(persister)
+        meta = File.join(data_dir, "meta.0000000001")
+        persister.syncs[synced_before..].any? { |r| r.syncfs || r.paths.includes?(meta) }.should be_true
+      ensure
+        LavinMQ::Config.instance.sync = true
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "doesn't let finished segment syncs add up to a syncfs" do
+    with_datadir do |data_dir|
+      threshold = LavinMQ::Config.instance.syncfs_threshold
+      LavinMQ::Config.instance.syncfs_threshold = 2
+      persister = LavinMQ::Persister.new(data_dir)
+      segments = Array.new(3) do |i|
+        MFile.new(File.join(data_dir, "msgs.000000000#{i + 1}"), 4096).tap(&.write_bytes(1u32))
+      end
+      begin
+        segments.each { |f| persister.sync_soon(f, File.join(data_dir, "meta.#{f.path[-10..]}")) }
+        drain_marked(persister)
+        syncs = persister.syncs
+        syncs.should_not be_empty
+        syncs.none?(&.syncfs).should be_true
+        syncs.all? { |r| r.paths.count(data_dir) <= 1 }.should be_true
+      ensure
+        LavinMQ::Config.instance.syncfs_threshold = threshold
+        segments.each &.close
         persister.close
       end
     end
