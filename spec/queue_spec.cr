@@ -97,15 +97,17 @@ describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 300}))
         queue = s.vhosts["/"].queue("qexpires")
         tag = q.subscribe { }
-        sleep 110.milliseconds
+        sleep 310.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
-        (Time.instant - start).total_milliseconds.should be_close 100, 50
+        elapsed = (Time.instant - start).total_milliseconds
+        elapsed.should be >= 250
+        elapsed.should be < 550
       end
     end
   end
@@ -709,10 +711,10 @@ describe LavinMQ::AMQP::Queue do
     # into its segment. That must happen while @msg_store_lock is held, else a
     # purge on another thread can unmap the segment in the meantime (segfault).
     it "doesn't read the head message after releasing the lock", tags: "slow" do
-      log = LavinMQ::AMQP::Queue::Log
-      level, backend = log.level, log.backend
-      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
-      log.level = :debug
+      # A binding, not Log#level=, as a level set on the Log overrides every
+      # later binding, e.g. Log.capture in other specs
+      null_backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      ::Log.builder.bind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend)
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ttl-purge", false, false,
@@ -747,10 +749,7 @@ describe LavinMQ::AMQP::Queue do
         wg.wait
       end
     ensure
-      if log
-        log.level = level if level
-        log.backend = backend
-      end
+      ::Log.builder.unbind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend) if null_backend
     end
 
     it "purges exactly the messages it reports while messages are published", tags: "slow" do
@@ -896,6 +895,7 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_amqp_server do |s|
         with_channel(s) do |ch|
           s.flow(false)
@@ -904,6 +904,8 @@ describe LavinMQ::AMQP::Queue do
           end
         end
       end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
   end
 
@@ -1164,6 +1166,44 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "reject-publish overflow" do
+    # Regression: the length limit was only checked before taking
+    # @msg_store_lock. A publisher that then waited for the lock while another
+    # publisher filled the queue pushed its message past the limit, and
+    # drop_overflow dropped (or dead-lettered) the confirmed head instead of
+    # rejecting the new publish
+    it "rejects a publish that waited for the store lock while the queue filled up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rp", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"}))
+        q = vhost.queue("rp").as(LavinMQ::AMQP::Queue)
+        lock = q.@msg_store_lock
+        lock.lock
+        result = LavinMQ::AMQP::Queue::PublishResult::Closed
+        started = Atomic(Bool).new(false)
+        done = WaitGroup.new(1)
+        spawn(name: "second publisher") do
+          started.set(true)
+          # Passes the limit check on the empty queue, then waits for the lock
+          result = q.publish(LavinMQ::Message.new("", q.name, "second"))
+        ensure
+          done.done
+        end
+        should_eventually(be_true) { started.get }
+        sleep 20.milliseconds
+        # The lock is reentrant, so this publish fills the queue while the
+        # other one is waiting for it
+        q.publish(LavinMQ::Message.new("", q.name, "first")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+        lock.unlock
+        done.wait
+        result.should eq LavinMQ::AMQP::Queue::PublishResult::Overflow
+        q.message_count.should eq 1
+        q.basic_get(true) { |env| String.new(env.message.body).should eq "first" }.should be_true
+      end
+    end
+  end
+
   describe "effective arguments" do
     arguments = {
       {"x-dead-letter-exchange": "dlx", "x-dead-letter-routing-key": "dlrk"},
@@ -1344,6 +1384,76 @@ describe LavinMQ::AMQP::Queue do
           should_eventually(eq 0) { conn.@exclusive_queues.size }
         end
       end
+    end
+  end
+
+  describe "TTL that ends past the largest unix ms timestamp" do
+    # The deadline (timestamp + TTL) doesn't fit in an Int64, so the
+    # message never expires. A consumer keeps the expire fiber idle, so
+    # this checks the expiry decision on delivery.
+    it "delivers the message to a consumer" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_overflow", args: AMQP::Client::Arguments.new({"x-message-ttl" => Int64::MAX}))
+          received = ::Channel(String).new(1)
+          q.subscribe(no_ack: true) { |msg| received.send msg.body_io.to_s }
+          q.publish_confirm "m"
+          select
+          when body = received.receive
+            body.should eq "m"
+          when timeout 5.seconds
+            fail "message not delivered"
+          end
+        end
+      end
+    end
+
+    it "delivers a message whose timestamp is corrupt" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_corrupt_timestamp", args: AMQP::Client::Arguments.new({"x-message-ttl" => 1000}))
+          received = ::Channel(String).new(1)
+          q.subscribe(no_ack: true) { |msg| received.send msg.body_io.to_s }
+          msg = LavinMQ::Message.new(Int64::MIN, "", "ttl_corrupt_timestamp", AMQ::Protocol::Properties.new, 1u64, IO::Memory.new("m"))
+          s.vhosts["/"].queue("ttl_corrupt_timestamp").publish(msg)
+          select
+          when body = received.receive
+            body.should eq "m"
+          when timeout 5.seconds
+            fail "message not delivered"
+          end
+        end
+      end
+    end
+
+    # Without a consumer the expire fiber computes the deadline. Before the
+    # fix it raised, died and was started again from its ensure, in a loop.
+    # A restart is a new Fiber, so the fiber found right after the publish
+    # must be the one still running later.
+    {Int64::MAX, 10_000_000_000_000_i64}.each do |ttl|
+      it "keeps the message and its expire fiber without a consumer (x-message-ttl #{ttl})" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("ttl_overflow_idle", args: AMQP::Client::Arguments.new({"x-message-ttl" => ttl}))
+            q.publish_confirm "m"
+            expire_fiber = -> do
+              found = nil
+              Fiber.list { |f| found = f if f.name == "Queue#message_expire_loop //ttl_overflow_idle" }
+              found
+            end
+            fiber = wait_for { expire_fiber.call }
+            sleep 100.milliseconds # the expire fiber computes the deadline
+            expire_fiber.call.should be fiber
+            s.vhosts["/"].queue("ttl_overflow_idle").message_count.should eq 1
+          end
+        end
+      end
+    end
+
+    it "computes the wake-up for a deadline 10^13 ms away" do
+      ttl = 10_000_000_000_000_i64
+      wakeup = LavinMQ::AMQP::Queue.time_to_expiration_wakeup(RoughTime.unix_ms + ttl)
+      wakeup.should be > (ttl - 1_000).milliseconds
     end
   end
 
@@ -1582,6 +1692,37 @@ describe LavinMQ::AMQP::Queue do
           refused.should be < 200
         end
       end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::DurableQueue do
+  it "writes the .queue name file when declared, not on every start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_once", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_once").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      File.read(path).should eq "dotqueue_once"
+      before = File.info(path)
+      s.stop
+      sleep 10.milliseconds # so a rewrite would move the mtime
+      restart_server(s)
+      File.info(path).modification_time.should eq before.modification_time
+      File.read(path).should eq "dotqueue_once"
+    end
+  end
+
+  it "rewrites a .queue name file that a crash left empty" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_empty", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_empty").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      s.stop
+      File.write(path, "")
+      restart_server(s)
+      File.read(path).should eq "dotqueue_empty"
     end
   end
 end

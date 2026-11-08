@@ -141,6 +141,8 @@ end
   # Records the advice segments have when the store starts loading them
   class AdviceOnLoadStore < LavinMQ::MessageStore
     class_getter advice_on_load = Array({String, Array(String)}).new
+    # Pages of each segment in the page cache when counting its messages starts
+    class_getter cached_on_load = Array(Int32).new
 
     private def read_metadata_file(seg, mfile)
       @@advice_on_load << {"read_metadata_file", vm_flags(mfile.path)}
@@ -149,6 +151,7 @@ end
 
     private def produce_metadata(seg, mfile)
       @@advice_on_load << {"produce_metadata", vm_flags(mfile.path)}
+      @@cached_on_load << cached_pages(mfile.path)
       super
     end
   end
@@ -203,6 +206,25 @@ describe LavinMQ::MessageStore do
 
       File.exists?(File.join(dir, "acks.0000000001")).should be_true
       File.exists?(File.join(dir, "acks.0000000002")).should be_false
+    end
+  end
+
+  it "ignores a delete for a segment purged after the message was shifted" do
+    with_store do |store, dir|
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      3.times { store.push(msg) }
+      # Shifting into the second segment moves the read segment past the first,
+      # so purge_all deletes the first
+      sp = store.shift?.should_not be_nil
+      store.shift?.should_not be_nil
+      store.purge_all
+      store.@segments.has_key?(sp.segment_position.segment).should be_false
+
+      # Like a release or dead-lettering that routed the message outside the lock
+      store.delete(sp.segment_position)
+      store.@acks.has_key?(sp.segment_position.segment).should be_false
+      File.exists?(File.join(dir, "acks.#{sp.segment_position.segment.to_s.rjust(10, '0')}")).should be_false
     end
   end
 
@@ -986,17 +1008,42 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
-      it "advises every segment random access" do
+      it "advises every segment but the write segment random access" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+          store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+        end
+      end
+
+      it "advises the write segment random access once a publish to it is synced" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(synced_message("m"))
           vm_flags(store.@wfile.path).should contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
           store.@wfile_id.should_not eq 1
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
+        end
+      end
+
+      it "keeps readahead on the write segment when sync is disabled" do
+        LavinMQ::Config.instance.sync = false
+        with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.push(synced_message("m"))
+          vm_flags(store.@wfile.path).should_not contain "rr"
           store.close
         end
       end
@@ -1014,12 +1061,83 @@ describe LavinMQ::MessageStore do
           store = AdviceOnLoadStore.new(dir, nil)
           store.size.should eq 4
           loads = AdviceOnLoadStore.advice_on_load
-          loads.map(&.first).should contain "produce_metadata" # the write segment has no meta file
+          loads.map(&.first).should eq ["read_metadata_file", "produce_metadata"]
+          # Skipping the acked message, and counting the messages of the write
+          # segment, which has no meta file: what its readahead when opened
+          # didn't fetch, on a compressing filesystem, is read ahead here
           loads.each do |_, flags|
             flags.should contain "sr"
             flags.should_not contain "rr"
           end
-          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+        end
+      end
+
+      it "fetches the last segment in one readahead before counting its messages" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          100.times { store.push(LavinMQ::Message.new("", "rk", "x" * 1000)) } # about 25 pages
+          store.close
+          evict_from_page_cache(Dir.glob(File.join(dir, "msgs.*")).first)
+          AdviceOnLoadStore.cached_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 100
+          # Without it, only the page the schema check faulted in
+          AdviceOnLoadStore.cached_on_load.size.should eq 1
+          AdviceOnLoadStore.cached_on_load.first.should be >= 20
+          store.close
+        end
+      end
+
+      it "recounts a segment with acks and a corrupt meta file with readahead, then random access" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.close
+          File.write(Dir.glob(File.join(dir, "meta.*")).sort.first, "x") # too short for its count
+          AdviceOnLoadStore.advice_on_load.clear
+          store = AdviceOnLoadStore.new(dir, nil)
+          store.size.should eq 4
+          loads = AdviceOnLoadStore.advice_on_load
+          loads.map(&.first).should eq ["read_metadata_file", "produce_metadata", "produce_metadata"]
+          loads.each { |_, flags| flags.should contain "sr" }
+          store.@segments.each_value { |s| vm_flags(s.path).should contain "rr" unless s == store.@wfile }
+          store.close
+        end
+      end
+
+      it "loads a segment with acks and a corrupt record as closed instead of raising" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position) # acks to skip through on load
+          store.close
+          first = Dir.glob(File.join(dir, "msgs.*")).sort.first
+          # The first record's bodysize: after the schema version, timestamp,
+          # exchange, routing key and properties
+          bodysize_pos = 4 + 8 + 1 + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize
+          File.open(first, "r+") { |f| f.seek(bodysize_pos); f.write_bytes(UInt64::MAX) }
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.closed.should be_true
+        end
+      end
+
+      it "reads only the allocated part of a last segment left at its capacity by a crash" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(LavinMQ::Message.new("ex", "rk", "body"))
+          store.close
+          path = Dir.glob(File.join(dir, "msgs.*")).first
+          File.open(path, "r+", &.truncate(LavinMQ::Config.instance.segment_size)) # only a graceful close shrinks it
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.size.should eq 1
+          cached_pages(path).should be < 64 # not the whole hole zero-filled, 128 pages in specs
           store.close
         end
       end
@@ -1034,7 +1152,7 @@ describe LavinMQ::MessageStore do
           vm_flags(first).should contain "rr" # no read before it to go by
           vm_flags(second).should_not contain "rr"
           vm_flags(second).should contain "sr"
-          vm_flags(third).should contain "rr" # the write segment
+          vm_flags(third).should_not contain "rr" # the write segment
           store.close
         end
       end

@@ -6,6 +6,31 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
+# Test-only seam: drive the SIGTERM shutdown path without raising the signal.
+class LavinMQ::Launcher
+  def shutdown_for_spec
+    shutdown_server
+  end
+end
+
+private def with_clustered_launcher_config(data_dir : String, &)
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_etcd_endpoints = "localhost:12379"
+  config.clustering_advertised_uri = "tcp://localhost:5681"
+  config.clustering_port = 0
+  config.amqp_port = -1
+  config.mqtt_port = -1
+  config.http_port = -1
+  config.metrics_http_port = 0
+  control_unix_path = LavinMQ::Config.instance.control_unix_path
+  LavinMQ::Config.instance.control_unix_path = File.join(data_dir, "control.sock")
+  yield config
+ensure
+  LavinMQ::Config.instance.control_unix_path = control_unix_path if control_unix_path
+end
+
 private def metric_value(body : String, name : String, labels : Hash(String, String)) : Float64?
   body.each_line do |line|
     next unless line.starts_with?("#{name}{")
@@ -130,6 +155,40 @@ describe LavinMQ::Clustering::Controller do
     end
   ensure
     blocker.try &.close
+  end
+end
+
+describe LavinMQ::Clustering::Client do
+  # On promotion both the leader watcher and the controller close the client.
+  # The controller binds the listeners right after its close returns, so that
+  # close must not return while the other one still holds the proxy ports.
+  it "waits for a concurrent close to release the proxy ports" do
+    free_port = -> { TCPServer.open("127.0.0.1", 0, &.local_address.port) }
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = free_port.call
+      config.http_port = free_port.call
+      config.mqtt_port = free_port.call
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      spawn client.follow("127.0.0.1", free_port.call) # no leader there, keeps retrying
+      Fiber.yield                                      # let the proxies start accepting
+      ports = {config.amqp_port, config.http_port, config.mqtt_port}
+      bind_errors = [] of String
+      wg = WaitGroup.new
+      wg.spawn { client.close } # suspends while closing a proxy
+      wg.spawn do
+        client.close
+        ports.each do |port|
+          TCPServer.new("127.0.0.1", port).close
+        rescue ex : Socket::BindError
+          bind_errors << ex.message.to_s
+        end
+      end
+      wg.wait
+      bind_errors.should be_empty
+    end
   end
 end
 
@@ -301,9 +360,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     with_clustering do |cluster|
       replicator = cluster.replicator
       retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.config.data_dir}/retain_store", replicator)
-      # This wait is needed for the initial replace of index to be synced.
-      # If we don't do this data may have been appended to the file before it's
-      # written to socket, meaning that the lag_size has changed.
+      # Let the follower catch up before appending. If we don't, data may have
+      # been appended to the file before it's written to socket, meaning that
+      # the lag_size has changed.
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
       pub1 = MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
@@ -491,47 +550,118 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "creates the data dir and keeps its clustering id across restarts" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = File.join(data_dir, "new")
+      id = LavinMQ::Clustering::Controller.new(config).id
+      File.read(File.join(config.data_dir, ".clustering_id")).should eq id.to_s(36)
+      File.exists?(File.join(config.data_dir, ".clustering_id.tmp")).should be_false
+      LavinMQ::Clustering::Controller.new(config).id.should eq id
+    end
+  end
+
+  it "grants its lease with the configured TTL" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5681"
+      config.clustering_etcd_lease_ttl = 30
+      controller = LavinMQ::Clustering::Controller.new(config)
+      lease_id = File.read(File.join(data_dir, ".clustering_id")).to_i(36)
+
+      elected = Channel(Nil).new
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      spawn do
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+      rescue SpecExit
+      end
+      spawn do
+        controller.run { }
+      rescue SpecExit
+      end
+      begin
+        select
+        when elected.receive?
+        when timeout(5.seconds)
+          fail("controller was not elected leader")
+        end
+        etcd.lease_ttl(lease_id).should be > 10
+      ensure
+        controller.stop
+      end
+    end
+  end
+
   it "will release lease on shutdown", tags: "slow" do
-    config = LavinMQ::Config.new
-    config.data_dir = "/tmp/release-lease"
-    config.clustering = true
-    config.clustering_etcd_endpoints = "localhost:12379"
-    config.clustering_advertised_uri = "tcp://localhost:5681"
-    launcher = LavinMQ::Launcher.new(config)
+    with_clustered_launcher_config("/tmp/release-lease") do |config|
+      launcher = LavinMQ::Launcher.new(config)
 
-    election_done = Channel(Nil).new
-    etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
-    spawn do
-      etcd.elect_listen("lavinmq/leader") { election_done.close }
-    rescue SpecExit
+      election_done = Channel(Nil).new
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      spawn do
+        etcd.elect_listen("lavinmq/leader") { election_done.close }
+      rescue SpecExit
+      end
+
+      spawn do
+        launcher.run
+      rescue SpecExit
+      end
+
+      # Wait until our "launcher" is leader
+      election_done.receive?
+
+      # The spec gets a lease to use in an election campaign
+      lease = etcd.lease_grant(5)
+
+      # graceful stop...
+      spawn { launcher.stop }
+
+      # Let the spec campaign for leadership...
+      elected = Channel(Nil).new
+      spawn do
+        etcd.election_campaign("lavinmq/leader", "spec", lease.id)
+        elected.close
+      end
+
+      # ... and verify spec is elected
+      select
+      when elected.receive?
+      when timeout(1.seconds)
+        fail("election campaign did not finish in time, leadership not released on launcher stop?")
+      end
     end
+  end
 
-    spawn do
-      launcher.run
-    rescue SpecExit
-    end
+  it "leaves the exit to the main fiber when stopping a leader", tags: "slow" do
+    with_datadir do |data_dir|
+      with_clustered_launcher_config(data_dir) do |config|
+        launcher = LavinMQ::Launcher.new(config)
+        begin
+          run_done = Channel(Nil).new
+          spawn do
+            launcher.run
+            run_done.close
+          rescue SpecExit
+          end
+          # The metrics server is pointed at the leader at the end of startup
+          wait_for { launcher.@metrics_server.try { |metrics| metrics.@role.leader } }
 
-    # Wait until our "launcher" is leader
-    election_done.receive?
+          # Exiting from the signal handler while #run still closed the replicator
+          # closed the log backend under it, and the leader exited with code 1
+          launcher.shutdown_for_spec
 
-    # The spec gets a lease to use in an election campaign
-    lease = etcd.lease_grant(5)
-
-    # graceful stop...
-    spawn { launcher.stop }
-
-    # Let the spec campaign for leadership...
-    elected = Channel(Nil).new
-    spawn do
-      etcd.election_campaign("lavinmq/leader", "spec", lease.id)
-      elected.close
-    end
-
-    # ... and verify spec is elected
-    select
-    when elected.receive?
-    when timeout(1.seconds)
-      fail("election campaign did not finish in time, leadership not released on launcher stop?")
+          select
+          when run_done.receive?
+          when timeout(1.second)
+            fail("Launcher#run didn't return after shutdown")
+          end
+        ensure
+          launcher.stop
+        end
+      end
     end
   end
 
