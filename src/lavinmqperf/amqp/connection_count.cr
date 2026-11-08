@@ -16,13 +16,13 @@ module LavinMQPerf
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
         @parser.on("-x count", "--count=number", "Number of connections (default 100)") do |v|
-          @connections = v.to_i
+          @connections = parse_int(v, "Connections")
         end
         @parser.on("-c channels", "--channels=number", "Number of channels per connection (default 1)") do |v|
-          @channels = v.to_i
+          @channels = parse_int(v, "Channels")
         end
         @parser.on("-C consumers", "--consumers=number", "Number of consumers per channel (default 0)") do |v|
-          @consumers = v.to_i
+          @consumers = parse_int(v, "Consumers")
         end
         @parser.on("-u queue", "--queue=name", "Queue name (default #{@queue})") do |v|
           @queue = v

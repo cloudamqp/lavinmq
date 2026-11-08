@@ -47,28 +47,28 @@ module LavinMQPerf
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
-          @publishers = v.to_i
+          @publishers = parse_int(v, "Publishers")
         end
         @parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
-          @consumers = v.to_i
+          @consumers = parse_int(v, "Consumers")
         end
         @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
-          @size = v.to_i
+          @size = parse_int(v, "Message size")
         end
         @parser.on("-V", "--verify", "Verify the message body") do
           @verify = true
         end
         @parser.on("-a MESSAGES", "--ack MESSAGES", "Ack after X consumed messages (default 0)") do |v|
-          @ack = v.to_i
+          @ack = parse_int(v, "Ack")
         end
         @parser.on("-c max-unconfirmed", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
-          @max_unconfirm = v.to_i
+          @max_unconfirm = parse_int(v, "Max unconfirmed")
         end
         @parser.on("-t msgs-in-transaction", "--transaction max-uncommited-messages", "Publish messages in transactions") do |v|
-          @pub_in_transaction = v.to_i
+          @pub_in_transaction = parse_int(v, "Messages in transaction")
         end
         @parser.on("-T acks-in-transaction", "--transaction max-uncommited-acknowledgements", "Ack messages in transactions") do |v|
-          @ack_in_transaction = v.to_i
+          @ack_in_transaction = parse_int(v, "Acks in transaction")
         end
         @parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
           @queue = v
@@ -81,16 +81,16 @@ module LavinMQPerf
           @exchange = v
         end
         @parser.on("-r pub-rate", "--rate=number", "Max publish rate (default 0)") do |v|
-          @rate = v.to_i
+          @rate = parse_int(v, "Publish rate")
         end
         @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
-          @consume_rate = v.to_i
+          @consume_rate = parse_int(v, "Consume rate")
         end
         @parser.on("-p", "--persistent", "Persistent messages (default false)") do
           @persistent = true
         end
         @parser.on("-P", "--prefetch=number", "Number of messages to prefetch)") do |v|
-          @prefetch = v.to_u16
+          @prefetch = parse_int(v, "Prefetch", max: UInt16::MAX.to_i).to_u16
         end
         @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do
           @poll = true
@@ -99,16 +99,16 @@ module LavinMQPerf
           @json_output = true
         end
         @parser.on("-z seconds", "--time=seconds", "Only run for X seconds") do |v|
-          @timeout = Time::Span.new(seconds: v.to_i)
+          @timeout = Time::Span.new(seconds: parse_int(v, "Time"))
         end
         @parser.on("-q", "--quiet", "Quiet, only print the summary") do
           @quiet = true
         end
         @parser.on("-C messages", "--pmessages=messages", "Publish max X number of messages") do |v|
-          @pmessages = v.to_i
+          @pmessages = parse_int(v, "Publish messages")
         end
         @parser.on("-D messages", "--cmessages=messages", "Consume max X number of messages") do |v|
-          @cmessages = v.to_i
+          @cmessages = parse_int(v, "Consume messages")
         end
         @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
           @queue_args = ::AMQP::Client::Arguments.new(JSON.parse(v).as_h)
@@ -127,14 +127,10 @@ module LavinMQPerf
           @queue_pattern = v
         end
         @parser.on("--queue-pattern-from=NUMBER", "Queue pattern start index (default 1)") do |v|
-          from = v.to_i
-          abort "Queue pattern from must be >= 1, got #{from}" if from < 1
-          @queue_pattern_from = from
+          @queue_pattern_from = parse_int(v, "Queue pattern from", min: 1)
         end
         @parser.on("--queue-pattern-to=NUMBER", "Queue pattern end index (default 1)") do |v|
-          to = v.to_i
-          abort "Queue pattern to must be >= 1, got #{to}" if to < 1
-          @queue_pattern_to = to
+          @queue_pattern_to = parse_int(v, "Queue pattern to", min: 1)
         end
         @parser.on("-l", "--measure-latency", "Measure and report end-to-end latency") do
           @measure_latency = true
