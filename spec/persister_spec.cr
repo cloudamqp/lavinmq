@@ -773,6 +773,31 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "writes many held back acks in one pass without recursing per ack" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      count = 60_000
+      begin
+        count.times { store.push(LavinMQ::Message.new("", "rk", "x")) }
+        with_drain_held do
+          count.times do
+            sp = store.shift?.should_not(be_nil).segment_position
+            store.copied_out(sp)
+            store.delete(sp)
+          end
+        end
+        wait_for { store.copies_synced? }
+        # Writes every held back ack: a nested call per ack would overflow the stack
+        store.unlink_synced_segments
+        store.kept_segment_drain.should be_nil
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -1209,19 +1234,28 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "syncs before it recreates a retry queue that closed itself, when it released messages that aren't synced" do
+  it "syncs the copies a retry queue released before it closes, and recreates it after" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
         reject_once_into_retry_queue(q)
         prim = s.vhosts["/"].queue("prim").as(LavinMQ::AMQP::Queue)
-        q.publish "x" # released back to prim, and acked there
-        wait_for { prim.@ack_count.get == 1 }
-        s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+        retry_queue = s.vhosts["/"].queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
         synced = s.persister.syncs.size
+        closed = Channel(Nil).new
+        with_drain_held do
+          q.publish "x" # released back to prim, and acked there
+          wait_for { prim.@ack_count.get == 1 }
+          spawn { retry_queue.close; closed.close }
+          sleep 50.milliseconds
+          # Closing, it waits for the drain that syncs the copy in prim
+          acked_bytes(s, "amq.retry-prim").should eq 0
+        end
+        closed.receive?
+        synced_in?(s, queue_dir(s, "prim"), synced).should be_true
         q.publish "y" # rejected into the retry queue, which is recreated
         wait_for { prim.@ack_count.get == 2 }
-        synced_in?(s, queue_dir(s, "prim"), synced).should be_true
+        s.vhosts["/"].queue("amq.retry-prim").should_not be retry_queue
       end
     end
   end
