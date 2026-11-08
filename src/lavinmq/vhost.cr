@@ -399,9 +399,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new, fsync = true)
+                         arguments = AMQP::Table.new, fsync = true, user : Auth::BaseUser? = nil)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments), fsync: fsync
+        auto_delete, internal, false, arguments), fsync: fsync, user: user
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 

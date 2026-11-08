@@ -166,8 +166,9 @@ module LavinMQ
       @sessions.clear
     end
 
-    # *user* is the user a bind is made for, whose permissions on the source
-    # exchange are checked here, see #refuse_unreadable_mqtt_exchange
+    # *user* is the user a declare or bind is made for. Only the extra
+    # permission an x-mqtt-topic exchange needs is checked here, see
+    # #refuse_unreadable_mqtt_exchange; callers check the rest
     # ameba:disable Metrics/CyclomaticComplexity
     def apply(f, loading = false, fsync = true, user : Auth::BaseUser? = nil) : Bool
       @definitions_lock.synchronize do
@@ -175,6 +176,7 @@ module LavinMQ
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
           refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
+          refuse_unreadable_mqtt_exchange(f.exchange_name, f.exchange_type, user)
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
@@ -256,11 +258,20 @@ module LavinMQ
 
     # Checked under the lock, on the exchange the bind is made to: a check
     # before #apply could see another exchange of the same name, as one can
-    # be deleted and redeclared as x-mqtt-topic meanwhile
+    # be deleted and redeclared as x-mqtt-topic meanwhile. A shovel binds as
+    # the direct user, so Shovel::Runner checks its creator before binding
     private def refuse_unreadable_mqtt_exchange(x : Exchange, user : Auth::BaseUser?) : Nil
-      return unless user && x.is_a?(AMQP::MqttTopicExchange)
+      return unless x.is_a?(AMQP::MqttTopicExchange)
+      refuse_unreadable_mqtt_exchange(x.name, x.type, user)
+    end
+
+    # On declare it's checked on the type, before the exchange is built, so a
+    # refused declare creates nothing. A delayed x-mqtt-topic is refused for
+    # everyone before this, by #refuse_delayed_mqtt_topic!
+    private def refuse_unreadable_mqtt_exchange(name : String, type : String, user : Auth::BaseUser?) : Nil
+      return unless user && type == "x-mqtt-topic"
       return if AMQP::MqttTopicExchange.readable_by?(user, @vhost.name)
-      raise Exchange::AccessRefused.new(x, AMQP::MqttTopicExchange.unreadable_message(user, x.name))
+      raise Exchange::AccessRefused.new(AMQP::MqttTopicExchange.unreadable_message(user, name))
     end
 
     # Bindings are stored so they can be restored on boot. The MQTT exchange is
@@ -284,6 +295,9 @@ module LavinMQ
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
       queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      # Exchange name to the names that bind keys exchange_bindings and
+      # queue_bindings by, for the bindings it's the source of
+      bound_from = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
       should_compact = false
       io = @definitions_file
       if io.size.zero?
@@ -306,9 +320,16 @@ module LavinMQ
           when AMQP::Frame::Exchange::Delete
             exchanges.delete f.exchange_name
             exchange_bindings.delete f.exchange_name
+            # Deleting an exchange stores no unbinds, and its bindings must not
+            # come back on an exchange declared later with the same name
+            bound_from.delete(f.exchange_name).try &.each do |name|
+              exchange_bindings[name]?.try &.reject!(&.source.==(f.exchange_name))
+              queue_bindings[name]?.try &.reject!(&.exchange_name.==(f.exchange_name))
+            end
             should_compact = true
           when AMQP::Frame::Exchange::Bind
             exchange_bindings[f.destination] << f
+            bound_from[f.source] << f.destination
           when AMQP::Frame::Exchange::Unbind
             exchange_bindings[f.destination].reject! do |b|
               b.source == f.source &&
@@ -324,6 +345,7 @@ module LavinMQ
             should_compact = true
           when AMQP::Frame::Queue::Bind
             queue_bindings[f.queue_name] << f
+            bound_from[f.exchange_name] << f.queue_name
           when AMQP::Frame::Queue::Unbind
             queue_bindings[f.queue_name].reject! do |b|
               b.exchange_name == f.exchange_name &&
