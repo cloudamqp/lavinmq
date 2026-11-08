@@ -632,14 +632,19 @@ module LavinMQ
         partly_synced ||= persister.syncfs_since?(@wfile_syncfs_mark)
         @wfile_syncfs_mark = persister.syncfs_mark
       end
+      # A follower also runs syncfs by itself (a merged batch of fsync
+      # requests over syncfs_threshold, out of file descriptors, a protocol
+      # v1 leader), which this node can't count. The rollover sync sends the
+      # fsync request that syncs the rest of a message it tore.
+      partly_synced ||= @replicator.try { |r| !r.followers.empty? } || false
       sync_finished_segment(finished, partly_synced) if finished && !finished.deleted?
       wfile
     end
 
     # A confirm, a moved copy, a transaction commit or a syncfs started for
-    # any store syncs the segment while publishers may still append to it,
-    # so the sync can persist the header of an unconfirmed message but not
-    # the rest of its body. A later sync of the same segment syncs the rest,
+    # any store, here or on a follower, syncs the segment while publishers
+    # may still append to it, so the sync can persist the header of an
+    # unconfirmed message but not the rest of its body. A later sync of the same segment syncs the rest,
     # but after a rollover nothing would, and a power loss would leave a
     # record that loads as valid with a zeroed body. A segment that nothing
     # synced is left to the kernel, as before.

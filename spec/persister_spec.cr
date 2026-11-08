@@ -131,6 +131,39 @@ private def drain_marked(persister : LavinMQ::Persister) : Nil
   persister.wait_drain(persister.copy_drain)
 end
 
+# A leader's replicator with one in-sync follower, recording the paths the
+# drains ask followers to fsync
+private class OneFollowerReplicator < NoOpReplicator
+  getter socket : FakeSocket
+  getter peer : UNIXSocket
+  @follower : LavinMQ::Clustering::Follower
+  @fsync_requests = Array(String).new
+  @lock = Mutex.new
+
+  def initialize(data_dir : String)
+    @socket, @peer = FakeSocket.pair
+    @follower = LavinMQ::Clustering::Follower.new(@socket, data_dir, FakeFileIndex.new(data_dir))
+    @follower.mark_synced!
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    [@follower]
+  end
+
+  def request_fsync(paths : Enumerable(String)) : Nil
+    @lock.synchronize { @fsync_requests.concat(paths) }
+  end
+
+  def fsync_requested?(path : String) : Bool
+    @lock.synchronize { @fsync_requests.includes?(path) }
+  end
+
+  def close
+    @socket.close
+    @peer.close
+  end
+end
+
 private class ConfirmReceiver
   include LavinMQ::Persister::ConfirmTarget
   getter confirms = Channel(UInt64).new(1)
@@ -427,6 +460,49 @@ describe LavinMQ::Persister do
         meta = File.join(data_dir, "meta.0000000001")
         sync = wait_for { persister.last_sync.try { |r| r if r.paths.includes?(meta) } }
         sync.paths.should contain File.join(data_dir, "msgs.0000000001")
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "syncs a finished queue segment, here and on the followers, when the node has followers" do
+    with_datadir do |data_dir|
+      replicator = OneFollowerReplicator.new(data_dir)
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      store = LavinMQ::MessageStore.new(data_dir, replicator, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        # Nothing on this node syncs msgs.1, but a follower's own syncfs may
+        # have caught part of a message in it
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        meta = File.join(data_dir, "meta.0000000001")
+        msgs = File.join(data_dir, "msgs.0000000001")
+        sync = wait_for { persister.last_sync.try { |r| r if r.paths.includes?(meta) } }
+        sync.paths.should contain msgs
+        replicator.fsync_requested?(msgs).should be_true
+        replicator.fsync_requested?(meta).should be_true
+      ensure
+        store.close
+        persister.close
+        replicator.close
+      end
+    end
+  end
+
+  it "leaves a finished queue segment to the kernel when the node has no followers" do
+    with_datadir do |data_dir|
+      replicator = NoOpReplicator.new
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      store = LavinMQ::MessageStore.new(data_dir, replicator, persister: persister)
+      begin
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.size.should eq 2
+        drain_marked(persister)
+        persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
       ensure
         store.close
         persister.close
