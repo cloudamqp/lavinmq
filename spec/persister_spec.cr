@@ -558,14 +558,13 @@ describe LavinMQ::Persister do
         body = "x" * (LavinMQ::Config.instance.segment_size // 4)
         3.times { store.push(LavinMQ::Message.new("", "rk", body)) }
         persister.sync # marks msgs.1 as partly synced
-        3.times do
-          sp = store.shift?.should_not(be_nil).segment_position
-          store.copied_out(sp)
-          store.delete(sp)
-        end
-        # The rollover finds msgs.1 emptied, and keeps it until its copies sync
+        3.times { store.delete_moved(store.shift?.should_not(be_nil).segment_position) }
+        # Their acks are written once their copies are synced, which empties msgs.1
+        store.sync_copies # no owner requests the drain here
+        store.write_synced_acks
+        # The rollover finds msgs.1 emptied, and unlinks it
         store.push(LavinMQ::Message.new("", "rk", body))
-        store.kept_segment_drain.should_not be_nil
+        File.exists?(File.join(data_dir, "msgs.0000000001")).should be_false
         drain_marked(persister)
         persister.syncs.none?(&.paths.includes?(File.join(data_dir, "meta.0000000001"))).should be_true
       ensure
