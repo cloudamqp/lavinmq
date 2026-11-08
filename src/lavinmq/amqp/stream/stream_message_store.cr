@@ -25,7 +25,7 @@ module LavinMQ::AMQP
       drop_overflow
     end
 
-    def close : Nil
+    def close(write_held_acks = true) : Nil
       super
       @expiry_changed.close
       @consumer_offsets.close

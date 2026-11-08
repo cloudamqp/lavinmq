@@ -174,9 +174,9 @@ module LavinMQ
     # For a message the broker copied to another queue (dead-lettered,
     # delayed, retried), after the copy was written and marked dirty there.
     # Returns the number of the drain that makes the copy durable, see
-    # #drain_synced?. It doesn't request that drain: a store does when it
-    # has to keep a segment for it (see #request_drain), so a burst of moves
-    # costs a drain per emptied segment, not one per message.
+    # #drain_synced?. It doesn't request that drain: the source queue does,
+    # after a delay (see #wait_drain), so a steady stream of moves shares the
+    # drains that run meanwhile.
     def copy_drain : UInt64
       @pending.lock { @drains_started + 1 }
     end
@@ -187,8 +187,8 @@ module LavinMQ
       @drains_synced.get(:acquire) >= seq
     end
 
-    # Requests a drain even if nothing else is pending, for the copies an
-    # emptied segment waits for (see #copy_drain), also when their drain ran
+    # Requests a drain even if nothing else is pending, for the copies a held
+    # back ack waits for (see #copy_drain), also when their drain ran
     # while sync was disabled. Returns false once the loop has exited at
     # shutdown.
     def request_drain : Bool
@@ -199,14 +199,29 @@ module LavinMQ
       false
     end
 
+    # How long #wait_drain with *ride_along* waits for a drain that runs
+    # anyway before it requests one
+    property ride_along_delay : Time::Span = 100.milliseconds
+
     # Blocks until the drain numbered *seq* by #copy_drain, or a later one,
-    # has synced. Returns without it at shutdown and while sync is disabled,
-    # also when a reload disables it during the wait: the caller checks again.
-    def wait_drain(seq : UInt64) : Nil
+    # has synced. With *ride_along*, it waits for a drain that runs anyway
+    # (a confirm, a move of another queue) and requests one only after
+    # #ride_along_delay, so a caller that waits again and again costs a drain
+    # per delay, not one per wait. Returns without it at shutdown and while
+    # sync is disabled, also when a reload disables it during the wait: the
+    # caller checks again.
+    def wait_drain(seq : UInt64, *, ride_along = false) : Nil
       return if drain_synced?(seq) || !Config.instance.sync?
       waiter = ::Channel(Nil).new
       @drain_waiters.lock &.push({seq, waiter})
       return if drain_synced?(seq) # a drain released the waiters meanwhile
+      if ride_along
+        select
+        when waiter.receive?
+          return
+        when timeout(@ride_along_delay)
+        end
+      end
       return unless request_drain
       waiter.receive?
     end
@@ -256,6 +271,11 @@ module LavinMQ
 
     def close : Nil
       @publish_confirm_requested.close
+    end
+
+    # Once closed, no drain runs any more, see #wait_drain
+    def closed? : Bool
+      @publish_confirm_requested.closed?
     end
 
     private def publish_confirm_loop

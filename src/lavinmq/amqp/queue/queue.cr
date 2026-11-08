@@ -107,8 +107,8 @@ module LavinMQ::AMQP
     @retry_queue_lock = Mutex.new
     # Serializes restarts, which wait for a sync before they load the store
     @restart_lock = Mutex.new
-    # A fiber unlinks the segments the store keeps, see #unlink_kept_segments_later
-    @unlinking_kept_segments = Atomic(Bool).new(false)
+    # A fiber writes the acks the store holds back, see #write_held_acks_later
+    @writing_held_acks = Atomic(Bool).new(false)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -335,7 +335,7 @@ module LavinMQ::AMQP
         @vhost.replicator.try &.register_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
-      @msg_store.on_kept_segment = ->unlink_kept_segments_later
+      @msg_store.on_held_ack = ->write_held_acks_later
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       begin
@@ -376,7 +376,7 @@ module LavinMQ::AMQP
         return false if @deleted
         reset_queue_state
         @msg_store = init_msg_store(@data_dir)
-        @msg_store.on_kept_segment = ->unlink_kept_segments_later
+        @msg_store.on_held_ack = ->write_held_acks_later
         @empty = @msg_store.empty
         start.tap do |started|
           reapply_policy if started
@@ -384,38 +384,41 @@ module LavinMQ::AMQP
       end
     end
 
-    # Called under @msg_store_lock when the store keeps an emptied segment for
-    # the drain that syncs the copies of its messages (see
-    # MessageStore#unlink_segment). The store unlinks it at its next delete or
-    # rollover after that drain, this unlinks it also when none follows.
-    private def unlink_kept_segments_later : Nil
-      return if @unlinking_kept_segments.swap(true)
-      spawn(name: "Queue#unlink_kept_segments #{@vhost.name}/#{@name}") { unlink_kept_segments }
+    # Called under @msg_store_lock when the store holds back the ack of a
+    # moved message until the drain that syncs its copy (see
+    # MessageStore#delete_moved). The store writes it at its next delete or
+    # rollover after that drain, this writes it also when none follows.
+    private def write_held_acks_later : Nil
+      return if @writing_held_acks.swap(true)
+      spawn(name: "Queue#write_held_acks #{@vhost.name}/#{@name}") { write_held_acks }
     end
 
-    private def unlink_kept_segments : Nil
+    # Only ends when it finds no held back ack, see #next_held_ack_drain, or
+    # at shutdown, when the persister's loop has exited and the store writes
+    # them as it closes. A sync that a reload turns off and on again during
+    # the wait only makes it wait again.
+    private def write_held_acks : Nil
       persister = @vhost.persister
-      while drain = next_kept_segment_drain
-        persister.wait_drain(drain)
-        @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
-        # At shutdown the persister's loop has exited, and nothing syncs
-        if Config.instance.sync? && !persister.drain_synced?(drain)
-          @unlinking_kept_segments.set(false)
-          break
-        end
+      while drain = next_held_ack_drain(stop: persister.closed?)
+        persister.wait_drain(drain, ride_along: true)
+        @msg_store_lock.synchronize { @msg_store.write_synced_acks }
       end
+    rescue ex : MessageStore::Error
+      next_held_ack_drain(stop: true)
+      @log.error(exception: ex) { "Queue closed due to error" }
+      close
     rescue ex
-      @unlinking_kept_segments.set(false)
-      @log.error(exception: ex) { "Failed to unlink emptied segments" }
+      next_held_ack_drain(stop: true)
+      @log.error(exception: ex) { "Failed to write held back acks" }
     end
 
-    # Ends the fiber under the same lock that the store keeps a segment
-    # under, so a segment kept right after either sees the flag cleared and
+    # Ends the fiber under the same lock that the store holds an ack back
+    # under, so an ack held back right after either sees the flag cleared and
     # spawns a new fiber, or is seen by this one's next round
-    private def next_kept_segment_drain : UInt64?
+    private def next_held_ack_drain(*, stop : Bool) : UInt64?
       @msg_store_lock.synchronize do
-        drain = @msg_store.kept_segment_drain
-        @unlinking_kept_segments.set(false) unless drain
+        drain = @msg_store.held_ack_drain unless stop
+        @writing_held_acks.set(false) unless drain
         drain
       end
     end
@@ -955,7 +958,8 @@ module LavinMQ::AMQP
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
-        @msg_store.close
+        # A queue being deleted drops its held back acks with its files
+        @msg_store.close(write_held_acks: !@deleted)
         @deliveries.clear
       end
       @basic_get_unacked.lock(&.clear)
@@ -1423,7 +1427,7 @@ module LavinMQ::AMQP
       delete_message(sp, copied: false)
     end
 
-    # *copied*: the message was copied to another queue, see MessageStore#copied_out
+    # *copied*: the message was copied to another queue, see MessageStore#delete_moved
     protected def delete_message(sp : SegmentPosition, *, copied : Bool) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
@@ -1435,8 +1439,11 @@ module LavinMQ::AMQP
       {% end %}
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
-        @msg_store.copied_out(sp) if copied
-        @msg_store.delete(sp)
+        if copied
+          @msg_store.delete_moved(sp)
+        else
+          @msg_store.delete(sp)
+        end
       end
     end
 
