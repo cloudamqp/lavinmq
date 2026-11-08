@@ -171,6 +171,7 @@ module LavinMQ
         case f
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
+          refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments) unless loading
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
@@ -441,6 +442,19 @@ module LavinMQ
           @definitions_deletes = 0
         end
       end
+    end
+
+    # An x-mqtt-topic exchange only routes MQTT publishes, which can't carry
+    # an x-delay, so it ignores x-delayed-exchange. Refused when declared, so
+    # it doesn't look delayed, and accepted when loaded, so an exchange that
+    # an earlier version stored with it still loads.
+    private def refuse_delayed_mqtt_topic!(type : String, arguments : AMQP::Table) : Nil
+      if type.in?("x-delayed-message", "x-delayed-exchange")
+        return unless arguments["x-delayed-type"]? == "x-mqtt-topic"
+      else
+        return unless type == "x-mqtt-topic" && arguments["x-delayed-exchange"]? == true
+      end
+      raise Error::ExchangeTypeError.new("An x-mqtt-topic exchange can't be delayed: it only routes MQTT publishes")
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
