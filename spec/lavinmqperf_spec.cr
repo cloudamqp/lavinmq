@@ -55,6 +55,21 @@ describe "LavinMQPerf" do
       end
     end
 
+    it "exits non-zero at the -z deadline when it can't connect" do
+      port = TCPServer.open("127.0.0.1", 0, &.local_address.port)
+      io = IO::Memory.new
+      err = IO::Memory.new
+      throughput = LavinMQPerf::AMQP::Throughput.new(io, err)
+      start = Time.instant
+      ex = expect_raises(SpecExit) do
+        throughput.run(["--uri=amqp://guest:guest@127.0.0.1:#{port}", "-z", "1", "-q", "-j"])
+      end
+      ex.code.should_not eq 0
+      (Time.instant - start).should be < 3.seconds
+      err.to_s.should contain "Could not connect"
+      io.to_s.should be_empty
+    end
+
     it "should verify summary averages are correct", tags: "slow" do
       with_amqp_server do |s|
         io = IO::Memory.new

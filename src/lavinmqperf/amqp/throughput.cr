@@ -143,7 +143,16 @@ module LavinMQPerf
 
       @pubs = Atomic(UInt64).new(0_u64)
       @consumes = Atomic(UInt64).new(0_u64)
-      @stopped = false
+      @stopped = Atomic(Bool).new(false)
+      @deadline : Time::Instant? = nil
+
+      private def stopped? : Bool
+        @stopped.get(:acquire)
+      end
+
+      private def stop : Nil
+        @stopped.set(true, :release)
+      end
 
       private def queue_names : Array(String)
         if pattern = @queue_pattern
@@ -167,9 +176,10 @@ module LavinMQPerf
         abort "No queues available for consumers" if queues.empty?
 
         unless @timeout.zero?
+          @deadline = Time.instant + @timeout
           spawn do
             sleep @timeout
-            @stopped = true
+            stop
           end
         end
 
@@ -187,7 +197,7 @@ module LavinMQPerf
           end
         end
 
-        connected.wait # wait for all consumers to connect
+        wait_for_connections(connected)
 
         connected.add(@publishers)
         done.add(@publishers)
@@ -195,23 +205,23 @@ module LavinMQPerf
           mt.spawn { rerun_on_exception(done) { pub(connected) } }
         end
 
-        connected.wait # wait for all publishers to connect
+        wait_for_connections(connected)
 
         start = Time.instant
         Process.on_terminate do
-          abort "Aborting" if @stopped
-          @stopped = true
+          abort "Aborting" if stopped?
+          stop
           summary(start)
           exit 0
         end
 
         spawn do
           done.wait
-          @stopped = true
+          stop
         end
 
         loop do
-          break if @stopped
+          break if stopped?
           pubs_last = @pubs.get(:relaxed)
           consumes_last = @consumes.get(:relaxed)
           report_start = Time.instant
@@ -352,7 +362,7 @@ module LavinMQPerf
           queues = queue_names
           queue_idx = 0
           local_pubs = 0_u64
-          until @stopped
+          until stopped?
             if @measure_latency
               # Write timestamp at the beginning of the message
               IO::ByteFormat::LittleEndian.encode((Time.instant - BASE_INSTANT).total_nanoseconds.to_i64, data)
@@ -422,7 +432,7 @@ module LavinMQPerf
         verify_message_body(body, data) if @verify
         m.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
         ch.tx_commit if @ack_in_transaction > 0 && (local_consumes % @ack_in_transaction) == 0
-        if @stopped || consumes >= @cmessages > 0
+        if stopped? || consumes >= @cmessages > 0
           ch.close
         end
         ticker.tick
@@ -445,13 +455,13 @@ module LavinMQPerf
           wait_until_all_are_connected(connected)
           ticker = Ticker.new(@consume_rate)
           local_consumes = 0_u64
-          loop do
+          until stopped?
             if msg = q.get(no_ack: @ack.zero?)
               consumes = @consumes.add(1, :relaxed) + 1
               local_consumes &+= 1
               record_latency(msg.body_io.to_slice) if @measure_latency
               msg.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
-              break if @stopped || consumes >= @cmessages > 0
+              break if consumes >= @cmessages > 0
               ticker.tick
             end
           end
@@ -462,11 +472,30 @@ module LavinMQPerf
         loop do
           break yield
         rescue ex : ::AMQP::Client::Error | IO::Error
-          @io.puts ex.message
+          @err_io.puts ex.message
           sleep 1.seconds
+          break if stopped?
         end
       ensure
         done.done
+      end
+
+      # Wait for all clients to connect, but not past the -z deadline
+      private def wait_for_connections(connected : WaitGroup) : Nil
+        unless deadline = @deadline
+          return connected.wait
+        end
+        ch = ::Channel(Nil).new(1)
+        spawn do
+          connected.wait
+          ch.send nil
+        end
+        select
+        when ch.receive
+        when timeout({deadline - Time.instant, Time::Span.zero}.max)
+          stop
+          abort "Could not connect all clients to the broker within #{@timeout.total_seconds.to_i}s"
+        end
       end
 
       # Announce that the client is connected
