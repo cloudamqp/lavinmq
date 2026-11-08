@@ -30,47 +30,43 @@ module LavinMQPerf
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
-          publishers = v.to_i
-          abort "Publishers must be >= 0, got #{publishers}" if publishers < 0
-          @publishers = publishers
+          @publishers = parse_int(v, "Publishers")
         end
         @parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
-          consumers = v.to_i
-          abort "Consumers must be >= 0, got #{consumers}" if consumers < 0
-          @consumers = consumers
+          @consumers = parse_int(v, "Consumers")
         end
         @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
-          @size = v.to_i
+          @size = parse_int(v, "Message size")
         end
         @parser.on("-V", "--verify", "Verify the message body") do
           @verify = true
         end
         @parser.on("--qos=level", "QoS level (0 or 1)") do |v|
-          @qos = v.to_i
+          @qos = parse_int(v, "QoS", max: 1)
         end
         @parser.on("-t topic", "--topic=name", "Topic name (default perf-test)") do |v|
           @topic = v
         end
         @parser.on("-r pub-rate", "--rate=number", "Max publish rate (default 0)") do |v|
-          @rate = v.to_i
+          @rate = parse_int(v, "Publish rate")
         end
         @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
-          @consume_rate = v.to_i
+          @consume_rate = parse_int(v, "Consume rate")
         end
         @parser.on("-j", "--json", "Output result as JSON") do
           @json_output = true
         end
         @parser.on("-z seconds", "--time=seconds", "Only run for X seconds") do |v|
-          @timeout = Time::Span.new(seconds: v.to_i)
+          @timeout = Time::Span.new(seconds: parse_int(v, "Time"))
         end
         @parser.on("-q", "--quiet", "Quiet, only print the summary") do
           @quiet = true
         end
         @parser.on("-C messages", "--pmessages=messages", "Publish max X number of messages") do |v|
-          @pmessages = v.to_i
+          @pmessages = parse_int(v, "Publish messages")
         end
         @parser.on("-D messages", "--cmessages=messages", "Consume max X number of messages") do |v|
-          @cmessages = v.to_i
+          @cmessages = parse_int(v, "Consume messages")
         end
         @parser.on("--random-bodies", "Each message body is random") do
           @random_bodies = true

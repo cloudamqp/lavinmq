@@ -13,7 +13,7 @@ module LavinMQPerf
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
         @parser.on("-q queues", "--queues=number", "Number of queues (default 100)") do |v|
-          @queues = v.to_i
+          @queues = parse_int(v, "Queues")
         end
         @parser.on("-D", "--durable", "If the queues are durable or not") do
           @durable = true

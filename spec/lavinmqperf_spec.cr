@@ -55,14 +55,24 @@ describe "LavinMQPerf" do
       end
     end
 
-    it "should fail with negative publishers or consumers" do
-      ["-x", "-y"].each do |flag|
+    it "should fail with invalid numeric options" do
+      [
+        {["-x", "-1"], "Publishers must be >= 0, got -1"},
+        {["-y", "-1"], "Consumers must be >= 0, got -1"},
+        {["-s", "-1"], "Message size must be >= 0, got -1"},
+        {["-a", "-1"], "Ack must be >= 0, got -1"},
+        {["-z", "-1"], "Time must be >= 0, got -1"},
+        {["-x", "abc"], "Publishers must be a number, got abc"},
+        {["-P", "-1"], "Prefetch must be between 0 and 65535, got -1"},
+        {["-P", "65536"], "Prefetch must be between 0 and 65535, got 65536"},
+        {["--queue-pattern-from=0"], "Queue pattern from must be >= 1, got 0"},
+      ].each do |args, message|
         io = IO::Memory.new
         throughput = LavinMQPerf::AMQP::Throughput.new(io, io)
         expect_raises(SpecExit) do
-          throughput.run([flag, "-1"])
+          throughput.run(args)
         end
-        io.to_s.should contain("must be >= 0, got -1")
+        io.to_s.should contain(message)
       end
     end
 
@@ -170,14 +180,21 @@ describe "LavinMQPerf" do
       end
     end
 
-    it "should fail with negative publishers or consumers" do
-      ["-x", "-y"].each do |flag|
+    it "should fail with invalid numeric options" do
+      [
+        {["-x", "-1"], "Publishers must be >= 0, got -1"},
+        {["-y", "-1"], "Consumers must be >= 0, got -1"},
+        {["-s", "-1"], "Message size must be >= 0, got -1"},
+        {["-y", "abc"], "Consumers must be a number, got abc"},
+        {["--qos=-1"], "QoS must be between 0 and 1, got -1"},
+        {["--qos=2"], "QoS must be between 0 and 1, got 2"},
+      ].each do |args, message|
         io = IO::Memory.new
         throughput = LavinMQPerf::MQTT::Throughput.new(io, io)
         expect_raises(SpecExit) do
-          throughput.run([flag, "-1"])
+          throughput.run(args)
         end
-        io.to_s.should contain("must be >= 0, got -1")
+        io.to_s.should contain(message)
       end
     end
   end
