@@ -1166,6 +1166,27 @@ module ClientSyncSpec
         end
       end
 
+      it "doesn't track created directories for a version 1 leader" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client.protocol_version = 1
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          read_acks(leader_io, record_size(filename, 4))
+          client.@created_dirs.should be_empty
+          client_socket.close
+        end
+      end
+
       it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
