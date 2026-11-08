@@ -1028,6 +1028,40 @@ module ClientSyncSpec
         end
       end
 
+      it "doesn't ack without the catch-up sync when sync is enabled during a batch" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+
+          # Like a config reload right after the batch read the setting
+          config = client.@config
+          client.on_sync_read = -> { config.sync = true; nil }
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}")).should eq record_size("$#{filename}")
+          client.fsynced_paths.should be_empty
+
+          client.on_sync_read = nil
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}")).should eq record_size("$#{filename}")
+          client.syncs_started.should eq 1
+          client_socket.close
+        end
+      end
+
       it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
