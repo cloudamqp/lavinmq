@@ -80,11 +80,12 @@ module LavinMQ
     end
 
     # Unmaps the segments and ack files opened before a failure while
-    # loading, the caller gets no store to close
+    # loading, the caller gets no store to close. Doesn't call #close, which
+    # subclasses override to close what they set up after super.
     private def close_on_error(&)
       yield
     rescue ex
-      close
+      close_store
       raise ex
     end
 
@@ -454,6 +455,10 @@ module LavinMQ
     end
 
     def close : Nil
+      close_store
+    end
+
+    private def close_store : Nil
       return if @closed
       @closed = true
       @empty.close

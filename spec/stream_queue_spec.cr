@@ -1017,6 +1017,17 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "unmaps the segments it opened when loading raises" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+        # MFile can't open a directory, so loading fails after segment 1 is mapped
+        Dir.mkdir(File.join(data_dir, "msgs.0000000002"))
+        count_before = MFile.mmap_count
+        expect_raises(File::Error) { LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil) }
+        MFile.mmap_count.should eq count_before
+      end
+    end
+
     it "compacts consumer tag file when full" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
