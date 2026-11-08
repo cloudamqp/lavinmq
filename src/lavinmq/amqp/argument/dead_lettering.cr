@@ -63,7 +63,19 @@ module LavinMQ::AMQP
         @free_tasks = Sync::Exclusive(Array(Tasks)).new(Array(Tasks).new, :unchecked)
         MAX_FREE_TASKS = 16
 
+        # The exchange last warned about, see #warn_unroutable
+        @warned_unroutable = Atomic(String?).new(nil)
+
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
+        end
+
+        # Once per exchange in a row, as every message dead-lettered to it is
+        # dropped, and a burst would flood the log
+        private def warn_unroutable(ex : AMQP::Exchange) : Nil
+          return if @warned_unroutable.swap(ex.name) == ex.name
+          @log.warn do
+            "Dropping dead-lettered messages: exchange '#{ex.name}' (#{ex.type}) only routes MQTT publishes"
+          end
         end
 
         private def cycle?(qname, props, reason) : Bool
@@ -95,6 +107,10 @@ module LavinMQ::AMQP
           target = @target.get(:acquire)
           return routed.call(true) unless dlx = (msg.dlx || target.dlx)
           ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call(true)
+          unless ex.routes_amqp_messages?
+            warn_unroutable(ex)
+            return routed.call(true)
+          end
 
           dlrk = msg.dlrk || target.dlrk
 
