@@ -22,7 +22,7 @@ module LavinMQ
   class MessageStore
     PURGE_YIELD_INTERVAL = 16_384
     # Held back acks a store gathers before it requests their drain itself,
-    # instead of waiting for its owner's delay, see #delete. Bounds their
+    # instead of waiting for its owner's delay, see #delete_moved. Bounds their
     # memory, 16 bytes each, while moves outpace the delay.
     HELD_ACKS_DRAIN_THRESHOLD = 16_384
     Log                       = LavinMQ::Log.for "message_store"
@@ -48,20 +48,16 @@ module LavinMQ
     # Whether the segment being written is mapped with readahead
     @wfile_readahead = false
     # The persister drain that makes the latest copy of a message of this
-    # store in another queue durable, see #copied_out. Copies made by an
+    # store in another queue durable, see #delete_moved. Copies made by an
     # earlier process are synced before the stores load, see
     # Persister#sync_local
     @copies_drain = 0u64
     # Acks of moved messages, written once the drain that syncs their copies
-    # is done, see #delete
+    # is done, see #delete_moved
     @pending_acks = Deque(PendingAck).new
-    # Set by #copied_out for the #delete that follows it
-    @copied_pending = false
-    # Guards #write_synced_acks against itself, via #write_ack
-    @writing_acks = false
-    # Called, under the lock that guards the store, when #delete holds an ack
-    # back, so its owner can write it once the drain is done, also if nothing
-    # else happens on the store, see #write_synced_acks
+    # Called, under the lock that guards the store, when #delete_moved holds
+    # an ack back, so its owner can write it once the drain is done, also if
+    # nothing else happens on the store, see #write_synced_acks
     property on_held_ack : Proc(Nil)? = nil
     getter closed
     getter bytesize = 0u64
@@ -244,60 +240,49 @@ module LavinMQ
       end
     end
 
-    # Call right before #delete of a message whose copy the broker wrote to
-    # another queue (dead-lettered, delayed, retried), with moved set, so the
-    # copy is marked dirty and synced by the next persister drain. That
-    # #delete holds the message's ack back until the drain is done, so the
-    # ack can't reach the disk before the copy: a power loss then gives a
-    # duplicate, never a loss. It also keeps the segment from emptying, and
-    # being unlinked, before the copy is durable, see #unlink_segment. The
-    # position isn't needed here, PriorityMessageStore picks its sub-store
-    # by it.
-    def copied_out(_sp : SegmentPosition) : Nil
-      @copied_pending = true
-    end
-
     def delete(sp) : Nil
-      copied, @copied_pending = @copied_pending, false
       raise ClosedError.new if @closed
-      if copied && (persister = @persister)
-        drain = @copies_drain = persister.copy_drain
-        # A message routed outside the lock can have its segment purged
-        # meanwhile, see below
-        return unless @segments.has_key?(sp.segment)
-        unless drain_done?(drain)
-          @pending_acks << PendingAck.new(drain, sp)
-          # Its owner requests the drain after a delay, see
-          # Persister#wait_drain, unless the held back acks pile up
-          @on_held_ack.try &.call
-          persister.request_drain if (@pending_acks.size % HELD_ACKS_DRAIN_THRESHOLD).zero?
-          return
-        end
-      end
       write_ack(sp)
+      write_synced_acks
     end
 
-    # Writes the acks held back by #delete whose drain is done. The copies are
+    # Deletes a message whose copy the broker wrote to another queue
+    # (dead-lettered, delayed, retried), with moved set, so the copy is
+    # marked dirty and synced by the next persister drain. The ack is held
+    # back until that drain is done, so it can't reach the disk before the
+    # copy: a power loss then gives a duplicate, never a loss. It also keeps
+    # the segment from emptying, and being unlinked, before the copy is
+    # durable, see #unlink_segment.
+    def delete_moved(sp) : Nil
+      raise ClosedError.new if @closed
+      persister = @persister || return delete(sp)
+      drain = @copies_drain = persister.copy_drain
+      return delete(sp) if drain_done?(drain)
+      # A message routed outside the lock can have its segment purged
+      # meanwhile, see #write_ack
+      return unless @segments.has_key?(sp.segment)
+      @pending_acks << PendingAck.new(drain, sp)
+      # Its owner requests the drain after a delay, see Persister#wait_drain,
+      # unless the held back acks pile up
+      @on_held_ack.try &.call
+      persister.request_drain if (@pending_acks.size % HELD_ACKS_DRAIN_THRESHOLD).zero?
+    end
+
+    # Writes the acks held back by #delete_moved whose drain is done. The copies are
     # durable, so the acks can reach the disk in any order now, and nothing
     # syncs them: a lost ack gives a duplicate, like a plain ack does. A
-    # closed store wrote them all, see #close.
+    # closed store wrote them all, see #close. An ack whose write fails is
+    # dropped, not retried: a partly written one would be counted twice, and
+    # empty its segment early. Its message comes back at the next start.
     def write_synced_acks : Nil
-      return if @closed || @writing_acks
-      # Cleared only by the call that set it: a method-level ensure would also
-      # run on the early return of the nested calls (via #write_ack), and let
-      # the next one recurse, once per held back ack
-      @writing_acks = true
-      begin
-        while (pending = @pending_acks.first?) && drain_done?(pending.drain)
-          @pending_acks.shift
-          write_ack(pending.sp)
-        end
-      ensure
-        @writing_acks = false
+      return if @closed
+      while (pending = @pending_acks.first?) && drain_done?(pending.drain)
+        @pending_acks.shift
+        write_ack(pending.sp)
       end
     end
 
-    # Writes all acks held back by #delete, once their copies are synced, see
+    # Writes all acks held back by #delete_moved, once their copies are synced, see
     # #close
     private def write_pending_acks : Nil
       return if @pending_acks.empty?
@@ -326,7 +311,6 @@ module LavinMQ
       afile = @acks[sp.segment]
       begin
         append_ack(afile, sp)
-        write_synced_acks
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -431,7 +415,7 @@ module LavinMQ
 
     # Unlinks an emptied segment and its ack file at once. Each ack of a
     # moved message is written only once the drain that syncs its copy is
-    # done (see #delete), so the copies of an emptied segment's messages are
+    # done (see #delete_moved), so the copies of an emptied segment's messages are
     # durable already. A purge of whole segments and the delete of the store
     # unlink segments with acks still held back, and sync the copies first,
     # see #sync_copies. An unlink that fails leaves the fully acked segment
@@ -448,7 +432,7 @@ module LavinMQ
       @pending_acks.first?.try &.drain unless @closed
     end
 
-    # Whether the copies counted by *drain* (see #copied_out) are durable, or
+    # Whether the copies counted by *drain* (see #delete_moved) are durable, or
     # don't have to be
     private def drain_done?(drain : UInt64) : Bool
       persister = @persister
@@ -456,7 +440,7 @@ module LavinMQ
     end
 
     # Whether every copy of this store's messages in other queues is durable,
-    # see #copied_out. A store that loads the same files doesn't know about
+    # see #delete_moved. A store that loads the same files doesn't know about
     # them, and unlinks the segments they were copied from at once.
     def copies_synced? : Bool
       drain_done?(@copies_drain)
@@ -489,10 +473,12 @@ module LavinMQ
       @size.zero?
     end
 
-    def close : Nil
+    # *write_held_acks* is false when the store is closed to be deleted: the
+    # delete syncs the copies itself, and the acks would go with the files.
+    def close(write_held_acks = true) : Nil
       return if @closed
       # Before the files close, so the next start doesn't move them again
-      write_pending_acks
+      write_pending_acks if write_held_acks
       @closed = true
       @empty.close
       # A delivery may still be reading from a segment, e.g. a basic.get that
@@ -570,7 +556,7 @@ module LavinMQ
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
       # A moved copy is synced by the next drain, like a confirmed publish.
-      # The source store's #delete requests that drain, and only the ack in
+      # The source store's #delete_moved requests that drain, and only the ack in
       # the source waits for it. It doesn't switch the store to random
       # access, so a store that only gets moved copies keeps its readahead,
       # see #readahead_for_writes
@@ -1094,7 +1080,7 @@ module LavinMQ
       end
     end
 
-    # An ack held back until *drain* has synced the message's copy, see #delete
+    # An ack held back until *drain* has synced the message's copy, see #delete_moved
     private record PendingAck, drain : UInt64, sp : SegmentPosition
 
     class ClosedError < ::Channel::ClosedError; end

@@ -179,8 +179,9 @@ module LavinMQ::AMQP
         store_for sp, &.envelope(sp, redelivered)
       end
 
-      def copied_out(sp : SegmentPosition) : Nil
-        store_for sp, &.copied_out(sp)
+      def delete_moved(sp) : Nil
+        raise ClosedError.new if @closed
+        store_for sp, &.delete_moved(sp)
       end
 
       def copies_synced? : Bool
@@ -234,10 +235,10 @@ module LavinMQ::AMQP
         FileUtils.rm_rf @msg_dir
       end
 
-      def close : Nil
+      def close(write_held_acks = true) : Nil
         return if @closed
         @closed = true
-        @stores.each &.close
+        @stores.each &.close(write_held_acks)
         @empty.close
       end
     end

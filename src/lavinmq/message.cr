@@ -84,7 +84,7 @@ module LavinMQ
     # Set for copies the broker makes of another queue's messages, see
     # .moved_copy, so the segments they're written to are synced before the
     # ack in the queue they were moved out of is written, see
-    # MessageStore#copied_out
+    # MessageStore#delete_moved
     property? moved = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,

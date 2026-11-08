@@ -273,6 +273,11 @@ module LavinMQ
       @publish_confirm_requested.close
     end
 
+    # Once closed, no drain runs any more, see #wait_drain
+    def closed? : Bool
+      @publish_confirm_requested.closed?
+    end
+
     private def publish_confirm_loop
       loop do
         # Wake on the first request, then sync + confirm everything pending.

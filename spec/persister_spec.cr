@@ -728,8 +728,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         store.shift? # the reader moves on to segment 2
         purged = Channel(Nil).new
         with_drain_held do
-          store.copied_out(moved)
-          store.delete(moved)
+          store.delete_moved(moved)
           spawn { store.purge_all; purged.close }
           sleep 50.milliseconds
           File.exists?(segment).should be_true
@@ -776,8 +775,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         with_drain_held do
           count.times do
             sp = store.shift?.should_not(be_nil).segment_position
-            store.copied_out(sp)
-            store.delete(sp)
+            store.delete_moved(sp)
           end
         end
         store.sync_copies # no owner requests the drain here
@@ -800,14 +798,14 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         sps = Array.new(4) { store.shift?.should_not(be_nil).segment_position }
         with_drain_held do
           sps.first(3).each do |sp|
-            store.copied_out(sp)
-            store.delete(sp)
+            store.delete_moved(sp)
           end
         end
         store.sync_copies                    # no owner requests the drain here
         File.exists?(segment).should be_true # its acks are held back until the next delete
         MFile.fail_delete_of = segment
-        expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
+        # Raised for the held back ack's own segment, not the one deleted
+        expect_raises(LavinMQ::MessageStore::Error, /acks\.0000000001/) { store.delete(sps[3]) }
         File.exists?(segment).should be_true
         File.exists?(File.join(data_dir, "acks.0000000001")).should be_true
         MFile.fail_delete_of = nil
@@ -819,6 +817,47 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         MFile.fail_delete_of = nil
         store.close
         persister.close
+      end
+    end
+  end
+
+  it "doesn't write or wait for the held back acks of a store closed to be deleted" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      begin
+        3.times { store.push(LavinMQ::Message.new("", "rk", "x")) }
+        with_drain_held do
+          3.times { store.delete_moved(store.shift?.should_not(be_nil).segment_position) }
+          # Would wait for the held drain if it wrote them
+          store.close(write_held_acks: false)
+        end
+        reloaded = LavinMQ::MessageStore.new(data_dir, nil)
+        reloaded.size.should eq 3
+        reloaded.close
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "closes the queue when it fails to write the held back acks of an idle queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        begin
+          with_drain_held do
+            8.times { src.publish "x" * 100_000 }
+            wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+            MFile.fail_delete_of = src_segment
+          end
+          queue = s.vhosts["/"].queue("src")
+          wait_for(timeout: 5.seconds) { queue.closed? }
+        ensure
+          MFile.fail_delete_of = nil
+        end
       end
     end
   end
@@ -836,8 +875,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         sps = Array.new(emptied * 3) { store.shift?.should_not(be_nil).segment_position }
         with_drain_held do
           moved = store.shift?.should_not(be_nil).segment_position
-          store.copied_out(moved)
-          store.delete(moved)
+          store.delete_moved(moved)
           # Their messages weren't moved, so they don't wait for the drain
           sps.each { |sp| store.delete(sp) }
           segments.none? { |path| File.exists?(path) }.should be_true
@@ -1140,8 +1178,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         count.times { store.push(LavinMQ::Message.new("", "rk", "x")) }
         move = -> do
           sp = store.shift?.should_not(be_nil).segment_position
-          store.copied_out(sp)
-          store.delete(sp)
+          store.delete_moved(sp)
         end
         # The store has no owner here that requests the drain after a delay
         (count - 1).times { move.call }
