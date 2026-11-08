@@ -51,6 +51,8 @@ module LavinMQ
             user = user(context)
             if !user.can_read?(vhost.name, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
+            elsif e.is_a?(AMQP::MqttTopicExchange) && !AMQP::MqttTopicExchange.readable_by?(user, vhost.name)
+              access_refused(context, AMQP::MqttTopicExchange.unreadable_message(user, e.name))
             elsif !user.can_write?(vhost.name, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
@@ -135,6 +137,8 @@ module LavinMQ
             user = user(context)
             if !user.can_read?(vhost.name, source.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
+            elsif source.is_a?(AMQP::MqttTopicExchange) && !AMQP::MqttTopicExchange.readable_by?(user, vhost.name)
+              access_refused(context, AMQP::MqttTopicExchange.unreadable_message(user, source.name))
             elsif !user.can_write?(vhost.name, destination.name)
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
