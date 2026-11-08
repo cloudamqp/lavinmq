@@ -115,5 +115,21 @@ module MqttSpecs
         end
       end
     end
+
+    # A QoS 1 publisher that stops reading PUBACKs: the blocked PUBACK write
+    # raises in the writer fiber, which must close the connection rather than
+    # die silently and starve all later PUBACKs
+    it "closes the connection when a PUBACK write fails" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "a/b", qos: 1u8) # a PUBACK round trip, so the writer fiber is up
+          conn = server.connections.first.as(LavinMQ::MQTT::Client)
+          conn.@io.io.as(Socket).close_write # the next PUBACK write raises, like a send timeout
+          publish(io, topic: "a/b", qos: 1u8, expect_response: false)
+          wait_for(5.seconds) { server.connections.empty? }
+        end
+      end
+    end
   end
 end

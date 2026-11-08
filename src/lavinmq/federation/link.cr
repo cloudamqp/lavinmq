@@ -370,12 +370,21 @@ module LavinMQ
       #   upstream exchange --(downstream's bindings)--> x-federation-upstream
       #   exchange named like the queue --> queue "federation: X -> host:vhost:Y"
       class ExchangeLink < Link
-        getter federated_ex
+        getter federated_ex, upstream_q
+        # Bindings to forward upstream, in order; see #forward_bindings
+        @binding_ops = Deque({Bool, AMQP::BindingDetails}).new
+        @binding_ops_lock = Mutex.new
+        @binding_signal = ::Channel(Nil).new(1)
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_ex.name})
+        end
+
+        def run
+          spawn(forward_bindings, name: "Federation link #{@upstream.vhost.name}/#{name} bindings")
+          super
         end
 
         def name : String
@@ -394,28 +403,60 @@ module LavinMQ
         # Called (through UpstreamStore#exchange_bound) once a binding is
         # stored on the federated exchange
         def bound(b : AMQP::BindingDetails)
-          return if stopping?
-          forward, args = bound_from(b.arguments)
-          @upstream_session.bind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
-        rescue ex : Endpoint::Error
-          # Not connected: #setup replays all bindings when the link connects
-          @log.debug { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.message}" }
-        rescue ex
-          @log.error { "Could not bind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
+          enqueue_binding(true, b)
         end
 
         # Called once a binding is removed from the federated exchange
         def unbound(b : AMQP::BindingDetails)
+          enqueue_binding(false, b)
+        end
+
+        # #bound and #unbound run in the fiber that stores the binding, under
+        # the vhost's definitions lock. Forwarding from there would wait for
+        # the upstream's reply, which deadlocks two-way or ring federation
+        # (the bind comes back to this broker over the same connection), or
+        # in-process take the definitions lock again. So they queue the
+        # binding, and a fiber of the link's own forwards them, in order.
+        private def enqueue_binding(bind : Bool, b : AMQP::BindingDetails)
           return if stopping?
+          @binding_ops_lock.synchronize { @binding_ops.push({bind, b}) }
+          @binding_signal.try_send(nil)
+        end
+
+        private def forward_bindings
+          loop do
+            op = @binding_ops_lock.synchronize { @binding_ops.shift? }
+            if op
+              forward_binding(*op)
+              next
+            end
+            select
+            when @binding_signal.receive?
+            when @stop_signal.receive?
+              return
+            end
+            return if stopping?
+          end
+        end
+
+        private def forward_binding(bind : Bool, b : AMQP::BindingDetails)
           forward, args = bound_from(b.arguments)
-          @upstream_session.unbind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args) if forward
+          return unless forward
+          if bind
+            @upstream_session.bind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args)
+          else
+            @upstream_session.unbind_exchange(@upstream_q, @upstream_exchange, b.routing_key, args)
+          end
         rescue ex : Endpoint::Error
-          @log.debug { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.message}" }
+          # Not connected: #setup replays all bindings when the link connects
+          @log.debug { "Could not #{bind ? "bind" : "unbind"} routing_key=#{b.routing_key} upstream: #{ex.message}" }
         rescue ex
-          @log.error { "Could not unbind routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
+          @log.error { "Could not #{bind ? "bind" : "unbind"} routing_key=#{b.routing_key} upstream: #{ex.inspect_with_backtrace}" }
         end
 
         private def start_link
+          # A retired link may still be deleting the queue this one declares
+          @upstream.vhost.upstreams.await_pending_deletes(@upstream.uri, @upstream_q)
           session = @upstream_session
           session.open
           # Stopped while connecting, when there was no session to close:

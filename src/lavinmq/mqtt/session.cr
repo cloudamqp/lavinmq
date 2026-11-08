@@ -1,4 +1,3 @@
-require "../filesystem"
 require "digest/sha1"
 require "./protocol"
 require "../mqtt"
@@ -69,7 +68,11 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        FileSystem.mkdir_p(data_dir)
+        created = durable? && !Dir.exists?(data_dir)
+        Dir.mkdir_p(data_dir)
+        # Like a queue's, the directory's entry is fsynced with the next
+        # confirm, see Queue#make_data_dir
+        @vhost.persister.mark_dirty(@vhost.data_dir) if created
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         @metadata_file = File.join(data_dir, ".metadata")
@@ -225,13 +228,21 @@ module LavinMQ
         nil
       end
 
-      # Written to a temporary file and renamed into place, so a crash
-      # mid-write leaves the previous file rather than a truncated one.
+      # Written to a temporary file and renamed into place, so it's never read
+      # half written. A crash before the next confirm can lose it, which leaves
+      # the user unknown until a client connects, as with an unreadable file.
       private def write_metadata_file(username : String?) : Nil
-        FileSystem.replace(@metadata_file) do |f|
-          {name: @name, client_id: @client_id, username: username}.to_json(f)
+        tmp = "#{@metadata_file}.tmp"
+        begin
+          File.write(tmp, {name: @name, client_id: @client_id, username: username}.to_json)
+          File.rename(tmp, @metadata_file)
+        ensure
+          File.delete?(tmp)
         end
+        return unless durable?
         @replicator.try &.replace_file(@metadata_file)
+        @vhost.persister.mark_dirty(@metadata_file)
+        @vhost.persister.mark_dirty(File.dirname(@metadata_file))
       end
 
       # A concurrent API deletion can make the bind fail.

@@ -136,6 +136,8 @@ module LavinMQ
             next if wait_for_flow
             break
           end
+          # The waits above can suspend the fiber while the consumer closes
+          raise ClosedError.new if @closed
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}

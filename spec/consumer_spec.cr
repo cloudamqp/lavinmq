@@ -162,6 +162,60 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should not strand a message when the channel closes during delivery" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("consumer-close-strand")
+          999.times { q.publish("m") }
+          q.publish_confirm("m")
+          sq = s.vhosts["/"].queue("consumer-close-strand")
+          subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 1})
+          20.times do
+            with_channel(s) do |cch|
+              cch.prefetch 100
+              delivered = Channel(Nil).new(100)
+              cch.queue("consumer-close-strand").subscribe(no_ack: false, args: subscriber_args) do |_|
+                delivered.send nil
+              end
+              delivered.receive
+            end
+            # The deliver loop exits once it notices the closed channel
+            sq.deliver_loop_wg.wait
+            sq.consumers.should be_empty
+            sq.unacked_count.should eq 0
+            sq.message_count.should eq 1000
+          end
+        end
+      end
+    end
+
+    it "should requeue a message shifted after the channel closed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("consumer-close-shift")
+          q.publish_confirm("m")
+          sq = s.vhosts["/"].queue("consumer-close-shift")
+          server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
+          # Hold the queue's store lock, so that the deliver loop gets past its
+          # closed checks and waits for the lock to shift the message, then
+          # close the channel meanwhile, as the management API can
+          sq.@msg_store_lock.synchronize do
+            q.subscribe(no_ack: false) { |_| }
+            wait_for { sq.consumers_size == 1 }
+            Fiber.yield # Let the deliver loop reach the lock
+            server_ch.close("closed during delivery")
+          end
+          # The deliver loop shifts the message, but the closed channel refuses
+          # to record it as unacked, so the consumer has to requeue it
+          wait_for { sq.message_count == 1 }
+          sq.unacked_count.should eq 0
+          sq.consumers.should be_empty
+          # Requeued by the consumer, not by the closed check before the shift
+          sq.reject_count.should eq 1
+        end
+      end
+    end
   end
 
   describe "on-demand deliver_loop" do

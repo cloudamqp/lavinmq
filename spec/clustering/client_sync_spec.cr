@@ -969,16 +969,141 @@ module ClientSyncSpec
           write_fsync_request(lz4_writer, filename)
           expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
           read_acks(leader_io, expected).should eq expected
-          client.fsynced_paths.should eq [File.join(data_dir, filename), File.join(data_dir, "vhost/queue")]
+          # Fsynced before the ack: the file, vhost/queue for the new file's
+          # entry, and vhost and the data dir for the entries of the new
+          # vhost/queue and vhost directories
+          client.fsynced_paths.sort.should eq [
+            data_dir, File.join(data_dir, filename), File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"),
+          ].sort
           client.syncs_started.should eq 0
 
-          # The dir entry is durable now, only the file needs fsyncs from here
+          # The dir entries are durable now, only the file needs fsyncs from here
           write_append(lz4_writer, filename, payload)
           write_fsync_request(lz4_writer, filename)
           read_acks(leader_io, expected).should eq expected
           client.fsynced_paths.last(1).should eq [File.join(data_dir, filename)]
-          client.fsynced_paths.size.should eq 3
+          client.fsynced_paths.size.should eq 5
           File.read(File.join(data_dir, filename)).should eq payload * 2
+          client_socket.close
+        end
+      end
+
+      it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          write_append(lz4_writer, filename, payload)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          without_free_file_descriptors do
+            write_fsync_request(lz4_writer, filename)
+            read_acks(leader_io, record_size("$#{filename}"))
+          end
+          # Opening the file to fsync it failed, so the data dir was synced instead
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
+          client.syncs_started.should eq 1
+          client_socket.close
+        end
+      end
+
+      it "fsyncs the directories a replace created with the next fsync request" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/.queue"
+          payload = "queue"
+          write_record(lz4_writer, filename, payload.bytesize.to_i64, payload.to_slice)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          # The replace's ack only covers the rename, not the new directories
+          client.fsynced_paths.should eq [File.join(data_dir, "vhost/queue")]
+
+          segment = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, segment, payload)
+          write_fsync_request(lz4_writer, segment)
+          read_acks(leader_io, record_size(segment, payload.bytesize) + record_size("$#{segment}"))
+          client.fsynced_paths.skip(1).sort.should eq [
+            data_dir, File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"), File.join(data_dir, segment),
+          ].sort
+          client_socket.close
+        end
+      end
+
+      it "doesn't fsync the directories a request without a path synced" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          write_fsync_request(lz4_writer, "")
+          read_acks(leader_io, record_size(filename, 4) + record_size("$"))
+          client.syncs_started.should eq 1
+
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}"))
+          client.fsynced_paths.should_not contain data_dir
+          client.fsynced_paths.should_not contain File.join(data_dir, "vhost")
+          client_socket.close
+        end
+      end
+
+      it "doesn't fsync the directories a full sync created" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {"vhost/queue/msgs.0000000001" => "data"}, rounds: 2)
+            done.send nil
+          end
+          client.full_sync_public(client_io, lz4_reader)
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          server_io.close
+          client_io.close
+          client.syncs_started.should eq 1
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}"))
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
           client_socket.close
         end
       end

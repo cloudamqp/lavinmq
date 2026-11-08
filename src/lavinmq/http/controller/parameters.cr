@@ -68,7 +68,7 @@ module LavinMQ
             component = params["component"]
             name = params["name"]
             param = param(context, vhost.parameters, {component, name})
-            map_parameter(vhost.name, param).to_json(context.response)
+            map_parameter(vhost.name, param).to_json(context.response.output)
           end
         end
 
@@ -119,7 +119,7 @@ module LavinMQ
           refuse_unless_policymaker(context, user(context))
           name = params["name"]
           param = param(context, @server.parameters, {nil, name})
-          map_parameter(nil, param).to_json(context.response)
+          map_parameter(nil, param).to_json(context.response.output)
           context
         end
 
@@ -165,7 +165,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
             name = params["name"]
-            policy(context, name, vhost).to_json(context.response)
+            policy(context, name, vhost).to_json(context.response.output)
           end
         end
 
@@ -223,7 +223,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context))
             name = params["name"]
-            operator_policy(context, name, vhost).to_json(context.response)
+            operator_policy(context, name, vhost).to_json(context.response.output)
           end
         end
 

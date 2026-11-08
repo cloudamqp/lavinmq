@@ -16,6 +16,7 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 ## Rules
 - No allocations, per-message fibers, or polling in hot paths (publish, delivery, MessageStore).
 - Message data is mmap'd segments exposed as raw Pointers; reading after the mmap closes segfaults rather than raising.
+- New code and refactors must be thread safe: avoid unprotected shared mutable state. Do not copy the single-thread assumptions that some existing code still has.
 
 ## Specs
 - Add specs for behavior that could plausibly break (protocol semantics, persistence/recovery, concurrency, edge cases); bug fixes get a regression spec that fails before the fix.
@@ -23,3 +24,7 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 
 ## Docs
 - Add a short CHANGELOG.md entry linking the PR; describe user-facing features in docs/.
+
+## Git
+- Branch names describe the change in kebab-case, e.g. `fix-queue-ttl-overflow`; rename a generated branch name with `git branch -m` before the first push.
+- Write commits, PR descriptions and comments as the person you work for: never change git `user.name`/`user.email` or pass `--author`, and add no AI attribution (Co-Authored-By trailers for the agent, "Generated with" footers).

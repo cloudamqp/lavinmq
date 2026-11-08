@@ -70,7 +70,7 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 ## Failover
 
-If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
+If the leader fails, etcd coordinates leader election among ISR members. A failed leader is detected when its etcd lease expires. The leader renews the lease every third of `etcd_lease_ttl` (default 10 seconds), so after a crash the lease expires between two thirds of `etcd_lease_ttl` and `etcd_lease_ttl` seconds later. A leader that pauses longer than two thirds of `etcd_lease_ttl`, for example in a long GC pause, can lose its leadership. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
 
 ### Leader Election Hooks
 
@@ -88,13 +88,15 @@ When a node is a follower, it automatically proxies client traffic to the curren
 
 The proxy is transparent and runs on every follower for:
 
-- AMQP and AMQPS (TCP and Unix socket)
-- MQTT and MQTTS (TCP and Unix socket)
-- HTTP/management (TCP and Unix socket)
+- AMQP and AMQPS
+- MQTT and MQTTS
+- HTTP/management and HTTPS
 
-TCP listeners always proxy; Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node.
+The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
 
-For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
+TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+
+For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 
 ## Security
 

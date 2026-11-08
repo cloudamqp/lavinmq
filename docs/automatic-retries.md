@@ -6,8 +6,8 @@ Automatic retries let the broker redeliver rejected messages after a growing bac
 
 1. Declare a queue with the `x-delayed-retry-min` argument to enable the feature
 2. When a consumer rejects a message with `requeue=true` (via `basic.reject` or `basic.nack`), the broker delays it in an internal retry queue (`amq.retry-<queue>`) instead of requeuing it immediately
-3. When the backoff delay expires, the message is redelivered to the queue
-4. When the delivery count exceeds `x-delivery-limit`, the message is dead-lettered (or dropped without a dead letter exchange)
+3. When the backoff delay expires, the message is redelivered to the queue, flagged as `redelivered`
+4. When the delivery count exceeds `x-delivery-limit`, the message is dead-lettered (or dropped without a dead letter exchange). Without `x-delivery-limit`, retries never end
 
 ## Queue Arguments
 
@@ -16,7 +16,7 @@ Automatic retries let the broker redeliver rejected messages after a growing bac
 | `x-delayed-retry-min` | integer (≥ 1, ms) | - | Initial delay before the first retry. Setting it enables the feature. |
 | `x-delayed-retry-multiplier` | integer (≥ 1) | unset (linear) | Backoff shape: omit for linear (`delay × attempt`), `1` for constant, `≥ 2` for exponential (`delay × multiplier^(attempt-1)`). |
 | `x-delayed-retry-max` | integer (≥ 1, ms) | unset (no cap) | Cap on a single retry delay. Only clamps the delay, never ends retries. |
-| `x-delivery-limit` | integer (≥ 0) | 20 when retry is enabled | Maximum number of redeliveries: a message is delivered at most `x-delivery-limit` + 1 times before dead-lettering. An explicit value, including 0, is respected. |
+| `x-delivery-limit` | integer (≥ 0) | unset (no limit) | Maximum number of redeliveries: a message is delivered at most `x-delivery-limit` + 1 times before dead-lettering. Without it, a rejected message keeps retrying until a consumer acks it or rejects it with `requeue=false`. |
 
 Delays are additionally capped at the `UInt32` millisecond range (~49.7 days) regardless of `x-delayed-retry-max`.
 
@@ -51,10 +51,12 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 ## Notes and Limitations
 
 - Retry delays are minimums, not exact schedules: under heavy load redelivery can lag behind the configured delay
-- The message's original timestamp is preserved through retries, so `x-message-ttl` applies to the message's total age and can expire a message mid-retry
+- The message's original timestamp is preserved through retries, so `x-message-ttl` and a per-message `expiration` apply to the message's total age. A retry delay never extends past the TTL: a message whose TTL runs out while it waits in the retry queue is dead-lettered with reason `expired` at that time, not when the backoff ends
+- The TTL cap is set when the message enters the retry queue. A `message-ttl` policy added, changed or removed afterwards doesn't move its release time: a removed or raised TTL can release it before the backoff ends, and an added or lowered TTL only dead-letters it once the backoff ends
 - Retry cannot be combined with `x-message-deduplication`: the declaration is refused, since a retried message would always be dropped as a duplicate
+- Without `x-delivery-limit`, a message that always fails (a poison message) retries forever. Set a limit and a dead letter exchange to move it aside
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
-- If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period
+- If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period, unless its TTL has run out, in which case it is dead-lettered
 - The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
 - If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff and the retry queue is recreated on the next reject
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit

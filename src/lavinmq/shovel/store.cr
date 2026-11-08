@@ -112,7 +112,6 @@ module LavinMQ
       end
 
       def create(name, config)
-        @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
         delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
         ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || Shovel::DEFAULT_ACK_MODE
@@ -131,6 +130,9 @@ module LavinMQ
           self.class.consumer_args(config["src-consumer-args"]?))
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
+        # Terminated only after the new config parsed, so a rejected update
+        # leaves the old shovel running
+        @shovels[name]?.try &.terminate
         @shovels[name] = shovel
         # A shovel restored paused is started by #resume. A run spawned for it
         # here could start only after a resume, and run alongside its run.
