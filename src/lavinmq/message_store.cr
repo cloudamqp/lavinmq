@@ -272,6 +272,7 @@ module LavinMQ
       end
 
       # Delete all segments except the current rfile and wfile
+      sync_moved_out
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
@@ -313,6 +314,7 @@ module LavinMQ
     end
 
     def delete
+      sync_moved_out
       @closed = true
       @empty.close
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
