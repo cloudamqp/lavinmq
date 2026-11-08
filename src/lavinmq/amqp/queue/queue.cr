@@ -735,6 +735,11 @@ module LavinMQ::AMQP
       end
     end
 
+    # The retry queue in use, see DelayedRetryQueue#delete
+    protected def current_retry_queue : DelayedRetryQueue?
+      @retry_queue_lock.synchronize { @delayed_retry_queue }
+    end
+
     # For DelayedRetryQueue#restart!, e.g. through the management API, so
     # its delayed messages are released without waiting for another reject
     protected def recreate_retry_queue : DelayedRetryQueue?

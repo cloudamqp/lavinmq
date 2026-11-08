@@ -984,6 +984,33 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "deletes the retry queue in use when the one it replaced is deleted by name before the new one is registered" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        2.times { q.publish_confirm "x" }
+        prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+        closed = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+        closed.close
+        tags = Channel(UInt64).new(10)
+        q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+        2.times { tags.receive }
+        vhost.synchronize_definitions do
+          ch.basic_reject(1u64, requeue: true)
+          # The recreated retry queue waits for this lock to be registered
+          wait_for { prim.@delayed_retry_queue.try { |r| !r.same?(closed) && r.message_count == 1 } }
+          vhost.queue("amq.retry-prim").should be closed
+          vhost.delete_queue("amq.retry-prim")
+        end
+        recreated = prim.@delayed_retry_queue.should_not be_nil
+        # Deleted with it, not left running with its files gone
+        wait_for { recreated.closed? }
+        vhost.queue?("amq.retry-prim").should be_nil
+      end
+    end
+  end
+
   it "delays the rejected messages in the retry queue a nack multiple recreates, and registers it" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]

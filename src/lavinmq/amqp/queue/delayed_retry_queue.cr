@@ -29,6 +29,16 @@ module LavinMQ::AMQP
       !@primary_queue.recreate_retry_queue.nil?
     end
 
+    # A recreated retry queue is registered in the definitions after the one
+    # it replaced (see Queue#active_retry_queue), so a delete by name in
+    # between finds this closed one. The new one uses the same files, so the
+    # delete goes to it, instead of removing its files from under it.
+    def delete : Bool
+      current = @primary_queue.current_retry_queue
+      return current.delete if current && !current.same?(self)
+      super
+    end
+
     def delay(msg : Message) : Bool
       return false if @closed
       @msg_store_lock.synchronize do
