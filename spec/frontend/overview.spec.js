@@ -170,6 +170,12 @@ test.describe('overview', _ => {
     })
   }
 
+  test('y axis ticks of message counts are whole numbers', async ({ page }) => {
+    await page.goto('/')
+    const { splits } = await yAxisTicks(page, 'msgs', [1, 1])
+    expect(splits.filter(v => !Number.isInteger(v))).toEqual([])
+  })
+
   test('y axis shrinks after five polls below the range, not five redraws', async ({ page }) => {
     await page.goto('/')
     const maxes = await page.evaluate(async url => {

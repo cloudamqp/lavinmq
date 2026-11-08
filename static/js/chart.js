@@ -180,6 +180,8 @@ function yAxisSize (u, values, axisIdx, cycleNum) {
 const BYTE_INCRS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5].concat([0, 1, 2, 3, 4].flatMap(p =>
   [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p)))
 
+const COUNT_INCRS = [...Array(16).keys()].flatMap(p => [1, 2, 5].map(m => m * 10 ** p))
+
 function stepDecimals (incr) {
   let decimals = 0
   while (decimals < 20 && Math.abs(incr * 10 ** decimals - Math.round(incr * 10 ** decimals)) > 1e-9) decimals++
@@ -265,6 +267,7 @@ function initChart (handle) {
         grid: { stroke: gridColor, dash: [2, 4] },
         ticks: { stroke: gridColor, size: 3 },
         ...(bytes && { incrs: BYTE_INCRS }),
+        ...(config.unit === 'msgs' && { incrs: COUNT_INCRS }),
         values: bytes
           ? (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisBytes(v, incr, config.unit === 'bytes/s'))
           : (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisNumber(v, incr)),
