@@ -97,12 +97,20 @@ private def wait_unlinked(path : String, &) : Nil
   end
 end
 
-# Spec instrumentation: fails the unlink of *path*
+# Spec instrumentation: fails the unlink of *path*, like the syscall would,
+# after MFile#delete marked the file deleted
 class MFile
   class_property fail_delete_of : String? = nil
+end
 
-  def delete(*, raise_on_missing = true) : Nil
-    raise File::Error.new("Spec unlink failure", file: @path) if @@fail_delete_of == @path
+class File
+  def self.delete(path : Path | String) : Nil
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if MFile.fail_delete_of == path.to_s
+    previous_def
+  end
+
+  def self.delete?(path : Path | String) : Bool
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if MFile.fail_delete_of == path.to_s
     previous_def
   end
 end
@@ -477,9 +485,11 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         MFile.fail_delete_of = segment
         expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
         File.exists?(segment).should be_true
+        File.exists?(File.join(data_dir, "acks.0000000001")).should be_true
         MFile.fail_delete_of = nil
         store.purge(1)
         File.exists?(segment).should be_false
+        File.exists?(File.join(data_dir, "acks.0000000001")).should be_false
       ensure
         MFile.fail_delete_of = nil
         store.close
