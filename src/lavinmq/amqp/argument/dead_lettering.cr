@@ -106,11 +106,7 @@ module LavinMQ::AMQP
           # No dead letter exchange => nothing to do
           target = @target.get(:acquire)
           return routed.call(true) unless dlx = (msg.dlx || target.dlx)
-          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call(true)
-          unless ex.routes_amqp_messages?
-            warn_unroutable(ex)
-            return routed.call(true)
-          end
+          ex = dead_letter_exchange(dlx) || return routed.call(true)
 
           dlrk = msg.dlrk || target.dlrk
 
@@ -159,6 +155,17 @@ module LavinMQ::AMQP
           ctx.enqueue(routed)
 
           drain_chain(ctx) if first_in_chain
+        end
+
+        # The exchange to dead-letter to, nil if it doesn't exist or doesn't
+        # route AMQP messages
+        private def dead_letter_exchange(dlx) : AMQP::Exchange?
+          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return
+          unless ex.routes_amqp_messages?
+            warn_unroutable(ex)
+            return
+          end
+          ex
         end
 
         private def take_tasks : Tasks
