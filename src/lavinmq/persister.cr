@@ -174,9 +174,9 @@ module LavinMQ
     # For a message the broker copied to another queue (dead-lettered,
     # delayed, retried), after the copy was written and marked dirty there.
     # Returns the number of the drain that makes the copy durable, see
-    # #drain_synced?. It doesn't request that drain: a store does when it
-    # has to keep a segment for it (see #request_drain), so a burst of moves
-    # costs a drain per emptied segment, not one per message.
+    # #drain_synced?. It doesn't request that drain: the source store does
+    # when it holds the message's ack back for it (see #request_drain), and
+    # a burst of moves shares the drains that run meanwhile.
     def copy_drain : UInt64
       @pending.lock { @drains_started + 1 }
     end
@@ -187,8 +187,8 @@ module LavinMQ
       @drains_synced.get(:acquire) >= seq
     end
 
-    # Requests a drain even if nothing else is pending, for the copies an
-    # emptied segment waits for (see #copy_drain), also when their drain ran
+    # Requests a drain even if nothing else is pending, for the copies a held
+    # back ack waits for (see #copy_drain), also when their drain ran
     # while sync was disabled. Returns false once the loop has exited at
     # shutdown.
     def request_drain : Bool

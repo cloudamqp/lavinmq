@@ -74,9 +74,10 @@ private def synced_in?(s : LavinMQ::Server, dir : String, since = 0) : Bool
   s.persister.syncs[since..].any? { |r| r.syncfs || r.paths.any?(&.starts_with?(dir)) }
 end
 
-# Waits until *path* is unlinked. A store unlinks an emptied segment whose
-# messages it copied out once their drain is done, at its next delete or
-# rollover (see MessageStore#unlink_segment), which the block causes.
+# Waits until *path* is unlinked. A store writes the held back acks of the
+# messages it copied out once their drain is done, and unlinks the segment
+# they empty, at its next delete or rollover (see
+# MessageStore#write_synced_acks), which the block causes.
 private def wait_unlinked(path : String, &) : Nil
   wait_for do
     next true unless File.exists?(path)
@@ -781,8 +782,8 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         end
         wait_for { store.copies_synced? }
         # Writes every held back ack: a nested call per ack would overflow the stack
-        store.unlink_synced_segments
-        store.kept_segment_drain.should be_nil
+        store.write_synced_acks
+        store.held_ack_drain.should be_nil
       ensure
         store.close
         persister.close
@@ -790,7 +791,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
+  it "raises a failed unlink as a store error, and leaves the segment to the next start" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       store = store_with_three_segments(data_dir, persister)
@@ -804,13 +805,14 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           end
         end
         wait_for { store.copies_synced? }
-        File.exists?(segment).should be_true # kept until the next delete
+        File.exists?(segment).should be_true # its acks are held back until the next delete
         MFile.fail_delete_of = segment
         expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
         File.exists?(segment).should be_true
         File.exists?(File.join(data_dir, "acks.0000000001")).should be_true
         MFile.fail_delete_of = nil
-        store.purge(1)
+        store.close
+        LavinMQ::MessageStore.new(data_dir, nil, persister: persister).close
         File.exists?(segment).should be_false
         File.exists?(File.join(data_dir, "acks.0000000001")).should be_false
       ensure
@@ -821,14 +823,13 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "waits for the drain once it keeps more emptied segments than the limit" do
+  it "unlinks a segment that plain acks empty at once, also while a move's drain is held" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
       body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-      emptied = LavinMQ::MessageStore::MAX_KEPT_SEGMENTS + 1
+      emptied = 5
       segments = (1..emptied).map { |id| File.join(data_dir, "msgs.#{id.to_s.rjust(10, '0')}") }
-      deleted = Channel(Nil).new
       begin
         # Three messages to a segment, and one more in the segment after them
         (emptied * 3 + 1).times { store.push(LavinMQ::Message.new("", "rk", body)) }
@@ -837,19 +838,14 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           moved = store.shift?.should_not(be_nil).segment_position
           store.copied_out(moved)
           store.delete(moved)
-          # Plain acks empty the segments while the move's drain is held
-          spawn do
-            sps.each { |sp| store.delete(sp) }
-          ensure
-            deleted.close
-          end
-          sleep 50.milliseconds
-          deleted.closed?.should be_false
-          segments.all? { |path| File.exists?(path) }.should be_true
+          # Their messages weren't moved, so they don't wait for the drain
+          sps.each { |sp| store.delete(sp) }
+          segments.none? { |path| File.exists?(path) }.should be_true
+          store.held_ack_drain.should_not be_nil
         end
-        deleted.receive?
-        segments.none? { |path| File.exists?(path) }.should be_true
-        store.kept_segment_drain.should be_nil
+        wait_for { store.copies_synced? }
+        store.write_synced_acks
+        store.held_ack_drain.should be_nil
       ensure
         store.close
         persister.close
@@ -857,7 +853,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "unlinks a kept segment once its drain is done, when nothing else happens on the queue" do
+  it "writes held back acks once their drain is done, and unlinks the segment they empty, when nothing else happens on the queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch)
@@ -875,7 +871,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "unlinks a kept priority queue segment once its drain is done, when nothing else happens on its priority" do
+  it "writes held back acks of a priority queue once their drain is done, when nothing else happens on its priority" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
@@ -1054,7 +1050,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "syncs after sync is re-enabled for messages moved while it was disabled" do
+  it "syncs at the first drain after sync is re-enabled, for messages moved while it was disabled" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch, ttl: nil)
@@ -1069,17 +1065,18 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         # publishes below aren't confirmed.
         with_channel(s, &.queue("confirmed").publish_confirm("x"))
         drains = s.persister.drains
-        # From here on only plain acks: the rollover unlinks segment 1 while
-        # sync is disabled, so only the earlier copies can call for a sync
+        # Plain acks until sync is re-enabled: the rollover unlinks segment 1
+        # while sync is disabled, and nothing drains
         dead_letter = false
         src.publish "x" * 100_000
         wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
         s.persister.drains.should eq drains
         LavinMQ::Config.instance.sync = true
-        5.times { src.publish "x" * 100_000 }
-        wait_unlinked(File.join(queue_dir(s, "src"), "msgs.0000000002")) { src.publish "x" }
-        # The drains that took the copies skipped their sync, so it's a syncfs
-        s.persister.syncs.any?(&.syncfs).should be_true
+        # A move holds its ack back and requests a drain. The drains that took
+        # the earlier copies skipped their sync, so it's a syncfs.
+        dead_letter = true
+        src.publish "x"
+        wait_for { s.persister.syncs.any?(&.syncfs) }
       end
     end
   end
@@ -1178,7 +1175,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "deletes the segments a store kept at shutdown at the next start, after its sync" do
+  it "deletes a segment that held back acks empty at shutdown at the next start" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         declare_dead_lettering(ch)

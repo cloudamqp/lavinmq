@@ -191,18 +191,18 @@ module LavinMQ::AMQP
         @stores.each &.sync_copies
       end
 
-      def on_kept_segment=(callback : Proc(Nil)?)
-        @stores.each &.on_kept_segment = callback
+      def on_held_ack=(callback : Proc(Nil)?)
+        @stores.each &.on_held_ack = callback
       end
 
-      def kept_segment_drain : UInt64?
+      def held_ack_drain : UInt64?
         return if @closed
-        @stores.compact_map(&.kept_segment_drain).min?
+        @stores.compact_map(&.held_ack_drain).min?
       end
 
-      def unlink_synced_segments : Int32
-        return 0 if @closed
-        @stores.sum &.unlink_synced_segments
+      def write_synced_acks : Nil
+        return if @closed
+        @stores.each &.write_synced_acks
       end
 
       def delete(sp) : Nil
