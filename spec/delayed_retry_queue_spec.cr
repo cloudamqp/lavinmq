@@ -483,6 +483,42 @@ describe "Retry Queue" do
       end
     end
 
+    # The delete holds the vhost's definitions lock, and the release can need
+    # it, e.g. when its route deletes a non-durable queue after a store error
+    it "deletes a delayed queue without waiting for a release in flight" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("deleting-delayed", "x-delayed-message", true, false,
+          arguments: LavinMQ::AMQP::Table.new({"x-delayed-type" => "direct"}))
+        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "deleting-delayed-blocking")
+        vhost.exchange("deleting-delayed").bind(blocking, "rk", nil)
+        delayed_q = vhost.queue("amq.delayed-deleting-delayed")
+        with_channel(s) do |ch|
+          headers = AMQP::Client::Arguments.new({"x-delay" => 50})
+          ch.basic_publish_confirm("x", "deleting-delayed", "rk", props: AMQP::Client::Properties.new(headers: headers))
+        end
+        select
+        when blocking.entered.receive
+        when timeout(5.seconds)
+          fail "the message was never released"
+        end
+        deleted = Channel(Nil).new
+        spawn { vhost.delete_exchange("deleting-delayed"); deleted.close }
+        begin
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the delete waited for the release in flight"
+          end
+        ensure
+          blocking.release.send(nil)
+        end
+        delayed_q.state.should eq LavinMQ::QueueState::Deleted
+        Dir.exists?(delayed_q.@msg_store.@msg_dir).should be_false
+        wait_for { blocking.message_count == 1 }
+      end
+    end
+
     # A segment of 4 schema bytes and one record whose property flags are
     # invalid, so it can't be decoded
     corrupt_segment = -> do
