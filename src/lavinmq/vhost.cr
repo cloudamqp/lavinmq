@@ -158,6 +158,11 @@ module LavinMQ
       definitions.register_queue(queue)
     end
 
+    # See DefinitionsStore#synchronize
+    def synchronize_definitions(&)
+      definitions.synchronize { yield }
+    end
+
     def queues_clear : Nil
       definitions.queues_clear
     end

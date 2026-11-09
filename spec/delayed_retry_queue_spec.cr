@@ -43,6 +43,32 @@ describe "Retry Queue" do
       end
     end
 
+    # A policy re-apply runs under the queue's policy lock, which a declare
+    # through the definitions takes after the definitions lock
+    it "re-applies policies without taking the definitions lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("retry-policy", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+        end
+        vhost = s.vhosts["/"]
+        held = Channel(Nil).new
+        release = Channel(Nil).new
+        spawn { vhost.synchronize_definitions { held.send nil; release.receive? } }
+        held.receive
+        begin
+          applied = Channel(Nil).new
+          spawn { vhost.queue("retry-policy").apply_policy(nil, nil); applied.close }
+          select
+          when applied.receive?
+          when timeout(2.seconds)
+            fail "the policy re-apply waited for the definitions lock"
+          end
+        ensure
+          release.close
+        end
+      end
+    end
+
     it "should not create retry queue when x-delayed-retry-min is not set" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

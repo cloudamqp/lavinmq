@@ -37,9 +37,11 @@ module LavinMQ
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
+      # A store waits for this drain, see #request_drain
+      property? requested = false
 
       def drainable? : Bool
-        !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
+        requested? || !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -56,9 +58,37 @@ module LavinMQ
 
     {% unless flag?(:release) %}
       record SyncRecord, syncfs : Bool, paths : Array(String)
-      # Spec instrumentation: what the most recent drain synced
-      getter last_sync : SyncRecord?
+      # Spec instrumentation: syncs of the data dir at start, see #sync_local
+      getter local_syncs = 0
+      # Spec instrumentation: the latest drains that synced, oldest first
+      @syncs = Array(SyncRecord).new
+      @syncs_lock = Mutex.new
+
+      def syncs : Array(SyncRecord)
+        @syncs_lock.synchronize { @syncs.dup }
+      end
+
+      # Spec instrumentation: what the most recent drain that synced synced
+      def last_sync : SyncRecord?
+        @syncs_lock.synchronize { @syncs.last? }
+      end
+
+      # Spec instrumentation: drains that took a batch, also the ones that
+      # skipped their sync
+      def drains : UInt64
+        @pending.lock { @drains_started }
+      end
     {% end %}
+
+    # Drains that took a batch, counted under the @pending lock, and the
+    # latest of them that synced it, see #copy_drain
+    @drains_started = 0u64
+    @drains_synced = Atomic(UInt64).new(0u64)
+    # A drain skipped its sync while sync was disabled, and the files it took
+    # are no longer marked, so the next drain that syncs does a syncfs
+    @skipped_sync = false
+    # Callers of #wait_drain, with the drain they wait for
+    @drain_waiters = Sync::Exclusive(Array({UInt64, ::Channel(Nil)})).new(Array({UInt64, ::Channel(Nil)}).new, :unchecked)
 
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
@@ -69,6 +99,7 @@ module LavinMQ
     def initialize(@data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
+      sync_local
       # Run on a dedicated thread so the blocking syscalls only stall this
       # thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
@@ -119,6 +150,46 @@ module LavinMQ
     rescue ::Channel::ClosedError
     end
 
+    # For a message the broker copied to another queue (dead-lettered,
+    # delayed, retried), after the copy was written and marked dirty there.
+    # Returns the number of the drain that makes the copy durable, see
+    # #drain_synced?. It doesn't request that drain: a store does when it
+    # has to keep a segment for it (see #request_drain), so a burst of moves
+    # costs a drain per emptied segment, not one per message.
+    def copy_drain : UInt64
+      @pending.lock { @drains_started + 1 }
+    end
+
+    # Whether the drain numbered *seq* by #copy_drain, or a later one, has
+    # synced, here and on the in-sync followers
+    def drain_synced?(seq : UInt64) : Bool
+      @drains_synced.get(:acquire) >= seq
+    end
+
+    # Requests a drain even if nothing else is pending, for the copies an
+    # emptied segment waits for (see #copy_drain), also when their drain ran
+    # while sync was disabled. Returns false once the loop has exited at
+    # shutdown.
+    def request_drain : Bool
+      @pending.lock &.requested = true
+      @publish_confirm_requested.try_send true
+      true
+    rescue ::Channel::ClosedError
+      false
+    end
+
+    # Blocks until the drain numbered *seq* by #copy_drain, or a later one,
+    # has synced. Returns without it at shutdown and while sync is disabled,
+    # also when a reload disables it during the wait: the caller checks again.
+    def wait_drain(seq : UInt64) : Nil
+      return if drain_synced?(seq) || !Config.instance.sync?
+      waiter = ::Channel(Nil).new
+      @drain_waiters.lock &.push({seq, waiter})
+      return if drain_synced?(seq) # a drain released the waiters meanwhile
+      return unless request_drain
+      waiter.receive?
+    end
+
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
@@ -134,6 +205,19 @@ module LavinMQ
         return
       end
       waiter.receive?
+    end
+
+    # Syncs this node's data dir, without a drain or a wait for followers.
+    # Run on creation, before the stores load: a store doesn't know which of
+    # its messages an earlier process copied to other queues, and those
+    # copies can still be in the page cache, so they're made durable before
+    # any segment unlink.
+    private def sync_local : Nil
+      return unless Config.instance.sync?
+      syncfs_data_dir
+      {% unless flag?(:release) %}
+        @local_syncs += 1
+      {% end %}
     end
 
     def close : Nil
@@ -152,14 +236,18 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
+      # Nothing syncs after this, the waiters see their drain unsynced
+      release_drain_waiters
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
     end
 
     private def drain : Nil
       batch = nil
+      seq = 0u64
       @pending.replace do |current|
         if current.drainable?
           batch = current
+          seq = @drains_started += 1
           Batch.new
         else
           current
@@ -172,7 +260,11 @@ module LavinMQ
       batch.files.each &.clear_needs_msync!
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
-      syncfs = batch.syncfs? || !batch.waiters.empty? ||
+      sync = Config.instance.sync?
+      # A drain that skipped its sync left the files it took unmarked, so the
+      # next one that syncs syncs the whole data dir. On the followers too:
+      # they skip fsync requests while their sync is disabled as well.
+      syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
@@ -190,7 +282,7 @@ module LavinMQ
         replicator.followers.each &.request_flush
       end
       begin
-        if Config.instance.sync?
+        if sync
           if paths
             syncfs = fsync_paths(batch.files, batch.paths, dirs)
           else
@@ -202,7 +294,13 @@ module LavinMQ
         exit 1
       end
       {% unless flag?(:release) %}
-        @last_sync = SyncRecord.new(syncfs, paths || Array(String).new)
+        if sync
+          record = SyncRecord.new(syncfs, paths || Array(String).new)
+          @syncs_lock.synchronize do
+            @syncs.shift if @syncs.size >= 1024 # debug builds run for long
+            @syncs << record
+          end
+        end
       {% end %}
 
       # Block until every in-sync follower has acked the replicated bytes
@@ -213,11 +311,32 @@ module LavinMQ
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
       replicator.try &.wait_for_followers
+      if sync
+        @skipped_sync = false
+        @drains_synced.set(seq, :release)
+        @drain_waiters.lock do |waiters|
+          waiters.reject! do |waited, waiter|
+            waiter.close if waited <= seq
+            waited <= seq
+          end
+        end
+      else
+        @skipped_sync = true
+        # No drain syncs while sync is disabled, so nothing waits for one
+        release_drain_waiters
+      end
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)
       end
       batch.waiters.each &.close
+    end
+
+    private def release_drain_waiters : Nil
+      @drain_waiters.lock do |waiters|
+        waiters.each { |_, waiter| waiter.close }
+        waiters.clear
+      end
     end
 
     # Returns whether it fell back to syncing the whole filesystem

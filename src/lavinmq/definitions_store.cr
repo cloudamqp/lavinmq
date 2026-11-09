@@ -131,6 +131,13 @@ module LavinMQ
       end
     end
 
+    # Runs the block under the lock #apply holds. For a caller that, in the
+    # block, takes a lock that a queue takes while #apply deletes it, so the
+    # two are always taken in the same order.
+    def synchronize(&)
+      @definitions_lock.synchronize { yield }
+    end
+
     def queues_clear : Nil
       @queues.clear
     end
