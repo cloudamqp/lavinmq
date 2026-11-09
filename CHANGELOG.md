@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- MQTT `Read Loop error` log lines include the exception message, e.g. the type of an unexpected packet
 - A queue no longer stalls for a `syncfs` each time one of its segments is emptied. The messages the broker moves between queues (dead-lettered, delayed, retried) are synced like confirmed publishes, and the emptied segment is unlinked after that sync, in the background. [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
 - A durable queue that is declared, not loaded at start, now starts empty when a directory for its name already exists, and that directory is removed. A crash while a queue was being deleted could leave its directory behind, and a queue declared with the same name later got the deleted queue's messages [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
@@ -17,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
-- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `global_mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`), exported once an MQTT client has connected since startup
+- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `global_mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`), exported once an MQTT client has connected since startup [#2507](https://github.com/cloudamqp/lavinmq/pull/2507)
 
 ### Fixed
 

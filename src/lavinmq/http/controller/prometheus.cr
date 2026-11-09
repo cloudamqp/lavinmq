@@ -441,23 +441,20 @@ module LavinMQ
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
         dead_lettered_metrics(writer, deleted_stats)
-        mqtt_published_metrics(writer)
+        mqtt_published_metrics(writer, deleted_stats)
       end
 
-      # MQTT series are left out until the first MQTT client connects, so servers
-      # without MQTT export none. From then on they're written, at 0 too, so
-      # the first publish shows up in rate().
-      private def mqtt_client_connected? : Bool
-        @server.vhosts.any? { |_, v| v.mqtt_broker.client_connected? }
-      end
-
-      private def mqtt_published_metrics(writer)
-        return unless mqtt_client_connected?
+      # Written from the first MQTT connection on, zeros included, so rate() sees each counter start
+      private def mqtt_published_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        return unless vhosts.mqtt_client_connected?
         writer.write_header("global_mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
-        MQTT::Exchange::PUBLISHED_QOS_LEVELS.each do |qos|
+        {% for qos in {0, 1, 2} %}
           writer.write_value("global_mqtt_messages_published_total",
-            MQTT::Exchange.published_count(qos), {qos: qos.to_s})
-        end
+            deleted_stats.mqtt_published_qos{{ qos }} +
+            vhosts.sum { |_, v| v.mqtt_published_qos{{ qos }}_count },
+            {qos: "{{ qos }}"})
+        {% end %}
       end
 
       DEAD_LETTER_REASONS = {
@@ -502,7 +499,7 @@ module LavinMQ
                       value: connections,
                       type:  "gauge",
                       help:  "Connections currently open"})
-        if mqtt_client_connected?
+        if @server.vhosts.mqtt_client_connected?
           writer.write({name:  "mqtt_connections",
                         value: mqtt_connections,
                         type:  "gauge",

@@ -5,7 +5,7 @@ require "./auth/base_user"
 
 module LavinMQ
   class DeletedVHostStats
-    {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS %}
+    {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS + VHost::MQTT_PUBLISHED_KEYS %}
       @{{ m.id }} = Atomic(UInt64).new(0_u64)
 
       def {{ m.id }} : UInt64
@@ -14,7 +14,7 @@ module LavinMQ
     {% end %}
 
     def add(vhost : VHost) : Nil
-      {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS %}
+      {% for m in VHost::STATS_KEYS + VHost::DEAD_LETTER_KEYS + VHost::MQTT_PUBLISHED_KEYS %}
         @{{ m.id }}.add(vhost.{{ m.id }}_count, :relaxed)
       {% end %}
     end
@@ -26,6 +26,16 @@ module LavinMQ
     Log = LavinMQ::Log.for "vhost_store"
 
     getter deleted_stats = DeletedVHostStats.new
+    # Set by the first MQTT client and never cleared; /metrics reads it from another fiber
+    @mqtt_client_connected = Atomic(Bool).new(false)
+
+    def mqtt_client_connected? : Bool
+      @mqtt_client_connected.get(:relaxed)
+    end
+
+    def mqtt_client_connected! : Nil
+      @mqtt_client_connected.set(true, :relaxed)
+    end
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new

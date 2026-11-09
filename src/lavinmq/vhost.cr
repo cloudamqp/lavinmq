@@ -42,7 +42,8 @@ module LavinMQ
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
-    {% for key in DEAD_LETTER_KEYS %}
+    MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
+    {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
       def {{ key.id }}_count : UInt64
@@ -684,6 +685,14 @@ module LavinMQ
         dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
       when :rejected
         dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
+    def count_mqtt_published(qos : UInt8) : Nil
+      case qos
+      when 0 then @mqtt_published_qos0_count.add(1, :relaxed)
+      when 1 then @mqtt_published_qos1_count.add(1, :relaxed)
+      when 2 then @mqtt_published_qos2_count.add(1, :relaxed)
       end
     end
 
