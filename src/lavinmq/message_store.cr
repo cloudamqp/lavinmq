@@ -381,8 +381,8 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
-      # Left on disk, so a store that loads them again, or the vhost's
-      # delete, takes care of them
+      # Left on disk, for the next start or the vhost's delete to unlink,
+      # without a sync, as before
       take_pending_unlinks.each do |segment, acks|
         if replicator = @replicator
           replicator.register_file segment.path
@@ -629,9 +629,6 @@ module LavinMQ
           end
           @acks[seg] = open_ack_file(seg)
           @deleted[seg] = acked.sort! unless acked.empty?
-          # Which of its messages an earlier store moved to other queues isn't
-          # known, so its unlink waits for a sync as if some were
-          @moved_out << seg
         end
         count += 1
         Fiber.yield

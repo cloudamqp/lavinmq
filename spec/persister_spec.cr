@@ -312,31 +312,6 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
 end
 
 describe LavinMQ::MessageStore, "unlinks of segments that messages were moved out of" do
-  it "waits for a sync after the store is loaded again" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir_p msg_dir
-      begin
-        sps = moved_one_and_reloaded(msg_dir, persister) do |store|
-          replicator.hold
-          store
-        end
-        store = sps[:store]
-        sps[:rest].each { |sp| store.delete(sp) }
-        segment = File.join(msg_dir, "msgs.0000000001")
-        File.exists?(segment).should be_true
-        replicator.release
-        wait_for { !File.exists?(segment) }
-        store.close
-      ensure
-        replicator.release
-        persister.close
-      end
-    end
-  end
-
   it "deletes a store without waiting for the sync, and the pending unlink then leaves the path alone" do
     with_datadir do |data_dir|
       replicator = HeldSyncReplicator.new
@@ -372,17 +347,6 @@ private def push_and_shift(store) : Array(LavinMQ::SegmentPosition)
   body = "x" * (LavinMQ::Config.instance.segment_size // 4)
   4.times { store.push(LavinMQ::Message.new("", "rk", body)) }
   Array(LavinMQ::SegmentPosition).new(4) { store.shift?.should_not(be_nil).segment_position }
-end
-
-# Moves one message out of segment 1, then loads the store again
-private def moved_one_and_reloaded(msg_dir, persister, &)
-  store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-  sps = push_and_shift(store)
-  first, *rest = sps.select(&.segment.==(1))
-  store.delete(first, moved: true)
-  store.close
-  store = yield LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-  {store: store, rest: rest}
 end
 
 # Once held, every wait for the followers waits until released
