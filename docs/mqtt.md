@@ -113,7 +113,7 @@ queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+
 Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
-- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, a definitions import containing it is refused as a whole, and a `delayed-message` policy has no effect
+- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, a definitions import containing it is refused as a whole, and a `delayed-message` policy has no effect
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
 - The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
 - [Retained messages](#retained-messages) are not replayed when a binding is created

@@ -445,12 +445,13 @@ module LavinMQ
     end
 
     # An x-mqtt-topic exchange only routes MQTT publishes, which can't carry
-    # an x-delay, so it would ignore x-delayed-exchange and only look delayed
+    # an x-delay, so it would ignore x-delayed-exchange and only look delayed.
+    # Any value but false is refused, not only true, since the intent is clear.
     def self.delayed_mqtt_topic?(type : String, arguments : AMQP::Table) : Bool
       if type.in?("x-delayed-message", "x-delayed-exchange")
         arguments["x-delayed-type"]? == "x-mqtt-topic"
       else
-        type == "x-mqtt-topic" && arguments["x-delayed-exchange"]? == true
+        type == "x-mqtt-topic" && !arguments["x-delayed-exchange"]?.in?(nil, false)
       end
     end
 

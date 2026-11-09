@@ -430,6 +430,22 @@ module MqttSpecs
       end
     end
 
+    it "refuses to declare an exchange with any x-delayed-exchange value but false" do
+      with_server do |server|
+        ["true", 1].each do |value|
+          with_channel(server) do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+              ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => value}))
+            end
+          end
+        end
+        with_channel(server) do |ch|
+          ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => false}))
+        end
+        server.vhosts["/"].exchange?("xmqtt").should_not be_nil
+      end
+    end
+
     it "refuses to declare a delayed exchange over the HTTP API" do
       with_http_server do |http, s|
         body = %({"type": "x-mqtt-topic", "durable": true, "arguments": {"x-delayed-exchange": true}})
