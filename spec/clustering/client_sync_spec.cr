@@ -988,6 +988,205 @@ module ClientSyncSpec
         end
       end
 
+      # The leader's fsync requests only cover what it wrote since its last
+      # drain, so data received while sync was disabled here must be synced
+      # before the first ack once it's enabled again
+      it "syncs the whole data dir before the first ack after sync is enabled again" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 0
+          client.fsynced_paths.should be_empty
+
+          client.@config.sync = true
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 1
+
+          # Only once, later requests are fsynced as usual
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 1
+          client.fsynced_paths.last.should eq File.join(data_dir, filename)
+          client_socket.close
+        end
+      end
+
+      it "doesn't ack without the catch-up sync when sync is enabled during a batch" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+
+          # Like a config reload right after the batch read the setting
+          config = client.@config
+          client.on_sync_read = -> { config.sync = true; nil }
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}")).should eq record_size("$#{filename}")
+          client.fsynced_paths.should be_empty
+
+          client.on_sync_read = nil
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}")).should eq record_size("$#{filename}")
+          client.syncs_started.should eq 1
+          client_socket.close
+        end
+      end
+
+      it "syncs the whole data dir after a replace that skipped its fsync" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          # Sync is disabled and enabled again while the ack loop is in a
+          # sync, so no batch sees it disabled
+          config = client.@config
+          client.sync_delay = 1.second
+          write_fsync_request(lz4_writer, "")
+          wait_for { client.syncs_started == 1 }
+          config.sync = false
+          filename = "vhost/users.json"
+          payload = "[]"
+          write_record(lz4_writer, filename, payload.bytesize.to_i64, payload.to_slice)
+          wait_for { File.exists?(File.join(data_dir, filename)) }
+          config.sync = true
+          client.sync_delay = Time::Span.zero
+          read_acks(leader_io, record_size("$") + record_size(filename, payload.bytesize))
+          client.syncs_started.should eq 2
+          client_socket.close
+        end
+      end
+
+      it "doesn't sync the whole data dir again after a full sync" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size(filename, 4) + record_size("$#{filename}"))
+          client_socket.close
+
+          # Reconnected after sync was enabled again
+          client.@config.sync = true
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {filename => "data"}, rounds: 2)
+            done.send nil
+          end
+          client.full_sync_public(client_io, lz4_reader)
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          server_io.close
+          client_io.close
+          client.syncs_started.should eq 1
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}"))
+          client.syncs_started.should eq 1
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
+          client_socket.close
+        end
+      end
+
+      it "forgets created directories while sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          write_fsync_request(lz4_writer, "")
+          read_acks(leader_io, record_size(filename, 4) + record_size("$"))
+          client.@created_dirs.should be_empty
+          client_socket.close
+        end
+      end
+
+      it "doesn't track created directories for a version 1 leader" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client.protocol_version = 1
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          read_acks(leader_io, record_size(filename, 4))
+          client.@created_dirs.should be_empty
+          client_socket.close
+        end
+      end
+
       it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
