@@ -116,6 +116,60 @@
     "why": "Large bodies, where segment rollover and deletion happen often"
   },
   {
+    "name": "dlx-ttl",
+    "protocol": "amqp",
+    "metrics": [
+      "pub",
+      "write",
+      "disk"
+    ],
+    "args": [
+      "-u",
+      "perf-dlx-src",
+      "-x",
+      "1",
+      "-y",
+      "0",
+      "-s",
+      "1024",
+      "--queue-args",
+      "{\"x-message-ttl\":5,\"x-dead-letter-exchange\":\"\",\"x-dead-letter-routing-key\":\"perf-dlx-dst\"}"
+    ],
+    "background": [
+      {
+        "protocol": "amqp",
+        "command": "throughput",
+        "args": [
+          "-u",
+          "perf-dlx-src",
+          "-x",
+          "0",
+          "-y",
+          "1",
+          "-R",
+          "1",
+          "-P",
+          "1",
+          "--queue-args",
+          "{\"x-message-ttl\":5,\"x-dead-letter-exchange\":\"\",\"x-dead-letter-routing-key\":\"perf-dlx-dst\"}"
+        ]
+      },
+      {
+        "protocol": "amqp",
+        "command": "throughput",
+        "args": [
+          "-u",
+          "perf-dlx-dst",
+          "-x",
+          "0",
+          "-y",
+          "1"
+        ]
+      }
+    ],
+    "why": "Messages are stored, expire after 5 ms and are dead-lettered to another queue, exercising moved messages and the deletion of the segments they leave; a slow consumer declares the source queue so publishes aren't dropped"
+  },
+  {
     "name": "fanout-1to4",
     "protocol": "amqp",
     "metrics": [

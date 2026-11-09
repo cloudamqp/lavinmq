@@ -114,6 +114,13 @@ jobs:
             - Gate a metric only when it is stable: if publishers outpace consumers in your scenario, gate
               only "pub". "write" and "disk" are per published message, so only gate them in scenarios that
               publish.
+            - Make sure a scenario reaches the code it targets. With `-y 0` lavinmqperf doesn't declare the
+              queue, so its publishes are dropped as unroutable: declare the queue with a background
+              throughput consumer using the same `--queue-args`. To keep messages stored in a queue (for
+              TTL expiry or dead-lettering out of it), make that consumer slow, e.g. `-x 0 -y 1 -R 1 -P 1`,
+              and use a TTL of at least a few milliseconds; TTL 0 expires messages on arrival without
+              storing them. See `dlx-ttl` in the catalogue. A scenario that publishes but reports write 0
+              never touched the message store.
             - If the diff changes the perf tooling itself (extras/perf_compare.sh, extras/perf_scenarios.json,
               .github/workflows/perf.yml, src/lavinmqperf) or is too broad to narrow down, use the whole
               catalogue unchanged.
