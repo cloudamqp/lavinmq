@@ -88,6 +88,11 @@ module LavinMQ
               rescue ex : Shovel::ConfigError
                 bad_request(context, ex.message)
               end
+              # Set by the server, never taken from the body: a local source
+              # binds with this user's permissions checked
+              if h = value.as_h?
+                value = JSON::Any.new(h.merge({Shovel::Store::CREATED_BY => JSON::Any.new(user(context).name)}))
+              end
             end
             p = Parameter.new(component, name, value)
             is_update = vhost.parameters[{component, name}]?
