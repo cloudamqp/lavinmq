@@ -55,7 +55,10 @@ module LavinMQ::AMQP
         end
 
         def set_target(dlx : String?, dlrk : String?) : Nil
-          @target.set(Target.new(dlx, dlrk), :release)
+          previous = @target.swap(Target.new(dlx, dlrk), :acquire_release)
+          # Warns again about an exchange it warned about before, once the
+          # queue dead-letters somewhere else in between, see #warn_unroutable
+          @warned_unroutable.set(nil, :release) if previous.dlx != dlx
         end
 
         # Tasks of drained chains, for the next chains to reuse. A chain holds
@@ -69,8 +72,9 @@ module LavinMQ::AMQP
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
 
-        # Once per exchange in a row, as every message dead-lettered to it is
-        # dropped, and a burst would flood the log
+        # Once per exchange in a row, and again after the queue's dead-letter
+        # exchange changed, as every message dead-lettered to it is dropped,
+        # and a burst would flood the log
         private def warn_unroutable(ex : AMQP::Exchange) : Nil
           return if @warned_unroutable.swap(ex.name) == ex.name
           @log.warn do
