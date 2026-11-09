@@ -86,18 +86,21 @@ module LavinMQ::AMQP
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
-        msg_count = old_store.size
-        @log.info { "Migrating #{msg_count} message" }
-        i = 0u32
-        while env = old_store.shift?
-          push env.message
-          Fiber.yield if ((i &+= 1) % 8096).zero?
+        begin
+          msg_count = old_store.size
+          @log.info { "Migrating #{msg_count} message" }
+          i = 0u32
+          while env = old_store.shift?
+            push env.message
+            Fiber.yield if ((i &+= 1) % 8096).zero?
+          end
+          if size != msg_count
+            raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
+          end
+          @log.info { "Migration complete" }
+        ensure
+          old_store.close # also when the migration fails, before its files are deleted otherwise
         end
-        if size != msg_count
-          raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
-        end
-        @log.info { "Migration complete" }
-        old_store.close
         i = 0u32
         pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
