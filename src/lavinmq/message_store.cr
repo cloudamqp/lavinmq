@@ -367,9 +367,12 @@ module LavinMQ
       end
     end
 
+    # The segment first: a crash in between leaves an ack file without its
+    # segment, which the next start removes, not a segment without its acks,
+    # whose messages would come back
     private def unlink_now(segment : MFile, acks : MFile?) : Nil
-      delete_file(acks) if acks
       delete_file(segment, including_meta: true)
+      delete_file(acks) if acks
     end
 
     private def delete_file(file : MFile, including_meta = false)
