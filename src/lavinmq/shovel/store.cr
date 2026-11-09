@@ -130,7 +130,8 @@ module LavinMQ
       end
 
       def self.vhost_from_uri(uri : URI) : String
-        path = URI.decode(uri.path.lchop("/"))
+        # Decoded as the AMQP client decodes it when it connects
+        path = URI.decode_www_form(uri.path.lchop("/"))
         path.empty? ? "/" : path
       end
 

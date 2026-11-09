@@ -450,18 +450,19 @@ describe LavinMQ::HTTP::ParametersController do
     # mqtt.default is checked on every bind, not only when the shovel is saved
     describe "with an x-mqtt-topic source exchange" do
       lim_hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltOnB3"} # lim:pw
-      lim_shovel = <<-JSON
-        {
-          "value": {
-            "src-uri": "amqp://",
-            "src-exchange": "lim.x",
-            "src-exchange-key": "#",
-            "dest-uri": "amqp://",
-            "dest-exchange": "lim.dst",
-            "reconnect-delay": 1
-          }
-        }
-        JSON
+      # No host, so the shovel connects as the direct user, but the port the
+      # spec server listens on
+      lim_shovel = ->(s : LavinMQ::Server) do
+        local = "amqp://:#{URI.parse(s.amqp_server.url).port}"
+        {value: {
+          "src-uri":          local,
+          "src-exchange":     "lim.x",
+          "src-exchange-key": "#",
+          "dest-uri":         local,
+          "dest-exchange":    "lim.dst",
+          "reconnect-delay":  1,
+        }}.to_json
+      end
 
       it "refuses to bind when the source is redeclared as x-mqtt-topic" do
         with_http_server do |http, s|
@@ -470,7 +471,7 @@ describe LavinMQ::HTTP::ParametersController do
           vhost = s.vhosts["/"]
           vhost.declare_exchange("lim.x", "fanout", true, false)
           vhost.declare_exchange("lim.dst", "fanout", true, false)
-          response = http.put("/api/parameters/shovel/%2f/lim-shovel", body: lim_shovel, headers: lim_hdrs)
+          response = http.put("/api/parameters/shovel/%2f/lim-shovel", body: lim_shovel.call(s), headers: lim_hdrs)
           response.status_code.should eq 201
           shovel = vhost.shovels["lim-shovel"]
           wait_for { shovel.running? }
@@ -492,7 +493,7 @@ describe LavinMQ::HTTP::ParametersController do
           vhost = s.vhosts["/"]
           vhost.declare_exchange("lim.x", "x-mqtt-topic", true, false)
           vhost.declare_exchange("lim.dst", "fanout", true, false)
-          response = http.put("/api/parameters/shovel/%2f/lim-shovel", body: lim_shovel, headers: lim_hdrs)
+          response = http.put("/api/parameters/shovel/%2f/lim-shovel", body: lim_shovel.call(s), headers: lim_hdrs)
           response.status_code.should eq 201
           shovel = vhost.shovels["lim-shovel"]
           wait_for { shovel.running? }
