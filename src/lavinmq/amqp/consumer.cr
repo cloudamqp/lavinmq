@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
         @flow = active
@@ -112,16 +113,13 @@ module LavinMQ
         raise ex
       end
 
-      # A consumer that didn't wait for capacity defers to those that did,
-      # otherwise the one that delivered last can win every race and starve
-      # the others (see BoolChannel#wait_until_true)
+      # Consumers wait for global capacity in line, so the one that delivered
+      # last can't take every freed slot and starve the others
       private def wait_for_global_capacity
         ch = @channel
-        Fiber.yield if ch.has_capacity.waiting?
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        ch.flush
-        true unless ch.has_capacity.wait_until_true(@notify_closed)
+        true unless ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
       end
 
       private def wait_for_single_active_consumer

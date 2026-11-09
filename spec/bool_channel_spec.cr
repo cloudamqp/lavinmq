@@ -36,32 +36,35 @@ describe BoolChannel do
     mismatches.should eq 0
   end
 
-  it "counts fibers in wait_until_true as waiting until they resume" do
+  it "lets a fiber already in wait_until_true through before one that arrives later" do
     bc = BoolChannel.new(false)
     abort = Channel(Nil).new
-    done = Channel(Bool).new(2)
-    2.times { spawn { done.send bc.wait_until_true(abort) } }
+    order = [] of Symbol
+    spawn do
+      bc.wait_until_true(Channel(Nil).new(1), abort) { }
+      order << :first
+    end
     Fiber.yield
-    bc.waiting?.should be_true
-    bc.set(true)
-    bc.waiting?.should be_true # woken, but not yet resumed
-    done.receive.should be_true
-    done.receive.should be_true
-    bc.waiting?.should be_false
+    bc.set(true) # wakes the first waiter, which hasn't run yet
+    bc.wait_until_true(Channel(Nil).new(1), abort) { }.should be_true
+    order << :second
+    order.should eq [:first, :second]
   end
 
-  it "re-parks a woken waiter if the value turned false before it resumed" do
+  it "lets the next in line through when the first is aborted after its turn came" do
     bc = BoolChannel.new(false)
     abort = Channel(Nil).new
-    done = Channel(Bool).new(1)
-    spawn { done.send bc.wait_until_true(abort) }
+    second = Channel(Bool).new(1)
+    spawn { bc.wait_until_true(Channel(Nil).new(1), abort) { } }
+    spawn { second.send bc.wait_until_true(Channel(Nil).new(1), Channel(Nil).new) { } }
     Fiber.yield
     bc.set(true)
-    bc.set(false)
-    Fiber.yield
-    bc.waiting?.should be_true
     abort.close
-    done.receive.should be_false
-    bc.waiting?.should be_false
+    select
+    when ok = second.receive
+      ok.should be_true
+    when timeout(1.second)
+      fail "the second waiter was never let through"
+    end
   end
 end
