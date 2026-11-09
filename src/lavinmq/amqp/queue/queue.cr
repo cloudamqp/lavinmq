@@ -1450,15 +1450,15 @@ module LavinMQ::AMQP
 
     # *copied*: the message was copied to another queue, see MessageStore#copied_out
     protected def delete_message(sp : SegmentPosition, *, copied : Bool) : Nil
-      # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
-      # callback (or any other in-flight delete) racing with close would hit
-      # MessageStore::ClosedError on @msg_store.delete. The store is gone
-      # anyway, so the per-sp bookkeeping is a no-op.
-      return if closed?
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
+        # Close sets @closed first and closes the store later, under this
+        # lock. A move that published its copy meanwhile must still write its
+        # ack, or the store loaded again moves the message a second time. Once
+        # the store is closed its files are left as they are.
+        return if @msg_store.closed
         @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.copied_out(sp) if copied
         @msg_store.delete(sp)
