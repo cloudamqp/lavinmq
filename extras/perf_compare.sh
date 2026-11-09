@@ -11,21 +11,63 @@
 # single noisy round can't fail the check on its own.
 #
 #   extras/perf_compare.sh old/bin/lavinmq bin/lavinmq
+#   extras/perf_compare.sh --validate scenarios.json
+#
+# Scenarios are read from SCENARIOS_FILE (default extras/perf_scenarios.json),
+# a JSON list of {name, protocol, metrics, args, why}; args are passed to
+# `lavinmqperf <protocol> throughput`. In CI the list is written by Claude, so
+# it's validated before anything runs.
 #
 # Override with PERF=, ROUNDS=, DURATION=, WARMUP=, THRESHOLD=, OUT_DIR=,
-# SCENARIO_FILTER= (regex on scenario name) env vars.
+# SCENARIOS_FILE=, SCENARIO_FILTER= (regex on scenario name) env vars.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+
+# The args may not set the options the script controls (-z, -j, -q) or point
+# the client at another broker (--uri, and -u for mqtt).
+validate_scenarios() {
+    local file="$1"
+    if ! jq -e '
+      type == "array" and length >= 1 and length <= 10
+      and ([.[].name] | unique | length) == length
+      and all(.[];
+        (.name | type == "string" and test("^[a-z0-9-]{1,40}$"))
+        and (.protocol == "amqp" or .protocol == "mqtt")
+        and (.metrics | type == "array" and length > 0
+             and all(.[]; . == "pub" or . == "consume"))
+        and (.protocol as $proto | .args | type == "array" and all(.[];
+              type == "string" and test("^[A-Za-z0-9_%{}\":,.=@/+-]+$")
+              and (test("^(-z|-j|-q|--uri|--time|--json|--quiet)") | not)
+              and (($proto == "mqtt" and test("^-u")) | not))))
+    ' "$file" >/dev/null 2>&1; then
+        echo "Invalid scenarios in $file: expected 1-10 scenarios with a unique name" \
+            "matching ^[a-z0-9-]{1,40}$, protocol amqp or mqtt, metrics from pub/consume," \
+            "and args from the allowed characters without --uri, -z, -j, -q (or -u for mqtt)" >&2
+        return 1
+    fi
+}
+
+if [ "${1:-}" = --validate ] && [ $# -eq 2 ]; then
+    validate_scenarios "$2" || exit 2
+    echo "$2: $(jq length "$2") valid scenarios"
+    exit 0
+fi
+
 if [ $# -ne 2 ]; then
     echo "Usage: $0 BASE_BIN HEAD_BIN" >&2
+    echo "       $0 --validate SCENARIOS_FILE" >&2
     exit 2
 fi
 
 BASE_BIN=$(realpath "$1")
 HEAD_BIN=$(realpath "$2")
+SCENARIOS_FILE=$(realpath "${SCENARIOS_FILE:-$SCRIPT_DIR/perf_scenarios.json}")
+validate_scenarios "$SCENARIOS_FILE" || exit 2
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 PERF=${PERF:-bin/lavinmqperf}
@@ -42,8 +84,6 @@ for bin in "$BASE_BIN" "$HEAD_BIN" "$PERF"; do
         exit 2
     fi
 done
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
-
 # Pin the broker and the load generator to separate halves of the CPUs so
 # they don't compete for the same cores.
 NCPU=$(nproc)
@@ -58,19 +98,6 @@ else
     CLIENT_PIN=()
 fi
 
-# name|protocol|gated metrics|lavinmqperf args
-# Only the publish rate is gated where publishers outpace the consumer, as the
-# consume rate then depends on backlog dynamics and is too noisy.
-SCENARIOS=(
-    "transient-1to1|amqp|pub,consume|-u perf-baseline -x 1 -y 1"
-    "persistent-1to1|amqp|pub,consume|-u perf-persistent -x 1 -y 1 -p"
-    "confirm-1to1|amqp|pub,consume|-u perf-confirm -x 1 -y 1 -c 1000"
-    "large-100kb|amqp|pub,consume|-u perf-large -x 1 -y 1 -s 100000"
-    "fanout-1to4|amqp|pub,consume|-x 1 -y 4 --exchange amq.fanout --queue-pattern perf-fan-% --queue-pattern-from 1 --queue-pattern-to 4"
-    "stream-1to1|amqp|pub|-u perf-stream -x 1 -y 1 --queue-args {\"x-queue-type\":\"stream\"} --consumer-args {\"x-stream-offset\":\"first\"} -P 1000 -a 1"
-    "fanin-16to1|amqp|pub|-u perf-fanin -x 16 -y 1"
-    "mqtt-1to1|mqtt|pub|-x 1 -y 1 --clean-session"
-)
 
 mkdir -p "$OUT_DIR"
 RESULTS="$OUT_DIR/runs.jsonl"
@@ -103,10 +130,14 @@ start_broker() {
     fi
 }
 
-# run_one SCENARIO PROTO METRICS ARGS SIDE BIN ROUND
+# run_one INDEX SIDE BIN ROUND
 run_one() {
-    local name="$1" proto="$2" metrics="$3" args="$4" side="$5" bin="$6" round="$7"
-    local data_dir uri out
+    local i="$1" side="$2" bin="$3" round="$4"
+    local name proto metrics data_dir uri out args
+    name=$(jq -r ".[$i].name" "$SCENARIOS_FILE")
+    proto=$(jq -r ".[$i].protocol" "$SCENARIOS_FILE")
+    metrics=$(jq -r ".[$i].metrics | join(\",\")" "$SCENARIOS_FILE")
+    mapfile -t args < <(jq -r ".[$i].args[]" "$SCENARIOS_FILE")
     # Keep the data dir on a real disk, not tmpfs: fsync/syncfs are free on
     # tmpfs, which would hide regressions in when and how often we sync.
     data_dir=$(mktemp -d "${TMPDIR:-/tmp}/perf-data.XXXXXX")
@@ -116,11 +147,9 @@ run_one() {
     else
         uri="amqp://guest:guest@localhost"
     fi
-    # shellcheck disable=SC2086 # args are intentionally word-split
-    timeout $((WARMUP + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$WARMUP" -q -j $args >/dev/null
+    timeout $((WARMUP + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$WARMUP" -q -j "${args[@]}" >/dev/null
     # The JSON summary is the last line; mqtt throughput prints more before it
-    # shellcheck disable=SC2086
-    out=$(timeout $((DURATION + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$DURATION" -q -j $args | tail -n 1)
+    out=$(timeout $((DURATION + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$DURATION" -q -j "${args[@]}" | tail -n 1)
     stop_broker
     rm -rf "$data_dir" "$data_dir.log"
     jq -c --arg s "$name" --arg m "$metrics" --arg side "$side" --argjson r "$round" \
@@ -133,22 +162,23 @@ echo "Base: $BASE_BIN"
 echo "Head: $HEAD_BIN"
 echo "Rounds: $ROUNDS, duration: ${DURATION}s, warmup: ${WARMUP}s, threshold: ${THRESHOLD}%"
 echo "CPUs: $NCPU, broker: ${BROKER_CPUS:-unpinned}, client: ${CLIENT_CPUS:-unpinned}"
+echo "Scenarios: $SCENARIOS_FILE"
 
-for scenario in "${SCENARIOS[@]}"; do
-    IFS='|' read -r name proto metrics args <<<"$scenario"
+for i in $(seq 0 $(($(jq length "$SCENARIOS_FILE") - 1))); do
+    name=$(jq -r ".[$i].name" "$SCENARIOS_FILE")
     if [ -n "$SCENARIO_FILTER" ] && ! [[ $name =~ $SCENARIO_FILTER ]]; then
         continue
     fi
     echo
-    echo "=== $name ($proto throughput $args)"
+    echo "=== $name ($(jq -r ".[$i] | \"\(.protocol) throughput \(.args | join(\" \"))\"" "$SCENARIOS_FILE"))"
     for round in $(seq 1 "$ROUNDS"); do
         # Alternate which side runs first to cancel out drift over time
         if [ $((round % 2)) -eq 1 ]; then
-            run_one "$name" "$proto" "$metrics" "$args" base "$BASE_BIN" "$round"
-            run_one "$name" "$proto" "$metrics" "$args" head "$HEAD_BIN" "$round"
+            run_one "$i" base "$BASE_BIN" "$round"
+            run_one "$i" head "$HEAD_BIN" "$round"
         else
-            run_one "$name" "$proto" "$metrics" "$args" head "$HEAD_BIN" "$round"
-            run_one "$name" "$proto" "$metrics" "$args" base "$BASE_BIN" "$round"
+            run_one "$i" head "$HEAD_BIN" "$round"
+            run_one "$i" base "$BASE_BIN" "$round"
         fi
     done
 done

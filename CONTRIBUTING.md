@@ -38,13 +38,20 @@ PRs are reviewed by AI in CI. To run the same review locally, install [local-rev
 
 #### Performance regressions
 
-A performance regression is treated as a breaking change. The `Performance` workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh`, which benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine and fails if a scenario's median throughput drops by more than 5%. Results are in the job summary.
+A performance regression is treated as a breaking change. On every PR that touches the broker, the `Performance` workflow runs a performance review in two steps:
+
+1. Claude reads the diff and decides whether the change can affect message throughput. If it can, Claude picks scenarios from `extras/perf_scenarios.json`, or designs new ones, that exercise the changed code, covering only the protocols the change touches. A change that can't affect throughput, such as docs, the HTTP API or logging, skips the comparison. If planning fails, the check fails. PRs from forks have no API key, so a maintainer has to run the check for them.
+1. The workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh` with those scenarios. It benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine, and fails if a scenario's median throughput drops by more than 5%.
+
+Claude's reasoning, the scenarios and the results are posted as one PR comment, updated on every push.
 
 To reproduce locally, build the base into a separate worktree and compare:
 
 1. `git worktree add ../lavinmq-base main && make -C ../lavinmq-base bin/lavinmq bin/lavinmqperf CRYSTAL_FLAGS=--release`
 1. `make bin/lavinmq CRYSTAL_FLAGS=--release`
 1. `PERF=../lavinmq-base/bin/lavinmqperf extras/perf_compare.sh ../lavinmq-base/bin/lavinmq bin/lavinmq`
+
+This runs every scenario in `extras/perf_scenarios.json`. To run your own set, write a list in the same format and pass it with `SCENARIOS_FILE=my-scenarios.json`. Check a file without running it with `extras/perf_compare.sh --validate my-scenarios.json`.
 
 If a regression is an intentional trade-off, explain it in the PR, add the `perf-regression-accepted` label and re-run the job.
 
