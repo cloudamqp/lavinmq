@@ -546,9 +546,8 @@ module FollowerSpec
         # flush must now write to the socket.
         follower.append("#{data_dir}/file", Bytes.new(1024))
 
-        # Fill the socket buffers (the client side never reads), then stop at
-        # the first blocked write, so a later flush of the pending LZ4 data
-        # must block on the event loop.
+        # Fill the socket buffers until a write times out, so a later flush of the pending LZ4 data blocks
+        follower_socket.write_timeout = 200.milliseconds
         filled = Channel(Nil).new(1)
         spawn(name: "socket filler") do
           junk = Bytes.new(65536)
@@ -564,8 +563,8 @@ module FollowerSpec
           fail "socket buffers never filled"
         end
 
-        # ack_loop on the default context keeps a read pending on the fd.
-        spawn { follower.ack_loop }
+        # ack_loop on the default context keeps a read pending on the fd, and its ack timeout bounds its writes
+        spawn { follower.ack_loop(200.milliseconds) }
         sleep 20.milliseconds
 
         result = Channel(Bool | Exception).new(1)
@@ -575,11 +574,7 @@ module FollowerSpec
           result.send ex
         end
 
-        # The follower never acks; eventually ack_loop gives up (its own
-        # blocked flush times out) and unblocks the waiter with false. The
-        # old direct flush instead raised RuntimeError here: the blocked
-        # write tried to move the fd to the isolated context's event loop
-        # while ack_loop's read was pending on the default one.
+        # ack_loop gives up and unblocks the waiter with false, where the old direct flush raised RuntimeError
         select
         when r = result.receive
           r.should be_false # never acked — and no cross-context IO error raised

@@ -84,9 +84,8 @@ module LavinMQ
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
         @running.spawn(name: "Clustering follower flush loop") { flush_loop }
-        # Tighten the write timeout for the streaming phase; full_sync relaxed it
-        # to SYNC_WRITE_TIMEOUT for the bulk transfer.
-        @socket.write_timeout = ACK_TIMEOUT
+        # The ack deadline as write timeout while streaming; full_sync used SYNC_WRITE_TIMEOUT
+        @socket.write_timeout = ack_timeout
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
