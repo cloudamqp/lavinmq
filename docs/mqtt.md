@@ -117,6 +117,7 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 - The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
 - [Retained messages](#retained-messages) are not replayed when a binding is created
 - Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
+- `mqtt.default`, the exchange MQTT publishes go through, can't be the source or destination of an exchange-to-exchange binding. Such a bind, or an unbind with `mqtt.default` as source, is refused with `ACCESS_REFUSED` over AMQP, which closes the channel, and `403` over the HTTP API. Bind an `x-mqtt-topic` exchange instead
 
 ## Configuration
 
