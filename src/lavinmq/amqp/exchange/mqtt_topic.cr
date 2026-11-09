@@ -32,6 +32,10 @@ module LavinMQ
         "which x-mqtt-topic exchange '#{exchange_name}' requires"
       end
 
+      def routes_amqp_messages? : Bool
+        false
+      end
+
       # internal is forced: AMQP publishes can't enter this exchange, only
       # MQTT publishes reach it, through the subscription tree.
       def initialize(vhost : VHost, name : String, durable = false,

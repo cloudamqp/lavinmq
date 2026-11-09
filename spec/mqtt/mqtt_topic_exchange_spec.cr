@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 # In the AMQP namespace because AMQP::Exchange#bind refuses any destination
 # whose class lives outside it.
@@ -540,6 +541,59 @@ module MqttSpecs
           end
           vhost.exchange("lim.mq").binding_count.should eq 0
           vhost.bind_queue("lim.spy", "lim.mq", "#").should be_true # no user: definitions import
+        end
+      end
+    end
+
+    # The exchange only routes MQTT publishes, so dead-letters into it are
+    # dropped. That's logged once, as a burst would flood the log.
+    {% for dlx in ["xmqtt", "mqtt.default"] %}
+    it "drops messages dead-lettered into {{ dlx.id }} and logs a warning once" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        with_channel(server) do |ch|
+          ch.queue_declare("dst")
+          ch.queue_bind("dst", "xmqtt", "#")
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({
+            "x-message-ttl"             => 1,
+            "x-dead-letter-exchange"    => {{ dlx }},
+            "x-dead-letter-routing-key" => "a/b",
+          }))
+          Log.capture("lmq.queue", :warn) do |logs|
+            3.times { src.publish_confirm "x" }
+            wait_for { vhost.queue("src").message_count.zero? }
+            logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange '{{ dlx.id }}'")).should eq 1
+          end
+          vhost.queue("dst").message_count.should eq 0
+        end
+      end
+    end
+    {% end %}
+
+    it "warns again when the dead-letter exchange changes away and back" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        set_dlx = ->(dlx : String) do
+          vhost.add_policy("dlx", "^src$", "queues", {"dead-letter-exchange" => JSON::Any.new(dlx)}, 0_i8)
+          wait_for { vhost.queue("src").@dead_letter.dlx == dlx }
+        end
+        with_channel(server) do |ch|
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({"x-message-ttl" => 1}))
+          Log.capture("lmq.queue", :warn) do |logs|
+            warnings = -> { logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange 'xmqtt'")) }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            warnings.call.should eq 1
+            set_dlx.call("amq.topic")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { warnings.call == 2 }
+          end
         end
       end
     end

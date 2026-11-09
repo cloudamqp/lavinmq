@@ -58,7 +58,10 @@ module LavinMQ::AMQP
         end
 
         def set_target(dlx : String?, dlrk : String?) : Nil
-          @target.set(Target.new(dlx, dlrk), :release)
+          previous = @target.swap(Target.new(dlx, dlrk), :acquire_release)
+          # Warns again about an exchange it warned about before, once the
+          # queue dead-letters somewhere else in between, see #warn_unroutable
+          @warned_unroutable.set(nil, :release) if previous.dlx != dlx
         end
 
         # Tasks of drained chains, for the next chains to reuse. A chain holds
@@ -66,7 +69,20 @@ module LavinMQ::AMQP
         @free_tasks = Sync::Exclusive(Array(Tasks)).new(Array(Tasks).new, :unchecked)
         MAX_FREE_TASKS = 16
 
+        # The exchange last warned about, see #warn_unroutable
+        @warned_unroutable = Atomic(String?).new(nil)
+
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
+        end
+
+        # Once per exchange in a row, and again after the queue's dead-letter
+        # exchange changed, as every message dead-lettered to it is dropped,
+        # and a burst would flood the log
+        private def warn_unroutable(ex : AMQP::Exchange) : Nil
+          return if @warned_unroutable.swap(ex.name) == ex.name
+          @log.warn do
+            "Dropping dead-lettered messages: exchange '#{ex.name}' (#{ex.type}) only routes MQTT publishes"
+          end
         end
 
         private def cycle?(qname, props, reason) : Bool
@@ -97,7 +113,7 @@ module LavinMQ::AMQP
           # No dead letter exchange => nothing to do
           target = @target.get(:acquire)
           return routed.call(false, true) unless dlx = (msg.dlx || target.dlx)
-          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call(false, true)
+          ex = dead_letter_exchange(dlx) || return routed.call(false, true)
 
           dlrk = msg.dlrk || target.dlrk
 
@@ -147,6 +163,17 @@ module LavinMQ::AMQP
           ctx.enqueue(Routed.new(routed, copied))
 
           drain_chain(ctx) if first_in_chain
+        end
+
+        # The exchange to dead-letter to, nil if it doesn't exist or doesn't
+        # route AMQP messages
+        private def dead_letter_exchange(dlx) : AMQP::Exchange?
+          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return
+          unless ex.routes_amqp_messages?
+            warn_unroutable(ex)
+            return
+          end
+          ex
         end
 
         private def take_tasks : Tasks

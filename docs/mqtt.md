@@ -113,6 +113,7 @@ queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+
 Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
+- It only routes MQTT publishes. A message dead-lettered into it, as into `mqtt.default`, is dropped, and the queue logs a warning
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
 - An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to one needs read permission on the exchange and on `mqtt.default`, and write permission on the queue. A shovel with a local source needs the same read permissions from the user who creates it. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read permission on `mqtt.default` gives all MQTT topics in the vhost through an `x-mqtt-topic` binding, whatever topics the user's topic permissions allow
 - [Retained messages](#retained-messages) are not replayed when a binding is created
