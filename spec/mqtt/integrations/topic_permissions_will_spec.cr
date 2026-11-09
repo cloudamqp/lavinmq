@@ -69,12 +69,15 @@ module MqttSpecs
             will: will, keepalive: 1u16)
         end
 
-        # A denied retained will must leave nothing behind for the next
-        # subscriber either.
+        # The will is handled before the connection is removed
+        wait_for { server.vhosts["/"].connections.none?(LavinMQ::MQTT::Client) }
+
+        # Nothing may be retained for the next subscriber either; it would come before the marker
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
           subscribe(sub_io, topic_filters: mk_topic_filters({"#", 0}))
-          read_packet(sub_io).should be_nil
+          publish(sub_io, topic: "chat/sub/marker", payload: "alive".to_slice)
+          read_publish(sub_io).topic.should eq("chat/sub/marker")
         end
       end
     end

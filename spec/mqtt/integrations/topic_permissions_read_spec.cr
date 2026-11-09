@@ -18,18 +18,20 @@ module MqttSpecs
 
         with_client_io(server) do |bob_io|
           connect(bob_io, client_id: "bob", username: "bob", password: "bob".to_slice)
-          subscribe(bob_io, topic_filters: mk_topic_filters({"secret/#", 0}))
+          subscribe(bob_io, topic_filters: mk_topic_filters({"secret/#", 0}, {"public/#", 0}))
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
             publish(pub_io, topic: "secret/x", payload: "x".to_slice, qos: 0u8)
+            # Readable, so delivered next if the one before was dropped.
+            publish(pub_io, topic: "public/marker", payload: "marker".to_slice, qos: 0u8)
             pingpong(pub_io)
           end
 
-          read_packet(bob_io).should be_nil
+          read_publish(bob_io).topic.should eq "public/marker"
           exchange = server.vhosts["/"].exchange("mqtt.default")
-          exchange.publish_in_count.should eq 1
-          exchange.publish_out_count.should eq 0
+          exchange.publish_in_count.should eq 2
+          exchange.publish_out_count.should eq 1 # the marker only
         end
       end
     end
@@ -69,6 +71,7 @@ module MqttSpecs
 
             publish(writer_io, topic: "chat/alice/room1", payload: "authorized".to_slice, qos: 0u8)
             publish(writer_io, topic: "chat/bob/room1", payload: "unauthorized".to_slice, qos: 0u8)
+            publish(writer_io, topic: "chat/alice/marker", payload: "marker".to_slice, qos: 0u8)
 
             # Flush: ensure writer has sent both publishes before we check alice's buffer
             pingpong(writer_io)
@@ -80,9 +83,8 @@ module MqttSpecs
             msg.topic.should eq("chat/alice/room1")
             msg.payload.should eq("authorized".to_slice)
 
-            # No further message should arrive
-            next_msg = read_packet(alice_io)
-            next_msg.should be_nil
+            # No message should arrive before the marker
+            read_publish(alice_io).topic.should eq("chat/alice/marker")
           end
         end
       end
@@ -140,9 +142,13 @@ module MqttSpecs
           msg.topic.should eq("chat/alice/news")
           msg.payload.should eq("retained-alice".to_slice)
 
-          # chat/bob/old must NOT arrive
-          next_msg = read_packet(alice_io)
-          next_msg.should be_nil
+          # chat/bob/old must NOT arrive; as a retained message it would come before the marker
+          with_client_io(server) do |writer_io|
+            connect(writer_io, client_id: "writer")
+            publish(writer_io, topic: "chat/alice/marker", payload: "marker".to_slice, qos: 0u8)
+            disconnect(writer_io)
+          end
+          read_publish(alice_io).topic.should eq("chat/alice/marker")
         end
       end
     end
