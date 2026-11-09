@@ -208,6 +208,9 @@ end
 def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
+  # Frames are written in pieces to an unbuffered socket. With Nagle each
+  # piece after the first waits for the server's delayed ACK (40 ms or more).
+  io.tcp_nodelay = true
 
   io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
   io.flush

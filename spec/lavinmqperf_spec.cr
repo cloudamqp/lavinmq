@@ -64,7 +64,7 @@ describe "LavinMQPerf" do
           "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
           "-x", "1",
           "-y", "1",
-          "-z", "3",
+          "-z", "2",
         ])
 
         # Parse output line by line
@@ -85,7 +85,7 @@ describe "LavinMQPerf" do
           end
         end
 
-        # Verify we got rate reports (should be ~3 reports for a 3 second test)
+        # Verify we got rate reports (should be ~2 reports for a 2 second test)
         publish_rates.size.should be > 0
         consume_rates.size.should be > 0
 
