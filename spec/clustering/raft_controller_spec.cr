@@ -705,7 +705,9 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "ignores a transfer requested in an earlier term", tags: "slow" do
-    with_controllers do |cluster|
+    # A longer election timeout, so a loaded runner doesn't lose the
+    # leadership between the checks
+    with_controllers(election_timeout: 1000) do |cluster|
       cluster.start_all
       leader = cluster.next_leader
       other = cluster.controllers.find! { |c| c != leader }
