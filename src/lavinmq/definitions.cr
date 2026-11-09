@@ -106,6 +106,15 @@ module LavinMQ
             internal = e["internal"].as_bool
             auto_delete = e["auto_delete"].as_bool
             arguments = AMQP::Table.new(e["arguments"].as_h)
+            # 2.11.0-rc exported these as x-delayed-exchange. Import them as
+            # plain x-mqtt-topic, which is how they behaved, instead of
+            # failing the import halfway
+            if DefinitionsStore.delayed_mqtt_topic?(type, arguments)
+              Log.warn { "Importing x-mqtt-topic exchange #{name} in vhost #{v.name} without x-delayed-exchange: it can't be delayed" }
+              type = "x-mqtt-topic"
+              arguments.delete("x-delayed-type")
+              arguments.delete("x-delayed-exchange")
+            end
             v.declare_exchange(name, type, durable, auto_delete, internal, arguments, fsync: false)
           end
         end
