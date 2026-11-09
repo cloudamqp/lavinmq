@@ -699,7 +699,7 @@ module LavinMQ
                 replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
               end
             end
-            close
+            close_store
             break
           end
         end
@@ -897,7 +897,7 @@ module LavinMQ
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close
+        close_store
         return count
       end
       mfile.pos = 4
