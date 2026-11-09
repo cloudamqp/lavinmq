@@ -339,16 +339,38 @@ describe LavinMQ::Persister do
   end
 end
 
+# "src" dead-letters every message to "dst" after 1 ms
+private def dead_lettering_queues(ch)
+  dst = ch.queue("dst")
+  src = ch.queue("src", args: AMQP::Client::Arguments.new({
+    "x-message-ttl"             => 1,
+    "x-dead-letter-exchange"    => "",
+    "x-dead-letter-routing-key" => "dst",
+  }))
+  {src, dst}
+end
+
+# A persister whose syncs can be held, and the directory of a message store
+private def with_held_persister(&)
+  with_datadir do |data_dir|
+    replicator = HeldSyncReplicator.new
+    persister = LavinMQ::Persister.new(data_dir, replicator)
+    msg_dir = File.join(data_dir, "q")
+    Dir.mkdir_p msg_dir
+    begin
+      yield replicator, persister, msg_dir
+    ensure
+      replicator.release
+      persister.close
+    end
+  end
+end
+
 describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "syncs the segments of the moved copies, not the filesystem, before an emptied segment is unlinked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src, _ = dead_lettering_queues(ch)
         # Plain publishes: no confirm requests a sync, only the segment delete can
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
@@ -364,12 +386,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.confirm_select
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src, _ = dead_lettering_queues(ch)
         src.publish_confirm "first"
         dst = s.vhosts["/"].queue("dst")
         wait_for { dst.message_count == 1 }
@@ -383,12 +400,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
   it "keeps readahead on a queue that only gets moved copies" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src, _ = dead_lettering_queues(ch)
         src.publish "x"
         dst = s.vhosts["/"].queue("dst")
         wait_for { dst.message_count == 1 }
@@ -401,12 +413,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     replicator = HeldSyncReplicator.new
     with_amqp_server(replicator: replicator) do |s|
       with_channel(s) do |ch|
-        dst = ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src, dst = dead_lettering_queues(ch)
         replicator.hold
         # The first segment empties after a few of them, and its unlink
         # waits for a sync that can't finish until the followers are released
@@ -430,12 +437,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     LavinMQ::Config.instance.sync = false
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
+        src, _ = dead_lettering_queues(ch)
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
@@ -447,83 +449,53 @@ end
 
 describe LavinMQ::MessageStore, "unlinks of segments that messages were moved out of" do
   it "waits for a sync after the store is loaded again" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir_p msg_dir
-      begin
-        sps = moved_one_and_reloaded(msg_dir, persister) do |store|
-          replicator.hold
-          store
-        end
-        store = sps[:store]
-        sps[:rest].each { |sp| store.delete(sp) }
-        segment = File.join(msg_dir, "msgs.0000000001")
-        File.exists?(segment).should be_true
-        replicator.release
-        wait_for { !File.exists?(segment) }
-        # Copies an earlier process made were never marked dirty
-        persister.last_sync.should_not(be_nil).syncfs.should be_true
-        store.close
-      ensure
-        replicator.release
-        persister.close
-      end
+    with_held_persister do |replicator, persister, msg_dir|
+      store, rest = moved_one_and_reloaded(msg_dir, persister)
+      replicator.hold
+      rest.each { |sp| store.delete(sp) }
+      segment = File.join(msg_dir, "msgs.0000000001")
+      File.exists?(segment).should be_true
+      replicator.release
+      wait_for { !File.exists?(segment) }
+      # Copies an earlier process made were never marked dirty
+      persister.last_sync.should_not(be_nil).syncfs.should be_true
+      store.close
     end
   end
 
   it "deletes a store without waiting for the sync, and the pending unlink then leaves the path alone" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
+    with_held_persister do |replicator, persister, msg_dir|
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      sps = push_and_shift(store)
+      replicator.hold
+      sps.select(&.segment.==(1)).each { |sp| store.delete(sp, moved: true) }
+      segment = File.join(msg_dir, "msgs.0000000001")
+      File.exists?(segment).should be_true
+      store.delete # would wait for the held sync if it waited for the unlinks
+      Dir.exists?(msg_dir).should be_false
+      # A queue declared again with the same name gets the same paths
       Dir.mkdir_p msg_dir
-      begin
-        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-        sps = push_and_shift(store)
-        replicator.hold
-        sps.select(&.segment.==(1)).each { |sp| store.delete(sp, moved: true) }
-        segment = File.join(msg_dir, "msgs.0000000001")
-        File.exists?(segment).should be_true
-        store.delete # would wait for the held sync if it waited for the unlinks
-        Dir.exists?(msg_dir).should be_false
-        # A queue declared again with the same name gets the same paths
-        Dir.mkdir_p msg_dir
-        File.write(segment, "new")
-        replicator.release
-        persister.sync
-        Fiber.yield
-        File.exists?(segment).should be_true
-      ensure
-        replicator.release
-        persister.close
-      end
+      File.write(segment, "new")
+      replicator.release
+      persister.sync
+      Fiber.yield
+      File.exists?(segment).should be_true
     end
   end
 
   it "has the followers delete the pending segments when the store is closed and then deleted" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir_p msg_dir
-      begin
-        store = LavinMQ::MessageStore.new(msg_dir, replicator, persister: persister)
-        sps = push_and_shift(store)
-        replicator.hold
-        sps.select(&.segment.==(1)).each { |sp| store.delete(sp, moved: true) }
-        # As Queue#delete and MQTT::Session#delete do
-        store.close
-        store.delete
-        segment = File.join(msg_dir, "msgs.0000000001")
-        replicator.deleted.should contain segment
-        replicator.deleted.should contain File.join(msg_dir, "acks.0000000001")
-        replicator.deleted.should contain File.join(msg_dir, "meta.0000000001")
-      ensure
-        replicator.release
-        persister.close
-      end
+    with_held_persister do |replicator, persister, msg_dir|
+      store = LavinMQ::MessageStore.new(msg_dir, replicator, persister: persister)
+      sps = push_and_shift(store)
+      replicator.hold
+      sps.select(&.segment.==(1)).each { |sp| store.delete(sp, moved: true) }
+      # As Queue#delete and MQTT::Session#delete do
+      store.close
+      store.delete
+      segment = File.join(msg_dir, "msgs.0000000001")
+      replicator.deleted.should contain segment
+      replicator.deleted.should contain File.join(msg_dir, "acks.0000000001")
+      replicator.deleted.should contain File.join(msg_dir, "meta.0000000001")
     end
   end
 end
@@ -536,14 +508,13 @@ private def push_and_shift(store) : Array(LavinMQ::SegmentPosition)
 end
 
 # Moves one message out of segment 1, then loads the store again
-private def moved_one_and_reloaded(msg_dir, persister, &)
+private def moved_one_and_reloaded(msg_dir, persister)
   store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
   sps = push_and_shift(store)
   first, *rest = sps.select(&.segment.==(1))
   store.delete(first, moved: true)
   store.close
-  store = yield LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-  {store: store, rest: rest}
+  {LavinMQ::MessageStore.new(msg_dir, nil, persister: persister), rest}
 end
 
 # Once held, every wait for the followers waits until released
@@ -622,53 +593,34 @@ end
 
 describe LavinMQ::MessageStore, "segments loaded from disk with acks" do
   it "unlinks them at once when the filesystem was synced since the load" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir_p msg_dir
-      begin
-        sps = moved_one_and_reloaded(msg_dir, persister) { |store| store }
-        store = sps[:store]
-        persister.sync
-        replicator.hold # an unlink that waited for a sync would wait for this
-        sps[:rest].each { |sp| store.delete(sp) }
-        File.exists?(File.join(msg_dir, "msgs.0000000001")).should be_false
-        store.close
-      ensure
-        replicator.release
-        persister.close
-      end
+    with_held_persister do |replicator, persister, msg_dir|
+      store, rest = moved_one_and_reloaded(msg_dir, persister)
+      persister.sync
+      replicator.hold # an unlink that waited for a sync would wait for this
+      rest.each { |sp| store.delete(sp) }
+      File.exists?(File.join(msg_dir, "msgs.0000000001")).should be_false
+      store.close
     end
   end
 
   it "doesn't bring purged messages back when the store is closed before the sync" do
-    with_datadir do |data_dir|
-      replicator = HeldSyncReplicator.new
-      persister = LavinMQ::Persister.new(data_dir, replicator)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir_p msg_dir
-      begin
-        # 3 segments of 3 messages, one acked in the second
-        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-        sps = Array(LavinMQ::SegmentPosition).new(9) { store.push(LavinMQ::Message.new("", "rk", body)) }
-        store.delete(sps.find!(&.segment.==(2)))
-        store.close
+    with_held_persister do |replicator, persister, msg_dir|
+      # 3 segments of 3 messages, one acked in the second
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+      sps = Array(LavinMQ::SegmentPosition).new(9) { store.push(LavinMQ::Message.new("", "rk", body)) }
+      store.delete(sps.find!(&.segment.==(2)))
+      store.close
 
-        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-        store.size.should eq 8
-        replicator.hold
-        store.purge_all
-        store.close
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      store.size.should eq 8
+      replicator.hold
+      store.purge_all
+      store.close
 
-        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-        store.size.should eq 0
-        store.close
-      ensure
-        replicator.release
-        persister.close
-      end
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      store.size.should eq 0
+      store.close
     end
   end
 end

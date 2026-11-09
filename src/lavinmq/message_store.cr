@@ -40,8 +40,6 @@ module LavinMQ
     # Segments whose unlink waits for a sync, by segment id, see #unlink_segment
     @pending_unlinks = Hash(UInt32, {MFile, MFile?}).new
     @pending_unlinks_lock = Mutex.new
-    # Pending unlinks a close took and left on disk, for a delete that follows
-    @left_on_close = Array({MFile, MFile?}).new
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -283,7 +281,7 @@ module LavinMQ
         # leaves the segment on disk, where its messages would come back.
         # So its messages are acked one by one below, as in @rfile and
         # @wfile, and the segment is unlinked once they all are.
-        next false if unlink_waits_for_sync?(seg_id)
+        next false unless unlink_wait(seg_id).none?
 
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
@@ -323,10 +321,11 @@ module LavinMQ
       @closed = true
       @empty.close
       # Unlinked now, as all other segments, and not by their fibers later,
-      # when the files may belong to a queue declared with the same name.
-      # Queue#delete closes the store first, which takes them.
-      take_pending_unlinks.concat(@left_on_close).each { |segment, acks| unlink_now(segment, acks) }
-      @left_on_close.clear
+      # when the files may belong to a queue declared with the same name
+      @pending_unlinks_lock.synchronize do
+        @pending_unlinks.each_value { |segment, acks| unlink_now(segment, acks) }
+        @pending_unlinks.clear
+      end
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
@@ -344,32 +343,37 @@ module LavinMQ
     # of its own, so the queue's publishers and consumers don't wait for the
     # sync while the queue's lock is held. Plain acks unlink at once.
     private def unlink_segment(seg : UInt32, segment : MFile, acks : MFile?) : Nil
-      persister = @persister
-      loaded = persister ? loaded_unsynced?(seg, persister) : false
-      moved = @moved_out.delete(seg)
+      wait = unlink_wait(seg)
+      @moved_out.delete(seg)
       @loaded_with_acks.delete(seg)
-      if (moved || loaded) && persister && Config.instance.sync?
-        @pending_unlinks_lock.synchronize { @pending_unlinks[seg] = {segment, acks} }
-        spawn(name: "unlink segment after sync") do
-          loaded ? persister.sync : persister.flush
-          # Unless the store was closed or deleted meanwhile, see #take_pending_unlinks
-          @pending_unlinks_lock.synchronize do
-            if pending = @pending_unlinks.delete(seg)
-              unlink_now(*pending)
-            end
+      persister = @persister
+      return unlink_now(segment, acks) if wait.none? || persister.nil?
+      @pending_unlinks_lock.synchronize { @pending_unlinks[seg] = {segment, acks} }
+      spawn(name: "unlink segment after sync") do
+        next if @closed # left to #close or #delete, nothing to sync for
+        wait.syncfs? ? persister.sync : persister.flush
+        @pending_unlinks_lock.synchronize do
+          # A closed store leaves the files on disk, see #close
+          if !@closed && (pending = @pending_unlinks.delete(seg))
+            unlink_now(*pending)
           end
-        rescue ex
-          @log.error(exception: ex) { "Failed to unlink #{segment.path}" }
         end
-      else
-        unlink_now(segment, acks)
+      rescue ex
+        @log.error(exception: ex) { "Failed to unlink segment #{seg} in #{@msg_dir}" }
       end
     end
 
-    # Whether #unlink_segment would wait for a sync before it unlinks *seg*
-    private def unlink_waits_for_sync?(seg : UInt32) : Bool
-      return false unless (persister = @persister) && Config.instance.sync?
-      @moved_out.includes?(seg) || loaded_unsynced?(seg, persister)
+    private enum UnlinkWait
+      None   # unlink at once
+      Flush  # for the persister to sync the marked files
+      Syncfs # for the persister to sync the filesystem
+    end
+
+    # What the unlink of *seg* has to wait for, see #unlink_segment
+    private def unlink_wait(seg : UInt32) : UnlinkWait
+      return UnlinkWait::None unless (persister = @persister) && Config.instance.sync?
+      return UnlinkWait::Syncfs if loaded_unsynced?(seg, persister)
+      @moved_out.includes?(seg) ? UnlinkWait::Flush : UnlinkWait::None
     end
 
     # Whether *seg* was loaded from disk with acks and the filesystem hasn't
@@ -381,17 +385,6 @@ module LavinMQ
         return false
       end
       @loaded_with_acks.includes?(seg)
-    end
-
-    # Takes the segments whose unlink waits for a sync away from their fibers,
-    # when the store is closed or deleted. Doesn't wait for the sync, which a
-    # delete under the definitions lock mustn't.
-    private def take_pending_unlinks : Array({MFile, MFile?})
-      @pending_unlinks_lock.synchronize do
-        pending = @pending_unlinks.values
-        @pending_unlinks.clear
-        pending
-      end
     end
 
     # The segment first: a crash in between leaves an ack file without its
@@ -421,33 +414,24 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
-      # Left on disk, so a store that loads them again, or the vhost's
-      # delete, takes care of them
-      take_pending_unlinks.each do |segment, acks|
-        if replicator = @replicator
-          replicator.register_file segment.path
-          acks.try { |a| replicator.register_file a.path }
+      # Segments whose unlink waits for a sync are left on disk, for a store
+      # that loads them again, a delete of this one, or the vhost's delete
+      @pending_unlinks_lock.synchronize do
+        @pending_unlinks.each_value do |segment, acks|
+          close_file(segment)
+          close_file(acks) if acks
         end
-        segment.close
-        acks.try &.close
-        @left_on_close << {segment, acks}
       end
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
       # the delivery releases it (see Envelope#lease)
-      if replicator = @replicator
-        @segments.each_value do |segment|
-          replicator.register_file segment.path
-          segment.close
-        end
-        @acks.each_value do |ackfile|
-          replicator.register_file ackfile.path
-          ackfile.close
-        end
-      else
-        @segments.each_value &.close
-        @acks.each_value &.close
-      end
+      @segments.each_value { |segment| close_file(segment) }
+      @acks.each_value { |ackfile| close_file(ackfile) }
+    end
+
+    private def close_file(file : MFile) : Nil
+      @replicator.try &.register_file file.path
+      file.close
     end
 
     # Called without the queue's lock (HTTP API, stats), so @size and

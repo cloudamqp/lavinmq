@@ -76,11 +76,10 @@ module LavinMQ
     {% end %}
 
     @data_dir_fd : Int32 = -1
-    # Set by a drain that skipped the sync because sync was disabled. Only
-    # the drain touches it, on the publish confirm loop's thread.
-    @skipped_sync = false
-    # Set by #mark_dirty_lazily while sync is disabled
-    @lazy_mark_skipped = Atomic(Bool).new(false)
+    # Set while sync is disabled, by a drain that skipped the sync and by
+    # #mark_dirty_lazily, which doesn't keep the file: the first drain after
+    # sync is enabled again syncs everything
+    @skipped_sync = Atomic(Bool).new(false)
     # Syncs of the whole filesystem that drains have started and finished,
     # see #synced_since?. Written by the drain only.
     @syncfs_started = Atomic(UInt64).new(0u64)
@@ -131,7 +130,7 @@ module LavinMQ
       # Nothing flushes while sync is disabled, so the files would only pile
       # up. The first drain after it's enabled again syncs everything instead.
       unless Config.instance.sync?
-        @lazy_mark_skipped.set(true, :relaxed)
+        @skipped_sync.set(true, :relaxed)
         return
       end
       return if mfile.mark_needs_lazy_msync!
@@ -185,29 +184,26 @@ module LavinMQ
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
     def sync : Nil
-      waiter = ::Channel(Nil).new
-      @pending.lock &.waiters.push(waiter)
-      begin
-        @publish_confirm_requested.try_send true
-      rescue ::Channel::ClosedError
-        # The loop has exited (shutdown), and its final drain may have run
-        # before our waiter was added. Its fd may be closed by now.
-        File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
-        return
-      end
-      waiter.receive?
+      wait_for_drain(&.waiters)
     end
 
     # Block until everything marked dirty so far is durable, on the leader and
     # on the in-sync followers. Like #sync, but the drain syncs only the
     # marked files, as for a confirm, not the whole filesystem.
     def flush : Nil
+      wait_for_drain(&.flush_waiters)
+    end
+
+    # Queues a waiter in the list the block picks, and blocks until the drain
+    # that takes it is done
+    private def wait_for_drain(& : Batch -> Array(::Channel(Nil))) : Nil
       waiter = ::Channel(Nil).new
-      @pending.lock &.flush_waiters.push(waiter)
+      @pending.lock { |batch| (yield batch).push(waiter) }
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
-        # The loop has exited (shutdown), see #sync
+        # The loop has exited (shutdown), and its final drain may have run
+        # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
@@ -259,9 +255,7 @@ module LavinMQ
       sync = Config.instance.sync?
       # A drain while sync was disabled cleared the marks without syncing, so
       # the first drain after it's enabled again syncs everything
-      # Taken on its own, so one sync of everything clears both reasons for it
-      lazy_mark_skipped = sync && @lazy_mark_skipped.swap(false, :relaxed)
-      syncfs = (sync && @skipped_sync) || lazy_mark_skipped ||
+      syncfs = (sync && @skipped_sync.swap(false, :relaxed)) ||
                batch.syncfs? || batch.lazy_syncfs? || !batch.waiters.empty? ||
                files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
@@ -292,7 +286,7 @@ module LavinMQ
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
         exit 1
       end
-      @skipped_sync = !sync
+      @skipped_sync.set(true, :relaxed) unless sync
       {% unless flag?(:release) %}
         @last_sync = SyncRecord.new(syncfs, paths || Array(String).new)
       {% end %}
