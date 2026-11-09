@@ -663,6 +663,10 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
+    private def empty_segment_to_drop?(path : String) : Bool
+      File.size(path).zero?
+    end
+
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
@@ -677,7 +681,8 @@ module LavinMQ
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         path = File.join(@msg_dir, filename)
-        file = idx == last_idx ? open_last_segment(path) : open_segment(path)
+        # An empty file can't be mapped without a capacity, a crash can leave one
+        file = idx == last_idx || empty_segment_to_drop?(path) ? open_last_segment(path) : open_segment(path)
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 

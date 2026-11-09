@@ -38,6 +38,11 @@ module LavinMQ::AMQP
       @consumer_offsets.delete
     end
 
+    # Dropping a segment would shift the offsets of the segments after it
+    private def empty_segment_to_drop?(path : String) : Bool
+      false
+    end
+
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value

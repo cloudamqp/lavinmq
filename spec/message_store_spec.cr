@@ -454,6 +454,27 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "loads a store whose segments before the last one are empty files" do
+    with_store do |store, dir|
+      body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+      3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+      store.@segments.size.should eq 3
+      store.close
+      # A crash can leave a segment created but not yet truncated to its size
+      File.write(File.join(dir, "msgs.0000000001"), "")
+      File.write(File.join(dir, "msgs.0000000002"), "")
+
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.closed.should be_false
+      store.@segments.has_key?(2u32).should be_false
+      File.exists?(File.join(dir, "msgs.0000000002")).should be_false
+      store.size.should eq 1
+      env = store.shift?.should_not be_nil
+      env.message.bodysize.should eq body.bytesize
+      store.close
+    end
+  end
+
   it "advances @rfile when delete_unused_segments removes the rfile's segment" do
     mktmpdir do |dir|
       msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
