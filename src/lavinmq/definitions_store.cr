@@ -181,9 +181,11 @@ module LavinMQ
         case f
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
-          refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
           e = make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+          # Permission first, as #refuse_unreadable_mqtt_exchange reports it
+          # also for a delayed x-mqtt-topic exchange
           refuse_unreadable_mqtt_exchange(e, user)
+          refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
           @exchanges[f.exchange_name] = e
           @vhost.apply_policies([e] of Exchange) unless loading
           store_definition(f, fsync: fsync) if !loading && f.durable
