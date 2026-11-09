@@ -275,6 +275,9 @@ module LavinMQ
       @[IniOpt(section: "amqp")]
       property heartbeat = 300_u16 # second
 
+      # Not in the config file. Grace on top of the heartbeat timeout before a silent client is disconnected
+      property heartbeat_timeout_grace : Time::Span = 5.seconds
+
       @[IniOpt(section: "amqp")]
       property frame_max = 131_072_u32 # bytes
 
@@ -327,6 +330,9 @@ module LavinMQ
       # A client that doesn't read for this long is disconnected
       @[IniOpt(section: "main")]
       property tcp_send_timeout : Int32 = 15 # seconds
+
+      # Not in the config file. How long an HTTP API close waits for the Close frame to reach the client
+      property http_api_force_close_timeout : Time::Span = 5.seconds
 
       @[IniOpt(section: "amqp")]
       property max_message_size = 128 * 1024**2

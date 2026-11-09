@@ -261,7 +261,7 @@ module LavinMQ
 
       private def send_heartbeat
         now = RoughTime.instant
-        if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
+        if @last_recv_frame + @heartbeat_timeout.seconds + Config.instance.heartbeat_timeout_grace < now
           @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }
           false
         else
