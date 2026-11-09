@@ -1017,6 +1017,54 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "unmaps the segments it opened when loading raises" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+        # MFile can't open a directory, so loading fails after segment 1 is mapped
+        Dir.mkdir(File.join(data_dir, "msgs.0000000002"))
+        count_before = MFile.mmap_count
+        expect_raises(File::Error) { LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil) }
+        MFile.mmap_count.should eq count_before
+      end
+    end
+
+    # Closing the store runs StreamMessageStore#close, which closes state
+    # that is only set up after loading, and crashed the process
+    it "closes instead of crashing when a segment has an unsupported schema version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x09\x00\x00\x00")
+        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+      end
+    end
+
+    it "closes instead of crashing when a record in a segment can't be decoded" do
+      with_datadir do |data_dir|
+        io = IO::Memory.new
+        io.write_bytes LavinMQ::Schema::VERSION
+        io.write_bytes 1_i64       # timestamp
+        io.write_byte 0_u8         # exchange name
+        io.write_byte 0_u8         # routing key
+        io.write_bytes 0_u16       # property flags
+        io.write_bytes UInt64::MAX # body size, overflows when skipped
+        File.write(File.join(data_dir, "msgs.0000000001"), io.to_slice)
+        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+      end
+    end
+
+    it "starts with a stream queue whose segment is corrupt, and closes that queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        s.vhosts["/"].queue("corrupt-stream").closed?.should be_true
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
+      end
+    end
+
     it "compacts consumer tag file when full" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
