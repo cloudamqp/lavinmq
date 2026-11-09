@@ -41,7 +41,7 @@ module MqttSpecs
             ping(pub_io)
             pingpong(pub_io)
 
-            read_packet(sub_io).should be_nil
+            expect_no_packet(sub_io)
           end
         end
       end
@@ -81,7 +81,7 @@ module MqttSpecs
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "durable", clean_session: false,
             username: "guest", password: "guest".to_slice)
-          read_packet(sub_io).should be_nil
+          expect_no_packet(sub_io)
         end
       end
     end

@@ -26,7 +26,8 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = false
     socket.buffer_size = 16384
-    socket.read_timeout = 300.milliseconds
+    # Only caps expected packets; use expect_no_packet to assert that none arrive
+    socket.read_timeout = 10.seconds
     socket
   end
 
@@ -150,6 +151,15 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io)
   rescue IO::TimeoutError
     nil
+  end
+
+  def expect_no_packet(io : MQTT::Protocol::IO, within = 300.milliseconds, file = __FILE__, line = __LINE__) : Nil
+    socket = io.io.as(TCPSocket)
+    timeout = socket.read_timeout
+    socket.read_timeout = within
+    read_packet(io).should be_nil, file: file, line: line
+  ensure
+    socket.try &.read_timeout = timeout
   end
 
   # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
