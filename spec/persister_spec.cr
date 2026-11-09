@@ -206,6 +206,52 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs a lazily marked file only in a drain that a flush waits for" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      lazy = MFile.new(File.join(data_dir, "lazy"), 4096)
+      confirmed = MFile.new(File.join(data_dir, "confirmed"), 4096)
+      begin
+        lazy.write "x".to_slice
+        persister.mark_dirty_lazily(lazy)
+        confirmed.write "x".to_slice
+        persister.mark_dirty(confirmed)
+        receiver = ConfirmReceiver.new
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        paths = persister.last_sync.should_not(be_nil).paths
+        paths.should contain confirmed.path
+        paths.should_not contain lazy.path
+        persister.flush
+        persister.last_sync.should_not(be_nil).paths.should contain lazy.path
+      ensure
+        persister.close
+        lazy.close
+        confirmed.close
+      end
+    end
+  end
+
+  it "syncs a lazily marked file in a confirm drain once a confirmed write marks it too" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      file = MFile.new(File.join(data_dir, "segment"), 4096)
+      begin
+        file.write "moved".to_slice
+        persister.mark_dirty_lazily(file)
+        file.write "confirmed".to_slice
+        persister.mark_dirty(file)
+        receiver = ConfirmReceiver.new
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        persister.last_sync.should_not(be_nil).paths.should contain file.path
+      ensure
+        persister.close
+        file.close
+      end
+    end
+  end
+
   it "syncs the filesystem on the first drain after sync is enabled again" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -281,6 +327,26 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         sync = last_sync(s)
         sync.syncfs.should be_false
         sync.paths.should contain File.join(queue_dir(s, "dst"), "msgs.0000000001")
+      end
+    end
+  end
+
+  it "doesn't sync the segments of moved copies on a confirm" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        src.publish_confirm "first"
+        dst = s.vhosts["/"].queue("dst")
+        wait_for { dst.message_count == 1 }
+        # The copy of the first is written now, a confirm must not sync it
+        src.publish_confirm "second"
+        last_sync(s).paths.should_not contain File.join(queue_dir(s, "dst"), "msgs.0000000001")
       end
     end
   end

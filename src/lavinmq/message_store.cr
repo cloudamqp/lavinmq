@@ -475,10 +475,14 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      # A moved copy keeps the segment's readahead, see #readahead_for_writes:
-      # the segment is synced once per emptied source segment, not per confirm
-      if (msg.needs_sync? || msg.moved_copy?) && (persister = @persister)
-        persister.mark_dirty(wfile)
+      # A moved copy is synced once per emptied source segment, not by every
+      # confirm, and keeps the segment's readahead, see #readahead_for_writes
+      if persister = @persister
+        if msg.needs_sync?
+          persister.mark_dirty(wfile)
+        elsif msg.moved_copy?
+          persister.mark_dirty_lazily(wfile)
+        end
       end
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
       @segment_msg_count[wfile_id] += 1

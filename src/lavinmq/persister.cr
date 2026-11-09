@@ -39,6 +39,9 @@ module LavinMQ
       getter waiters = Array(::Channel(Nil)).new
       # Callers of #flush, released by the drain that synced the marked files
       getter flush_waiters = Array(::Channel(Nil)).new
+      # Files marked by #mark_dirty_lazily, synced only by a drain with
+      # flush waiters and carried over to the next batch by any other
+      getter lazy_files = Array(MFile).new
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty? || !flush_waiters.empty? || !files.empty? || !paths.empty?
@@ -99,6 +102,16 @@ module LavinMQ
     def mark_dirty(mfile : MFile) : Nil
       return if mfile.mark_needs_msync!
       @pending.lock &.files.push(mfile)
+    end
+
+    # Like mark_dirty(MFile), but only a drain that a #flush waits for syncs
+    # the file, not one for confirms. For copies of messages the broker moves,
+    # whose segments only have to be durable before the segment they left is
+    # unlinked: syncing them on every confirm would write the same pages
+    # again and again.
+    def mark_dirty_lazily(mfile : MFile) : Nil
+      return if mfile.mark_needs_lazy_msync!
+      @pending.lock &.lazy_files.push(mfile)
     end
 
     # Like mark_dirty(MFile), for regular (non-mmapped) files and for
@@ -181,7 +194,12 @@ module LavinMQ
       @pending.replace do |current|
         if current.drainable?
           batch = current
-          Batch.new
+          next_batch = Batch.new
+          if current.flush_waiters.empty?
+            next_batch.lazy_files.concat(current.lazy_files)
+            current.lazy_files.clear
+          end
+          next_batch
         else
           current
         end
@@ -191,14 +209,16 @@ module LavinMQ
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
       batch.files.each &.clear_needs_msync!
+      batch.lazy_files.each &.clear_needs_lazy_msync!
+      files = batch.lazy_files.empty? ? batch.files : (batch.files + batch.lazy_files).uniq!
       dirs = Set(String).new
-      batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
+      files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       sync = Config.instance.sync?
       # A drain while sync was disabled cleared the marks without syncing, so
       # the first drain after it's enabled again syncs everything
       syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
-               batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
-      paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
+               files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
+      paths = files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
@@ -216,7 +236,7 @@ module LavinMQ
       begin
         if sync
           if paths
-            syncfs = fsync_paths(batch.files, batch.paths, dirs)
+            syncfs = fsync_paths(files, batch.paths, dirs)
           else
             syncfs_data_dir
           end

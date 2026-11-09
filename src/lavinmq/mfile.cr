@@ -47,6 +47,7 @@ class MFile < IO
   # Set on the first write after a sync so the Persister registers the file
   # for msync at most once per sync cycle
   @needs_msync = Atomic(Bool).new(false)
+  @needs_lazy_msync = Atomic(Bool).new(false)
   # Whether open created the inode, so its directory entry needs an fsync too
   @created = Atomic(Bool).new(false)
   # Held while msyncing and while unmapping (close/truncate), as msync runs on
@@ -281,6 +282,17 @@ class MFile < IO
 
   def clear_needs_msync! : Nil
     @needs_msync.set(false, :release)
+  end
+
+  # Like #mark_needs_msync!, for Persister#mark_dirty_lazily. A flag of its
+  # own, so a lazy mark doesn't keep a later write that a confirm depends on
+  # from being marked.
+  def mark_needs_lazy_msync! : Bool
+    @needs_lazy_msync.swap(true, :acquire_release)
+  end
+
+  def clear_needs_lazy_msync! : Nil
+    @needs_lazy_msync.set(false, :release)
   end
 
   # Returns true once if this MFile created the file on disk
