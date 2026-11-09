@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Since 2.11.0-rc.1, a connection that the broker closed while it held a pooled socket read buffer, such as after a failed AMQP login, didn't return the buffer to the pool. The `socket_buffer_pool_*` metrics then counted it as still in use, and the pool allocated a new buffer instead of reusing one. The buffer is now returned when the connection closes [#2692](https://github.com/cloudamqp/lavinmq/pull/2692)
 - Since 2.11.0-rc.1, the management UI pages with charts (overview, nodes, queue, stream, exchange, connection, channel) showed no charts or counters and stopped refreshing when the browser reported an invalid language tag, such as `en-US@posix` from Chromium on Linux started without `LANG`. Such a tag now falls back to `en-US` [#2661](https://github.com/cloudamqp/lavinmq/pull/2661)
 - Binding an exchange to or from `mqtt.default`, or unbinding an exchange from `mqtt.default` as source, closed the whole connection with `INTERNAL_ERROR`. Now only the channel is closed, with `ACCESS_REFUSED` [#2672](https://github.com/cloudamqp/lavinmq/pull/2672)
 - A definitions export wrote an exchange whose `x-delayed-exchange` argument was set but not a boolean, e.g. the string `"true"`, as a delayed exchange, and the management UI showed it as delayed. The exchange wasn't delayed, but importing the export made it delayed. It's now exported and shown as its own type [#2669](https://github.com/cloudamqp/lavinmq/pull/2669)
