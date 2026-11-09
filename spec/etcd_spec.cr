@@ -77,7 +77,9 @@ describe LavinMQ::Etcd, tags: "etcd" do
       rescue SpecExit
         # expect this when etcd nodes are terminated
       end
-      lease = etcd.elect(key, "bar", 1)
+      # etcd rounded TTLs below 2s up to 2s with its default election timeout,
+      # keep that margin for keepalives now that the spec cluster's is shorter
+      lease = etcd.elect(key, "bar", 2)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
         etcd.elect(key, "bar2", 1)
@@ -129,7 +131,9 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 10)
+      # Short enough that the next keepalive, sent after ttl/3, finds the lease
+      # revoked soon, long enough that it can't just expire before that
+      lease = etcd.elect(key, "bar", ttl: 3)
 
       etcd.lease_revoke(lease.id)
 
@@ -147,7 +151,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 1)
+      lease = etcd.elect(key, "bar", ttl: 2) # see "can elect leader"
       etcds.sample.terminate(graceful: false)
 
       lease.wait(6.seconds) # should not lose the leadership
@@ -308,15 +312,34 @@ class EtcdCluster
 
   def start : Array(Process)
     ensure_etcd_in_path!
+    # One member at a time: a starting member asks its peers whether the cluster
+    # is already bootstrapped, and a peer that has bound its peer port but isn't
+    # serving it yet stalls that check for etcd's 1s bootstrap timeout.
     @ports.map_with_index do |p, i|
-      start_process(p, i)
+      start_process(p, i).tap { wait_until_serving_peers(p) }
     end
+  end
+
+  # The peer port serves as soon as the member has started, the client port
+  # only once the cluster has a quorum
+  private def wait_until_serving_peers(port)
+    client = HTTP::Client.new("127.0.0.1", 24000 + port)
+    client.read_timeout = 1.second
+    100.times do
+      sleep 20.milliseconds
+      client.get("/version")
+      break
+    rescue IO::Error
+      client.close
+    end
+  ensure
+    client.try &.close
   end
 
   def start_process(port, node_number)
     initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
     FileUtils.rm_rf "/tmp/l#{node_number}.etcd"
-    Process.new("etcd", {
+    args = [
       "--name=l#{node_number}",
       "--data-dir=/tmp/l#{node_number}.etcd",
       "--listen-peer-urls=http://127.0.0.1:24#{port}",
@@ -327,7 +350,9 @@ class EtcdCluster
       "--logger=zap",
       "--log-level=error",
       "--unsafe-no-fsync=true",
-    }, output: STDOUT, error: STDERR)
+    ]
+    args.concat(ETCD_SPEC_TIMING_FLAGS) if @ports.size == 1
+    Process.new("etcd", args, output: STDOUT, error: STDERR)
   end
 
   def stop(etcds)

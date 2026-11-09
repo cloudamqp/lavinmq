@@ -192,9 +192,9 @@ describe LavinMQ::Clustering::Client do
   end
 end
 
-describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
-  add_etcd_around_each
-
+# Examples that run a real etcd are grouped further down, so the others don't
+# pay for starting one
+describe LavinMQ::Clustering::Client, tags: "slow" do
   it "can stream changes" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
@@ -408,6 +408,10 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       end
     end
   end
+end
+
+describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
+  add_etcd_around_each
 
   it "will failover", tags: "slow" do
     config1 = LavinMQ::Config.new
@@ -437,7 +441,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     rescue SpecExit
       # expect this when etcd nodes are terminated
     end
-    sleep 0.5.seconds
+    # No need to wait for the observer: it starts with the current leader
     spawn(name: "failover1") do
       controller1.run { }
     rescue SpecExit
@@ -446,7 +450,6 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       controller2.run { }
     rescue SpecExit
     end
-    sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
@@ -486,7 +489,6 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       end
     rescue SpecExit
     end
-    sleep 0.1.seconds
     spawn(name: "stepdown ctrl1") do
       controller1.run { }
     rescue SpecExit
@@ -500,7 +502,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     rescue ex : SpecExit
       stepped_down.send ex.code
     end
-    sleep 0.5.seconds # let controller2 queue its election candidacy
+    # Wait for controller2 to queue its election candidacy: a campaign key
+    # named after its lease, which is granted with the clustering id
+    wait_for { etcd.get("lavinmq/leader/#{controller2.id.to_s(16)}") == config2.clustering_advertised_uri }
 
     # controller2 falls out of the ISR (e.g. lagging replication) while its
     # candidacy stays queued; the leader then dies.
@@ -664,7 +668,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       end
     end
   end
+end
 
+describe LavinMQ::Clustering::Client, tags: "slow" do
   it "won't deadlock under high load when a follower disconnects [#926]" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
