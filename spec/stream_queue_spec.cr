@@ -1790,7 +1790,10 @@ describe LavinMQ::AMQP::Stream do
             store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
             first, second, third = store.@segments.values
             third.should eq store.@wfile
-            store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+            vm_flags(first.path).should contain "rr"
+            vm_flags(second.path).should contain "rr"
+            # Large confirmed messages keep the write segment's readahead
+            vm_flags(third.path).should_not contain "rr"
 
             received = Channel(Nil).new(3)
             ch.prefetch 1
@@ -1802,7 +1805,7 @@ describe LavinMQ::AMQP::Stream do
             vm_flags(first.path).should contain "rr" # no read before it to go by
             vm_flags(second.path).should_not contain "rr"
             vm_flags(second.path).should_not contain "sr"
-            vm_flags(third.path).should contain "rr" # the write segment
+            vm_flags(third.path).should_not contain "rr" # the write segment, see above
           end
         end
       end
