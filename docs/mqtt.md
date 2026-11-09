@@ -114,6 +114,7 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 
 - The exchange is always internal, so AMQP clients cannot publish into it
 - It only routes MQTT publishes. A message dead-lettered into it, as into `mqtt.default`, is dropped, and the queue logs a warning
+- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, a definitions import containing it is refused as a whole, and a `delayed-message` policy has no effect
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
 - An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to one needs read permission on the exchange and on `mqtt.default`, and write permission on the queue. A shovel with a local source needs the same read permissions from the user who creates it. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read permission on `mqtt.default` gives all MQTT topics in the vhost through an `x-mqtt-topic` binding, whatever topics the user's topic permissions allow
 - [Retained messages](#retained-messages) are not replayed when a binding is created

@@ -598,6 +598,91 @@ module MqttSpecs
       end
     end
 
+    # The exchange only routes MQTT publishes, which can't carry an x-delay,
+    # so a delayed x-mqtt-topic exchange would only look delayed
+    it "refuses to declare a delayed exchange over AMQP" do
+      with_server do |server|
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+          end
+        end
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-delayed-message", args: AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"}))
+          end
+        end
+        server.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    it "refuses to declare an exchange with any x-delayed-exchange value but false" do
+      with_server do |server|
+        ["true", 1].each do |value|
+          with_channel(server) do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+              ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => value}))
+            end
+          end
+        end
+        with_channel(server) do |ch|
+          ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => false}))
+        end
+        server.vhosts["/"].exchange?("xmqtt").should_not be_nil
+      end
+    end
+
+    it "refuses to declare a delayed exchange over the HTTP API" do
+      with_http_server do |http, s|
+        body = %({"type": "x-mqtt-topic", "durable": true, "arguments": {"x-delayed-exchange": true}})
+        response = http.put("/api/exchanges/%2f/xmqtt", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    delayed_definitions = <<-JSON
+      {
+        "queues": [{"name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}}],
+        "exchanges": [{"name": "xmqtt", "vhost": "/", "type": "x-delayed-exchange", "durable": true,
+                       "auto_delete": false, "internal": true, "arguments": {"x-delayed-type": "x-mqtt-topic"}}]
+      }
+      JSON
+
+    it "refuses to import a delayed exchange from definitions and imports nothing" do
+      with_http_server do |http, s|
+        response = http.post("/api/definitions", body: delayed_definitions)
+        response.status_code.should eq 400
+        response.body.should contain "can't be delayed"
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
+      end
+    end
+
+    it "refuses to import a delayed exchange into a vhost and imports nothing" do
+      with_http_server do |http, s|
+        response = http.post("/api/definitions/%2f", body: delayed_definitions)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
+      end
+    end
+
+    it "refuses to load a delayed exchange from a definitions file" do
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, delayed_definitions)
+      begin
+        with_amqp_server do |s|
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be delayed/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+          s.vhosts["/"].exchange?("xmqtt").should be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
