@@ -968,7 +968,10 @@ module LavinMQ::AMQP
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
-      @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
+      # Closed outside @retry_queue_lock, as in #delete: the retry queue's close
+      # waits for a release in flight, which can need the definitions lock.
+      # @closed keeps a new retry queue from being created meanwhile.
+      @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.close
       Fiber.yield
       @log.debug { "Closed" }
       true
