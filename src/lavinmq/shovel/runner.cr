@@ -33,7 +33,8 @@ module LavinMQ
       getter name, vhost
 
       def initialize(@source : Source, @destination : Destination,
-                     @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
+                     @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY,
+                     @delivery_backoff : Time::Span = DEFAULT_DELIVERY_BACKOFF)
         filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
         @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
@@ -151,7 +152,7 @@ module LavinMQ
         now = monotonic_ns
         return if now < @backoff_deadline.get
         failures = @delivery_failures.add(1) + 1
-        @backoff_deadline.set(now + self.class.delivery_backoff(failures).total_nanoseconds.to_i64)
+        @backoff_deadline.set(now + self.class.delivery_backoff(failures, @delivery_backoff).total_nanoseconds.to_i64)
       end
 
       private def clear_backoff
@@ -185,11 +186,11 @@ module LavinMQ
       end
 
       # Backoff before the next delivery attempt after `failures` consecutive
-      # transient failures: 0.5s, 1s, 2s, 4s, … doubling, capped at
-      # MAX_DELIVERY_DELAY, then holding there.
-      def self.delivery_backoff(failures : Int32) : Time::Span
+      # transient failures: `base` (0.5s by default), then doubling (1s, 2s,
+      # 4s, …), capped at MAX_DELIVERY_DELAY, then holding there.
+      def self.delivery_backoff(failures : Int32, base : Time::Span = DEFAULT_DELIVERY_BACKOFF) : Time::Span
         return 0.seconds if failures <= 0
-        secs = Math.min(MAX_DELIVERY_DELAY.to_f, 0.5 * 2.0 ** Math.min(failures - 1, 6))
+        secs = Math.min(MAX_DELIVERY_DELAY.to_f, base.total_seconds * 2.0 ** Math.min(failures - 1, 6))
         secs.seconds
       end
 

@@ -116,7 +116,9 @@ describe LavinMQ::Persister do
 
   it "doesn't sync the ack files consumers append to" do
     with_amqp_server do |s|
-      with_channel(s) do |ch|
+      # Each get follows an ack, which the server doesn't answer; with Nagle on,
+      # the get would wait for the server's delayed ACK (~40ms) every time.
+      with_channel(s, tcp: AMQP::Client::TCPConfig.new(nodelay: true)) do |ch|
         q = ch.queue("acked")
         10.times { |i| q.publish "m#{i}" }
         10.times do
