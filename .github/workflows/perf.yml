@@ -6,6 +6,7 @@ on:
       - 'src/**'
       - 'shard.*'
       - 'extras/perf_compare.sh'
+      - 'extras/perf_scenarios.json'
       - '.github/workflows/perf.yml'
   # Only builds and caches the base binaries, so PRs against main can reuse them
   push:
@@ -16,7 +17,9 @@ on:
       - 'src/**'
       - 'shard.*'
       - 'extras/perf_compare.sh'
+      - 'extras/perf_scenarios.json'
       - '.github/workflows/perf.yml'
+  # Runs the default scenarios in extras/perf_scenarios.json, without planning
   workflow_dispatch:
     inputs:
       base_ref:
@@ -38,11 +41,145 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Claude reads the diff and decides whether it can affect throughput, and if
+  # so which scenarios exercise the changed code. A failed plan fails the run.
+  plan:
+    name: Performance review plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      skip: ${{ steps.validate.outputs.skip }}
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Require API key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not available (PRs from forks don't get secrets). A maintainer has to run the performance check."
+            exit 1
+          fi
+
+      # The workflow token instead of the Claude app's OIDC token exchange,
+      # which refuses to run when this file differs from the default branch
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are planning a performance regression check for ${{ github.repository }} PR #${{ env.PR }}
+            at head ${{ github.event.pull_request.head.sha }} (checked out). Read AGENTS.md first, then the diff
+            with `gh pr diff ${{ env.PR }}`, and the code around the changes. Don't build or run anything.
+
+            The check builds the PR's base and head in release mode and runs each scenario with
+            `lavinmqperf <protocol> throughput <args>` against both brokers in interleaved rounds on one
+            machine. Besides publish and consume rates it measures the broker's peak memory, the bytes it
+            writes per published message (from /proc/PID/io and the disk devices), and HTTP API
+            requests/s. A scenario can run background lavinmqperf processes alongside the measured one, and
+            HTTP API load. The scenario format and all metrics are documented at the top of
+            extras/perf_compare.sh; read it. Rounds, duration, URIs and output format are fixed by the
+            script. You choose the scenarios. Each scenario costs about 2.5 minutes.
+
+            Decide whether this change can affect performance: throughput or latency of message flow
+            (publish, routing, delivery, acks, the message store and segments, syncing and fsync, locking,
+            queue types such as classic, stream, priority, delayed and retry, dead-lettering and TTL,
+            protocol handling for AMQP or MQTT), memory use (per message, queue, connection or channel), how
+            much the broker writes to disk, or the HTTP API's speed. Changes only to docs, the UI, logging,
+            config plumbing, specs, or code that runs outside these paths can't, so skip them.
+
+            If it can, choose at most 8 scenarios that exercise the changed code paths:
+            - Start from the catalogue in extras/perf_scenarios.json, and design new scenarios where it
+              doesn't cover the change, for example `--queue-args` with x-message-ttl and
+              x-dead-letter-exchange, a delayed or priority queue, stream offsets, MQTT `--qos=1`, many
+              connections, or larger bodies.
+            - Read the option parsers in src/lavinmqperf/amqp/throughput.cr and
+              src/lavinmqperf/mqtt/throughput.cr, and use only options that exist there.
+            - Only cover the protocols the change can affect: no AMQP scenarios for an MQTT-only change and
+              vice versa.
+            - Use background load where the effect only shows next to other traffic. For example, to see
+              whether a change adds syncs, measure confirmed publishes (`-c`) with a background throughput
+              process publishing without confirms, and gate "write" and "disk".
+            - Gate "rss" for changes to per-message, per-queue or per-connection state, using background
+              queue-count or connection-count to create many of them. Gate "http" for HTTP API changes, using
+              protocol "none" with background load to give the API something to report.
+            - Gate a metric only when it is stable: if publishers outpace consumers in your scenario, gate
+              only "pub". "write" and "disk" are per published message, so only gate them in scenarios that
+              publish.
+            - If the diff changes the perf tooling itself (extras/perf_compare.sh, extras/perf_scenarios.json,
+              .github/workflows/perf.yml, src/lavinmqperf) or is too broad to narrow down, use the whole
+              catalogue unchanged.
+
+            Write the plan to tmp/perf-plan.json, and nothing else, as JSON:
+            {
+              "skip": false,
+              "summary": "2-4 sentences of markdown: what the change touches and why these scenarios",
+              "scenarios": [
+                {"name": "dlx-ttl-1to1", "protocol": "amqp", "metrics": ["pub"],
+                 "args": ["-u", "perf-dlx", "-x", "1", "-y", "0", "--queue-args", "{\"x-message-ttl\":0}"],
+                 "why": "one sentence"}
+              ]
+            }
+            With "skip": true, give the reason in "summary" and use an empty "scenarios" list.
+            Scenarios must follow the format and rules at the top of extras/perf_compare.sh. The plan is
+            checked with `extras/perf_compare.sh --validate`, and an invalid plan fails the check. Write
+            the scenarios list to tmp/perf-scenarios-draft.json and run that command on it before writing
+            the plan.
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(extras/perf_compare.sh --validate:*)"
+
+      - name: Validate plan
+        id: validate
+        run: |
+          plan=tmp/perf-plan.json
+          if ! jq -e 'type == "object" and (.skip | type == "boolean")
+                      and (.summary | type == "string" and length > 0)
+                      and (.scenarios | type == "array")' "$plan" >/dev/null; then
+            echo "::error::Claude did not write a valid plan to $plan"
+            cat "$plan" || true
+            exit 1
+          fi
+          skip=$(jq -r .skip "$plan")
+          if [ "$skip" = false ]; then
+            jq .scenarios "$plan" > tmp/perf-scenarios.json
+            extras/perf_compare.sh --validate tmp/perf-scenarios.json
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Performance review plan"
+            jq -r .summary "$plan"
+            jq -r '.scenarios[] | "- `\(.name)` (\(.protocol), gated: \(.metrics | join(", "))): \(.why)"' "$plan"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-plan
+          path: tmp/perf-plan.json
+
   perf:
     name: Performance regression
+    needs: plan
+    # On PRs, only after a successful plan that didn't skip; the plan job is
+    # skipped for push and workflow_dispatch
+    if: >-
+      always() && (github.event_name != 'pull_request' ||
+      (needs.plan.result == 'success' && needs.plan.outputs.skip == 'false'))
     runs-on: ubuntu-26.04
     container: 84codes/crystal:latest-ubuntu-26.04
     timeout-minutes: 60
+    outputs:
+      compare: ${{ steps.compare.outcome }}
+      accepted: ${{ steps.check.outputs.accepted }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
 
@@ -54,6 +191,19 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Download plan
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v8
+        with:
+          name: perf-plan
+          path: tmp/plan
+
+      - name: Use planned scenarios
+        if: github.event_name == 'pull_request'
+        run: |
+          jq .scenarios tmp/plan/perf-plan.json > tmp/plan/scenarios.json
+          echo "SCENARIOS_FILE=tmp/plan/scenarios.json" >> "$GITHUB_ENV"
 
       - name: Checkout base
         run: |
@@ -102,19 +252,109 @@ jobs:
           name: perf-results
           path: tmp/perf/
 
-      # Labels are fetched at runtime so that adding the label and re-running
-      # the job works (a re-run reuses the original event payload).
+      # The label only accepts a measured regression, never a comparison that
+      # failed to run. Labels are fetched at runtime so that adding the label
+      # and re-running the job works (a re-run reuses the original event payload).
       - name: Check result
+        id: check
         if: steps.compare.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          results=tmp/perf/results.json
+          if [ ! -f "$results" ] || ! jq -e 'any(.regression) and (any(.broken) | not)' "$results" >/dev/null; then
+            echo "::error::The comparison failed to run: a broker didn't start, lavinmqperf failed, a scenario reported no throughput, or the HTTP API returned errors. See the log."
+            exit 1
+          fi
           if [ -n "$PR" ] && curl -sf -H "Authorization: Bearer $GH_TOKEN" \
               "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR/labels" |
               jq -e 'any(.[]; .name == "perf-regression-accepted")' >/dev/null; then
             echo "::warning::Performance regression accepted with the perf-regression-accepted label"
+            echo "accepted=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "::error::Performance regression detected, see the job summary. If it is intentional, add the perf-regression-accepted label and re-run this job."
           exit 1
+
+  # One comment per PR with the plan and the results, edited in place
+  comment:
+    name: Performance review comment
+    needs: [plan, perf]
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.plan.result != 'cancelled' && needs.perf.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download plan
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: perf-plan
+          path: plan
+
+      - name: Download results
+        if: needs.perf.result != 'skipped'
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: perf-results
+          path: results
+
+      - name: Post comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          SKIP: ${{ needs.plan.outputs.skip }}
+          PERF_RESULT: ${{ needs.perf.result }}
+          COMPARE: ${{ needs.perf.outputs.compare }}
+          ACCEPTED: ${{ needs.perf.outputs.accepted }}
+        run: |
+          marker="<!-- perf-review -->"
+          {
+            echo "$marker"
+            echo "### Performance review"
+            echo
+            if [ "$PLAN_RESULT" != success ]; then
+              echo "Planning failed, so no performance comparison ran. See [the run]($RUN_URL)."
+            else
+              jq -r .summary plan/perf-plan.json
+              echo
+              if [ "$SKIP" = true ]; then
+                echo "No performance comparison was needed for \`${HEAD_SHA:0:7}\`."
+              else
+                echo "Scenarios:"
+                jq -r '.scenarios[] | "- `\(.name)` (\(.protocol)): \(.why)"' plan/perf-plan.json
+                echo
+                if [ -f results/summary.md ]; then
+                  sed '1,2d' results/summary.md # drop the summary's own heading
+                  echo
+                fi
+                if [ "$COMPARE" = success ]; then
+                  echo "No regression at \`${HEAD_SHA:0:7}\`."
+                elif [ ! -f results/results.json ] || jq -e 'any(.broken)' results/results.json >/dev/null; then
+                  echo "**The comparison failed to run at \`${HEAD_SHA:0:7}\`.** See [the run]($RUN_URL)."
+                elif [ "$ACCEPTED" = true ]; then
+                  echo "Regression at \`${HEAD_SHA:0:7}\`, accepted with the \`perf-regression-accepted\` label."
+                else
+                  echo "**Regression at \`${HEAD_SHA:0:7}\`.** If it is intentional, add the \`perf-regression-accepted\` label and re-run the job."
+                fi
+              fi
+            fi
+            echo
+            echo "[Run details]($RUN_URL)"
+          } > body.md
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | tail -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@body.md >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@body.md >/dev/null
+          fi
