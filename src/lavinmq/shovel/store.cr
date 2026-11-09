@@ -45,7 +45,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?, vhosts : VHostStore? = nil)
+      def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?, vhosts : VHostStore?)
         dest_uris = parse_uris(config["dest-uri"]?)
         src_uris = parse_uris(config["src-uri"]?)
 
