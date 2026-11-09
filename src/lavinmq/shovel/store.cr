@@ -110,6 +110,7 @@ module LavinMQ
               raise ConfigError.new("#{user.name} can't access exchange '#{x}' in #{vhost}")
             end
             validate_mqtt_source!(user, vhosts.try(&.[vhost]?), x)
+            validate_local_creator!(user)
           end
         end
       end
@@ -122,6 +123,16 @@ module LavinMQ
         return unless vhost.exchange?(exchange_name).is_a?(AMQP::MqttTopicExchange)
         return if AMQP::MqttTopicExchange.readable_by?(user, vhost.name)
         raise ConfigError.new(AMQP::MqttTopicExchange.unreadable_message(user, exchange_name))
+      end
+
+      # #mqtt_source_guard looks the creator up in the user store before each
+      # bind, and only local users are there. An OAuth user's shovel would fail
+      # every bind once its source is an x-mqtt-topic exchange, which any
+      # exchange can become later, so it's refused when saved instead
+      private def self.validate_local_creator!(user : Auth::BaseUser)
+        return if user.is_a?(Auth::User)
+        raise ConfigError.new("#{user.name} isn't a local user, and a shovel from a local exchange needs one: " \
+                              "its creator's permissions are checked each time it binds")
       end
 
       # A malformed dest-timeout fails the PUT like any other bad field, rather
