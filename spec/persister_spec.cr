@@ -252,6 +252,25 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "doesn't keep lazily marked files while sync is disabled, and syncs everything once it's enabled again" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      file = MFile.new(File.join(data_dir, "segment"), 4096)
+      begin
+        LavinMQ::Config.instance.sync = false
+        file.write "moved".to_slice
+        persister.mark_dirty_lazily(file)
+        persister.@pending.lock(&.lazy_files.empty?).should be_true
+        LavinMQ::Config.instance.sync = true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+      ensure
+        persister.close
+        file.close
+      end
+    end
+  end
+
   it "syncs the filesystem on the first drain after sync is enabled again" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)

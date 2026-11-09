@@ -69,6 +69,8 @@ module LavinMQ
     # Set by a drain that skipped the sync because sync was disabled. Only
     # the drain touches it, on the publish confirm loop's thread.
     @skipped_sync = false
+    # Set by #mark_dirty_lazily while sync is disabled
+    @lazy_mark_skipped = Atomic(Bool).new(false)
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
@@ -110,6 +112,12 @@ module LavinMQ
     # unlinked: syncing them on every confirm would write the same pages
     # again and again.
     def mark_dirty_lazily(mfile : MFile) : Nil
+      # Nothing flushes while sync is disabled, so the files would only pile
+      # up. The first drain after it's enabled again syncs everything instead.
+      unless Config.instance.sync?
+        @lazy_mark_skipped.set(true, :relaxed)
+        return
+      end
       return if mfile.mark_needs_lazy_msync!
       @pending.lock &.lazy_files.push(mfile)
     end
@@ -195,7 +203,7 @@ module LavinMQ
         if current.drainable?
           batch = current
           next_batch = Batch.new
-          if current.flush_waiters.empty?
+          if current.flush_waiters.empty? && Config.instance.sync?
             next_batch.lazy_files.concat(current.lazy_files)
             current.lazy_files.clear
           end
@@ -216,7 +224,8 @@ module LavinMQ
       sync = Config.instance.sync?
       # A drain while sync was disabled cleared the marks without syncing, so
       # the first drain after it's enabled again syncs everything
-      syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
+      syncfs = (sync && (@skipped_sync || @lazy_mark_skipped.swap(false, :relaxed))) ||
+               batch.syncfs? || !batch.waiters.empty? ||
                files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
