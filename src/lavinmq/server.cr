@@ -79,6 +79,7 @@ module LavinMQ
       close_log_exchange
       @persister.close
       @vhosts.close
+      sync_closed_stores
       @replicator.try &.clear
       @authenticator.try &.cleanup
       Fiber.yield
@@ -121,6 +122,15 @@ module LavinMQ
       @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
+      sync_closed_stores
+    end
+
+    # A store syncs a segment it was writing to when it closes, if a sync
+    # may have caught a message in it part-way (see
+    # MessageStore#wfile_needs_sync?), but at shutdown the persister is
+    # closed before the stores. Its #sync then syncs the whole data dir.
+    private def sync_closed_stores : Nil
+      @persister.sync if @config.sync?
     end
 
     private def close_log_exchange
