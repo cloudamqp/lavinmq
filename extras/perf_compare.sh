@@ -6,19 +6,47 @@
 # with a fresh broker and data dir per run, and the paired head/base ratios
 # are compared. Exits 1 if any scenario regresses.
 #
-# A metric is a regression when the median head/base ratio is below
-# 1 - THRESHOLD/100 AND head was slower in at least ROUNDS-1 rounds, so a
-# single noisy round can't fail the check on its own.
+# A metric regresses when the median head/base ratio is worse than the
+# threshold AND head was worse in at least ROUNDS-1 rounds, so a single noisy
+# round can't fail the check on its own.
 #
 #   extras/perf_compare.sh old/bin/lavinmq bin/lavinmq
 #   extras/perf_compare.sh --validate scenarios.json
 #
 # Scenarios are read from SCENARIOS_FILE (default extras/perf_scenarios.json),
-# a JSON list of {name, protocol, metrics, args, why}; args are passed to
-# `lavinmqperf <protocol> throughput`. In CI the list is written by Claude, so
-# it's validated before anything runs.
+# a JSON list of at most 12 scenarios:
 #
-# Override with PERF=, ROUNDS=, DURATION=, WARMUP=, THRESHOLD=, OUT_DIR=,
+#   name        unique, ^[a-z0-9-]{1,40}$
+#   protocol    "amqp" or "mqtt" for a measured `lavinmqperf <protocol>
+#               throughput <args>` run, or "none" to measure only the
+#               background load and HTTP API
+#   args        lavinmqperf throughput arguments (empty for "none")
+#   metrics     the gated metrics, from:
+#                 pub, consume  msgs/s of the measured run (higher is better)
+#                 http          HTTP API requests/s (higher is better)
+#                 rss           broker peak RSS in MB (lower is better)
+#                 write         bytes the broker dirtied per published message,
+#                               from /proc/PID/io. Pages are counted each time
+#                               they go from clean to dirty, so syncing pages
+#                               that are then written again shows up here
+#                               (lower is better)
+#                 disk          bytes written to the disk devices per published
+#                               message, including journal and metadata
+#                               (lower is better)
+#   background  optional, up to 4 lavinmqperf processes running alongside the
+#               measured run: {protocol, command, args}, where command is
+#               throughput, queue-count or connection-count (amqp only). The
+#               count commands keep their queues/connections open.
+#   http        optional, {paths: ["/api/..."], concurrency: 1-4}: GET loops
+#               against the HTTP API during the measured window
+#   why         one sentence
+#
+# Published messages for write/disk are counted over all traffic, from
+# /api/overview. In CI the list is written by Claude, so it's validated before
+# anything runs.
+#
+# Override with PERF=, ROUNDS=, DURATION=, WARMUP=, THRESHOLD= (pub, consume,
+# http), RESOURCE_THRESHOLD= (rss, write, disk), BG_SETTLE=, OUT_DIR=,
 # SCENARIOS_FILE=, SCENARIO_FILTER= (regex on scenario name) env vars.
 
 set -euo pipefail
@@ -26,27 +54,47 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
 
-# The args may not set the options the script controls (-z, -j, -q) or point
-# the client at another broker (--uri, and -u for mqtt).
+# Args may not set the options the script controls for throughput (-z, -j,
+# -q) or point any client at another broker (--uri, and -u for mqtt).
 validate_scenarios() {
     local file="$1"
     if ! jq -e '
-      type == "array" and length >= 1 and length <= 10
+      def arg_ok: type == "string" and test("^[A-Za-z0-9_%{}\":,.=@/+-]+$")
+                  and (test("^--uri") | not);
+      def throughput_args($proto): type == "array" and all(.[];
+            arg_ok and (test("^(-z|-j|-q|--time|--json|--quiet)") | not)
+            and (($proto == "mqtt" and test("^-u")) | not));
+      type == "array" and length >= 1 and length <= 12
       and ([.[].name] | unique | length) == length
       and all(.[];
-        (.name | type == "string" and test("^[a-z0-9-]{1,40}$"))
-        and (.protocol == "amqp" or .protocol == "mqtt")
+        .protocol as $proto
+        | (.name | type == "string" and test("^[a-z0-9-]{1,40}$"))
+        and ($proto | IN("amqp", "mqtt", "none"))
         and (.metrics | type == "array" and length > 0
-             and all(.[]; . == "pub" or . == "consume"))
-        and (.protocol as $proto | .args | type == "array" and all(.[];
-              type == "string" and test("^[A-Za-z0-9_%{}\":,.=@/+-]+$")
-              and (test("^(-z|-j|-q|--uri|--time|--json|--quiet)") | not)
-              and (($proto == "mqtt" and test("^-u")) | not))))
+             and all(.[]; IN("pub", "consume", "http", "rss", "write", "disk")))
+        and (if $proto == "none"
+             then (.args | type == "array" and length == 0)
+                  and (.metrics | all(.[]; IN("pub", "consume") | not))
+                  and (((.background // []) | length) > 0 or .http != null)
+             else (.args | throughput_args($proto)) end)
+        and ((.background // []) | type == "array" and length <= 4 and all(.[];
+              .protocol as $bp | .command as $cmd
+              | ($bp | IN("amqp", "mqtt"))
+              and ($cmd | IN("throughput", "queue-count", "connection-count"))
+              and ($cmd == "throughput" or $bp == "amqp")
+              and (if $cmd == "throughput" then (.args | throughput_args($bp))
+                   else (.args | type == "array" and all(.[]; arg_ok)) end)))
+        and (if (.metrics | index("http")) or .http != null
+             then (.http | type == "object"
+                   and (.paths | type == "array" and length >= 1 and length <= 5
+                        and all(.[]; type == "string" and test("^/api/[A-Za-z0-9_%/.?=&-]*$")))
+                   and ((.concurrency // 1) | type == "number" and . >= 1 and . <= 4))
+                  and (.metrics | index("http") != null)
+             else true end))
     ' "$file" >/dev/null 2>&1; then
-        echo "Invalid scenarios in $file: expected 1-10 scenarios with a unique name" \
-            "matching ^[a-z0-9-]{1,40}$, protocol amqp or mqtt, metrics from pub/consume," \
-            "and args from the allowed characters without --uri, -z, -j, -q (or -u for mqtt)" >&2
+        echo "Invalid scenarios in $file, see the format at the top of $0" >&2
         return 1
     fi
 }
@@ -75,6 +123,8 @@ ROUNDS=${ROUNDS:-5}
 DURATION=${DURATION:-10}
 WARMUP=${WARMUP:-3}
 THRESHOLD=${THRESHOLD:-5}
+RESOURCE_THRESHOLD=${RESOURCE_THRESHOLD:-10}
+BG_SETTLE=${BG_SETTLE:-3}
 OUT_DIR=${OUT_DIR:-tmp/perf}
 SCENARIO_FILTER=${SCENARIO_FILTER:-}
 
@@ -84,7 +134,8 @@ for bin in "$BASE_BIN" "$HEAD_BIN" "$PERF"; do
         exit 2
     fi
 done
-# Pin the broker and the load generator to separate halves of the CPUs so
+
+# Pin the broker and the load generators to separate halves of the CPUs so
 # they don't compete for the same cores.
 NCPU=$(nproc)
 if [ "$NCPU" -ge 2 ] && command -v taskset >/dev/null; then
@@ -98,11 +149,29 @@ else
     CLIENT_PIN=()
 fi
 
-
 mkdir -p "$OUT_DIR"
 RESULTS="$OUT_DIR/runs.jsonl"
 : > "$RESULTS"
 BROKER_PID=
+BG_PIDS=()
+HTTP_PIDS=()
+
+# queue-count and connection-count wait for input after creating their
+# queues/connections, and create more on EOF. Feed them a FIFO that this
+# script holds open and never writes to, so they block and keep what they made.
+HOLD=$(mktemp -u "${TMPDIR:-/tmp}/perf-hold.XXXXXX")
+mkfifo "$HOLD"
+exec {HOLD_FD}<>"$HOLD"
+
+stop_pids() {
+    local pid
+    for pid in "$@"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    for pid in "$@"; do
+        wait "$pid" 2>/dev/null || true
+    done
+}
 
 stop_broker() {
     [ -n "$BROKER_PID" ] || return 0
@@ -117,7 +186,13 @@ stop_broker() {
     wait "$watchdog" 2>/dev/null || true
     BROKER_PID=
 }
-trap stop_broker EXIT
+
+cleanup() {
+    stop_pids "${HTTP_PIDS[@]}" "${BG_PIDS[@]}"
+    stop_broker
+    rm -f "$HOLD"
+}
+trap cleanup EXIT
 
 start_broker() {
     local bin="$1" data_dir="$2"
@@ -130,37 +205,141 @@ start_broker() {
     fi
 }
 
+uri_for() {
+    if [ "$1" = mqtt ]; then
+        echo "mqtt://guest:guest@localhost:1883"
+    else
+        echo "amqp://guest:guest@localhost"
+    fi
+}
+
+broker_write_bytes() { awk '/^write_bytes:/ { print $2 }' "/proc/$BROKER_PID/io"; }
+broker_peak_rss_mb() { awk '/^VmHWM:/ { printf "%.1f", $2 / 1024 }' "/proc/$BROKER_PID/status"; }
+disk_bytes() {
+    awk '$3 ~ /^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+)$/ { s += $10 } END { printf "%.0f", s * 512 }' /proc/diskstats
+}
+published() {
+    curl -sf -u guest:guest http://localhost:15672/api/overview | jq '.message_stats.publish // 0'
+}
+
+# start_background INDEX
+start_background() {
+    local i="$1" n j proto cmd extra args
+    n=$(jq ".[$i].background // [] | length" "$SCENARIOS_FILE")
+    for ((j = 0; j < n; j++)); do
+        proto=$(jq -r ".[$i].background[$j].protocol" "$SCENARIOS_FILE")
+        cmd=$(jq -r ".[$i].background[$j].command" "$SCENARIOS_FILE")
+        mapfile -t args < <(jq -r ".[$i].background[$j].args[]" "$SCENARIOS_FILE")
+        extra=()
+        if [ "$cmd" = throughput ]; then
+            extra=(-q)
+        fi
+        timeout $((WARMUP + DURATION + BG_SETTLE + 120)) "${CLIENT_PIN[@]}" \
+            "$PERF" "$proto" "$cmd" --uri "$(uri_for "$proto")" "${extra[@]}" "${args[@]}" \
+            0<&"$HOLD_FD" >/dev/null 2>&1 &
+        BG_PIDS+=($!)
+    done
+    if [ "$n" -gt 0 ]; then
+        sleep "$BG_SETTLE"
+        for j in "${BG_PIDS[@]}"; do
+            if ! kill -0 "$j" 2>/dev/null; then
+                echo "A background lavinmqperf process exited early" >&2
+                exit 2
+            fi
+        done
+    fi
+}
+
+# start_http INDEX OUT: GET loops until DURATION has passed, one latency per line
+start_http() {
+    local i="$1" out="$2" concurrency k paths end
+    concurrency=$(jq ".[$i].http.concurrency // 1" "$SCENARIOS_FILE")
+    mapfile -t paths < <(jq -r ".[$i].http.paths[]" "$SCENARIOS_FILE")
+    end=$(($(date +%s) + DURATION))
+    : > "$out"
+    for ((k = 0; k < concurrency; k++)); do
+        (
+            while [ "$(date +%s)" -lt "$end" ]; do
+                for p in "${paths[@]}"; do
+                    curl -s -o /dev/null --max-time 10 -u guest:guest -w '%{time_total}\n' \
+                        "http://localhost:15672$p" >> "$out.$k" || true
+                done
+            done
+        ) &
+        HTTP_PIDS+=($!)
+        if [ -n "${CLIENT_CPUS:-}" ]; then
+            taskset -pc "$CLIENT_CPUS" "$!" >/dev/null
+        fi
+    done
+}
+
 # run_one INDEX SIDE BIN ROUND
 run_one() {
     local i="$1" side="$2" bin="$3" round="$4"
-    local name proto metrics data_dir uri out args
+    local name proto metrics data_dir uri out args has_http
+    local w0 w1 d0 d1 p0 p1 rss http_file http_count http_p99
     name=$(jq -r ".[$i].name" "$SCENARIOS_FILE")
     proto=$(jq -r ".[$i].protocol" "$SCENARIOS_FILE")
     metrics=$(jq -r ".[$i].metrics | join(\",\")" "$SCENARIOS_FILE")
+    has_http=$(jq ".[$i].http != null" "$SCENARIOS_FILE")
     mapfile -t args < <(jq -r ".[$i].args[]" "$SCENARIOS_FILE")
     # Keep the data dir on a real disk, not tmpfs: fsync/syncfs are free on
     # tmpfs, which would hide regressions in when and how often we sync.
     data_dir=$(mktemp -d "${TMPDIR:-/tmp}/perf-data.XXXXXX")
+    http_file="$data_dir.http"
     start_broker "$bin" "$data_dir"
-    if [ "$proto" = mqtt ]; then
-        uri="mqtt://guest:guest@localhost:1883"
-    else
-        uri="amqp://guest:guest@localhost"
+    start_background "$i"
+    uri=$(uri_for "$proto")
+    if [ "$proto" != none ]; then
+        timeout $((WARMUP + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$WARMUP" -q -j "${args[@]}" >/dev/null
     fi
-    timeout $((WARMUP + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$WARMUP" -q -j "${args[@]}" >/dev/null
-    # The JSON summary is the last line; mqtt throughput prints more before it
-    out=$(timeout $((DURATION + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$DURATION" -q -j "${args[@]}" | tail -n 1)
+
+    w0=$(broker_write_bytes)
+    d0=$(disk_bytes)
+    p0=$(published)
+    if [ "$has_http" = true ]; then
+        start_http "$i" "$http_file"
+    fi
+    if [ "$proto" != none ]; then
+        # The JSON summary is the last line; mqtt throughput prints more before it
+        out=$(timeout $((DURATION + 60)) "${CLIENT_PIN[@]}" "$PERF" "$proto" throughput --uri "$uri" -z "$DURATION" -q -j "${args[@]}" | tail -n 1)
+    else
+        sleep "$DURATION"
+        out='{"avg_pub_rate": 0, "avg_consume_rate": 0}'
+    fi
+    stop_pids "${HTTP_PIDS[@]}"
+    HTTP_PIDS=()
+    w1=$(broker_write_bytes)
+    d1=$(disk_bytes)
+    p1=$(published)
+    rss=$(broker_peak_rss_mb)
+    http_count=0
+    http_p99=0
+    if [ "$has_http" = true ]; then
+        http_count=$(cat "$http_file".* 2>/dev/null | wc -l)
+        http_p99=$(cat "$http_file".* 2>/dev/null | sort -n |
+            awk '{ a[NR] = $1 } END { if (NR) printf "%.1f", a[int((NR - 1) * 0.99) + 1] * 1000; else print 0 }')
+    fi
+
+    stop_pids "${BG_PIDS[@]}"
+    BG_PIDS=()
     stop_broker
-    rm -rf "$data_dir" "$data_dir.log"
+    rm -rf "$data_dir" "$data_dir.log" "$http_file" "$http_file".*
     jq -c --arg s "$name" --arg m "$metrics" --arg side "$side" --argjson r "$round" \
+        --argjson msgs "$((p1 - p0))" --argjson wb "$((w1 - w0))" --argjson db "$((d1 - d0))" \
+        --argjson rss "$rss" --argjson http "$http_count" --argjson dur "$DURATION" \
+        --argjson p99 "$http_p99" \
         '{scenario: $s, metrics: ($m | split(",")), side: $side, round: $r,
-          pub: .avg_pub_rate, consume: .avg_consume_rate}' \
+          pub: .avg_pub_rate, consume: .avg_consume_rate,
+          http: ($http / $dur), http_p99_ms: $p99, rss: $rss,
+          write: ($wb / ([$msgs, 1] | max)), disk: ($db / ([$msgs, 1] | max)),
+          published: $msgs}' \
         <<<"$out" | tee -a "$RESULTS"
 }
 
 echo "Base: $BASE_BIN"
 echo "Head: $HEAD_BIN"
-echo "Rounds: $ROUNDS, duration: ${DURATION}s, warmup: ${WARMUP}s, threshold: ${THRESHOLD}%"
+echo "Rounds: $ROUNDS, duration: ${DURATION}s, warmup: ${WARMUP}s, threshold: ${THRESHOLD}% (rss/write/disk: ${RESOURCE_THRESHOLD}%)"
 echo "CPUs: $NCPU, broker: ${BROKER_CPUS:-unpinned}, client: ${CLIENT_CPUS:-unpinned}"
 echo "Scenarios: $SCENARIOS_FILE"
 
@@ -170,7 +349,7 @@ for i in $(seq 0 $(($(jq length "$SCENARIOS_FILE") - 1))); do
         continue
     fi
     echo
-    echo "=== $name ($(jq -r ".[$i] | \"\(.protocol) throughput \(.args | join(\" \"))\"" "$SCENARIOS_FILE"))"
+    echo "=== $name: $(jq -c ".[$i] | del(.name, .why)" "$SCENARIOS_FILE")"
     for round in $(seq 1 "$ROUNDS"); do
         # Alternate which side runs first to cancel out drift over time
         if [ $((round % 2)) -eq 1 ]; then
@@ -183,28 +362,38 @@ for i in $(seq 0 $(($(jq length "$SCENARIOS_FILE") - 1))); do
     done
 done
 
-jq -s --argjson threshold "$THRESHOLD" --argjson rounds "$ROUNDS" '
+jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD" --argjson rounds "$ROUNDS" '
   def median: sort | if length % 2 == 1 then .[length / 2 | floor]
                      else (.[length / 2 - 1] + .[length / 2]) / 2 end;
+  def lower_is_better: IN("rss", "write", "disk");
   group_by(.scenario) | map(
     . as $runs | ($runs[0].scenario) as $s |
     $runs[0].metrics | map(. as $m |
+      ($m | lower_is_better) as $lower |
       ($runs | map(select(.side == "base")) | sort_by(.round)) as $base |
       ($runs | map(select(.side == "head")) | sort_by(.round)) as $head |
       ($base | map(.[$m])) as $b |
-      ([range(0; $base | length)] | map(if $base[.][$m] > 0 then $head[.][$m] / $base[.][$m] else 0 end)) as $ratios |
+      ($head | map(.[$m])) as $h |
+      ([range(0; $base | length)] | map(
+        if $b[.] > 0 then $h[.] / $b[.]
+        elif $lower then (if $h[.] > 0 then 2 else 1 end)
+        else 0 end)) as $ratios |
       ($ratios | median) as $ratio |
+      ($ratios | map(select(if $lower then . > 1 else . < 1 end)) | length) as $worse |
       {
         scenario: $s,
         metric: $m,
+        lower_is_better: $lower,
         base: ($b | median),
-        head: ($head | map(.[$m]) | median),
+        head: ($h | median),
         change_pct: (($ratio - 1) * 100),
-        slower_rounds: ($ratios | map(select(. < 1)) | length),
+        worse_rounds: $worse,
         range_pct: [(($ratios | min) - 1) * 100, (($ratios | max) - 1) * 100],
-        broken: (($b | median) == 0 or ($head | map(.[$m]) | median) == 0),
-        regression: ($ratio < (1 - $threshold / 100)
-                     and ($ratios | map(select(. < 1)) | length) >= ([$rounds - 1, 1] | max))
+        broken: (if $lower then ($m == "rss" and (($b | median) == 0 or ($h | median) == 0))
+                 else (($b | median) == 0 or ($h | median) == 0) end),
+        regression: ((if $lower then $ratio > (1 + $rthreshold / 100)
+                      else $ratio < (1 - $threshold / 100) end)
+                     and $worse >= ([$rounds - 1, 1] | max))
       })
   ) | flatten
 ' "$RESULTS" > "$OUT_DIR/results.json"
@@ -212,12 +401,16 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rounds "$ROUNDS" '
 {
     echo "### Performance comparison"
     echo
-    echo "Median of $ROUNDS interleaved rounds, ${DURATION}s each. Regression threshold: -${THRESHOLD}%."
+    echo "Median of $ROUNDS interleaved rounds, ${DURATION}s each. Regression threshold: ${THRESHOLD}% for throughput, ${RESOURCE_THRESHOLD}% for rss, write and disk, where lower is better."
     echo
-    echo "| Scenario | Metric | Base msgs/s | Head msgs/s | Change | Round range | Slower rounds | |"
+    echo "| Scenario | Metric | Base | Head | Change | Round range | Worse rounds | |"
     echo "|---|---|---:|---:|---:|---:|---:|---|"
-    jq -r --argjson rounds "$ROUNDS" '.[] |
-      "| \(.scenario) | \(.metric) | \(.base | round) | \(.head | round) | \(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … ")) | \(.slower_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
+    jq -r --argjson rounds "$ROUNDS" '
+      def metric_label: {pub: "pub (msgs/s)", consume: "consume (msgs/s)", http: "http (req/s)",
+                  rss: "rss (MB)", write: "write (B/msg)", disk: "disk (B/msg)"}[.];
+      def num: if . >= 100 then round else . * 10 | round / 10 end;
+      .[] |
+      "| \(.scenario) | \(.metric | metric_label) | \(.base | num) | \(.head | num) | \(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … ")) | \(.worse_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
       "$OUT_DIR/results.json"
 } > "$OUT_DIR/summary.md"
 

@@ -82,14 +82,19 @@ jobs:
 
             The check builds the PR's base and head in release mode and runs each scenario with
             `lavinmqperf <protocol> throughput <args>` against both brokers in interleaved rounds on one
-            machine, comparing average publish and consume rates. Rounds, duration, URI and output format are
-            fixed by extras/perf_compare.sh. You choose the scenarios. Each scenario costs about 2.5 minutes.
+            machine. Besides publish and consume rates it measures the broker's peak memory, the bytes it
+            writes per published message (from /proc/PID/io and the disk devices), and HTTP API
+            requests/s. A scenario can run background lavinmqperf processes alongside the measured one, and
+            HTTP API load. The scenario format and all metrics are documented at the top of
+            extras/perf_compare.sh; read it. Rounds, duration, URIs and output format are fixed by the
+            script. You choose the scenarios. Each scenario costs about 2.5 minutes.
 
-            Decide whether this change can affect throughput or latency of message flow: publish, routing,
-            delivery, acks, the message store and segments, syncing and fsync, locking, queue types (classic,
-            stream, priority, delayed, retry), dead-lettering and TTL, or protocol handling (AMQP or MQTT).
-            Changes only to docs, the HTTP API or UI, logging, config plumbing, specs, or code that runs
-            outside the message flow can't, so skip them.
+            Decide whether this change can affect performance: throughput or latency of message flow
+            (publish, routing, delivery, acks, the message store and segments, syncing and fsync, locking,
+            queue types such as classic, stream, priority, delayed and retry, dead-lettering and TTL,
+            protocol handling for AMQP or MQTT), memory use (per message, queue, connection or channel), how
+            much the broker writes to disk, or the HTTP API's speed. Changes only to docs, the UI, logging,
+            config plumbing, specs, or code that runs outside these paths can't, so skip them.
 
             If it can, choose at most 8 scenarios that exercise the changed code paths:
             - Start from the catalogue in extras/perf_scenarios.json, and design new scenarios where it
@@ -100,8 +105,15 @@ jobs:
               src/lavinmqperf/mqtt/throughput.cr, and use only options that exist there.
             - Only cover the protocols the change can affect: no AMQP scenarios for an MQTT-only change and
               vice versa.
+            - Use background load where the effect only shows next to other traffic. For example, to see
+              whether a change adds syncs, measure confirmed publishes (`-c`) with a background throughput
+              process publishing without confirms, and gate "write" and "disk".
+            - Gate "rss" for changes to per-message, per-queue or per-connection state, using background
+              queue-count or connection-count to create many of them. Gate "http" for HTTP API changes, using
+              protocol "none" with background load to give the API something to report.
             - Gate a metric only when it is stable: if publishers outpace consumers in your scenario, gate
-              only "pub".
+              only "pub". "write" and "disk" are per published message, so only gate them in scenarios that
+              publish.
             - If the diff changes the perf tooling itself (extras/perf_compare.sh, extras/perf_scenarios.json,
               .github/workflows/perf.yml, src/lavinmqperf) or is too broad to narrow down, use the whole
               catalogue unchanged.
@@ -117,13 +129,13 @@ jobs:
               ]
             }
             With "skip": true, give the reason in "summary" and use an empty "scenarios" list.
-            Rules for scenarios: name matches ^[a-z0-9-]{1,40}$ and is unique; protocol is "amqp" or "mqtt";
-            metrics is a non-empty subset of ["pub", "consume"]; args is a list of strings using only the
-            characters A-Z a-z 0-9 _ % { } " : , . = @ / + - and never the options --uri, -u (mqtt only),
-            -z, --time, -j, --json, -q or --quiet.
+            Scenarios must follow the format and rules at the top of extras/perf_compare.sh. The plan is
+            checked with `extras/perf_compare.sh --validate`, and an invalid plan fails the check. Write
+            the scenarios list to tmp/perf-scenarios-draft.json and run that command on it before writing
+            the plan.
           claude_args: |
             --max-turns 30
-            --allowedTools "Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(extras/perf_compare.sh --validate:*)"
 
       - name: Validate plan
         id: validate

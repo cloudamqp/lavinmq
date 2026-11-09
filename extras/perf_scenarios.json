@@ -2,57 +2,255 @@
   {
     "name": "transient-1to1",
     "protocol": "amqp",
-    "metrics": ["pub", "consume"],
-    "args": ["-u", "perf-baseline", "-x", "1", "-y", "1"],
+    "metrics": [
+      "pub",
+      "consume",
+      "rss"
+    ],
+    "args": [
+      "-u",
+      "perf-baseline",
+      "-x",
+      "1",
+      "-y",
+      "1"
+    ],
     "why": "Baseline publish, route, store and deliver path with small transient messages"
   },
   {
     "name": "persistent-1to1",
     "protocol": "amqp",
-    "metrics": ["pub", "consume"],
-    "args": ["-u", "perf-persistent", "-x", "1", "-y", "1", "-p"],
+    "metrics": [
+      "pub",
+      "consume",
+      "rss",
+      "write"
+    ],
+    "args": [
+      "-u",
+      "perf-persistent",
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "-p"
+    ],
     "why": "Persistent messages to a durable queue, exercising the message store"
   },
   {
     "name": "confirm-1to1",
     "protocol": "amqp",
-    "metrics": ["pub", "consume"],
-    "args": ["-u", "perf-confirm", "-x", "1", "-y", "1", "-c", "1000"],
+    "metrics": [
+      "pub",
+      "consume"
+    ],
+    "args": [
+      "-u",
+      "perf-confirm",
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "-c",
+      "1000"
+    ],
     "why": "Publisher confirms, exercising the sync and confirm path"
+  },
+  {
+    "name": "confirm-with-background",
+    "protocol": "amqp",
+    "metrics": [
+      "pub",
+      "write",
+      "disk"
+    ],
+    "args": [
+      "-u",
+      "perf-confirm",
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "-c",
+      "1000",
+      "-p"
+    ],
+    "background": [
+      {
+        "protocol": "amqp",
+        "command": "throughput",
+        "args": [
+          "-u",
+          "perf-bg",
+          "-x",
+          "1",
+          "-y",
+          "1",
+          "-r",
+          "50000",
+          "-s",
+          "1024",
+          "-p"
+        ]
+      }
+    ],
+    "why": "Confirmed publishes while another client publishes without confirms, so extra syncing shows up as more bytes written per message"
   },
   {
     "name": "large-100kb",
     "protocol": "amqp",
-    "metrics": ["pub", "consume"],
-    "args": ["-u", "perf-large", "-x", "1", "-y", "1", "-s", "100000"],
+    "metrics": [
+      "pub",
+      "consume"
+    ],
+    "args": [
+      "-u",
+      "perf-large",
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "-s",
+      "100000"
+    ],
     "why": "Large bodies, where segment rollover and deletion happen often"
   },
   {
     "name": "fanout-1to4",
     "protocol": "amqp",
-    "metrics": ["pub", "consume"],
-    "args": ["-x", "1", "-y", "4", "--exchange", "amq.fanout", "--queue-pattern", "perf-fan-%", "--queue-pattern-from", "1", "--queue-pattern-to", "4"],
+    "metrics": [
+      "pub",
+      "consume"
+    ],
+    "args": [
+      "-x",
+      "1",
+      "-y",
+      "4",
+      "--exchange",
+      "amq.fanout",
+      "--queue-pattern",
+      "perf-fan-%",
+      "--queue-pattern-from",
+      "1",
+      "--queue-pattern-to",
+      "4"
+    ],
     "why": "Routing one message to several queues"
   },
   {
     "name": "stream-1to1",
     "protocol": "amqp",
-    "metrics": ["pub"],
-    "args": ["-u", "perf-stream", "-x", "1", "-y", "1", "--queue-args", "{\"x-queue-type\":\"stream\"}", "--consumer-args", "{\"x-stream-offset\":\"first\"}", "-P", "1000", "-a", "1"],
+    "metrics": [
+      "pub"
+    ],
+    "args": [
+      "-u",
+      "perf-stream",
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "--queue-args",
+      "{\"x-queue-type\":\"stream\"}",
+      "--consumer-args",
+      "{\"x-stream-offset\":\"first\"}",
+      "-P",
+      "1000",
+      "-a",
+      "1"
+    ],
     "why": "Stream queue publish path; only publish is gated because the consumer falls behind and its rate is noisy"
   },
   {
     "name": "fanin-16to1",
     "protocol": "amqp",
-    "metrics": ["pub"],
-    "args": ["-u", "perf-fanin", "-x", "16", "-y", "1"],
+    "metrics": [
+      "pub"
+    ],
+    "args": [
+      "-u",
+      "perf-fanin",
+      "-x",
+      "16",
+      "-y",
+      "1"
+    ],
     "why": "Many concurrent publishers on one queue, exercising locking and scheduling across threads"
   },
   {
     "name": "mqtt-1to1",
     "protocol": "mqtt",
-    "metrics": ["pub"],
-    "args": ["-x", "1", "-y", "1", "--clean-session"],
+    "metrics": [
+      "pub"
+    ],
+    "args": [
+      "-x",
+      "1",
+      "-y",
+      "1",
+      "--clean-session"
+    ],
     "why": "MQTT publish and deliver path"
+  },
+  {
+    "name": "http-api-busy",
+    "protocol": "none",
+    "metrics": [
+      "http",
+      "rss"
+    ],
+    "args": [],
+    "background": [
+      {
+        "protocol": "amqp",
+        "command": "queue-count",
+        "args": [
+          "-q",
+          "1000"
+        ]
+      },
+      {
+        "protocol": "amqp",
+        "command": "throughput",
+        "args": [
+          "-u",
+          "perf-bg",
+          "-x",
+          "1",
+          "-y",
+          "1",
+          "-r",
+          "20000"
+        ]
+      }
+    ],
+    "http": {
+      "paths": [
+        "/api/overview",
+        "/api/queues?page=1&page_size=100"
+      ],
+      "concurrency": 2
+    },
+    "why": "HTTP API throughput with 1000 queues and steady message traffic"
+  },
+  {
+    "name": "idle-connections",
+    "protocol": "none",
+    "metrics": [
+      "rss"
+    ],
+    "args": [],
+    "background": [
+      {
+        "protocol": "amqp",
+        "command": "connection-count",
+        "args": [
+          "-x",
+          "1000"
+        ]
+      }
+    ],
+    "why": "Memory held by 1000 idle connections"
   }
 ]

@@ -41,7 +41,11 @@ PRs are reviewed by AI in CI. To run the same review locally, install [local-rev
 A performance regression is treated as a breaking change. On every PR that touches the broker, the `Performance` workflow runs a performance review in two steps:
 
 1. Claude reads the diff and decides whether the change can affect message throughput. If it can, Claude picks scenarios from `extras/perf_scenarios.json`, or designs new ones, that exercise the changed code, covering only the protocols the change touches. A change that can't affect throughput, such as docs, the HTTP API or logging, skips the comparison. If planning fails, the check fails. PRs from forks have no API key, so a maintainer has to run the check for them.
-1. The workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh` with those scenarios. It benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine, and fails if a scenario's median throughput drops by more than 5%.
+1. The workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh` with those scenarios. It benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine.
+   - Besides message throughput, a scenario can gate the broker's peak memory, the bytes it writes per published message, and HTTP API requests/s.
+   - A scenario can run background `lavinmqperf` processes next to the measured one. For example, unconfirmed publishes next to confirmed ones show whether a change adds syncs, and many idle queues or connections show memory use.
+   - The check fails if a gated metric's median gets worse by more than 5% for throughput, or 10% for memory and writes.
+   - The scenario format is documented at the top of `extras/perf_compare.sh`.
 
 Claude's reasoning, the scenarios and the results are posted as one PR comment, updated on every push.
 
