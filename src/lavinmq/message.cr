@@ -14,6 +14,10 @@ module LavinMQ
       false
     end
 
+    def moved_copy? : Bool
+      false
+    end
+
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
@@ -77,6 +81,11 @@ module LavinMQ
     property? needs_sync = false
     # Set for transactional publishes, the commit syncs the data dir
     property? synced_by_commit = false
+    # Set for copies of messages the broker moves to another queue
+    # (dead-lettered, delayed, retried), so the segments they're written to
+    # are synced before the segment they left is unlinked, see
+    # MessageStore#unlink_segment
+    property? moved_copy = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,

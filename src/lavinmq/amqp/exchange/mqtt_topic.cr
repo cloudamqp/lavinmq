@@ -96,6 +96,7 @@ module LavinMQ
         properties.delivery_mode = 2u8
         message = Message.new(msg.timestamp, name, msg.routing_key, properties, msg.bodysize, msg.body_io)
         message.needs_sync = msg.needs_sync?
+        message.moved_copy = msg.moved_copy?
         count = 0u32
         rejected = false
         destinations.each do |destination, _binding_key|

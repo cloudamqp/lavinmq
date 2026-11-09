@@ -131,6 +131,7 @@ module LavinMQ::AMQP
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
+          dead_letter_msg.moved_copy = true
 
           queues.each do |q|
             if cycle?(q.name, props, reason)

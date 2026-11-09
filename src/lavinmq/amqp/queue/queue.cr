@@ -721,6 +721,7 @@ module LavinMQ::AMQP
       props.headers = h
       retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_msg.moved_copy = true
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp, moved: true)
       true

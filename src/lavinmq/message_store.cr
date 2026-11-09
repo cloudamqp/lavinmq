@@ -33,6 +33,8 @@ module LavinMQ
     @synced_writes = false
     # Segments that messages were moved out of, see #unlink_segment
     @moved_out = Set(UInt32).new
+    # Segments loaded from disk with acks, see #unlink_segment
+    @loaded_with_acks = Set(UInt32).new
     # Segments whose unlink waits for a sync, by segment id, see #unlink_segment
     @pending_unlinks = Hash(UInt32, {MFile, MFile?}).new
     @pending_unlinks_lock = Mutex.new
@@ -321,17 +323,21 @@ module LavinMQ
     # Unlinks a segment and its ack file, which the store no longer refers to.
     # Messages moved out of the segment (dead-lettered, delayed, retried) can
     # be unsynced in their destinations, and the unlink must not become
-    # durable first. Then the unlink waits for one syncfs, instead of tracking
-    # the destinations, as on tx commit. It waits in a fiber of its own, so
-    # the queue's publishers and consumers don't wait for the sync while the
-    # queue's lock is held. Plain acks unlink at once.
+    # durable first. Their copies are marked dirty when they're written (see
+    # Message#moved_copy?), so the unlink waits for the next drain of the
+    # persister, which syncs the marked files, like a confirm. A segment
+    # loaded from disk can have copies an earlier process made and never
+    # marked, so its unlink waits for a syncfs. Either way it waits in a fiber
+    # of its own, so the queue's publishers and consumers don't wait for the
+    # sync while the queue's lock is held. Plain acks unlink at once.
     private def unlink_segment(seg : UInt32, segment : MFile, acks : MFile?) : Nil
       moved = @moved_out.delete(seg)
+      loaded = @loaded_with_acks.delete(seg)
       persister = @persister
-      if moved && persister && Config.instance.sync?
+      if (moved || loaded) && persister && Config.instance.sync?
         @pending_unlinks_lock.synchronize { @pending_unlinks[seg] = {segment, acks} }
         spawn(name: "unlink segment after sync") do
-          persister.sync
+          loaded ? persister.sync : persister.flush
           # Unless the store was closed or deleted meanwhile, see #take_pending_unlinks
           @pending_unlinks_lock.synchronize do
             if pending = @pending_unlinks.delete(seg)
@@ -464,7 +470,9 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      if msg.needs_sync? && (persister = @persister)
+      # A moved copy keeps the segment's readahead, see #readahead_for_writes:
+      # the segment is synced once per emptied source segment, not per confirm
+      if (msg.needs_sync? || msg.moved_copy?) && (persister = @persister)
         persister.mark_dirty(wfile)
       end
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
@@ -631,7 +639,7 @@ module LavinMQ
           @deleted[seg] = acked.sort! unless acked.empty?
           # Which of its messages an earlier store moved to other queues isn't
           # known, so its unlink waits for a sync as if some were
-          @moved_out << seg
+          @loaded_with_acks << seg
         end
         count += 1
         Fiber.yield

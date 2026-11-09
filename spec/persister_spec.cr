@@ -206,6 +206,26 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs the filesystem on the first drain after sync is enabled again" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      begin
+        file = File.join(data_dir, "f")
+        File.write(file, "x")
+        LavinMQ::Config.instance.sync = false
+        persister.mark_dirty(file)
+        persister.flush # clears the marks without syncing
+        LavinMQ::Config.instance.sync = true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_false
+      ensure
+        persister.close
+      end
+    end
+  end
+
   it "leaves finished stream segments to the kernel when sync is disabled" do
     with_datadir do |data_dir|
       LavinMQ::Config.instance.sync = false
@@ -245,7 +265,7 @@ describe LavinMQ::Persister do
 end
 
 describe LavinMQ::Persister, "messages the broker moves between queues" do
-  it "syncs the filesystem before an emptied segment is unlinked" do
+  it "syncs the segments of the moved copies, not the filesystem, before an emptied segment is unlinked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("dst")
@@ -258,7 +278,26 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
-        last_sync(s).syncfs.should be_true
+        sync = last_sync(s)
+        sync.syncfs.should be_false
+        sync.paths.should contain File.join(queue_dir(s, "dst"), "msgs.0000000001")
+      end
+    end
+  end
+
+  it "keeps readahead on a queue that only gets moved copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        src.publish "x"
+        dst = s.vhosts["/"].queue("dst")
+        wait_for { dst.message_count == 1 }
+        dst.@msg_store.@synced_writes.should be_false
       end
     end
   end
@@ -329,6 +368,8 @@ describe LavinMQ::MessageStore, "unlinks of segments that messages were moved ou
         File.exists?(segment).should be_true
         replicator.release
         wait_for { !File.exists?(segment) }
+        # Copies an earlier process made were never marked dirty
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
         store.close
       ensure
         replicator.release

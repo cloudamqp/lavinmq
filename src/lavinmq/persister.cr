@@ -37,9 +37,11 @@ module LavinMQ
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
       getter waiters = Array(::Channel(Nil)).new
+      # Callers of #flush, released by the drain that synced the marked files
+      getter flush_waiters = Array(::Channel(Nil)).new
 
       def drainable? : Bool
-        !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty?
+        !acks.empty? || !waiters.empty? || !flush_waiters.empty? || !files.empty? || !paths.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -61,6 +63,9 @@ module LavinMQ
     {% end %}
 
     @data_dir_fd : Int32 = -1
+    # Set by a drain that skipped the sync because sync was disabled. Only
+    # the drain touches it, on the publish confirm loop's thread.
+    @skipped_sync = false
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
@@ -136,6 +141,22 @@ module LavinMQ
       waiter.receive?
     end
 
+    # Block until everything marked dirty so far is durable, on the leader and
+    # on the in-sync followers. Like #sync, but the drain syncs only the
+    # marked files, as for a confirm, not the whole filesystem.
+    def flush : Nil
+      waiter = ::Channel(Nil).new
+      @pending.lock &.flush_waiters.push(waiter)
+      begin
+        @publish_confirm_requested.try_send true
+      rescue ::Channel::ClosedError
+        # The loop has exited (shutdown), see #sync
+        File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
+        return
+      end
+      waiter.receive?
+    end
+
     def close : Nil
       @publish_confirm_requested.close
     end
@@ -172,7 +193,10 @@ module LavinMQ
       batch.files.each &.clear_needs_msync!
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
-      syncfs = batch.syncfs? || !batch.waiters.empty? ||
+      sync = Config.instance.sync?
+      # A drain while sync was disabled cleared the marks without syncing, so
+      # the first drain after it's enabled again syncs everything
+      syncfs = (sync && @skipped_sync) || batch.syncfs? || !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
@@ -190,7 +214,7 @@ module LavinMQ
         replicator.followers.each &.request_flush
       end
       begin
-        if Config.instance.sync?
+        if sync
           if paths
             syncfs = fsync_paths(batch.files, batch.paths, dirs)
           else
@@ -201,6 +225,7 @@ module LavinMQ
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
         exit 1
       end
+      @skipped_sync = !sync
       {% unless flag?(:release) %}
         @last_sync = SyncRecord.new(syncfs, paths || Array(String).new)
       {% end %}
@@ -218,6 +243,7 @@ module LavinMQ
         target.enqueue_confirm_ack(id)
       end
       batch.waiters.each &.close
+      batch.flush_waiters.each &.close
     end
 
     # Returns whether it fell back to syncing the whole filesystem
