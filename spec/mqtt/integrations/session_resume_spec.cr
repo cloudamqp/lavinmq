@@ -379,7 +379,7 @@ module MqttSpecs
           publish_from(server, "a/b", ["0", "1", "2", "3"])
 
           sent = read_publishes(io, 3).map &.packet_id
-          read_packet(io).should be_nil
+          expect_no_packet(io)
           disconnect(io)
         end
 
@@ -390,7 +390,7 @@ module MqttSpecs
           resent.each &.dup?.should be_true
           resent.map(&.packet_id).should eq sent
           # The window is still full, so the fourth message stays in the store.
-          read_packet(io).should be_nil
+          expect_no_packet(io)
 
           # Acking one frees a slot, and the fourth is delivered with a fresh id.
           puback(io, resent.first.packet_id)

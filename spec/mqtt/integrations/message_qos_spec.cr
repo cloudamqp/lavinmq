@@ -283,7 +283,7 @@ module MqttSpecs
             end
 
             3.times { read_packet(io).should be_a(MQTT::Protocol::Publish) }
-            read_packet(io).should be_nil
+            expect_no_packet(io)
 
             disconnect(io)
           end
@@ -307,7 +307,7 @@ module MqttSpecs
 
             first = read_packet(io).as(MQTT::Protocol::Publish)
             2.times { read_packet(io).should be_a(MQTT::Protocol::Publish) }
-            read_packet(io).should be_nil
+            expect_no_packet(io)
 
             puback(io, first.packet_id)
             read_packet(io).should be_a(MQTT::Protocol::Publish)
@@ -335,20 +335,20 @@ module MqttSpecs
             first = read_publish(io)
             second = read_publish(io)
             third = read_publish(io)
-            read_packet(io).should be_nil
+            expect_no_packet(io)
 
             LavinMQ::Config.instance.max_inflight_messages = 1u16
 
             # Acking frees a slot, but two are still in flight against a limit of
             # one, so nothing may be sent.
             puback(io, first.packet_id)
-            read_packet(io).should be_nil
+            expect_no_packet(io)
 
             # Draining the rest brings the window back under the limit and
             # resumes delivery; a gate left closed on a stale reading would stall
             # here, with no ack left to re-open it.
             puback(io, second.packet_id)
-            read_packet(io).should be_nil
+            expect_no_packet(io)
             puback(io, third.packet_id)
             read_publish(io) # the fourth message, at last
 

@@ -32,7 +32,7 @@ module MqttSpecs
             ping(pub_io)
             pingpong(pub_io)
 
-            read_packet(sub_io).should be_nil
+            expect_no_packet(sub_io)
             pub_io.should_not be_closed
           end
         end
@@ -66,7 +66,7 @@ module MqttSpecs
             ping(pub_io)
             pingpong(pub_io)
 
-            read_packet(sub_io).should be_nil
+            expect_no_packet(sub_io)
           end
         end
       end

@@ -43,7 +43,7 @@ module MqttSpecs
             pingpong(pub_io)
           end
           # bob is not a member, so nothing new is accepted into the session.
-          read_packet(io).should be_nil
+          expect_no_packet(io)
         end
       end
     end
