@@ -12,6 +12,21 @@ class LavinMQ::AMQP::Queue
       @deliveries[env.segment_position] = count
     end
   end
+
+  # What #close does first, before it closes the store
+  def spec_mark_closing : Nil
+    @closed = true
+  end
+
+  def spec_close_store : Nil
+    @msg_store_lock.synchronize { @msg_store.close }
+  end
+
+  # As a release does once it has published the message's copy
+  def spec_shift_and_delete_moved : Nil
+    env = @msg_store_lock.synchronize { @msg_store.shift? } || raise "queue is empty"
+    delete_message(env.segment_position, copied: true)
+  end
 end
 
 # Parks dead-lettering inside #publish_internal until released. In the AMQP
@@ -400,6 +415,79 @@ describe "Retry Queue" do
           msg2.reject(requeue: true)
           wait_for { s.vhosts["/"].queue?("amq.retry-retry-store-error").try { |rq| !rq.closed? && rq.message_count == 1 } }
         end
+      end
+    end
+
+    # A release can publish its copy to the primary queue after a store error
+    # started to close the retry queue. Without its ack the retry queue that
+    # replaces this one loads the message and releases it again.
+    it "writes the ack of a message released while the retry queue closes" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("closing-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+        end
+        retry_q = s.vhosts["/"].queue("amq.retry-closing-retry")
+        wait_for { retry_q.message_count == 1 }
+        retry_q.spec_mark_closing
+        retry_q.spec_shift_and_delete_moved
+        retry_q.spec_close_store
+        msg_dir = retry_q.@msg_store.@msg_dir
+        reloaded = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(msg_dir, nil)
+        begin
+          reloaded.size.should eq 0
+        ensure
+          reloaded.close
+        end
+      end
+    end
+
+    # A segment of 4 schema bytes and one record whose property flags are
+    # invalid, so it can't be decoded
+    corrupt_segment = -> do
+      io = IO::Memory.new
+      io.write_bytes LavinMQ::Schema::VERSION
+      io.write_bytes 1_i64 # timestamp
+      io.write_byte 0_u8   # exchange name
+      io.write_byte 0_u8   # routing key
+      io.write_bytes 1_u16 # property flags, an invalid bit
+      io.write_bytes 0_u64 # body size
+      io.to_slice
+    end
+
+    it "closes a delayed store with a record that can't be decoded, instead of indexing it" do
+      with_datadir do |dir|
+        File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil).closed.should be_true
+      end
+    end
+
+    it "closes a delayed store when indexing finds a record that can't be decoded" do
+      with_datadir do |dir|
+        # With a meta file the load trusts its count and doesn't read the records
+        File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)
+        File.open(File.join(dir, "meta.0000000001"), "w", &.write_bytes(1_u32))
+        File.write(File.join(dir, "msgs.0000000002"), "\x04\x00\x00\x00")
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil).closed.should be_true
+      end
+    end
+
+    it "starts with a retry queue whose segment is corrupt, and closes that queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-corrupt-retry").message_count == 1 }
+        end
+        segment = File.join(s.vhosts["/"].queue("amq.retry-corrupt-retry").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        s.vhosts["/"].queue("amq.retry-corrupt-retry").closed?.should be_true
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
       end
     end
 

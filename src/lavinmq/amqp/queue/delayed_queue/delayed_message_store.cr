@@ -25,7 +25,9 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        close_on_error { build_index }
+        # A segment that failed to load closed the store and unmapped its
+        # segments, so they can't be indexed
+        close_on_error { build_index } unless @closed
       end
 
       def build_index
@@ -54,6 +56,12 @@ module LavinMQ::AMQP
           rescue ex : IO::EOFError | IndexError
             @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
             break
+          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+            # Like a record the load can't decode, see MessageStore#produce_metadata.
+            # A segment with a meta file isn't read record by record at load.
+            @log.error { "Could not index segment #{seg_id} at pos #{pos}, closing message store: #{ex}" }
+            close_store
+            return
           end
         end
         @requeued = requeued
