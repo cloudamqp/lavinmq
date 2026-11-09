@@ -8,9 +8,7 @@ require "../../src/lavinmq/clustering/server"
 # write_to_disk gap (local write at message_store.cr:339 before the replicate
 # at :340) cause a message to be delivered both in the full-sync file copy AND
 # again incrementally, duplicating it on the follower?
-describe "clustering join-during-publish race", tags: "etcd" do
-  add_etcd_around_each
-
+describe "clustering join-during-publish race" do
   it "follower joining during active publishing has the same message count as the leader" do
     follower_dir = File.tempname
     Dir.mkdir follower_dir
@@ -46,6 +44,9 @@ describe "clustering join-during-publish race", tags: "etcd" do
         end
       end
 
+      queue = s.vhosts["/"].queue("race")
+      wait_for { queue.message_count >= 400 } # publishers are running
+
       # Follower joins WHILE publishing is in flight.
       follower_config = config.dup.tap &.data_dir = follower_dir
       follower_config.metrics_http_port = -1 # no metrics server needed
@@ -56,7 +57,10 @@ describe "clustering join-during-publish race", tags: "etcd" do
         follower_done.done
       end
 
-      sleep 2.seconds # full-sync and stream while publishing continues
+      # full-sync and stream while publishing continues
+      wait_for { replicator.followers.first?.try &.synced? }
+      joined_at = queue.message_count
+      wait_for { queue.message_count >= joined_at + 200 }
       publishing = false
       publishers.wait
 
