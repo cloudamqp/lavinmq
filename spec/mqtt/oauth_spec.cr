@@ -91,10 +91,9 @@ module MqttSpecs
 
         # Close the socket to trigger disconnect and cleanup
         reader.close
-        sleep 200.milliseconds
 
         # The OAuthUser's token_updated channel should be closed by cleanup
-        user.@token_updated.closed?.should be_true
+        wait_for { user.@token_updated.closed? }
       ensure
         writer.try &.close
       end

@@ -13,6 +13,15 @@ module SessionResumeHelpers
     end
   end
 
+  # A new message is delivered first when nothing is resent. Owed messages are
+  # requeued as the session attaches, which is done once a ping is answered.
+  def expect_nothing_owed(server, io, topic = "a/b")
+    ping(io)
+    read_packet(io).should be_a(MQTT::Protocol::PingResp)
+    publish_from(server, topic, ["new"])
+    String.new(read_publish(io).payload).should eq "new"
+  end
+
   def read_publishes(io, count : Int) : Array(MQTT::Protocol::Publish)
     Array(MQTT::Protocol::Publish).new(count) { read_publish(io) }
   end
@@ -121,7 +130,9 @@ module MqttSpecs
           resent = read_publish(io)
           resent.packet_id.should eq second.try &.packet_id
           String.new(resent.payload).should eq "1"
-          read_packet(io).should be_nil
+          # Anything else owed was requeued with it, so before a new message
+          publish_from(server, "a/b", ["new"])
+          String.new(read_publish(io).payload).should eq "new"
 
           disconnect(io)
         end
@@ -141,7 +152,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end
@@ -190,7 +201,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end
@@ -235,7 +246,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end

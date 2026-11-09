@@ -40,6 +40,8 @@ module MqttSpecs
             publish(pub_io, topic: "chat/alice/room1", payload: "yes".to_slice, qos: 0u8)
             # Not readable by alice, though she holds a subscription matching it.
             publish(pub_io, topic: "chat/bob/secret", payload: "no".to_slice, qos: 0u8)
+            # Readable, so delivered next if the one before was dropped.
+            publish(pub_io, topic: "chat/alice/room1", payload: "marker".to_slice, qos: 0u8)
             ping(pub_io)
             pingpong(pub_io)
           end
@@ -47,7 +49,7 @@ module MqttSpecs
           msg = read_packet(io)
           msg.should be_a(MQTT::Protocol::Publish)
           msg.as(MQTT::Protocol::Publish).topic.should eq("chat/alice/room1")
-          read_packet(io).should be_nil
+          read_publish(io).payload.should eq("marker".to_slice)
         end
       end
     end

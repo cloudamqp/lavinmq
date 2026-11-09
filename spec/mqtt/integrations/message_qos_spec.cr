@@ -379,8 +379,16 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io)
-          pkt = read_packet(io)
-          pkt.should be_nil
+          # Answered once the session is attached, so a QoS 0 publish from
+          # now on is delivered, after anything enqueued while offline
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+          with_client_io(server) do |publisher_io|
+            connect(publisher_io, client_id: "publisher")
+            publish(publisher_io, topic: "a/b", payload: "marker".to_slice, qos: 0u8)
+            disconnect(publisher_io)
+          end
+          read_publish(io).payload.should eq("marker".to_slice)
           disconnect(io)
         end
       end

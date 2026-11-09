@@ -148,7 +148,7 @@ module MqttSpecs
           end
           session = server.vhosts["/"].session("mqtt.stuck")
           wait_for { session.message_count > 0 }
-          sleep 1.5.seconds # the first write has timed out, the client is closing
+          wait_for { session.client.nil? } # the first write has timed out, the client is closed
           sub.io.as(TCPSocket).read_timeout = 10.seconds
           packets = 0
           loop do
