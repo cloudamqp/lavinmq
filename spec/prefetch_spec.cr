@@ -88,6 +88,27 @@ describe LavinMQ::Server do
       end
     end
 
+    it "should not deliver to a consumer cancelled while it waits for global prefetch capacity" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue("cancel-while-waiting")
+          2.times { q.publish "m1" }
+          msgs = Channel(AMQP::Client::DeliverMessage).new(2)
+          tag = q.subscribe(no_ack: false) { |msg| msgs.send msg }
+          first = msgs.receive
+          sleep 10.milliseconds # let the consumer park waiting for capacity
+          server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
+          # as if the ack and the cancel came in one read: the consumer is
+          # woken by the ack but closed before it runs
+          server_ch.basic_ack(AMQ::Protocol::Frame::Basic::Ack.new(server_ch.id, first.delivery_tag, false))
+          server_ch.cancel_consumer(AMQ::Protocol::Frame::Basic::Cancel.new(server_ch.id, tag, true))
+          sleep 10.milliseconds
+          s.vhosts["/"].queue(q.name).message_count.should eq 1
+        end
+      end
+    end
+
     {1, 3, 8}.each do |prefetch|
       it "should not let one consumer starve the others when global is true (prefetch #{prefetch})" do
         with_amqp_server do |s|

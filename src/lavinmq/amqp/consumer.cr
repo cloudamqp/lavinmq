@@ -119,7 +119,8 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        true unless ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
+        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
+        true
       end
 
       private def wait_for_single_active_consumer
