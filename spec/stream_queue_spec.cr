@@ -64,6 +64,30 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "Purge" do
+    it "purges nothing from a store that closed while the purge waited for the lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("purge-closing-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        q = s.vhosts["/"].queue("purge-closing-stream")
+        lock = q.@msg_store_lock
+        lock.lock
+        purged = Channel(UInt32 | Exception).new
+        spawn do
+          purged.send q.purge
+        rescue ex
+          purged.send ex
+        end
+        Fiber.yield
+        q.@msg_store.close
+        lock.unlock
+        purged.receive.should eq 0
+      end
+    end
+  end
+
   describe "Requeue" do
     it "should not requeue messages into the store on channel close" do
       with_amqp_server do |s|
