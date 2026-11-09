@@ -702,9 +702,8 @@ module LavinMQ
           return
         end
         if @sync_skipped.swap(false) || syncfs || fsync_paths.size > @config.syncfs_threshold
-          # The syncfs covers them. Cleared before it, as #make_dirs can run
-          # while it blocks.
-          @created_dirs.clear
+          # @created_dirs is left to the stream fiber, which owns it: a
+          # directory this syncfs covered only costs one more fsync later
           syncfs_or_exit
         else
           fsync_to_disk(fsync_paths)
