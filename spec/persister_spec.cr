@@ -264,6 +264,16 @@ describe LavinMQ::Persister do
         LavinMQ::Config.instance.sync = true
         persister.flush
         persister.last_sync.should_not(be_nil).syncfs.should be_true
+        # Once, not twice, also when a drain skipped its sync meanwhile
+        LavinMQ::Config.instance.sync = false
+        file.write "moved".to_slice
+        persister.mark_dirty_lazily(file)
+        persister.flush
+        LavinMQ::Config.instance.sync = true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_false
       ensure
         persister.close
         file.close
@@ -605,27 +615,6 @@ describe LavinMQ::Persister, "lazily marked files" do
       ensure
         persister.close
         files.each &.close
-      end
-    end
-  end
-
-  it "syncs the filesystem once, not twice, after sync is enabled again" do
-    with_datadir do |data_dir|
-      persister = LavinMQ::Persister.new(data_dir)
-      file = MFile.new(File.join(data_dir, "segment"), 4096)
-      begin
-        LavinMQ::Config.instance.sync = false
-        file.write "moved".to_slice
-        persister.mark_dirty_lazily(file)
-        persister.flush # a drain that skips the sync
-        LavinMQ::Config.instance.sync = true
-        persister.flush
-        persister.last_sync.should_not(be_nil).syncfs.should be_true
-        persister.flush
-        persister.last_sync.should_not(be_nil).syncfs.should be_false
-      ensure
-        persister.close
-        file.close
       end
     end
   end
