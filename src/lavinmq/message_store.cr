@@ -230,11 +230,12 @@ module LavinMQ
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           sync
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
+          # The segment first, see #delete_unused_segments
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
+          end
+          if a = @acks.delete(sp.segment)
+            delete_file(a)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -849,10 +850,13 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
+          # The segment first: a crash in between leaves an ack file without
+          # its segment, which the next start removes, not a segment without
+          # its acks, whose messages would come back
+          delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile, including_meta: true)
           true
         else
           false

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A crash while the broker deleted an emptied segment could bring its messages back after the restart: the ack file was unlinked before the segment, so a crash in between left a segment without its acks. Messages that were acked, dead-lettered or retried were then delivered or moved again. The segment is now unlinked first, and an ack file left without its segment is removed at the next start [#2696](https://github.com/cloudamqp/lavinmq/pull/2696)
 - Since 2.11.0-rc.1, the management UI pages with charts (overview, nodes, queue, stream, exchange, connection, channel) showed no charts or counters and stopped refreshing when the browser reported an invalid language tag, such as `en-US@posix` from Chromium on Linux started without `LANG`. Such a tag now falls back to `en-US` [#2661](https://github.com/cloudamqp/lavinmq/pull/2661)
 - Binding an exchange to or from `mqtt.default`, or unbinding an exchange from `mqtt.default` as source, closed the whole connection with `INTERNAL_ERROR`. Now only the channel is closed, with `ACCESS_REFUSED` [#2672](https://github.com/cloudamqp/lavinmq/pull/2672)
 - Since 2.11.0-rc.3, with `socket_buffer_size = 0` AMQP connections were closed for heartbeat timeout even when the client sent heartbeats or other frames. The time of the last read from the client was only updated on the first frame, as an unbuffered socket never counts its reads [#2658](https://github.com/cloudamqp/lavinmq/pull/2658)

@@ -157,6 +157,22 @@ end
   end
 {% end %}
 
+# Spec instrumentation: fails the unlink of *path*, like a crash between the
+# unlink of a segment and that of its ack file
+class File
+  class_property fail_delete_of : String? = nil
+
+  def self.delete(path : Path | String) : Nil
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if @@fail_delete_of == path.to_s
+    previous_def
+  end
+
+  def self.delete?(path : Path | String) : Bool
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if @@fail_delete_of == path.to_s
+    previous_def
+  end
+end
+
 describe LavinMQ::MessageStore do
   # Regression: avg_bytesize is read without the queue's lock (HTTP API,
   # stats), so the store can become empty between its zero check and the
@@ -206,6 +222,61 @@ describe LavinMQ::MessageStore do
 
       File.exists?(File.join(dir, "acks.0000000001")).should be_true
       File.exists?(File.join(dir, "acks.0000000002")).should be_false
+    end
+  end
+
+  it "unlinks an emptied segment before its acks, so a crash in between doesn't bring its messages back" do
+    mktmpdir do |dir|
+      # One message per segment
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+        AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      begin
+        3.times { store.push(msg) }
+        env = store.shift?.should_not be_nil
+        File.fail_delete_of = File.join(dir, "msgs.0000000001")
+        expect_raises(LavinMQ::MessageStore::Error) { store.delete(env.segment_position) }
+      ensure
+        File.fail_delete_of = nil
+        store.close
+      end
+      File.exists?(File.join(dir, "acks.0000000001")).should be_true
+
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store.size.should eq 2
+      File.exists?(File.join(dir, "msgs.0000000001")).should be_false
+      store.close
+    end
+  end
+
+  it "unlinks an unused segment before its acks, so a crash in between doesn't bring its messages back" do
+    mktmpdir do |dir|
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+        AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      # A fully acked segment that is kept as the one written to
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store.push(msg)
+      env = store.shift?.should_not be_nil
+      store.delete(env.segment_position)
+      store.close
+
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      begin
+        # The rollover deletes the unused segment
+        File.fail_delete_of = File.join(dir, "msgs.0000000001")
+        expect_raises(File::Error) { store.push(msg) }
+      ensure
+        File.fail_delete_of = nil
+        store.close
+      end
+      File.exists?(File.join(dir, "acks.0000000001")).should be_true
+
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store.size.should eq 0
+      File.exists?(File.join(dir, "msgs.0000000001")).should be_false
+      store.close
     end
   end
 
