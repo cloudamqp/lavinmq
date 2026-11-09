@@ -15,7 +15,9 @@ module MqttSpecs
           ]
           refused.each do |op|
             ch = conn.channel
-            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+            # Names mqtt.default, the exchange that can't be bound, also when
+            # it's the destination
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
               op.call(ch)
             end
             conn.closed?.should be_false
