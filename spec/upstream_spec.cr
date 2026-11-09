@@ -335,13 +335,16 @@ describe LavinMQ::Federation::Upstream do
           conn_id = conn.object_id
           conn.close
         end
-        wait_for { upstream_vhost.connections_size == 0 }
-        upstream.links.first.@state_changed.try_send nil
-        wait_for { upstream_vhost.connections_size == 1 }
-        conn = nil
-        upstream_vhost.each_connection { |c| conn = c if c.name.starts_with?("Federation link") }
-        # Verify that it's a new connection... Any better assertion that can be done?
-        conn.object_id.should_not eq conn_id
+        conn_id.should_not be_nil
+        # The link reconnects after 1ms, so the vhost can be without
+        # connections for less than a wait_for poll
+        wait_for do
+          reconnected = false
+          upstream_vhost.each_connection do |c|
+            reconnected = true if c.client_name.starts_with?("Federation link") && c.object_id != conn_id
+          end
+          reconnected
+        end
       end
     end
 
