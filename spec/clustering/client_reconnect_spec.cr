@@ -149,23 +149,26 @@ module ClientReconnectSpec
       end
     end
 
-    # A leader that fails the handshake, here one with another password,
-    # mustn't end replication for good: the controller still thinks this
-    # client follows it and won't replace it while that node leads. Both
-    # sides log each attempt, so the client waits longer each time.
+    # A leader that fails the handshake, here one that can't prove it knows
+    # the password, mustn't end replication for good: the controller still
+    # thinks this client follows it and won't replace it while that node
+    # leads. Both sides log each attempt, so the client waits longer each time.
     it "keeps reconnecting, waiting longer each time, to a leader that fails the handshake" do
       with_datadir do |data_dir|
         client = make_client(data_dir, sync: false)
         leader = TCPServer.new("127.0.0.1", 0)
         accepted = Channel(Time::Instant).new(16)
-        spawn(name: "leader with another password") do
+        spawn(name: "leader without the password") do
+          size = LavinMQ::Clustering::CHALLENGE_SIZE
           while socket = leader.accept?
             accepted.send Time.instant # before the handshake the client fails
             begin
+              socket.write LavinMQ::Clustering::StartV3
+              socket.write Bytes.new(size)
               # Read all the follower sends, so closing doesn't reset the connection
-              socket.read_fully(Bytes.new(LavinMQ::Clustering::StartV2.size))
-              socket.read_fully(Bytes.new(socket.read_byte || raise IO::EOFError.new))
-              socket.write_byte 1u8 # wrong password
+              socket.read_fully(Bytes.new(8 + size + LavinMQ::Clustering::RESPONSE_SIZE))
+              socket.write_byte 0u8
+              socket.write Bytes.new(LavinMQ::Clustering::RESPONSE_SIZE) # not the leader's proof
             rescue IO::Error
             ensure
               socket.close
