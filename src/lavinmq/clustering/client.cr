@@ -62,10 +62,6 @@ module LavinMQ
       # Parents of directories this client created, whose new entries aren't
       # fsynced yet, fsynced with the next fsync request (see #make_dirs)
       @created_dirs = Set(String).new
-      # Set when a sync was skipped because sync was disabled. The leader's
-      # fsync requests don't cover what was written before them, so the first
-      # sync after sync is enabled again syncs the whole data dir.
-      @sync_skipped = Atomic(Bool).new(false)
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -533,8 +529,6 @@ module LavinMQ
       private def fsync_request(filename : String) : Nil
         Log.debug { "Fsync requested for #{filename.empty? ? "data dir" : filename}" }
         if filename.empty?
-          # The syncfs covers them, or the catch-up if sync is disabled
-          @created_dirs.clear
           @acks.send ""
           return
         end
@@ -551,8 +545,7 @@ module LavinMQ
       # fsync request, before the ack that makes anything in it durable, not
       # inline on the replication stream
       private def make_dirs(dir : String) : Nil
-        # Version 1 leaders send no fsync requests, every batch is a syncfs
-        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent if @protocol_version > 1 }
+        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent }
       end
 
       private def delete(filename)
@@ -621,11 +614,7 @@ module LavinMQ
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           # Fsync the content before the rename, so that a crash can't leave
           # a partially written file under the final name
-          if sync_enabled?
-            f.fsync
-          else
-            @sync_skipped.set(true)
-          end
+          f.fsync if @config.sync?
           f.rename f.path[0..-5]
           @file_digests[filename] = sha1
           @acks.send File.dirname(f.path)
@@ -685,7 +674,14 @@ module LavinMQ
             end
             item = acks.try_receive? || break
           end
-          sync_batch(syncfs, fsync_paths)
+          if syncfs || fsync_paths.size > @config.syncfs_threshold
+            # The syncfs covers them. Cleared before it, as #make_dirs can run
+            # while it blocks.
+            @created_dirs.clear
+            sync_to_disk
+          else
+            fsync_to_disk(fsync_paths)
+          end
           fsync_paths.clear
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian if ack_bytes > 0
         end
@@ -694,38 +690,9 @@ module LavinMQ
         socket.close rescue nil
       end
 
-      # Reads the sync setting once, as a reload can enable it between two
-      # reads and the batch would then be acked without the catch-up syncfs
-      private def sync_batch(syncfs : Bool, fsync_paths : Set(String)) : Nil
-        unless sync_enabled?
-          @sync_skipped.set(true)
-          return
-        end
-        if @sync_skipped.swap(false) || syncfs || fsync_paths.size > @config.syncfs_threshold
-          # @created_dirs is left to the stream fiber, which owns it: a
-          # directory this syncfs covered only costs one more fsync later
-          syncfs_or_exit
-        else
-          fsync_to_disk(fsync_paths)
-        end
-      end
-
-      private def sync_enabled? : Bool
-        @config.sync?
-      end
-
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
-        if sync_enabled?
-          # This syncfs is the catch-up, the first batch needs none
-          @sync_skipped.set(false)
-          syncfs_or_exit
-        else
-          @sync_skipped.set(true)
-        end
-      end
-
-      private def syncfs_or_exit : Nil
+        return unless @config.sync?
         sync_data_dir
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
@@ -739,6 +706,7 @@ module LavinMQ
       end
 
       private def fsync_to_disk(paths : Set(String)) : Nil
+        return unless @config.sync?
         begin
           paths.each { |path| fsync_path(path) }
         rescue ex : IO::Error | RuntimeError
