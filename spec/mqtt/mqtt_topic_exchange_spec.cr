@@ -412,6 +412,43 @@ module MqttSpecs
       end
     end
 
+    # The exchange only routes MQTT publishes, which can't carry an x-delay,
+    # so a delayed x-mqtt-topic exchange would only look delayed
+    it "refuses to declare a delayed exchange over AMQP" do
+      with_server do |server|
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+          end
+        end
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-delayed-message", args: AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"}))
+          end
+        end
+        server.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    it "refuses to declare a delayed exchange over the HTTP API" do
+      with_http_server do |http, s|
+        body = %({"type": "x-mqtt-topic", "durable": true, "arguments": {"x-delayed-exchange": true}})
+        response = http.put("/api/exchanges/%2f/xmqtt", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    it "still loads a delayed exchange that an earlier version stored" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        frame = AMQ::Protocol::Frame::Exchange::Declare.new(0_u16, 0_u16, "xmqtt", "x-mqtt-topic", false, true,
+          false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true}))
+        vhost.@definitions.should_not(be_nil).apply(frame, loading: true)
+        vhost.exchange?("xmqtt").should_not be_nil
+      end
+    end
+
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
