@@ -1044,7 +1044,7 @@ describe LavinMQ::MessageStore do
           store.push(synced_message("m"))
           vm_flags(store.@wfile.path).should contain "rr"
           large = "x" * 4000
-          until store.@avg_msg_size >= LavinMQ::MessageStore::READAHEAD_FROM_AVG_MSG_SIZE
+          until store.@avg_msg_size_x16 // 16 >= LavinMQ::MessageStore::READAHEAD_FROM_AVG_MSG_SIZE
             vm_flags(store.@wfile.path).should contain "rr"
             store.push(synced_message(large))
           end
@@ -1061,12 +1061,25 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "gives the write segment readahead for synced messages of exactly the limit's size" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          size = LavinMQ::MessageStore::READAHEAD_FROM_AVG_MSG_SIZE
+          msg = synced_message("x" * (size - synced_message("").bytesize))
+          msg.bytesize.should eq size
+          200.times { store.push(msg) }
+          (store.@avg_msg_size_x16 // 16).should eq size
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
+        end
+      end
+
       it "takes readahead from the write segment again when synced messages get small" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
           20.times { store.push(synced_message("x" * 4000)) }
           vm_flags(store.@wfile.path).should_not contain "rr"
-          until store.@avg_msg_size < LavinMQ::MessageStore::NO_READAHEAD_BELOW_AVG_MSG_SIZE
+          until store.@avg_msg_size_x16 // 16 < LavinMQ::MessageStore::NO_READAHEAD_BELOW_AVG_MSG_SIZE
             vm_flags(store.@wfile.path).should_not contain "rr"
             store.push(synced_message("m"))
           end
