@@ -309,6 +309,82 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       end
     end
   end
+
+  # A slow disk on a single node: no follower wait, only the delete's own sync
+  it "keeps the files of a retry queue recreated while the delete of the closed one waits for its sync" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      retry_dir = queue_dir(s, "amq.retry-prim")
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+        old_retry = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+        q.publish "x"
+        q.get(no_ack: false).should_not(be_nil).reject(requeue: true)
+        # Released back to prim, so the retry store moved a message out
+        wait_for { prim.message_count == 1 }
+        q.get(no_ack: true).should_not be_nil
+        old_retry.close # durable, so it stays registered
+        deleted = Channel(Nil).new
+        with_drain_held do
+          spawn { vhost.delete_queue("amq.retry-prim"); deleted.close }
+          sleep 50.milliseconds
+          q.publish "y"
+          q.get(no_ack: false).should_not(be_nil).reject(requeue: true)
+          wait_for { !prim.@delayed_retry_queue.same?(old_retry) }
+        end
+        deleted.receive?
+        Dir.exists?(retry_dir).should be_true
+      end
+    end
+  end
+
+  it "syncs before it unlinks a segment that messages were moved out of before the store was loaded again" do
+    with_datadir do |data_dir|
+      replicator = HeldSyncReplicator.new
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+      body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+      7.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+      segment = File.join(data_dir, "msgs.0000000001")
+      begin
+        store.delete(store.shift?.should_not(be_nil).segment_position, moved: true)
+        # Closed and loaded again, as Queue#restart! does
+        store.close
+        store = LavinMQ::MessageStore.new(data_dir, nil, persister: persister)
+        replicator.hold
+        sps = Array.new(2) { store.shift?.should_not(be_nil).segment_position }
+        spawn { sps.each { |sp| store.delete(sp) } } # empties the segment
+        sleep 50.milliseconds
+        File.exists?(segment).should be_true
+      ensure
+        replicator.release
+        store.close
+        persister.close
+      end
+    end
+  end
+end
+
+# Holds the persister's drains, like a slow disk, until the block returns
+class LavinMQ::Persister
+  class_property drain_gate : ::Channel(Nil)? = nil
+
+  private def drain : Nil
+    @@drain_gate.try &.receive?
+    previous_def
+  end
+end
+
+private def with_drain_held(&)
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield
+  ensure
+    LavinMQ::Persister.drain_gate = nil
+    gate.close
+  end
 end
 
 # Once held, every wait for the followers waits until released
