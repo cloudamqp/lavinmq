@@ -149,10 +149,16 @@ class MFile < IO
 
   def delete(*, raise_on_missing = true) : Nil
     return if @deleted.swap(true, :acquire_release) # avoid double deletes
-    if raise_on_missing
-      File.delete(@path)
-    else
-      File.delete?(@path)
+    begin
+      if raise_on_missing
+        File.delete(@path)
+      else
+        File.delete?(@path)
+      end
+    rescue ex
+      # Still on disk, so a later call retries the unlink rather than skip it
+      @deleted.set(false, :release)
+      raise ex
     end
   end
 

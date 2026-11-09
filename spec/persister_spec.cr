@@ -97,12 +97,20 @@ private def wait_unlinked(path : String, &) : Nil
   end
 end
 
-# Spec instrumentation: fails the unlink of *path*
+# Spec instrumentation: fails the unlink of *path*, like the syscall would,
+# after MFile#delete marked the file deleted
 class MFile
   class_property fail_delete_of : String? = nil
+end
 
-  def delete(*, raise_on_missing = true) : Nil
-    raise File::Error.new("Spec unlink failure", file: @path) if @@fail_delete_of == @path
+class File
+  def self.delete(path : Path | String) : Nil
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if MFile.fail_delete_of == path.to_s
+    previous_def
+  end
+
+  def self.delete?(path : Path | String) : Bool
+    raise File::Error.new("Spec unlink failure", file: path.to_s) if MFile.fail_delete_of == path.to_s
     previous_def
   end
 end
@@ -437,6 +445,28 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "unlinks an emptied segment before its acks, so a crash in between doesn't bring its messages back" do
+    with_datadir do |data_dir|
+      store = store_with_three_segments(data_dir, nil)
+      begin
+        sps = Array.new(3) { store.shift?.should_not(be_nil).segment_position }
+        # Like a crash between the two unlinks
+        MFile.fail_delete_of = File.join(data_dir, "msgs.0000000001")
+        sps.first(2).each { |sp| store.delete(sp) }
+        expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[2]) }
+      ensure
+        MFile.fail_delete_of = nil
+        store.close
+      end
+      reloaded = LavinMQ::MessageStore.new(data_dir, nil)
+      begin
+        reloaded.size.should eq 4
+      ensure
+        reloaded.close
+      end
+    end
+  end
+
   it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -452,12 +482,14 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         end
         wait_for { store.copies_synced? }
         File.exists?(segment).should be_true # kept until the next delete
-        MFile.fail_delete_of = File.join(data_dir, "acks.0000000001")
+        MFile.fail_delete_of = segment
         expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
         File.exists?(segment).should be_true
+        File.exists?(File.join(data_dir, "acks.0000000001")).should be_true
         MFile.fail_delete_of = nil
         store.purge(1)
         File.exists?(segment).should be_false
+        File.exists?(File.join(data_dir, "acks.0000000001")).should be_false
       ensure
         MFile.fail_delete_of = nil
         store.close
