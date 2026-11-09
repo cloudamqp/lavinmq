@@ -70,6 +70,18 @@ class LavinMQ::Server
     previous_def
   end
 
+  # Closes the stores but leaves the protocol servers listening, for specs that
+  # reopen the stores with `restart_server`.
+  def stop
+    return if @closed.swap(true)
+    close_log_exchange
+    @persister.close
+    @vhosts.close
+    @replicator.try &.clear
+    @authenticator.cleanup
+    Fiber.yield
+  end
+
   # Tear down the protocol servers so the next `#amqp_server`/`#mqtt_server`
   # access lazily builds a fresh one (used across a spec restart).
   def reset_protocol_servers_for_specs

@@ -154,10 +154,9 @@ module LavinMQ
         close_replicator unless hand_over
         close_listeners
         if server = @server
-          # Not #stop, that also clears the replicator's checksums, which the
-          # replication client reuses when it starts following
+          # Keeps the replicator's checksums, which the replication client
+          # reuses when it starts following
           server.close rescue nil
-          server.authenticator.cleanup rescue nil
         end
         hand_over.try &.call
         close_replicator
