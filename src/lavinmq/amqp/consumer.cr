@@ -68,7 +68,13 @@ module LavinMQ
       end
 
       private def deliver_loop
-        wait_for_single_active_consumer
+        unless @queue.active_consumer?(self)
+          @log.debug { "Not the single active consumer, exiting fiber" }
+          @deliver_loop_running.set(false, :release)
+          # The queue can hand over to this consumer between the check and the reset
+          ensure_deliver_loop if @queue.active_consumer?(self)
+          return
+        end
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -124,31 +130,6 @@ module LavinMQ
         when @notify_closed.receive
         end
         true
-      end
-
-      private def wait_for_single_active_consumer
-        case @queue.single_active_consumer
-        when self
-          @log.debug { "This consumer is the single active consumer" }
-        when nil
-          @log.debug { "The queue isn't a single active consumer queue" }
-        else
-          @log.debug { "Waiting for this consumer to become the single active consumer" }
-          flush
-          loop do
-            select
-            when sca = @queue.single_active_consumer_change.receive
-              if sca == self
-                break
-              else
-                @log.debug { "New single active consumer, but not me" }
-              end
-            when @notify_closed.receive
-              break
-            end
-          end
-          true
-        end
       end
 
       private def wait_for_priority_consumers
