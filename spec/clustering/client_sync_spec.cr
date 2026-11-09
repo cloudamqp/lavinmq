@@ -96,13 +96,6 @@ module ClientSyncSpec
     acked.should eq target
   end
 
-  # follow() was never called in this harness, so satisfy close's follower-done
-  # handshake ourselves.
-  def self.close_client(client : TestClient)
-    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
-    client.close
-  end
-
   def self.persisted_checksums(data_dir : String) : Hash(String, {String, String})
     path = File.join(data_dir, "checksums.sha1")
     return Hash(String, {String, String}).new unless File.exists?(path)
@@ -800,7 +793,7 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, payload.bytesize))
 
           client_socket.close
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "hello world"
           # Dropped when the append arrived, so the next sync re-hashes the file
@@ -830,7 +823,7 @@ module ClientSyncSpec
           end
 
           client_socket.close
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "abcdef"
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("abcdef").hexstring
@@ -859,7 +852,7 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, content.bytesize))
 
           client_socket.close
-          close_client(client)
+          client.close
 
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest(content).hexstring
         end
@@ -900,7 +893,7 @@ module ClientSyncSpec
             fail "stream fiber did not exit"
           end
 
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "old content"
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("old content").hexstring
@@ -932,7 +925,7 @@ module ClientSyncSpec
           sync_with_leader(client, {} of String => String, resync: true)
           File.exists?(File.join(data_dir, filename)).should be_false
 
-          close_client(client)
+          client.close
           checksums_matching_disk(data_dir).has_key?(filename).should be_false
         end
       end
@@ -987,7 +980,7 @@ module ClientSyncSpec
           File.read(File.join(data_dir, filename)).should eq "newB"
 
           client_socket.close
-          close_client(client)
+          client.close
           checksums_matching_disk(data_dir)
         end
       end
@@ -1352,9 +1345,6 @@ module ClientSyncSpec
             # close drained and closed the channel
           end
 
-          # follow() was never called in this harness, so satisfy close's
-          # follower-done handshake ourselves.
-          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
           client.close
 
           sleep 200.milliseconds # let any straggler sync run after close returned
