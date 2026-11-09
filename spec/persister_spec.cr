@@ -406,6 +406,31 @@ describe LavinMQ::MessageStore, "unlinks of segments that messages were moved ou
       end
     end
   end
+
+  it "has the followers delete the pending segments when the store is closed and then deleted" do
+    with_datadir do |data_dir|
+      replicator = HeldSyncReplicator.new
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      msg_dir = File.join(data_dir, "q")
+      Dir.mkdir_p msg_dir
+      begin
+        store = LavinMQ::MessageStore.new(msg_dir, replicator, persister: persister)
+        sps = push_and_shift(store)
+        replicator.hold
+        sps.select(&.segment.==(1)).each { |sp| store.delete(sp, moved: true) }
+        # As Queue#delete and MQTT::Session#delete do
+        store.close
+        store.delete
+        segment = File.join(msg_dir, "msgs.0000000001")
+        replicator.deleted.should contain segment
+        replicator.deleted.should contain File.join(msg_dir, "acks.0000000001")
+        replicator.deleted.should contain File.join(msg_dir, "meta.0000000001")
+      ensure
+        replicator.release
+        persister.close
+      end
+    end
+  end
 end
 
 # 4 messages of a quarter segment each: 3 in segment 1, 1 in segment 2
@@ -441,6 +466,12 @@ private class HeldSyncReplicator < NoOpReplicator
 
   def release : Nil
     @released.close
+  end
+
+  getter deleted = Array(String).new
+
+  def delete_file(path : String)
+    @deleted << path
   end
 end
 

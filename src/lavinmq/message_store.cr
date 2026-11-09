@@ -38,6 +38,8 @@ module LavinMQ
     # Segments whose unlink waits for a sync, by segment id, see #unlink_segment
     @pending_unlinks = Hash(UInt32, {MFile, MFile?}).new
     @pending_unlinks_lock = Mutex.new
+    # Pending unlinks a close took and left on disk, for a delete that follows
+    @left_on_close = Array({MFile, MFile?}).new
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -313,8 +315,10 @@ module LavinMQ
       @closed = true
       @empty.close
       # Unlinked now, as all other segments, and not by their fibers later,
-      # when the files may belong to a queue declared with the same name
-      take_pending_unlinks.each { |segment, acks| unlink_now(segment, acks) }
+      # when the files may belong to a queue declared with the same name.
+      # Queue#delete closes the store first, which takes them.
+      take_pending_unlinks.concat(@left_on_close).each { |segment, acks| unlink_now(segment, acks) }
+      @left_on_close.clear
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
@@ -396,6 +400,7 @@ module LavinMQ
         end
         segment.close
         acks.try &.close
+        @left_on_close << {segment, acks}
       end
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
