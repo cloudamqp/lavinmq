@@ -41,7 +41,17 @@ module LavinMQ
       getter flush_waiters = Array(::Channel(Nil)).new
       # Files marked by #mark_dirty_lazily, synced only by a drain with
       # flush waiters and carried over to the next batch by any other
-      getter lazy_files = Array(MFile).new
+      property lazy_files = Array(MFile).new
+      # Set when more files were marked lazily than the syncfs threshold: a
+      # flush would sync the whole filesystem for them anyway, so they aren't
+      # kept, which bounds them on a server where nothing flushes
+      property? lazy_syncfs = false
+
+      # Takes over the lazily marked files of *other*, without copying them
+      def carry_lazy_from(other : Batch) : Nil
+        @lazy_files, other.lazy_files = other.lazy_files, @lazy_files
+        @lazy_syncfs, other.lazy_syncfs = other.lazy_syncfs?, @lazy_syncfs
+      end
 
       def drainable? : Bool
         !acks.empty? || !waiters.empty? || !flush_waiters.empty? || !files.empty? || !paths.empty?
@@ -71,6 +81,10 @@ module LavinMQ
     @skipped_sync = false
     # Set by #mark_dirty_lazily while sync is disabled
     @lazy_mark_skipped = Atomic(Bool).new(false)
+    # Syncs of the whole filesystem that drains have started and finished,
+    # see #synced_since?. Written by the drain only.
+    @syncfs_started = Atomic(UInt64).new(0u64)
+    @syncfs_finished = Atomic(UInt64).new(0u64)
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
@@ -111,6 +125,8 @@ module LavinMQ
     # whose segments only have to be durable before the segment they left is
     # unlinked: syncing them on every confirm would write the same pages
     # again and again.
+    # No more of them are kept than the syncfs threshold: past it a flush
+    # syncs the whole filesystem instead.
     def mark_dirty_lazily(mfile : MFile) : Nil
       # Nothing flushes while sync is disabled, so the files would only pile
       # up. The first drain after it's enabled again syncs everything instead.
@@ -119,7 +135,27 @@ module LavinMQ
         return
       end
       return if mfile.mark_needs_lazy_msync!
-      @pending.lock &.lazy_files.push(mfile)
+      @pending.lock do |batch|
+        lazy = batch.lazy_files
+        if lazy.size >= Config.instance.syncfs_threshold
+          lazy.each &.clear_needs_lazy_msync!
+          lazy.clear
+          batch.lazy_syncfs = true
+        end
+        lazy.push(mfile)
+      end
+    end
+
+    # A point in time to pass to #synced_since?
+    def syncfs_epoch : UInt64
+      @syncfs_started.get(:acquire)
+    end
+
+    # Whether a sync of the whole filesystem, on the leader and on the in-sync
+    # followers, has started and finished since *epoch* was taken, so
+    # everything written before that is durable
+    def synced_since?(epoch : UInt64) : Bool
+      @syncfs_finished.get(:acquire) > epoch
     end
 
     # Like mark_dirty(MFile), for regular (non-mmapped) files and for
@@ -204,8 +240,7 @@ module LavinMQ
           batch = current
           next_batch = Batch.new
           if current.flush_waiters.empty? && Config.instance.sync?
-            next_batch.lazy_files.concat(current.lazy_files)
-            current.lazy_files.clear
+            next_batch.carry_lazy_from(current)
           end
           next_batch
         else
@@ -224,8 +259,10 @@ module LavinMQ
       sync = Config.instance.sync?
       # A drain while sync was disabled cleared the marks without syncing, so
       # the first drain after it's enabled again syncs everything
-      syncfs = (sync && (@skipped_sync || @lazy_mark_skipped.swap(false, :relaxed))) ||
-               batch.syncfs? || !batch.waiters.empty? ||
+      # Taken on its own, so one sync of everything clears both reasons for it
+      lazy_mark_skipped = sync && @lazy_mark_skipped.swap(false, :relaxed)
+      syncfs = (sync && @skipped_sync) || lazy_mark_skipped ||
+               batch.syncfs? || batch.lazy_syncfs? || !batch.waiters.empty? ||
                files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
       replicator = @replicator
@@ -242,6 +279,7 @@ module LavinMQ
         end
         replicator.followers.each &.request_flush
       end
+      syncfs_id = @syncfs_started.add(1u64, :acquire_release) + 1 if sync && syncfs
       begin
         if sync
           if paths
@@ -267,6 +305,7 @@ module LavinMQ
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
       replicator.try &.wait_for_followers
+      @syncfs_finished.set(syncfs_id, :release) if syncfs_id
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)

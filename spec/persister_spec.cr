@@ -575,3 +575,130 @@ describe LavinMQ::Persister, "segments emptied by plain acks" do
     end
   end
 end
+
+describe LavinMQ::Persister, "lazily marked files" do
+  it "keeps no more of them than the syncfs threshold, and a flush then syncs the filesystem" do
+    with_datadir do |data_dir|
+      LavinMQ::Config.instance.syncfs_threshold = 4
+      persister = LavinMQ::Persister.new(data_dir)
+      files = Array(MFile).new(10) { |i| MFile.new(File.join(data_dir, "lazy#{i}"), 4096) }
+      begin
+        files.each do |file|
+          file.write "moved".to_slice
+          persister.mark_dirty_lazily(file)
+        end
+        # A confirm drain carries them over
+        receiver = ConfirmReceiver.new
+        persister.enqueue_ack(receiver, 1u64)
+        receiver.confirms.receive.should eq 1u64
+        persister.last_sync.should_not(be_nil).syncfs.should be_false
+        persister.@pending.lock(&.lazy_files.size).should be <= 4
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+        # A file that was dropped is marked again by its next write
+        files.first.write "moved".to_slice
+        persister.mark_dirty_lazily(files.first)
+        persister.flush
+        sync = persister.last_sync.should_not be_nil
+        sync.syncfs.should be_false
+        sync.paths.should contain files.first.path
+      ensure
+        persister.close
+        files.each &.close
+      end
+    end
+  end
+
+  it "syncs the filesystem once, not twice, after sync is enabled again" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      file = MFile.new(File.join(data_dir, "segment"), 4096)
+      begin
+        LavinMQ::Config.instance.sync = false
+        file.write "moved".to_slice
+        persister.mark_dirty_lazily(file)
+        persister.flush # a drain that skips the sync
+        LavinMQ::Config.instance.sync = true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_true
+        persister.flush
+        persister.last_sync.should_not(be_nil).syncfs.should be_false
+      ensure
+        persister.close
+        file.close
+      end
+    end
+  end
+end
+
+describe LavinMQ::MessageStore, "segments loaded from disk with acks" do
+  it "unlinks them at once when the filesystem was synced since the load" do
+    with_datadir do |data_dir|
+      replicator = HeldSyncReplicator.new
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      msg_dir = File.join(data_dir, "q")
+      Dir.mkdir_p msg_dir
+      begin
+        sps = moved_one_and_reloaded(msg_dir, persister) { |store| store }
+        store = sps[:store]
+        persister.sync
+        replicator.hold # an unlink that waited for a sync would wait for this
+        sps[:rest].each { |sp| store.delete(sp) }
+        File.exists?(File.join(msg_dir, "msgs.0000000001")).should be_false
+        store.close
+      ensure
+        replicator.release
+        persister.close
+      end
+    end
+  end
+
+  it "doesn't bring purged messages back when the store is closed before the sync" do
+    with_datadir do |data_dir|
+      replicator = HeldSyncReplicator.new
+      persister = LavinMQ::Persister.new(data_dir, replicator)
+      msg_dir = File.join(data_dir, "q")
+      Dir.mkdir_p msg_dir
+      begin
+        # 3 segments of 3 messages, one acked in the second
+        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        sps = Array(LavinMQ::SegmentPosition).new(9) { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.delete(sps.find!(&.segment.==(2)))
+        store.close
+
+        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+        store.size.should eq 8
+        replicator.hold
+        store.purge_all
+        store.close
+
+        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+        store.size.should eq 0
+        store.close
+      ensure
+        replicator.release
+        persister.close
+      end
+    end
+  end
+end
+
+describe LavinMQ::Persister, "messages dead-lettered to no queue" do
+  it "unlinks the emptied segment without a sync" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new({"x-dead-letter-exchange" => "amq.fanout"})
+        q = ch.queue("unrouted", args: args)
+        8.times { q.publish "x" * 100_000 }
+        8.times do
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.reject(requeue: false)
+        end
+        segment = File.join(queue_dir(s, "unrouted"), "msgs.0000000001")
+        wait_for { !File.exists?(segment) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+end

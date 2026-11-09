@@ -746,7 +746,7 @@ module LavinMQ::AMQP
 
     # Dead-letters a message of this queue that the retry queue holds. The
     # block removes it from the retry queue once routed
-    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool -> Nil) : Nil
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Argument::DeadLettering::MessageRoutedCallback) : Nil
       @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
       @dead_letter.route(msg, reason, &routed)
     end
@@ -1163,10 +1163,10 @@ module LavinMQ::AMQP
         end
         routed = false
         begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
+          @dead_letter.route(env.message, reason, dlx_tasks) do |stored, copied|
             routed = true
             begin
-              delete_message sp, moved: true if stored
+              delete_message sp, moved: copied if stored
             ensure
               env.release
             end

@@ -35,6 +35,8 @@ module LavinMQ
     @moved_out = Set(UInt32).new
     # Segments loaded from disk with acks, see #unlink_segment
     @loaded_with_acks = Set(UInt32).new
+    # Persister#syncfs_epoch when the segments were loaded
+    @loaded_epoch = 0u64
     # Segments whose unlink waits for a sync, by segment id, see #unlink_segment
     @pending_unlinks = Hash(UInt32, {MFile, MFile?}).new
     @pending_unlinks_lock = Mutex.new
@@ -54,6 +56,7 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
+      @loaded_epoch = @persister.try(&.syncfs_epoch) || 0u64
       load_segments_from_disk
       load_acks_from_disk
       @wfile_id = @segments.last_key
@@ -276,6 +279,11 @@ module LavinMQ
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
+        # Its unlink would wait for a sync, and a store closed meanwhile
+        # leaves the segment on disk, where its messages would come back.
+        # So its messages are acked one by one below, as in @rfile and
+        # @wfile, and the segment is unlinked once they all are.
+        next false if unlink_waits_for_sync?(seg_id)
 
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
@@ -330,14 +338,16 @@ module LavinMQ
     # durable first. Their copies are marked dirty when they're written (see
     # Message#moved_copy?), so the unlink waits for the next drain of the
     # persister, which syncs the marked files, like a confirm. A segment
-    # loaded from disk can have copies an earlier process made and never
-    # marked, so its unlink waits for a syncfs. Either way it waits in a fiber
+    # loaded from disk can have copies an earlier store made, which this one
+    # doesn't know of, so its unlink waits for a syncfs, until the filesystem
+    # has been synced once since the load. Either way it waits in a fiber
     # of its own, so the queue's publishers and consumers don't wait for the
     # sync while the queue's lock is held. Plain acks unlink at once.
     private def unlink_segment(seg : UInt32, segment : MFile, acks : MFile?) : Nil
-      moved = @moved_out.delete(seg)
-      loaded = @loaded_with_acks.delete(seg)
       persister = @persister
+      loaded = persister ? loaded_unsynced?(seg, persister) : false
+      moved = @moved_out.delete(seg)
+      @loaded_with_acks.delete(seg)
       if (moved || loaded) && persister && Config.instance.sync?
         @pending_unlinks_lock.synchronize { @pending_unlinks[seg] = {segment, acks} }
         spawn(name: "unlink segment after sync") do
@@ -354,6 +364,23 @@ module LavinMQ
       else
         unlink_now(segment, acks)
       end
+    end
+
+    # Whether #unlink_segment would wait for a sync before it unlinks *seg*
+    private def unlink_waits_for_sync?(seg : UInt32) : Bool
+      return false unless (persister = @persister) && Config.instance.sync?
+      @moved_out.includes?(seg) || loaded_unsynced?(seg, persister)
+    end
+
+    # Whether *seg* was loaded from disk with acks and the filesystem hasn't
+    # been synced since, see #unlink_segment
+    private def loaded_unsynced?(seg : UInt32, persister : Persister) : Bool
+      return false if @loaded_with_acks.empty?
+      if persister.synced_since?(@loaded_epoch)
+        @loaded_with_acks.clear
+        return false
+      end
+      @loaded_with_acks.includes?(seg)
     end
 
     # Takes the segments whose unlink waits for a sync away from their fibers,
@@ -650,7 +677,8 @@ module LavinMQ
           @acks[seg] = open_ack_file(seg)
           @deleted[seg] = acked.sort! unless acked.empty?
           # Which of its messages an earlier store moved to other queues isn't
-          # known, so its unlink waits for a sync as if some were
+          # known, so its unlink waits for a sync as if some were, until the
+          # filesystem has been synced once
           @loaded_with_acks << seg
         end
         count += 1
