@@ -250,7 +250,8 @@ start_background() {
     fi
 }
 
-# start_http INDEX OUT: GET loops until DURATION has passed, one latency per line
+# start_http INDEX OUT: GET loops until DURATION has passed, one
+# "status seconds" line per request
 start_http() {
     local i="$1" out="$2" concurrency k paths end
     concurrency=$(jq ".[$i].http.concurrency // 1" "$SCENARIOS_FILE")
@@ -261,7 +262,7 @@ start_http() {
         (
             while [ "$(date +%s)" -lt "$end" ]; do
                 for p in "${paths[@]}"; do
-                    curl -s -o /dev/null --max-time 10 -u guest:guest -w '%{time_total}\n' \
+                    curl -s -o /dev/null --max-time 10 -u guest:guest -w '%{http_code} %{time_total}\n' \
                         "http://localhost:15672$p" >> "$out.$k" || true
                 done
             done
@@ -277,7 +278,7 @@ start_http() {
 run_one() {
     local i="$1" side="$2" bin="$3" round="$4"
     local name proto metrics data_dir uri out args has_http
-    local w0 w1 d0 d1 p0 p1 rss http_file http_count http_p99
+    local w0 w1 d0 d1 p0 p1 rss http_file http_count http_errors http_p99
     name=$(jq -r ".[$i].name" "$SCENARIOS_FILE")
     proto=$(jq -r ".[$i].protocol" "$SCENARIOS_FILE")
     metrics=$(jq -r ".[$i].metrics | join(\",\")" "$SCENARIOS_FILE")
@@ -314,10 +315,14 @@ run_one() {
     p1=$(published)
     rss=$(broker_peak_rss_mb)
     http_count=0
+    http_errors=0
     http_p99=0
     if [ "$has_http" = true ]; then
-        http_count=$(cat "$http_file".* 2>/dev/null | wc -l)
-        http_p99=$(cat "$http_file".* 2>/dev/null | sort -n |
+        # Only 2xx responses count; any other response or a timeout (000)
+        # marks the scenario as broken
+        http_count=$(cat "$http_file".* 2>/dev/null | awk '$1 ~ /^2/' | wc -l)
+        http_errors=$(cat "$http_file".* 2>/dev/null | awk '$1 !~ /^2/' | wc -l)
+        http_p99=$(cat "$http_file".* 2>/dev/null | awk '$1 ~ /^2/ { print $2 }' | sort -n |
             awk '{ a[NR] = $1 } END { if (NR) printf "%.1f", a[int((NR - 1) * 0.99) + 1] * 1000; else print 0 }')
     fi
 
@@ -328,10 +333,10 @@ run_one() {
     jq -c --arg s "$name" --arg m "$metrics" --arg side "$side" --argjson r "$round" \
         --argjson msgs "$((p1 - p0))" --argjson wb "$((w1 - w0))" --argjson db "$((d1 - d0))" \
         --argjson rss "$rss" --argjson http "$http_count" --argjson dur "$DURATION" \
-        --argjson p99 "$http_p99" \
+        --argjson p99 "$http_p99" --argjson http_errors "$http_errors" \
         '{scenario: $s, metrics: ($m | split(",")), side: $side, round: $r,
           pub: .avg_pub_rate, consume: .avg_consume_rate,
-          http: ($http / $dur), http_p99_ms: $p99, rss: $rss,
+          http: ($http / $dur), http_errors: $http_errors, http_p99_ms: $p99, rss: $rss,
           write: ($wb / ([$msgs, 1] | max)), disk: ($db / ([$msgs, 1] | max)),
           published: $msgs}' \
         <<<"$out" | tee -a "$RESULTS"
@@ -389,8 +394,9 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD
         change_pct: (($ratio - 1) * 100),
         worse_rounds: $worse,
         range_pct: [(($ratios | min) - 1) * 100, (($ratios | max) - 1) * 100],
-        broken: (if $lower then ($m == "rss" and (($b | median) == 0 or ($h | median) == 0))
-                 else (($b | median) == 0 or ($h | median) == 0) end),
+        broken: ((if $lower then ($m == "rss" and (($b | median) == 0 or ($h | median) == 0))
+                  else (($b | median) == 0 or ($h | median) == 0) end)
+                 or ($m == "http" and ($runs | any(.http_errors > 0)))),
         regression: ((if $lower then $ratio > (1 + $rthreshold / 100)
                       else $ratio < (1 - $threshold / 100) end)
                      and $worse >= ([$rounds - 1, 1] | max))
@@ -419,7 +425,7 @@ cat "$OUT_DIR/summary.md"
 
 if jq -e 'any(.broken)' "$OUT_DIR/results.json" >/dev/null; then
     echo
-    echo "A scenario reported no throughput, the benchmark is broken" >&2
+    echo "A scenario reported no throughput or got HTTP errors, the benchmark is broken" >&2
     exit 1
 fi
 if jq -e 'any(.regression)' "$OUT_DIR/results.json" >/dev/null; then

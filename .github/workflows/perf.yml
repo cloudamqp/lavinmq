@@ -264,7 +264,7 @@ jobs:
         run: |
           results=tmp/perf/results.json
           if [ ! -f "$results" ] || ! jq -e 'any(.regression) and (any(.broken) | not)' "$results" >/dev/null; then
-            echo "::error::The comparison failed to run: a broker didn't start, lavinmqperf failed, or a scenario reported no throughput. See the log."
+            echo "::error::The comparison failed to run: a broker didn't start, lavinmqperf failed, a scenario reported no throughput, or the HTTP API returned errors. See the log."
             exit 1
           fi
           if [ -n "$PR" ] && curl -sf -H "Authorization: Bearer $GH_TOKEN" \
