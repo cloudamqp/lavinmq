@@ -58,8 +58,8 @@ describe BoolChannel do
     spawn { bc.wait_until_true(Channel(Nil).new(1), abort) { } }
     spawn { second.send bc.wait_until_true(Channel(Nil).new(1), Channel(Nil).new) { } }
     Fiber.yield
-    bc.set(true)
-    abort.close
+    abort.close  # the first waiter picks abort but hasn't run yet
+    bc.set(true) # so its turn comes after it chose to leave
     select
     when ok = second.receive
       ok.should be_true
