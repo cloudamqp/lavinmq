@@ -257,7 +257,7 @@ module LavinMQ
     # Checked under the lock, on the exchange the bind is made to: a check
     # before #apply could see another exchange of the same name, as one can
     # be deleted and redeclared as x-mqtt-topic meanwhile. A shovel binds as
-    # the direct user, so Shovel::Runner checks its creator before binding
+    # the direct user, so Shovel::Store checks its creator before it binds
     private def refuse_unreadable_mqtt_exchange(x : Exchange, user : Auth::BaseUser?) : Nil
       return unless x.is_a?(AMQP::MqttTopicExchange)
       refuse_unreadable_mqtt_exchange(x.name, x.type, user)

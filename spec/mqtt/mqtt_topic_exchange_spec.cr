@@ -608,14 +608,17 @@ module MqttSpecs
               ch.exchange_declare("lim.mq", "x-mqtt-topic")
             end
           end
+          # A delayed x-mqtt-topic is refused for everyone, before the
+          # exchange or its delayed queue is built
           with_channel(server, user: "lim", password: "pw") do |ch|
             args = AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"})
-            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
-              ch.exchange_declare("lim.delayed", "x-delayed-message", args: args)
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+              ch.exchange_declare("lim.delayed", "x-delayed-message", durable: true, args: args)
             end
           end
           server.vhosts["/"].exchange?("lim.mq").should be_nil
           server.vhosts["/"].exchange?("lim.delayed").should be_nil
+          server.vhosts["/"].queue?("amq.delayed-lim.delayed").should be_nil
         end
       end
 
