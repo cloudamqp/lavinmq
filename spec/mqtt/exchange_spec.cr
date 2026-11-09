@@ -4,6 +4,32 @@ module MqttSpecs
   extend MqttHelpers
 
   describe LavinMQ::MQTT::Exchange do
+    it "refuses exchange bindings to and from it with a channel error" do
+      with_server do |server|
+        conn = AMQP::Client.new(port: amqp_port(server)).connect
+        begin
+          refused = [
+            ->(ch : AMQP::Client::Channel) { ch.exchange_bind("amq.topic", "mqtt.default", "a/b") },
+            ->(ch : AMQP::Client::Channel) { ch.exchange_bind("mqtt.default", "amq.topic", "a/b") },
+            ->(ch : AMQP::Client::Channel) { ch.exchange_unbind("mqtt.default", "amq.topic", "a/b") },
+          ]
+          refused.each do |op|
+            ch = conn.channel
+            # Names mqtt.default, the exchange that can't be bound, also when
+            # it's the destination
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              op.call(ch)
+            end
+            conn.closed?.should be_false
+            conn.channel.exchange_declare("amq.topic", "topic", passive: true)
+          end
+        ensure
+          conn.close
+        end
+        server.vhosts["/"].exchange("amq.topic").bindings_details.should be_empty
+      end
+    end
+
     it "removes all subscriptions from the subscription tree when a session is removed" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

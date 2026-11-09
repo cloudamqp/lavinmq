@@ -13,7 +13,8 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      alias MessageRoutedCallback = Proc(Nil)
+      # stored is false when a closing vhost closed a destination; the source keeps the message
+      alias MessageRoutedCallback = Proc(Bool, Nil)
       alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
       struct Tasks
@@ -54,7 +55,10 @@ module LavinMQ::AMQP
         end
 
         def set_target(dlx : String?, dlrk : String?) : Nil
-          @target.set(Target.new(dlx, dlrk), :release)
+          previous = @target.swap(Target.new(dlx, dlrk), :acquire_release)
+          # Warns again about an exchange it warned about before, once the
+          # queue dead-letters somewhere else in between, see #warn_unroutable
+          @warned_unroutable.set(nil, :release) if previous.dlx != dlx
         end
 
         # Tasks of drained chains, for the next chains to reuse. A chain holds
@@ -62,7 +66,20 @@ module LavinMQ::AMQP
         @free_tasks = Sync::Exclusive(Array(Tasks)).new(Array(Tasks).new, :unchecked)
         MAX_FREE_TASKS = 16
 
+        # The exchange last warned about, see #warn_unroutable
+        @warned_unroutable = Atomic(String?).new(nil)
+
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
+        end
+
+        # Once per exchange in a row, and again after the queue's dead-letter
+        # exchange changed, as every message dead-lettered to it is dropped,
+        # and a burst would flood the log
+        private def warn_unroutable(ex : AMQP::Exchange) : Nil
+          return if @warned_unroutable.swap(ex.name) == ex.name
+          @log.warn do
+            "Dropping dead-lettered messages: exchange '#{ex.name}' (#{ex.type}) only routes MQTT publishes"
+          end
         end
 
         private def cycle?(qname, props, reason) : Bool
@@ -92,8 +109,8 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           target = @target.get(:acquire)
-          return routed.call unless dlx = (msg.dlx || target.dlx)
-          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
+          return routed.call(true) unless dlx = (msg.dlx || target.dlx)
+          ex = dead_letter_exchange(dlx) || return routed.call(true)
 
           dlrk = msg.dlrk || target.dlrk
 
@@ -118,7 +135,7 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return routed.call if queues.empty?
+          return routed.call(true) if queues.empty?
 
           # The first dead lettering in a chain gets its own tasks, as the
           # queue can dead letter on several fibers/threads at once, while
@@ -144,6 +161,17 @@ module LavinMQ::AMQP
           drain_chain(ctx) if first_in_chain
         end
 
+        # The exchange to dead-letter to, nil if it doesn't exist or doesn't
+        # route AMQP messages
+        private def dead_letter_exchange(dlx) : AMQP::Exchange?
+          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return
+          unless ex.routes_amqp_messages?
+            warn_unroutable(ex)
+            return
+          end
+          ex
+        end
+
         private def take_tasks : Tasks
           @free_tasks.lock(&.pop?) || Tasks.new
         end
@@ -156,11 +184,15 @@ module LavinMQ::AMQP
         end
 
         private def drain_context(tasks : Tasks)
+          # A message's destinations are queued right before its callback
+          dst_closed = false
           while task = tasks.dequeue?
             case task
             when MessageRoutedCallback
+              stored = !dst_closed
+              dst_closed = false
               begin
-                task.call
+                task.call(stored)
               rescue ex
                 @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
@@ -168,9 +200,10 @@ module LavinMQ::AMQP
               dst_q, msg = task
               begin
                 dst_q.strip_delivery_count(msg)
-                # Result intentionally discarded: if the destination queue is closed
-                # or rejects on overflow we drop the dead-lettered message.
-                dst_q.publish_internal(msg, dlx_tasks: tasks)
+                # Dropped on overflow, or by a queue closed on an error while it stays bound
+                if dst_q.publish_internal(msg, dlx_tasks: tasks).closed? && @vhost.closed?
+                  dst_closed = true
+                end
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end

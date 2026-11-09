@@ -745,7 +745,7 @@ module LavinMQ::AMQP
 
     # Dead-letters a message of this queue that the retry queue holds. The
     # block removes it from the retry queue once routed
-    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : -> Nil) : Nil
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool -> Nil) : Nil
       @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
       @dead_letter.route(msg, reason, &routed)
     end
@@ -955,10 +955,13 @@ module LavinMQ::AMQP
         end
         d.add(msg)
       end
-      return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
       pushed = false
       @msg_store_lock.synchronize do
+        # Checked under the lock: other publishers can fill the queue while
+        # this one waits for it, and a message pushed past the limit would
+        # make drop_overflow drop the confirmed head
+        return PublishResult::Overflow if reject_on_overflow?(msg)
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
@@ -1014,6 +1017,9 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
       settings = self.settings
+      # In reject-publish mode publishes past the limit are refused instead,
+      # and a stored message is never dropped for the limit
+      return if settings.reject_on_overflow?
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb
@@ -1156,10 +1162,10 @@ module LavinMQ::AMQP
         end
         routed = false
         begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do
+          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
             routed = true
             begin
-              delete_message sp
+              delete_message sp if stored
             ensure
               env.release
             end
