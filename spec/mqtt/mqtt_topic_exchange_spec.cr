@@ -439,6 +439,33 @@ module MqttSpecs
     end
     {% end %}
 
+    it "warns again when the dead-letter exchange changes away and back" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        set_dlx = ->(dlx : String) do
+          vhost.add_policy("dlx", "^src$", "queues", {"dead-letter-exchange" => JSON::Any.new(dlx)}, 0_i8)
+          wait_for { vhost.queue("src").@dead_letter.dlx == dlx }
+        end
+        with_channel(server) do |ch|
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({"x-message-ttl" => 1}))
+          Log.capture("lmq.queue", :warn) do |logs|
+            warnings = -> { logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange 'xmqtt'")) }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            warnings.call.should eq 1
+            set_dlx.call("amq.topic")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { warnings.call == 2 }
+          end
+        end
+      end
+    end
+
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
