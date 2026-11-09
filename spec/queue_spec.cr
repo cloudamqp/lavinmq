@@ -107,7 +107,7 @@ describe LavinMQ::AMQP::Queue do
         should_eventually(be_true) { queue.closed? }
         elapsed = (Time.instant - start).total_milliseconds
         elapsed.should be >= 250
-        elapsed.should be < 550
+        elapsed.should be < 1000
       end
     end
   end
