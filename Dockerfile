@@ -16,7 +16,7 @@ FROM base AS spec
 RUN apt-get install -y etcd-server
 COPY ./spec ./spec
 ARG spec_args="--order random"
-RUN CRYSTAL_LIBRARY_PATH=$PWD/ext:$(crystal env CRYSTAL_LIBRARY_PATH) crystal spec ${spec_args}
+RUN CRYSTAL_LIBRARY_PATH=$PWD/ext:$(crystal env CRYSTAL_LIBRARY_PATH) crystal spec -Dpatched_libgc ${spec_args}
 
 # Lint in another layer
 FROM base AS lint

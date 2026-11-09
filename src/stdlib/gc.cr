@@ -1,36 +1,40 @@
 {% unless flag?(:gc_none) || flag?(:interpreted) %}
-  lib LibGC
-    fun get_parallel = GC_get_parallel : Int
-  end
-
   module GC
-    # GC_push_all_grow (packaging/libgc/push-all-grow.patch) queues a parked
-    # fiber's stack for the parallel markers, where GC_push_all_eager scans it
-    # serially on the collecting thread. A stock libgc lacks it: stay eager.
-    @@push_all_grow : Proc(Void*, Void*, Nil)? = nil
+    PATCHED = {{ flag?(:patched_libgc) }}
 
-    def self.push_all_grow? : Bool
-      !@@push_all_grow.nil?
+    @@grow_mark_stack = false
+
+    def self.grow_mark_stack? : Bool
+      @@grow_mark_stack
     end
 
-    # dlsym can malloc, so this runs at startup and never inside a collection.
-    # With a single marker thread there is nobody to hand a lazily pushed
-    # stack to, so stay eager.
-    def self.resolve_push_all_grow : Nil
-      return if LibGC.get_parallel == 0
-      ptr = LibC.dlsym(LibC::RTLD_DEFAULT, "GC_push_all_grow")
-      return if ptr.null?
-      @@push_all_grow = Proc(Void*, Void*, Nil).new(ptr, Pointer(Void).null)
-    end
-
-    def self.push_stack(stack_top, stack_bottom) : Nil
-      if push = @@push_all_grow
-        push.call(stack_top, stack_bottom)
-      else
-        LibGC.push_all_eager(stack_top, stack_bottom)
+    {% if flag?(:patched_libgc) %}
+      def self.grow_mark_stack=(value : Bool) : Bool
+        LibGC.set_grow_mark_stack(value ? 1 : 0)
+        @@grow_mark_stack = value
       end
-    end
+
+      def self.push_stack(stack_top, stack_bottom) : Nil
+        if @@grow_mark_stack && LibGC.get_parallel != 0
+          LibGC.push_all_grow(stack_top, stack_bottom)
+        else
+          LibGC.push_all_eager(stack_top, stack_bottom)
+        end
+      end
+    {% else %}
+      def self.grow_mark_stack=(value : Bool) : Bool
+        raise ArgumentError.new("libgc isn't patched, build with make") if value
+        @@grow_mark_stack = value
+      end
+    {% end %}
   end
 
-  GC.resolve_push_all_grow
+  {% if flag?(:patched_libgc) %}
+    lib LibGC
+      fun set_grow_mark_stack = GC_set_grow_mark_stack(value : Int)
+      fun get_grow_mark_stack = GC_get_grow_mark_stack : Int
+      fun push_all_grow = GC_push_all_grow(bottom : Void*, top : Void*)
+      fun get_parallel = GC_get_parallel : Int
+    end
+  {% end %}
 {% end %}
