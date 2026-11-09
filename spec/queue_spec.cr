@@ -711,10 +711,10 @@ describe LavinMQ::AMQP::Queue do
     # into its segment. That must happen while @msg_store_lock is held, else a
     # purge on another thread can unmap the segment in the meantime (segfault).
     it "doesn't read the head message after releasing the lock", tags: "slow" do
-      log = LavinMQ::AMQP::Queue::Log
-      level, backend = log.level, log.backend
-      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
-      log.level = :debug
+      # A binding, not Log#level=, as a level set on the Log overrides every
+      # later binding, e.g. Log.capture in other specs
+      null_backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      ::Log.builder.bind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend)
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ttl-purge", false, false,
@@ -749,10 +749,7 @@ describe LavinMQ::AMQP::Queue do
         wg.wait
       end
     ensure
-      if log
-        log.level = level if level
-        log.backend = backend
-      end
+      ::Log.builder.unbind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend) if null_backend
     end
 
     it "purges exactly the messages it reports while messages are published", tags: "slow" do
@@ -1165,6 +1162,44 @@ describe LavinMQ::AMQP::Queue do
           q.message_count.should eq 0
           q.@deliveries.size.should eq 0
         end
+      end
+    end
+  end
+
+  describe "reject-publish overflow" do
+    # Regression: the length limit was only checked before taking
+    # @msg_store_lock. A publisher that then waited for the lock while another
+    # publisher filled the queue pushed its message past the limit, and
+    # drop_overflow dropped (or dead-lettered) the confirmed head instead of
+    # rejecting the new publish
+    it "rejects a publish that waited for the store lock while the queue filled up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rp", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"}))
+        q = vhost.queue("rp").as(LavinMQ::AMQP::Queue)
+        lock = q.@msg_store_lock
+        lock.lock
+        result = LavinMQ::AMQP::Queue::PublishResult::Closed
+        started = Atomic(Bool).new(false)
+        done = WaitGroup.new(1)
+        spawn(name: "second publisher") do
+          started.set(true)
+          # Passes the limit check on the empty queue, then waits for the lock
+          result = q.publish(LavinMQ::Message.new("", q.name, "second"))
+        ensure
+          done.done
+        end
+        should_eventually(be_true) { started.get }
+        sleep 20.milliseconds
+        # The lock is reentrant, so this publish fills the queue while the
+        # other one is waiting for it
+        q.publish(LavinMQ::Message.new("", q.name, "first")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+        lock.unlock
+        done.wait
+        result.should eq LavinMQ::AMQP::Queue::PublishResult::Overflow
+        q.message_count.should eq 1
+        q.basic_get(true) { |env| String.new(env.message.body).should eq "first" }.should be_true
       end
     end
   end

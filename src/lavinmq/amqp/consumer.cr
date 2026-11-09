@@ -90,6 +90,8 @@ module LavinMQ
             next if wait_for_flow
             break
           end
+          # The waits above can suspend the fiber while the channel closes
+          raise ClosedError.new if @closed
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
@@ -230,7 +232,17 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = begin
+          @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        rescue ex : AMQP::Channel::ClosedError
+          # Only raised in ack mode. The channel closed after the message was
+          # shifted from the queue, so it was never recorded as unacked and
+          # close won't requeue it. When recovering, the channel still holds
+          # the original Unack, so it's not requeued here. The segment lease
+          # is released by the caller.
+          @queue.requeue(sp) unless recover
+          raise ex
+        end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
