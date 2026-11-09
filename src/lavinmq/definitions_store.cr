@@ -181,12 +181,10 @@ module LavinMQ
         case f
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
-          e = make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
-          # Permission first, as #refuse_unreadable_mqtt_exchange reports it
-          # also for a delayed x-mqtt-topic exchange
-          refuse_unreadable_mqtt_exchange(e, user)
           refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
-          @exchanges[f.exchange_name] = e
+          refuse_unreadable_mqtt_exchange(f.exchange_name, f.exchange_type, user)
+          e = @exchanges[f.exchange_name] =
+            make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
           store_definition(f, fsync: fsync) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
@@ -265,13 +263,20 @@ module LavinMQ
 
     # Checked under the lock, on the exchange the bind is made to: a check
     # before #apply could see another exchange of the same name, as one can
-    # be deleted and redeclared as x-mqtt-topic meanwhile. On declare it's
-    # checked on the built exchange, so an x-delayed-type is resolved. A
-    # shovel binds as the direct user, so Shovel::Store checks its creator
+    # be deleted and redeclared as x-mqtt-topic meanwhile. A shovel binds as
+    # the direct user, so Shovel::Store checks its creator before it binds
     private def refuse_unreadable_mqtt_exchange(x : Exchange, user : Auth::BaseUser?) : Nil
-      return unless user && x.is_a?(AMQP::MqttTopicExchange)
+      return unless x.is_a?(AMQP::MqttTopicExchange)
+      refuse_unreadable_mqtt_exchange(x.name, x.type, user)
+    end
+
+    # On declare it's checked on the type, before the exchange is built, so a
+    # refused declare creates nothing. A delayed x-mqtt-topic is refused for
+    # everyone before this, by #refuse_delayed_mqtt_topic!
+    private def refuse_unreadable_mqtt_exchange(name : String, type : String, user : Auth::BaseUser?) : Nil
+      return unless user && type == "x-mqtt-topic"
       return if AMQP::MqttTopicExchange.readable_by?(user, @vhost.name)
-      raise Exchange::AccessRefused.new(x, AMQP::MqttTopicExchange.unreadable_message(user, x.name))
+      raise Exchange::AccessRefused.new(AMQP::MqttTopicExchange.unreadable_message(user, name))
     end
 
     # Bindings are stored so they can be restored on boot. The MQTT exchange is

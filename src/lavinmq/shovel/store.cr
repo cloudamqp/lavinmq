@@ -12,7 +12,16 @@ module LavinMQ
     class ConfigError < Error; end
 
     class Store
-      def initialize(@vhost : VHost)
+      # The user who saved the shovel, stored in its value. A local source
+      # binds as the direct user, so this user's permissions are checked
+      # before it binds, see #mqtt_source_guard
+      CREATED_BY = "created-by"
+
+      # *mqtt_topic_lookup* tells, given a vhost and an exchange name, whether
+      # that exchange is an x-mqtt-topic exchange, or nil if the vhost doesn't
+      # exist. A local source can be in another vhost than the shovel's. It
+      # takes and returns no classes, so this file compiles on its own
+      def initialize(@vhost : VHost, @mqtt_topic_lookup : Proc(String, String, Bool?)? = nil)
         @shovels = Hash(String, Shovel::Runner).new
       end
 
@@ -101,19 +110,29 @@ module LavinMQ
               raise ConfigError.new("#{user.name} can't access exchange '#{x}' in #{vhost}")
             end
             validate_mqtt_source!(user, vhosts.try(&.[vhost]?), x)
+            validate_local_creator!(user)
           end
         end
       end
 
-      # A local shovel binds as the direct user, which may read everything, so
-      # the creator must have the extra read an x-mqtt-topic source needs.
-      # Declaring an x-mqtt-topic exchange needs that read too, so the creator
-      # can't put one under the name after this check
+      # Refuses early a shovel from an existing x-mqtt-topic exchange. The
+      # exchange can be declared later, by any user allowed to, and the read
+      # can be revoked, so #mqtt_source_guard checks again on every bind
       private def self.validate_mqtt_source!(user : Auth::BaseUser, vhost : VHost?, exchange_name : String)
         return unless vhost
         return unless vhost.exchange?(exchange_name).is_a?(AMQP::MqttTopicExchange)
         return if AMQP::MqttTopicExchange.readable_by?(user, vhost.name)
         raise ConfigError.new(AMQP::MqttTopicExchange.unreadable_message(user, exchange_name))
+      end
+
+      # #mqtt_source_guard looks the creator up in the user store before each
+      # bind, and only local users are there. An OAuth user's shovel would fail
+      # every bind once its source is an x-mqtt-topic exchange, which any
+      # exchange can become later, so it's refused when saved instead
+      private def self.validate_local_creator!(user : Auth::BaseUser)
+        return if user.is_a?(Auth::User)
+        raise ConfigError.new("#{user.name} isn't a local user, and a shovel from a local exchange needs one: " \
+                              "its creator's permissions are checked each time it binds")
       end
 
       # A malformed dest-timeout fails the PUT like any other bad field, rather
@@ -125,8 +144,9 @@ module LavinMQ
         raise ConfigError.new("dest-timeout must be a positive number of seconds")
       end
 
-      private def self.vhost_from_uri(uri : URI) : String
-        path = uri.path.lchop("/")
+      def self.vhost_from_uri(uri : URI) : String
+        # Decoded as the AMQP client decodes it when it connects
+        path = URI.decode_www_form(uri.path.lchop("/"))
         path.empty? ? "/" : path
       end
 
@@ -153,7 +173,8 @@ module LavinMQ
           prefetch,
           ack_mode,
           config["src-consumer-args"]?.try &.as_h?,
-          direct_user: @vhost.users.direct_user)
+          direct_user: @vhost.users.direct_user,
+          bind_guard: mqtt_source_guard(config[CREATED_BY]?.try &.as_s?))
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
         # Terminated only after the new config parsed, so a rejected update
@@ -164,6 +185,29 @@ module LavinMQ
         shovel
       rescue KeyError
         raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
+      end
+
+      # A local source binds as the direct user, which may read everything.
+      # Before each bind, on every start, resume and reconnect, check that the
+      # shovel's creator may read an x-mqtt-topic source. A refusal raises,
+      # which leaves the shovel in its error state, retrying. Shovels saved
+      # without a creator, before this check or by a definitions import, are
+      # not checked
+      private def mqtt_source_guard(created_by : String?) : AMQPSource::BindGuard?
+        # Assigned once, so the closure sees a String, not the String? argument
+        owner = created_by || return
+        mqtt_topic_lookup = @mqtt_topic_lookup
+        users = @vhost.users
+        ->(vhost_name : String, exchange_name : String) do
+          # The vhost can be missing at boot, while vhosts are still loading
+          mqtt_topic = mqtt_topic_lookup.try &.call(vhost_name, exchange_name)
+          raise Error.new("Vhost '#{vhost_name}' not found") if mqtt_topic.nil?
+          return unless mqtt_topic
+          user = users[owner]?
+          raise Error.new("User '#{owner}', who created the shovel, doesn't exist") unless user
+          return if AMQP::MqttTopicExchange.readable_by?(user, vhost_name)
+          raise Error.new(AMQP::MqttTopicExchange.unreadable_message(user, exchange_name))
+        end
       end
 
       def delete(name)

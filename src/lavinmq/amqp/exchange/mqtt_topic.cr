@@ -21,6 +21,10 @@ module LavinMQ
         "x-mqtt-topic"
       end
 
+      def routes_amqp_messages? : Bool
+        false
+      end
+
       # The exchange carries the vhost's MQTT traffic, so declaring it, and
       # binding to it, needs read permission on mqtt.default
       def self.readable_by?(user : Auth::BaseUser, vhost_name : String) : Bool
@@ -30,10 +34,6 @@ module LavinMQ
       def self.unreadable_message(user : Auth::BaseUser, exchange_name : String) : String
         "User '#{user.name}' doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
         "which x-mqtt-topic exchange '#{exchange_name}' requires"
-      end
-
-      def routes_amqp_messages? : Bool
-        false
       end
 
       # internal is forced: AMQP publishes can't enter this exchange, only

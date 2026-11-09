@@ -746,8 +746,6 @@ module LavinMQ
         send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
       rescue e : LavinMQ::Error::ExchangeTypeError
         send_precondition_failed(frame, e.message)
-      rescue e : LavinMQ::Exchange::AccessRefused
-        send_access_refused(frame, e.message)
       end
 
       private def redeclare_exchange(e, frame)
@@ -986,12 +984,8 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
-          begin
-            @vhost.apply(frame, user: @user)
-            send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
-          end
+          @vhost.apply(frame, user: @user)
+          send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
 
