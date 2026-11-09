@@ -4,7 +4,6 @@ require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
-require "wait_group"
 require "./clustering/server"
 require "./persister"
 require "./bool_channel"
@@ -34,8 +33,9 @@ module LavinMQ
     @synced_writes = false
     # Segments that messages were moved out of, see #unlink_segment
     @moved_out = Set(UInt32).new
-    # Unlinks waiting for a sync, see #unlink_segment
-    @unlinks_after_sync = WaitGroup.new
+    # Segments whose unlink waits for a sync, by segment id, see #unlink_segment
+    @pending_unlinks = Hash(UInt32, {MFile, MFile?}).new
+    @pending_unlinks_lock = Mutex.new
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -310,11 +310,9 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
-      # A pending unlink would otherwise delete the files of a queue declared
-      # with the same name later
-      @unlinks_after_sync.wait
-      # The segments go now, so whatever was moved out of them is synced first
-      @persister.try &.sync if !@moved_out.empty? && Config.instance.sync?
+      # Unlinked now, as all other segments, and not by their fibers later,
+      # when the files may belong to a queue declared with the same name
+      take_pending_unlinks.each { |segment, acks| unlink_now(segment, acks) }
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
@@ -331,14 +329,31 @@ module LavinMQ
       moved = @moved_out.delete(seg)
       persister = @persister
       if moved && persister && Config.instance.sync?
-        @unlinks_after_sync.spawn(name: "unlink segment after sync") do
+        @pending_unlinks_lock.synchronize { @pending_unlinks[seg] = {segment, acks} }
+        spawn(name: "unlink segment after sync") do
           persister.sync
-          unlink_now(segment, acks)
+          # Unless the store was closed or deleted meanwhile, see #take_pending_unlinks
+          @pending_unlinks_lock.synchronize do
+            if pending = @pending_unlinks.delete(seg)
+              unlink_now(*pending)
+            end
+          end
         rescue ex
           @log.error(exception: ex) { "Failed to unlink #{segment.path}" }
         end
       else
         unlink_now(segment, acks)
+      end
+    end
+
+    # Takes the segments whose unlink waits for a sync away from their fibers,
+    # when the store is closed or deleted. Doesn't wait for the sync, which a
+    # delete under the definitions lock mustn't.
+    private def take_pending_unlinks : Array({MFile, MFile?})
+      @pending_unlinks_lock.synchronize do
+        pending = @pending_unlinks.values
+        @pending_unlinks.clear
+        pending
       end
     end
 
@@ -366,9 +381,16 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
-      # Unlinked before a restart reloads the segments, or the vhost's data
-      # dir is deleted and maybe created again
-      @unlinks_after_sync.wait
+      # Left on disk, so a store that loads them again, or the vhost's
+      # delete, takes care of them
+      take_pending_unlinks.each do |segment, acks|
+        if replicator = @replicator
+          replicator.register_file segment.path
+          acks.try { |a| replicator.register_file a.path }
+        end
+        segment.close
+        acks.try &.close
+      end
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
       # the delivery releases it (see Envelope#lease)
@@ -607,6 +629,9 @@ module LavinMQ
           end
           @acks[seg] = open_ack_file(seg)
           @deleted[seg] = acked.sort! unless acked.empty?
+          # Which of its messages an earlier store moved to other queues isn't
+          # known, so its unlink waits for a sync as if some were
+          @moved_out << seg
         end
         count += 1
         Fiber.yield
