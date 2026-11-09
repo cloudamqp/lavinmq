@@ -740,7 +740,6 @@ class PrometheusSpecHelper
   end
 end
 
-# `extend MqttHelpers` gives with_server, with_client_io, connect and publish
 module PrometheusMqttSpecs
   extend MqttHelpers
 
@@ -768,10 +767,9 @@ module PrometheusMqttSpecs
             connect(io, client_id: "metrics")
             disconnect(io)
           end
-          # Stays after the client is gone, so rate() sees the counters before they first move
           should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
           %w[0 1 2].each do |qos|
-            metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => qos}).should be >= 0
+            metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => qos}).should eq 0
           end
         end
       end
@@ -794,25 +792,38 @@ module PrometheusMqttSpecs
       end
     end
 
+    it "keeps the MQTT series and counts when the vhost that had the MQTT client is deleted" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          s.vhosts.create("mqtt_gone")
+          s.users.add_permission("guest", "mqtt_gone", /.*/, /.*/, /.*/)
+          with_client_io(s) do |io|
+            connect(io, username: "mqtt_gone:guest", client_id: "metrics")
+            # Its PUBACK means the publish is counted
+            publish(io, topic: "a/b", qos: 1u8)
+            disconnect(io)
+          end
+          s.vhosts.delete("mqtt_gone")
+          metric_value(http, "lavinmq_mqtt_connections").should eq 0
+          metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => "1"}).should eq 1
+        end
+      end
+    end
+
     it "counts MQTT publishes by QoS" do
       with_server do |s|
         serve_metrics(s) do |http|
           key = "lavinmq_global_mqtt_messages_published_total"
           with_client_io(s) do |io|
             connect(io, client_id: "metrics")
-            # The counters are process-wide, so compare with the values before publishing.
-            # They're only written once an MQTT client has connected.
-            qos0_before = metric_value(http, key, {"qos" => "0"})
-            qos1_before = metric_value(http, key, {"qos" => "1"})
-            qos2_before = metric_value(http, key, {"qos" => "2"})
             2.times { publish(io, topic: "a/b", qos: 0u8) }
             # QoS 2 is answered with a PUBACK like QoS 1 (#2314)
             publish(io, topic: "a/b", qos: 2u8)
-            # Waits for the PUBACK, so the publishes before it are counted too
+            # Its PUBACK means the publishes before it are counted
             publish(io, topic: "a/b", qos: 1u8)
-            metric_value(http, key, {"qos" => "0"}).should eq qos0_before + 2
-            metric_value(http, key, {"qos" => "1"}).should eq qos1_before + 1
-            metric_value(http, key, {"qos" => "2"}).should eq qos2_before + 1
+            metric_value(http, key, {"qos" => "0"}).should eq 2
+            metric_value(http, key, {"qos" => "1"}).should eq 1
+            metric_value(http, key, {"qos" => "2"}).should eq 1
             disconnect(io)
           end
         end
