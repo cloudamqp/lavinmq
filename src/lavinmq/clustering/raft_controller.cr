@@ -111,9 +111,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       id = status.resolve(target) || return "#{target} is not a member"
     end
     case check = @node.transfer_check(id)
-    in Tuple(Int32, Int64)
-      to, term = check
-      Transfer.new(to, status.address_of(to) || to.to_s(36), term)
+    in Raft::Node::TransferCandidate
+      Transfer.new(check.target, status.address_of(check.target) || check.target.to_s(36), check.term)
     in Raft::TransferRefusal
       check.message(target)
     end

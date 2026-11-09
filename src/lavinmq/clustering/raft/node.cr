@@ -131,7 +131,9 @@ module LavinMQ::Clustering::Raft
     private record ChangeMembership, change : MembershipChange, id : Int32, address : String?,
       reply : Channel(MembershipError?)
     private record Transfer, target : Int32?, reply : Channel(TransferResult)
-    private record CheckTransfer, target : Int32?, reply : Channel(Tuple(Int32, Int64) | TransferRefusal)
+    # The voter a leadership transfer would go to, and the term it was checked in
+    record TransferCandidate, target : Int32, term : Int64
+    private record CheckTransfer, target : Int32?, reply : Channel(TransferCandidate | TransferRefusal)
     private record GetStatus, reply : Channel(Status)
     private record GetMetrics, reply : Channel(Metrics)
     # A proposal that's answered once its entry is committed, or lost
@@ -306,8 +308,8 @@ module LavinMQ::Clustering::Raft
 
     # The voter #transfer_leadership would hand over to, with the term it was
     # checked in, or why it can't, see Core#transfer_check.
-    def transfer_check(target : Int32? = nil) : Tuple(Int32, Int64) | TransferRefusal
-      reply = Channel(Tuple(Int32, Int64) | TransferRefusal).new(1)
+    def transfer_check(target : Int32? = nil) : TransferCandidate | TransferRefusal
+      reply = Channel(TransferCandidate | TransferRefusal).new(1)
       @events.send CheckTransfer.new(target, reply)
       await reply, TransferRefusal::NotLeader
     rescue Channel::ClosedError
@@ -444,7 +446,7 @@ module LavinMQ::Clustering::Raft
         event.reply.send @core.transfer_leadership(event.target)
       in CheckTransfer
         result = @core.transfer_check(event.target)
-        event.reply.send result.is_a?(Int32) ? {result, @core.term} : result
+        event.reply.send result.is_a?(Int32) ? TransferCandidate.new(result, @core.term) : result
       in GetStatus
         event.reply.send build_status
       in GetMetrics
