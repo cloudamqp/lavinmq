@@ -313,14 +313,17 @@ describe "Queue policy re-apply" do
       accepted = Atomic(Int32).new(0)
       stop = Atomic(Bool).new(false)
       # Re-applying a policy must never expose the queue without its limits,
-      # so publishes on other threads keep being rejected.
+      # so publishes on other threads keep being rejected. Bounded by publish
+      # progress rather than wall time; the deadline only caps a slow runner.
+      published = Atomic(Int32).new(0)
+      publish_target = 20_000
       deadline = Time.instant + 2.seconds
       ctx = Fiber::ExecutionContext::Parallel.new("reapply-limits", 4)
       wg = WaitGroup.new
       2.times do
         wg.add(1)
         ctx.spawn do
-          until Time.instant >= deadline
+          until stop.get || Time.instant >= deadline
             queue.reapply_policy
             Fiber.yield
           end
@@ -338,6 +341,7 @@ describe "Queue policy re-apply" do
             unless queue.publish(LavinMQ::Message.new("", queue.name, "body")).overflow?
               accepted.add(1)
             end
+            stop.set(true) if published.add(1) + 1 >= publish_target
             Fiber.yield
           end
         ensure

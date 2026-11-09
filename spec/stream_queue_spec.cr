@@ -299,10 +299,12 @@ describe LavinMQ::AMQP::Stream do
         q = ch.queue("stream-ts-across-segments", args: stream_queue_args)
         # Half-segment payload so each publish lands in its own segment.
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
-        q.publish_confirm data
-        # Sleep > 1s so the two messages land in distinct whole seconds
-        sleep 1.02.seconds
-        q.publish_confirm data
+        RoughTime.paused do |t|
+          q.publish_confirm data
+          # Move the clock > 1s so the two messages land in distinct whole seconds
+          t.travel 1.02.seconds
+          q.publish_confirm data
+        end
         # Derive target from msg1's stored timestamp; Time.utc here could race the
         # coarse clock and land inside segment 2's bucket, hanging the consumer.
         store = s.vhosts["/"].queue("stream-ts-across-segments").as(LavinMQ::AMQP::Stream).stream_msg_store
@@ -618,10 +620,12 @@ describe LavinMQ::AMQP::Stream do
           args = {"x-queue-type": "stream", "x-max-age": "1s"}
           q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          2.times { q.publish_confirm data }
-          sleep 1.02.seconds
-          q.publish_confirm data
-          q.message_count.should eq 1
+          RoughTime.paused do |t|
+            2.times { q.publish_confirm data }
+            t.travel 1.02.seconds
+            q.publish_confirm data
+            q.message_count.should eq 1
+          end
         end
       end
     end
@@ -633,10 +637,12 @@ describe LavinMQ::AMQP::Stream do
           args = {"x-queue-type": "stream", "x-max-age": "1M"}
           q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          2.times { q.publish_confirm data }
-          sleep 1.02.seconds
-          q.publish_confirm data
-          q.message_count.should eq 1
+          RoughTime.paused do |t|
+            2.times { q.publish_confirm data }
+            t.travel 1.02.seconds
+            q.publish_confirm data
+            q.message_count.should eq 1
+          end
         end
       end
     end
@@ -647,11 +653,14 @@ describe LavinMQ::AMQP::Stream do
           args = {"x-queue-type": "stream", "x-max-age": "1M"}
           q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          2.times { q.publish_confirm data }
-          q.message_count.should eq 2
-          sleep 1.02.seconds
-          s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
-          q.message_count.should eq 1
+          RoughTime.paused do |t|
+            2.times { q.publish_confirm data }
+            q.message_count.should eq 2
+            t.travel 1.02.seconds
+            s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
+            # The policy is applied by a spawned fiber, and must see the paused clock
+            should_eventually(eq 1) { q.message_count }
+          end
         end
       end
     end

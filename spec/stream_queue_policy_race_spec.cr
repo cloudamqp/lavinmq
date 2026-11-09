@@ -36,6 +36,11 @@ describe "stream queue policy/publish concurrency" do
 
       stop = Atomic(Bool).new(false)
       errors = Atomic(Int32).new(0)
+      # Bounded by publisher progress (~1000 segment rolls) rather than wall
+      # time, so a fast runner doesn't idle out a long window. The deadline
+      # only caps a slow runner.
+      published = Atomic(Int32).new(0)
+      publish_target = 8_000
       deadline = Time.instant + 8.seconds
 
       ctx = Fiber::ExecutionContext::Parallel.new("stream-race-test", 6)
@@ -49,6 +54,7 @@ describe "stream queue policy/publish concurrency" do
           until stop.get
             begin
               q.publish(LavinMQ::Message.new("", q.name, body))
+              stop.set(true) if published.add(1) + 1 >= publish_target
             rescue
               errors.add(1)
             end
@@ -66,7 +72,7 @@ describe "stream queue policy/publish concurrency" do
       4.times do
         wg.add(1)
         ctx.spawn do
-          until Time.instant >= deadline
+          until stop.get
             begin
               q.apply_policy(policy, nil)
             rescue
@@ -79,11 +85,11 @@ describe "stream queue policy/publish concurrency" do
         end
       end
 
-      # Stopper: end the publishers once the policy window closes.
+      # Stopper: end the race at the deadline if the publishers haven't yet.
       wg.add(1)
       ctx.spawn do
-        until Time.instant >= deadline
-          sleep 50.milliseconds
+        until stop.get || Time.instant >= deadline
+          sleep 10.milliseconds
         end
         stop.set(true)
       ensure
