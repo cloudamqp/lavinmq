@@ -99,9 +99,73 @@ describe "LavinMQPerf" do
         (reported_avg_consume.to_f / measured_avg_consume).should be_close(1.0, 0.5)
       end
     end
+
+    it "shares connections among clients with --connections", tags: "slow" do
+      with_amqp_server do |s|
+        io = IO::Memory.new
+        throughput = LavinMQPerf::AMQP::Throughput.new(io)
+        done = Channel(Nil).new
+        spawn do
+          throughput.run([
+            "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
+            "-x", "2", "-y", "3", "-r", "10", "-a", "1", "-P", "10",
+            "--queue-pattern", "shared-%", "--queue-pattern-to", "3",
+            "--connections", "2", "-z", "3",
+          ])
+          done.send nil
+        end
+        wait_for { s.vhosts["/"].queues_size == 3 }
+        wait_for { s.connections.sum(&.as(LavinMQ::AMQP::Client).channels.size) == 5 }
+        s.connections.size.should eq 2
+        done.receive
+      end
+    end
+
+    it "publishes and consumes at fractional rates", tags: "slow" do
+      with_amqp_server do |s|
+        io = IO::Memory.new
+        throughput = LavinMQPerf::AMQP::Throughput.new(io)
+        throughput.run([
+          "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
+          "-x", "1", "-y", "1", "-r", "2.5", "-R", "2.5", "-a", "1", "-P", "10",
+          "-u", "fractional", "-z", "4",
+        ])
+        # Both ends at 2.5 per second: what's left is in flight.
+        q = s.vhosts["/"].queue("fractional")
+        io.to_s.should match(/Average publish rate: [1-3] msgs\/s/)
+        (q.message_count + q.unacked_count).should be <= 2
+      end
+    end
+  end
+
+  describe "AMQP::ChannelChurn" do
+    it "opens and closes channels at a fixed rate with --rate", tags: "slow" do
+      with_amqp_server do |s|
+        io = IO::Memory.new
+        churn = LavinMQPerf::AMQP::ChannelChurn.new(io)
+        spawn do
+          churn.run(["--uri=amqp://guest:guest@localhost:#{amqp_port(s)}", "--rate", "4"])
+        rescue ::AMQP::Client::Error | IO::Error
+          # the server stops at the end of the spec
+        end
+        wait_for { io.to_s.includes?("Channels opened and closed:") }
+        sleep 1.seconds
+        count = io.to_s.scan(/Channels opened and closed: (\d+)/).last[1].to_i
+        count.should be >= 4
+        count.should be <= 12
+        s.connections.size.should eq 1
+      end
+    end
   end
 
   describe "Ticker" do
+    it "paces fractional rates" do
+      ticker = LavinMQPerf::Ticker.new(2.5)
+      start = Time.instant
+      3.times { ticker.tick }
+      (Time.instant - start).should be >= (3 / 2.5).seconds * 0.7
+    end
+
     # Bursty pacing puts all ops in the first bucket; smooth pacing spreads
     # them evenly. Lower bounds only, so a slow CI just stretches the run.
     it "paces evenly across the configured rate window" do

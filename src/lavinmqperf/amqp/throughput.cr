@@ -17,8 +17,8 @@ module LavinMQPerf
       @queue = "perf-test"
       @routing_key = "perf-test"
       @ack = 0
-      @rate = 0
-      @consume_rate = 0
+      @rate = 0.0
+      @consume_rate = 0.0
       @max_unconfirm = 0
       @persistent = false
       @prefetch : UInt16? = nil
@@ -43,6 +43,10 @@ module LavinMQPerf
       @last_latencies = Array(Float64).new
       @latencies_count : UInt64 = 0
       @random = Random.new
+      @connections = 0
+      @shared = Hash(Int32, ::AMQP::Client::Connection).new
+      @shared_lock = Mutex.new
+      @next_shared = Atomic(Int32).new(0)
 
       def initialize(io : IO = STDOUT, err_io : IO = STDERR)
         super(io, err_io)
@@ -80,11 +84,15 @@ module LavinMQPerf
         @parser.on("-e exchange", "--exchange=name", "Exchange to publish to (default \"\")") do |v|
           @exchange = v
         end
-        @parser.on("-r pub-rate", "--rate=number", "Max publish rate (default 0)") do |v|
-          @rate = v.to_i
+        @parser.on("-r pub-rate", "--rate=number", "Max publish rate per publisher, may be a fraction (default 0)") do |v|
+          @rate = v.to_f
         end
-        @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
-          @consume_rate = v.to_i
+        @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate per consumer, may be a fraction (default 0)") do |v|
+          @consume_rate = v.to_f
+        end
+        @parser.on("--connections=number", "Share this many connections among all publishers and consumers, each on its own channel (default 0: a connection each)") do |v|
+          @connections = v.to_i
+          abort "Connections must be >= 0, got #{@connections}" if @connections < 0
         end
         @parser.on("-p", "--persistent", "Persistent messages (default false)") do
           @persistent = true
@@ -343,7 +351,7 @@ module LavinMQPerf
         props = @properties
         props.delivery_mode = 2u8 if @persistent
         unconfirmed = ::Channel(Nil).new(@max_unconfirm)
-        ::AMQP::Client.start(@uri) do |a|
+        connection do |a|
           ch = a.channel
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
@@ -391,7 +399,7 @@ module LavinMQPerf
 
       private def consume(connected, queue_name : String)
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-        ::AMQP::Client.start(@uri) do |a|
+        connection do |a|
           ch = a.channel
           q = begin
             ch.queue queue_name, durable: !queue_name.empty?, auto_delete: queue_name.empty?, args: @queue_args
@@ -429,7 +437,7 @@ module LavinMQPerf
       end
 
       private def poll_consume(connected, queue_name : String)
-        ::AMQP::Client.start(@uri) do |a|
+        connection do |a|
           ch = a.channel
           q = begin
             ch.queue queue_name
@@ -455,6 +463,25 @@ module LavinMQPerf
               ticker.tick
             end
           end
+        end
+      end
+
+      # A connection of its own for every client, or with --connections one
+      # of the shared ones, round-robin. A shared connection stays open when
+      # its client is done; one that was closed is replaced.
+      private def connection(&)
+        if @connections.zero?
+          ::AMQP::Client.start(@uri) { |a| yield a }
+        else
+          i = @next_shared.add(1, :relaxed) % @connections
+          a = @shared_lock.synchronize do
+            conn = @shared[i]?
+            if conn.nil? || conn.closed?
+              conn = @shared[i] = ::AMQP::Client.new(@uri).connect
+            end
+            conn
+          end
+          yield a
         end
       end
 
