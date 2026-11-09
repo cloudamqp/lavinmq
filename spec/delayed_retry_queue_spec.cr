@@ -99,7 +99,7 @@ describe "Retry Queue" do
           elapsed = Time.measure do
             q.spec_retry_delay_for(Int32::MAX).should eq 200
           end
-          elapsed.should be < 100.milliseconds
+          elapsed.should be < 1.second # looping over the count takes seconds
         end
       end
     end
@@ -607,8 +607,9 @@ describe "Retry Queue" do
           msg2 = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
           delay = Time.instant - start
           msg2.body_io.to_s.should eq "nack body"
+          # Measured by the client, so only bounded loosely above
           delay.should be >= 180.milliseconds
-          delay.should be < 500.milliseconds
+          delay.should be < 1.2.seconds
         end
       end
     end
@@ -629,10 +630,10 @@ describe "Retry Queue" do
         with_channel(s) do |ch|
           q = ch.queue("retry-close-bypass", args: args)
           start = Time.instant
-          msg = wait_for(timeout: 2.seconds) { q.get(no_ack: true) }
+          msg = wait_for { q.get(no_ack: true) }
           delay = Time.instant - start
           msg.body_io.to_s.should eq "close body"
-          delay.should be < 500.milliseconds
+          delay.should be < 10.seconds # far below the 60s retry delay
           s.vhosts["/"].queue("amq.retry-retry-close-bypass").message_count.should eq 0
         end
       end
@@ -687,10 +688,13 @@ describe "Retry Queue" do
           end
 
           # All retries should wait ~200ms (constant), not grow
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 200, 200]
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 350.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 180.milliseconds
-          delays[2].should be < 350.milliseconds
+          delays[2].should be < 1.2.seconds
         end
       end
     end
@@ -714,10 +718,13 @@ describe "Retry Queue" do
             msg.reject(requeue: true)
           end
 
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 400, 800]
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 600.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 380.milliseconds
-          delays[2].should be < 1000.milliseconds
+          delays[2].should be < 1.4.seconds
         end
       end
     end
@@ -739,22 +746,25 @@ describe "Retry Queue" do
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay1 = Time.instant - start
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          (1..4).map { |n| queue.spec_retry_delay_for(n) }.should eq [100, 200, 250, 250]
+          # Measured by the client, so only bounded loosely above
           delay1.should be >= 80.milliseconds
-          delay1.should be < 300.milliseconds
+          delay1.should be < 1.1.seconds
 
           msg.reject(requeue: true)
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay2 = Time.instant - start
           delay2.should be >= 180.milliseconds
-          delay2.should be < 500.milliseconds
+          delay2.should be < 1.2.seconds
 
           msg.reject(requeue: true)
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay3 = Time.instant - start
           delay3.should be >= 230.milliseconds
-          delay3.should be < 600.milliseconds
+          delay3.should be < 1.25.seconds
 
           msg.ack
         end
