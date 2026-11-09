@@ -728,8 +728,12 @@ module LavinMQ::AMQP
       end
     end
 
-    # The definitions lock first, as #register_retry_queue takes them
+    # The definitions lock first, as #register_retry_queue takes them. Only
+    # when the retry queue has to be created: a policy re-apply calls this
+    # under @policy_lock, which a declare through the definitions takes after
+    # the definitions lock
     private def init_retry_queue
+      return if @retry_queue_lock.synchronize { @delayed_retry_queue }
       @vhost.synchronize_definitions do
         @retry_queue_lock.synchronize { create_retry_queue }
       end
