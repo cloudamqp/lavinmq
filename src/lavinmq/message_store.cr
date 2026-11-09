@@ -4,6 +4,7 @@ require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
+require "wait_group"
 require "./clustering/server"
 require "./persister"
 require "./bool_channel"
@@ -31,9 +32,10 @@ module LavinMQ
     @rfile_since : Time::Instant = RoughTime.instant
     # Set once a publish to this store is synced, see #readahead_for_writes
     @synced_writes = false
-    # Set when a message is deleted because the broker moved it to another
-    # queue, cleared by the sync that makes the moved copies durable
-    @moved_out = false
+    # Segments that messages were moved out of, see #unlink_segment
+    @moved_out = Set(UInt32).new
+    # Unlinks waiting for a sync, see #unlink_segment
+    @unlinks_after_sync = WaitGroup.new
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -215,13 +217,13 @@ module LavinMQ
     end
 
     # *moved* means the message was copied to another queue (dead-lettered,
-    # delayed, retried), see #sync_moved_out
+    # delayed, retried), see #unlink_segment
     def delete(sp, moved = false) : Nil
       raise ClosedError.new if @closed
       # A message routed outside the lock can have its segment purged meanwhile,
       # and @acks would otherwise create an ack file for the deleted segment
       return unless @segments.has_key?(sp.segment)
-      @moved_out = true if moved
+      @moved_out.add(sp.segment) if moved
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
@@ -234,13 +236,9 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
-          sync_moved_out
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
           if seg = @segments.delete(sp.segment)
-            delete_file(seg, including_meta: true)
+            unlink_segment(sp.segment, seg, @acks.delete(sp.segment))
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -272,11 +270,9 @@ module LavinMQ
       end
 
       # Delete all segments except the current rfile and wfile
-      sync_moved_out
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
-        delete_file(file, including_meta: true)
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
@@ -290,9 +286,7 @@ module LavinMQ
           ready = acked < msg_count ? msg_count - acked : 0u32
           @size -= Math.min(ready, @size)
         end
-        if afile = @acks.delete(seg_id)
-          delete_file(afile)
-        end
+        unlink_segment(seg_id, file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
         true
       end
@@ -314,23 +308,43 @@ module LavinMQ
     end
 
     def delete
-      sync_moved_out
       @closed = true
       @empty.close
+      # A pending unlink would otherwise delete the files of a queue declared
+      # with the same name later
+      @unlinks_after_sync.wait
+      # The segments go now, so whatever was moved out of them is synced first
+      @persister.try &.sync if !@moved_out.empty? && Config.instance.sync?
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
     end
 
-    # Messages moved out of a segment (dead-lettered, delayed, retried) can be
-    # unsynced in their destinations, and the unlink must not become durable
-    # first. One syncfs instead of tracking the destinations, as on tx commit.
-    # Only stores that moved messages since their last such sync pay for it,
-    # plain acks unlink at once.
-    private def sync_moved_out : Nil
-      return unless @moved_out
-      @moved_out = false
-      @persister.try &.sync
+    # Unlinks a segment and its ack file, which the store no longer refers to.
+    # Messages moved out of the segment (dead-lettered, delayed, retried) can
+    # be unsynced in their destinations, and the unlink must not become
+    # durable first. Then the unlink waits for one syncfs, instead of tracking
+    # the destinations, as on tx commit. It waits in a fiber of its own, so
+    # the queue's publishers and consumers don't wait for the sync while the
+    # queue's lock is held. Plain acks unlink at once.
+    private def unlink_segment(seg : UInt32, segment : MFile, acks : MFile?) : Nil
+      moved = @moved_out.delete(seg)
+      persister = @persister
+      if moved && persister && Config.instance.sync?
+        @unlinks_after_sync.spawn(name: "unlink segment after sync") do
+          persister.sync
+          unlink_now(segment, acks)
+        rescue ex
+          @log.error(exception: ex) { "Failed to unlink #{segment.path}" }
+        end
+      else
+        unlink_now(segment, acks)
+      end
+    end
+
+    private def unlink_now(segment : MFile, acks : MFile?) : Nil
+      delete_file(acks) if acks
+      delete_file(segment, including_meta: true)
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -352,6 +366,9 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
+      # Unlinked before a restart reloads the segments, or the vhost's data
+      # dir is deleted and maybe created again
+      @unlinks_after_sync.wait
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
       # the delivery releases it (see Envelope#lease)
@@ -854,14 +871,10 @@ module LavinMQ
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
-          sync_moved_out
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          if ack = @acks.delete(seg)
-            delete_file(ack)
-          end
-          delete_file(mfile, including_meta: true)
+          unlink_segment(seg, mfile, @acks.delete(seg))
           true
         else
           false

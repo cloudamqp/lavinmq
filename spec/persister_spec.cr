@@ -262,6 +262,71 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       end
     end
   end
+
+  it "keeps the queue going while the unlink waits for the sync" do
+    replicator = HeldSyncReplicator.new
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        dst = ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        replicator.hold
+        # The first segment empties after a few of them, and its unlink
+        # waits for a sync that can't finish until the followers are released
+        8.times { src.publish "x" * 100_000 }
+        vhost = s.vhosts["/"]
+        wait_for { vhost.queue("dst").message_count == 8 }
+        src.publish "x"
+        wait_for { vhost.queue("dst").message_count == 9 }
+        dst.get(no_ack: true).should_not be_nil
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        File.exists?(src_segment).should be_true
+        replicator.release
+        wait_for { !File.exists?(src_segment) }
+      end
+    ensure
+      replicator.release
+    end
+  end
+
+  it "unlinks at once when sync is disabled" do
+    LavinMQ::Config.instance.sync = false
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        8.times { src.publish "x" * 100_000 }
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        wait_for { !File.exists?(src_segment) }
+        s.persister.last_sync.should be_nil
+      end
+    end
+  end
+end
+
+# Once held, every wait for the followers waits until released
+private class HeldSyncReplicator < NoOpReplicator
+  @held = Atomic(Bool).new(false)
+  @released = Channel(Nil).new
+
+  def wait_for_followers : Nil
+    @released.receive? if @held.get
+  end
+
+  def hold : Nil
+    @held.set(true)
+  end
+
+  def release : Nil
+    @released.close
+  end
 end
 
 describe LavinMQ::Persister, "segments emptied by plain acks" do
