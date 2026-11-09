@@ -444,6 +444,45 @@ describe "Retry Queue" do
       end
     end
 
+    # The close can come from another fiber, e.g. a store error in a publish,
+    # while a release has published its copy but not yet written its ack
+    it "waits for a release in flight before it closes the store" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("closing-delayed", "x-delayed-message", true, false,
+          arguments: LavinMQ::AMQP::Table.new({"x-delayed-type" => "direct"}))
+        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "closing-delayed-blocking")
+        vhost.exchange("closing-delayed").bind(blocking, "rk", nil)
+        delayed_q = vhost.queue("amq.delayed-closing-delayed")
+        with_channel(s) do |ch|
+          headers = AMQP::Client::Arguments.new({"x-delay" => 50})
+          ch.basic_publish_confirm("x", "closing-delayed", "rk", props: AMQP::Client::Properties.new(headers: headers))
+        end
+        select
+        when blocking.entered.receive
+        when timeout(5.seconds)
+          fail "the message was never released"
+        end
+        closed = Channel(Nil).new
+        spawn { delayed_q.close; closed.close }
+        select
+        when closed.receive?
+          fail "closed the store while a release was in flight"
+        when timeout(200.milliseconds)
+        end
+        blocking.release.send(nil)
+        closed.receive?
+        msg_dir = delayed_q.@msg_store.@msg_dir
+        reloaded = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(msg_dir, nil)
+        begin
+          reloaded.size.should eq 0
+        ensure
+          reloaded.close
+        end
+        blocking.message_count.should eq 1
+      end
+    end
+
     # A segment of 4 schema bytes and one record whose property flags are
     # invalid, so it can't be decoded
     corrupt_segment = -> do
