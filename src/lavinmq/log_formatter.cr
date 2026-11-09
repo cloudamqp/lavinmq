@@ -24,9 +24,9 @@ module LavinMQ
       end
     end
 
-    private def inspect_with_backtrace(ex : Exception) : Nil
+    private def inspect_with_backtrace(ex : Exception, prefix = "") : Nil
       severity
-      @io << message << " (" << ex.class << ")\n"
+      @io << prefix << ex.message << " (" << ex.class << ")\n"
 
       ex.backtrace?.try &.each do |frame|
         severity
@@ -35,9 +35,7 @@ module LavinMQ
       end
 
       if cause = ex.cause
-        severity
-        @io << "Caused by: "
-        inspect_with_backtrace(cause)
+        inspect_with_backtrace(cause, "Caused by: ")
       end
 
       @io.flush
