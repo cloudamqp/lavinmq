@@ -190,12 +190,10 @@ module LavinMQ
       # A local source binds as the direct user, which may read everything.
       # Before each bind, on every start, resume and reconnect, check that the
       # shovel's creator may read an x-mqtt-topic source. A refusal raises,
-      # which leaves the shovel in its error state, retrying. Shovels saved
-      # without a creator, before this check or by a definitions import, are
-      # not checked
-      private def mqtt_source_guard(created_by : String?) : AMQPSource::BindGuard?
-        # Assigned once, so the closure sees a String, not the String? argument
-        owner = created_by || return
+      # which leaves the shovel in its error state, retrying. A shovel saved
+      # without a creator, before this check or by a definitions import, is
+      # refused an x-mqtt-topic source until it's saved again
+      private def mqtt_source_guard(created_by : String?) : AMQPSource::BindGuard
         mqtt_topic_lookup = @mqtt_topic_lookup
         users = @vhost.users
         ->(vhost_name : String, exchange_name : String) do
@@ -203,6 +201,11 @@ module LavinMQ
           mqtt_topic = mqtt_topic_lookup.try &.call(vhost_name, exchange_name)
           raise Error.new("Vhost '#{vhost_name}' not found") if mqtt_topic.nil?
           return unless mqtt_topic
+          owner = created_by
+          unless owner
+            raise Error.new("Shovel has no stored creator, so its read on mqtt.default can't be checked " \
+                            "for the x-mqtt-topic exchange '#{exchange_name}'. Save the shovel again to store it")
+          end
           user = users[owner]?
           raise Error.new("User '#{owner}', who created the shovel, doesn't exist") unless user
           return if AMQP::MqttTopicExchange.readable_by?(user, vhost_name)

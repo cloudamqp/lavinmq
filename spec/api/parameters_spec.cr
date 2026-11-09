@@ -486,6 +486,32 @@ describe LavinMQ::HTTP::ParametersController do
         end
       end
 
+      # Saved before created-by was stored, or by a definitions import
+      it "refuses an x-mqtt-topic source to a shovel without a stored creator" do
+        with_http_server do |_http, s|
+          vhost = s.vhosts["/"]
+          vhost.declare_exchange("lim.x", "x-mqtt-topic", true, false)
+          vhost.declare_exchange("lim.dst", "fanout", true, false)
+          vhost.add_parameter(LavinMQ::Parameter.new("shovel", "lim-shovel", JSON.parse(lim_shovel.call(s))["value"]))
+          shovel = vhost.shovels["lim-shovel"]
+          wait_for { shovel.details_tuple[:error].to_s.includes?("no stored creator") }
+          shovel.running?.should be_false
+          vhost.exchange("lim.x").binding_count.should eq 0
+        end
+      end
+
+      it "binds a shovel without a stored creator to a source that isn't x-mqtt-topic" do
+        with_http_server do |_http, s|
+          vhost = s.vhosts["/"]
+          vhost.declare_exchange("lim.x", "fanout", true, false)
+          vhost.declare_exchange("lim.dst", "fanout", true, false)
+          vhost.add_parameter(LavinMQ::Parameter.new("shovel", "lim-shovel", JSON.parse(lim_shovel.call(s))["value"]))
+          shovel = vhost.shovels["lim-shovel"]
+          wait_for { shovel.running? }
+          wait_for { vhost.exchange("lim.x").binding_count == 1 }
+        end
+      end
+
       it "refuses to bind once the creator's read on mqtt.default is revoked" do
         with_http_server do |http, s|
           s.users.create("lim", "pw", [LavinMQ::Tag::PolicyMaker])
