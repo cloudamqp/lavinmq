@@ -1,3 +1,4 @@
+require "crypto/subtle"
 require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
@@ -54,9 +55,10 @@ module LavinMQ
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
-      # Replication protocol version to connect with. Leaders that only speak
-      # version 1 don't send fsync requests, so we sync before every ack then.
-      @protocol_version = 2
+      # Replication protocol version to connect with, the latest unless the
+      # leader turned out to be older. Leaders that only speak version 1 don't
+      # send fsync requests, so we sync before every ack then.
+      @protocol_version = PROTOCOL_VERSION
       # Files this client created whose directory entry isn't fsynced yet,
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
@@ -107,11 +109,14 @@ module LavinMQ
         follow(host, port)
       end
 
+      PROTOCOL_VERSION = 3
+
       # The longest a follower waits between failed handshakes
       MAX_HANDSHAKE_RETRY_INTERVAL = 1.minute
 
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
+        @protocol_version = PROTOCOL_VERSION # a new leader may speak it
         @host = host
         @port = port
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
@@ -133,9 +138,10 @@ module LavinMQ
           socket.try &.close
           break if @closed
           if ex.is_a?(Error)
-            # The leader refused our password or doesn't speak the protocol.
-            # That lasts until the password or the leader changes, and both
-            # sides log each attempt, so wait longer each time.
+            # The leader refused our password, couldn't prove it knows it, or
+            # doesn't speak the protocol. That lasts until the password or the
+            # leader changes, and both sides log each attempt, so wait longer
+            # each time.
             Log.error { "Handshake with server #{host}:#{port} failed (#{ex.message}), retrying in #{handshake_retry.total_seconds.to_i}s" }
             break if closed_while_waiting?(handshake_retry)
             handshake_retry = Math.min(handshake_retry * 2, MAX_HANDSHAKE_RETRY_INTERVAL)
@@ -761,11 +767,17 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write(@protocol_version < 2 ? Start : StartV2)
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        socket.write @password.to_slice
+        nonces = nil
+        if @protocol_version < 3
+          socket.write(@protocol_version < 2 ? Start : StartV2)
+          socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+          socket.write @password.to_slice
+        else
+          socket.write StartV3
+          nonces = answer_challenge(socket)
+        end
         case byte = socket.read_byte
-        when 0 # ok
+        when 0   then nonces.try { |(leader, follower)| verify_leader(socket, leader, follower) }
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
         when Start[0]
@@ -773,16 +785,52 @@ module LavinMQ
           header = Bytes.new(Start.size)
           header[0] = byte
           socket.read_fully(header[1..])
-          if header == Start && @protocol_version > 1
-            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
-            @protocol_version = 1
-            raise IO::Error.new("Replication protocol version mismatch")
-          end
-          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
+          older_leader(header)
         else
           raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
+      end
+
+      # A version 3 leader echoes the header followed by its nonce, an older
+      # one rejects it by replying with its own header. Returns the leader's
+      # and our nonce.
+      private def answer_challenge(socket) : Tuple(Bytes, Bytes)
+        header = Bytes.new(StartV3.size)
+        socket.read_fully(header)
+        older_leader(header) unless header == StartV3
+        leader_nonce = Bytes.new(CHALLENGE_SIZE)
+        socket.read_fully(leader_nonce)
+        nonce = Random::Secure.random_bytes(CHALLENGE_SIZE)
+        socket.write nonce
+        socket.write Clustering.challenge_response(@password, :follower, leader_nonce, nonce)
+        {leader_nonce, nonce}
+      end
+
+      # Before sending it anything else, so that something at the leader's
+      # address that doesn't know the password, e.g. after the leader went
+      # down, isn't followed and can't make us delete our data in a full sync
+      private def verify_leader(socket, leader_nonce : Bytes, nonce : Bytes) : Nil
+        response = Bytes.new(RESPONSE_SIZE)
+        socket.read_fully(response)
+        expected = Clustering.challenge_response(@password, :leader, leader_nonce, nonce)
+        return if Crypto::Subtle.constant_time_compare(response, expected)
+        raise AuthenticationError.new("The leader doesn't know the clustering password")
+      end
+
+      # The leader replied with the header of an older version: reconnect
+      # with that version, which sends the password
+      private def older_leader(header : Bytes) : NoReturn
+        version =
+          case header
+          when StartV2 then 2
+          when Start   then 1
+          else              raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
+          end
+        raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}") if version >= @protocol_version
+        Log.warn { "Leader only supports replication protocol version #{version}, reconnecting with it" }
+        @protocol_version = version
+        raise IO::Error.new("Replication protocol version mismatch")
       end
 
       # On promotion both the leader watcher and the controller close the
@@ -832,8 +880,8 @@ module LavinMQ
       class Error < Exception; end
 
       class AuthenticationError < Error
-        def initialize
-          super("Authentication error")
+        def initialize(message = "Authentication error")
+          super(message)
         end
       end
     end
