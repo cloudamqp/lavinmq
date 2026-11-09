@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `PUT /api/queues/:vhost/:name/pause`, `/resume` and `/restart` didn't check the user's permissions on the queue, so any management user with access to the vhost could pause, resume or restart any queue in it. They now require configure permission on the queue, like delete does [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
 - Since 2.11.0-rc.1, the management UI pages with charts (overview, nodes, queue, stream, exchange, connection, channel) showed no charts or counters and stopped refreshing when the browser reported an invalid language tag, such as `en-US@posix` from Chromium on Linux started without `LANG`. Such a tag now falls back to `en-US` [#2661](https://github.com/cloudamqp/lavinmq/pull/2661)
 - Binding an exchange to or from `mqtt.default`, or unbinding an exchange from `mqtt.default` as source, closed the whole connection with `INTERNAL_ERROR`. Now only the channel is closed, with `ACCESS_REFUSED` [#2672](https://github.com/cloudamqp/lavinmq/pull/2672)
 - A message that a queue dead-lettered during a shutdown, into a queue that the shutdown already closed, was lost. The broker now restores the message to the source queue after the restart [#2640](https://github.com/cloudamqp/lavinmq/pull/2640)
