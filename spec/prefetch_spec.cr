@@ -70,6 +70,24 @@ describe LavinMQ::Server do
         end
       end
     end
+    it "should not deliver past a global prefetch lowered below the unacked count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          5.times { q.publish "m1" }
+          msgs = [] of AMQP::Client::DeliverMessage
+          q.subscribe(no_ack: false) { |msg| msgs << msg }
+          wait_for { msgs.size == 5 }
+          ch.prefetch 2, true
+          q.publish "m1"
+          sleep 50.milliseconds
+          msgs.size.should eq 5
+          msgs.first(4).each &.ack
+          wait_for { msgs.size == 6 }
+        end
+      end
+    end
+
     {1, 3, 8}.each do |prefetch|
       it "should not let one consumer starve the others when global is true (prefetch #{prefetch})" do
         with_amqp_server do |s|
