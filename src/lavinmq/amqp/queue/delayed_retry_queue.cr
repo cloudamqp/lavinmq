@@ -51,13 +51,13 @@ module LavinMQ::AMQP
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { |stored| delete_message sp, moved: true if stored }
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
       return redelay(env) unless result.ok?
-      delete_message sp
+      delete_message sp, moved: true
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
@@ -74,7 +74,7 @@ module LavinMQ::AMQP
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       if delay(redelayed)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
-        delete_message sp
+        delete_message sp, moved: true
       else
         @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
       end

@@ -179,9 +179,9 @@ module LavinMQ::AMQP
         store_for sp, &.envelope(sp, redelivered)
       end
 
-      def delete(sp) : Nil
+      def delete(sp, moved = false) : Nil
         raise ClosedError.new if @closed
-        store_for sp, &.delete(sp)
+        store_for sp, &.delete(sp, moved)
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
