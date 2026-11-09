@@ -38,6 +38,7 @@ module LavinMQ
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
+    @metrics_server : LavinMQ::HTTP::MetricsServer?
     # The lavinmqctl socket, bound once for the process: the broker's API
     # while this node serves, the runner's view of the cluster otherwise
     @control_socket : HTTP::ControlSocket
@@ -60,6 +61,7 @@ module LavinMQ
 
       @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
       @runner.on_demote { |hand_over| demote(hand_over) }
+      @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, -> { @runner.cluster_status })
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
       @runner.on_leader_host_change { @client_listeners.leader_host_changed }
@@ -111,11 +113,7 @@ module LavinMQ
     end
 
     def run
-      begin
-        start_metrics_server unless @config.metrics_http_port == -1
-      rescue ex : Socket::BindError
-        abort "Error: #{ex.message}"
-      end
+      start_metrics_server
       bind_control_socket
       begin
         @client_listeners.bind(@amqp_tls_context, @mqtt_tls_context, @http_tls_context)
@@ -306,11 +304,14 @@ module LavinMQ
     # node knows its role, so followers and nodes without a leader are
     # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics)
+      return unless metrics_server = @metrics_server
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
+    rescue ex : Socket::BindError
+      stop
+      abort "Error: #{ex.message}"
     end
 
     private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
