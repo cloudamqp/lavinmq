@@ -534,6 +534,49 @@ describe "Retry Queue" do
       end
     end
 
+    # The close of the retry queue waits for the release, and the release can
+    # need the definitions lock, which a delete holds while it takes the lock
+    it "closes the retry queue outside the retry queue lock" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("closing-primary-dlx", "direct", false, false)
+        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "closing-primary-blocking")
+        vhost.exchange("closing-primary-dlx").bind(blocking, "blocked", nil)
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delayed-retry-min"       => 10_000,
+            "x-dead-letter-exchange"    => "closing-primary-dlx",
+            "x-dead-letter-routing-key" => "blocked",
+          })
+          q = ch.queue("closing-primary", args: args)
+          q.publish_confirm "expire me", props: AMQP::Client::Properties.new(expiration: "300")
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+        end
+        select
+        when blocking.entered.receive
+        when timeout(5.seconds)
+          fail "the message was never dead-lettered"
+        end
+        primary = vhost.queue("closing-primary")
+        closed = Channel(Nil).new
+        spawn { primary.close; closed.close }
+        begin
+          wait_for { primary.closed? }
+          locked = Channel(Nil).new
+          spawn { primary.@retry_queue_lock.synchronize { }; locked.close }
+          select
+          when locked.receive?
+          when timeout(5.seconds)
+            fail "held the retry queue lock while the release was in flight"
+          end
+        ensure
+          blocking.release.send(nil)
+        end
+        closed.receive?
+        wait_for { blocking.message_count == 1 }
+      end
+    end
+
     # A segment of 4 schema bytes and one record whose property flags are
     # invalid, so it can't be decoded
     corrupt_segment = -> do
