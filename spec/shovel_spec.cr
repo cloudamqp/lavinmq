@@ -2316,6 +2316,33 @@ describe LavinMQ::Shovel do
       end
     end
 
+    # Only local users can be looked up before each bind, see #mqtt_source_guard
+    it "raises for a local exchange source saved by an OAuth user" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_exchange("x1", "fanout", true, false)
+        verifier = LavinMQ::Auth::JWT::TokenVerifier.new(LavinMQ::Config.new,
+          LavinMQ::Auth::JWT::JWKSFetcher.new(URI.new, 1.second))
+        all = {config: /.*/, read: /.*/, write: /.*/}
+        user = LavinMQ::Auth::OAuthUser.new("sso-user", [] of LavinMQ::Tag,
+          {"/" => all}, Time.utc + 1.hour, verifier)
+        config = JSON.parse({
+          "src-uri":      "amqp:///",
+          "src-exchange": "x1",
+          "dest-uri":     "https://example.com/webhook",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, /isn't a local user/) do
+          LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
+        end
+        # A queue source binds nothing, so it's allowed
+        config = JSON.parse({
+          "src-uri":   "amqp:///",
+          "src-queue": "q1",
+          "dest-uri":  "https://example.com/webhook",
+        }.to_json)
+        LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
+      end
+    end
+
     it "allows an HTTP destination without a dest queue or exchange" do
       config = JSON.parse({
         "src-uri":   "amqp:///test",
