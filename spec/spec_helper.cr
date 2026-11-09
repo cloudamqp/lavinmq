@@ -604,6 +604,7 @@ Spec.around_each do |example|
     raise res if res
   when timeout(timeout)
     TimedOutExamples.add(fiber)
+    RoughTime.resume
     _it = example.example
     ex = Spec::AssertionFailed.new("spec timed out after #{timeout}", _it.file, _it.line)
     _it.parent.report(:fail, _it.description, _it.file, _it.line, timeout, ex)
