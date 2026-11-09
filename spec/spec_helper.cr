@@ -199,7 +199,8 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  args = {port: amqp_port(s), name: name}.merge(args)
+  # Nagle would hold a request sent after an unanswered frame until the server's delayed ACK
+  args = {port: amqp_port(s), name: name, tcp: AMQP::Client::TCPConfig.new(nodelay: true)}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
   yield ch
