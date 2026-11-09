@@ -41,7 +41,12 @@ describe "libgc" do
     overflows.last.should eq 0
   end
 
-  it "pushes parked fiber stacks with GC_push_all_grow" do
+  it "pushes parked fiber stacks with GC_push_all_grow when marking in parallel" do
+    # A single marker has nobody to hand lazily pushed stacks to (GC_MARKERS=1)
+    if LibGC.get_parallel == 0
+      GC.push_all_grow?.should be_false
+      next
+    end
     if !GC.push_all_grow? && !ENV["CI"]?
       pending!("stock libgc, build with make to link the patched one")
     end
