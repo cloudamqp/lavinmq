@@ -17,7 +17,11 @@ module LavinMQ
       # before it binds, see #mqtt_source_guard
       CREATED_BY = "created-by"
 
-      def initialize(@vhost : VHost, @vhost_store : VHostStore? = nil)
+      # *mqtt_topic_lookup* tells, given a vhost and an exchange name, whether
+      # that exchange is an x-mqtt-topic exchange, or nil if the vhost doesn't
+      # exist. A local source can be in another vhost than the shovel's. It
+      # takes and returns no classes, so this file compiles on its own
+      def initialize(@vhost : VHost, @mqtt_topic_lookup : Proc(String, String, Bool?)? = nil)
         @shovels = Hash(String, Shovel::Runner).new
       end
 
@@ -181,13 +185,13 @@ module LavinMQ
       private def mqtt_source_guard(created_by : String?) : AMQPSource::BindGuard?
         # Assigned once, so the closure sees a String, not the String? argument
         owner = created_by || return
-        vhost_store = @vhost_store
+        mqtt_topic_lookup = @mqtt_topic_lookup
         users = @vhost.users
         ->(vhost_name : String, exchange_name : String) do
           # The vhost can be missing at boot, while vhosts are still loading
-          vhost = vhost_store.try &.[vhost_name]?
-          raise Error.new("Vhost '#{vhost_name}' not found") unless vhost
-          return unless vhost.exchange?(exchange_name).is_a?(AMQP::MqttTopicExchange)
+          mqtt_topic = mqtt_topic_lookup.try &.call(vhost_name, exchange_name)
+          raise Error.new("Vhost '#{vhost_name}' not found") if mqtt_topic.nil?
+          return unless mqtt_topic
           user = users[owner]?
           raise Error.new("User '#{owner}', who created the shovel, doesn't exist") unless user
           return if AMQP::MqttTopicExchange.readable_by?(user, vhost_name)

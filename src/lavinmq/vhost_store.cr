@@ -57,6 +57,14 @@ module LavinMQ
       @vhosts.values
     end
 
+    # For a vhost's shovels, whose local sources can be in other vhosts: is
+    # the exchange an x-mqtt-topic exchange, nil if the vhost doesn't exist
+    private def mqtt_topic_lookup : Proc(String, String, Bool?)
+      ->(vhost_name : String, exchange_name : String) do
+        @vhosts[vhost_name]?.try &.exchange?(exchange_name).is_a?(AMQP::MqttTopicExchange)
+      end
+    end
+
     def first_value? : VHost?
       @vhosts.first_value?
     end
@@ -72,7 +80,7 @@ module LavinMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_default_group, vhost_store: self)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_default_group, mqtt_topic_lookup: mqtt_topic_lookup)
       Log.info { "Created vhost #{name}" }
       # Grant the creating user full permissions on the new vhost. Only local
       # users have stored permissions; OAuth users get theirs from token scopes.
@@ -138,7 +146,7 @@ module LavinMQ
             name = vhost["name"].as_s
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
-            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, vhost_store: self)
+            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_topic_lookup: mqtt_topic_lookup)
             @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
           end
           @replicator.try &.register_file(f)
