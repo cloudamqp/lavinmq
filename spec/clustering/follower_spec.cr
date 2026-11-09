@@ -633,7 +633,8 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        spawn { follower.ack_loop }
+        # A fallback flush far out, so bytes arriving at all prove flush_loop sent them
+        spawn { follower.ack_loop(fallback_flush_interval: 1.minute) }
 
         # A small append stays in the LZ4 writer's buffer (auto_flush is
         # off); only a flush moves it to the socket.
@@ -652,11 +653,10 @@ module FollowerSpec
         end
 
         follower.request_flush
-        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
         select
         when payload = received.receive
           payload.should eq "hello world"
-        when timeout(50.milliseconds)
+        when timeout(10.seconds)
           fail "request_flush did not flush buffered bytes to the follower"
         end
       ensure

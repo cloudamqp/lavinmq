@@ -81,12 +81,12 @@ module LavinMQ
         send_requested_files(caps: caps)
       end
 
-      def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
+      def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT, fallback_flush_interval : Time::Span = 100.milliseconds)
         @running.add
         @running.spawn(name: "Clustering follower flush loop") { flush_loop }
         # The ack deadline as write timeout while streaming; full_sync used SYNC_WRITE_TIMEOUT
         @socket.write_timeout = ack_timeout
-        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
+        @socket.read_timeout = fallback_flush_interval # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
         # deadline measures time-since-data-became-outstanding, not since the
