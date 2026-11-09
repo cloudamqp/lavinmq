@@ -390,17 +390,14 @@ module LavinMQ
       @unlink_after.first?.try &.drain unless @closed
     end
 
-    # Unlinks the kept segments whose drain is done, returns how many. A
-    # closed store leaves them to the next start.
-    def unlink_synced_segments : Int32
-      return 0 if @closed
-      count = 0
+    # Unlinks the kept segments whose drain is done. A closed store leaves
+    # them to the next start.
+    def unlink_synced_segments : Nil
+      return if @closed
       while (kept = @unlink_after.first?) && drain_done?(kept.drain)
         unlink_now(kept.segment, kept.acks) # a later call retries it if it raises
         @unlink_after.shift
-        count += 1
       end
-      count
     end
 
     private def unlink_now(segment : MFile, acks : MFile) : Nil
@@ -412,7 +409,7 @@ module LavinMQ
     # don't have to be
     private def drain_done?(drain : UInt64) : Bool
       persister = @persister
-      persister.nil? || !Config.instance.sync? || persister.drain_synced?(drain)
+      persister.nil? || persister.drain_done?(drain)
     end
 
     # Whether every copy of this store's messages in other queues is durable,
@@ -425,13 +422,9 @@ module LavinMQ
     # Syncs the copies of this store's messages in other queues that aren't
     # synced yet, before the whole store is unlinked or a store that doesn't
     # know about them loads the same files: waits for the drain that syncs
-    # them, like a kept segment does, see #unlink_segment. At shutdown the
-    # persister's loop has exited, and #sync falls back to a syncfs.
+    # them, like a kept segment does, see #unlink_segment.
     def sync_copies : Nil
-      return if copies_synced?
-      persister = @persister || return
-      persister.wait_drain(@copies_drain)
-      persister.sync unless copies_synced?
+      @persister.try &.sync_through(@copies_drain)
     end
 
     private def delete_file(file : MFile, including_meta = false)

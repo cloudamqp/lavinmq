@@ -58,11 +58,7 @@ describe "Retry Queue" do
         begin
           applied = Channel(Nil).new
           spawn { vhost.queue("retry-policy").apply_policy(nil, nil); applied.close }
-          select
-          when applied.receive?
-          when timeout(2.seconds)
-            fail "the policy re-apply waited for the definitions lock"
-          end
+          wait_closed(applied, 2.seconds, "the policy re-apply waited for the definitions lock")
         ensure
           release.close
         end

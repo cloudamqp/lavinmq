@@ -76,13 +76,13 @@ module LavinMQ
       # Spec instrumentation: drains that took a batch, also the ones that
       # skipped their sync
       def drains : UInt64
-        @pending.lock { @drains_started }
+        @drains_started.get(:acquire)
       end
     {% end %}
 
     # Drains that took a batch, counted under the @pending lock, and the
     # latest of them that synced it, see #copy_drain
-    @drains_started = 0u64
+    @drains_started = Atomic(UInt64).new(0u64)
     @drains_synced = Atomic(UInt64).new(0u64)
     # A drain skipped its sync while sync was disabled, and the files it took
     # are no longer marked, so the next drain that syncs does a syncfs
@@ -157,7 +157,7 @@ module LavinMQ
     # has to keep a segment for it (see #request_drain), so a burst of moves
     # costs a drain per emptied segment, not one per message.
     def copy_drain : UInt64
-      @pending.lock { @drains_started + 1 }
+      @drains_started.get(:acquire) + 1
     end
 
     # Whether the drain numbered *seq* by #copy_drain, or a later one, has
@@ -170,6 +170,12 @@ module LavinMQ
     # emptied segment waits for (see #copy_drain), also when their drain ran
     # while sync was disabled. Returns false once the loop has exited at
     # shutdown.
+    # Whether the drain numbered *seq* by #copy_drain has synced, or doesn't
+    # have to because sync is disabled
+    def drain_done?(seq : UInt64) : Bool
+      !Config.instance.sync? || drain_synced?(seq)
+    end
+
     def request_drain : Bool
       @pending.lock &.requested = true
       @publish_confirm_requested.try_send true
@@ -182,12 +188,19 @@ module LavinMQ
     # has synced. Returns without it at shutdown and while sync is disabled,
     # also when a reload disables it during the wait: the caller checks again.
     def wait_drain(seq : UInt64) : Nil
-      return if drain_synced?(seq) || !Config.instance.sync?
+      return if drain_done?(seq)
       waiter = ::Channel(Nil).new
       @drain_waiters.lock &.push({seq, waiter})
       return if drain_synced?(seq) # a drain released the waiters meanwhile
       return unless request_drain
       waiter.receive?
+    end
+
+    # Blocks until the drain numbered *seq* by #copy_drain is done. At
+    # shutdown the loop has exited, and #sync falls back to a syncfs.
+    def sync_through(seq : UInt64) : Nil
+      wait_drain(seq)
+      sync unless drain_done?(seq)
     end
 
     # Block until everything written so far is durable, on the leader and on
@@ -247,7 +260,7 @@ module LavinMQ
       @pending.replace do |current|
         if current.drainable?
           batch = current
-          seq = @drains_started += 1
+          seq = @drains_started.add(1, :release) + 1
           Batch.new
         else
           current
@@ -314,12 +327,7 @@ module LavinMQ
       if sync
         @skipped_sync = false
         @drains_synced.set(seq, :release)
-        @drain_waiters.lock do |waiters|
-          waiters.reject! do |waited, waiter|
-            waiter.close if waited <= seq
-            waited <= seq
-          end
-        end
+        release_drain_waiters(seq)
       else
         @skipped_sync = true
         # No drain syncs while sync is disabled, so nothing waits for one
@@ -332,10 +340,15 @@ module LavinMQ
       batch.waiters.each &.close
     end
 
-    private def release_drain_waiters : Nil
+    # Releases the callers of #wait_drain that wait for drain *through* or
+    # an earlier one
+    private def release_drain_waiters(through : UInt64 = UInt64::MAX) : Nil
       @drain_waiters.lock do |waiters|
-        waiters.each { |_, waiter| waiter.close }
-        waiters.clear
+        waiters.reject! do |waited, waiter|
+          next false if waited > through
+          waiter.close
+          true
+        end
       end
     end
 

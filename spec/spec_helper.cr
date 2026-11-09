@@ -528,6 +528,15 @@ struct HTTPSpecHelper
   end
 end
 
+# Fails with *message* unless *channel* is closed, or sent to, within *timeout*
+def wait_closed(channel : Channel(Nil), timeout : Time::Span, message : String) : Nil
+  select
+  when channel.receive?
+  when timeout(timeout)
+    fail message
+  end
+end
+
 # Helper function for creating a queue with ttl and an associated dlq
 def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   args = AMQP::Client::Arguments.new

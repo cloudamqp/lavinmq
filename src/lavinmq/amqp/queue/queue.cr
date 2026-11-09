@@ -402,7 +402,7 @@ module LavinMQ::AMQP
         persister.wait_drain(drain)
         @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
         # At shutdown the persister's loop has exited, and nothing syncs
-        if Config.instance.sync? && !persister.drain_synced?(drain)
+        unless persister.drain_done?(drain)
           @unlinking_kept_segments.set(false)
           break
         end
@@ -830,13 +830,9 @@ module LavinMQ::AMQP
     # Before a retry queue that closed itself is recreated. A release in flight
     # when it closed can record its copy in the closed store after any check
     # of it, so this waits for a drain that covers every copy written so far.
-    # At shutdown the persister's loop has exited, and #sync falls back to a
-    # syncfs.
     private def sync_copies_so_far : Nil
       persister = @vhost.persister
-      drain = persister.copy_drain
-      persister.wait_drain(drain)
-      persister.sync if Config.instance.sync? && !persister.drain_synced?(drain)
+      persister.sync_through(persister.copy_drain)
     end
 
     # Only call while holding the definitions lock and @retry_queue_lock

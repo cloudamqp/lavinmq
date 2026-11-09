@@ -916,11 +916,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           spawn { s.vhosts["/"].delete_queue("prim"); deleted.close }
           sleep 50.milliseconds
         end
-        select
-        when deleted.receive?
-        when timeout(5.seconds)
-          fail "the queue delete deadlocked with the retry queue's recreation"
-        end
+        wait_closed(deleted, 5.seconds, "the queue delete deadlocked with the retry queue's recreation")
         s.vhosts["/"].declare_queue("after", true, false)
         s.vhosts["/"].queue?("after").should_not be_nil
       end
@@ -945,11 +941,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           spawn { prim.delete; deleted.close }
           sleep 100.milliseconds
         end
-        select
-        when deleted.receive?
-        when timeout(5.seconds)
-          fail "the queue delete deadlocked with the retry queue's recreation"
-        end
+        wait_closed(deleted, 5.seconds, "the queue delete deadlocked with the retry queue's recreation")
         vhost.declare_queue("after", true, false)
         vhost.queue?("after").should_not be_nil
       end
@@ -978,11 +970,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           spawn { vhost.delete_queue("prim"); deleted.close }
           sleep 50.milliseconds
         end
-        select
-        when deleted.receive?
-        when timeout(5.seconds)
-          fail "the queue delete deadlocked with the nack's recreation of the retry queue"
-        end
+        wait_closed(deleted, 5.seconds, "the queue delete deadlocked with the nack's recreation of the retry queue")
         vhost.declare_queue("after", true, false)
         vhost.queue?("after").should_not be_nil
       end
@@ -1009,11 +997,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           end
           deleted.close
         end
-        select
-        when deleted.receive?
-        when timeout(5.seconds)
-          fail "the queue delete deadlocked with the nack's recreation of the retry queue"
-        end
+        wait_closed(deleted, 5.seconds, "the queue delete deadlocked with the nack's recreation of the retry queue")
         vhost.queue?("amq.retry-prim").should be_nil
       end
     end
@@ -1063,11 +1047,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           q.publish "y"         # rejected, the recreation waits for a drain too
           sleep 50.milliseconds
         end
-        select
-        when deleted.receive?
-        when timeout(5.seconds)
-          fail "the delete of the closed retry queue didn't finish"
-        end
+        wait_closed(deleted, 5.seconds, "the delete of the closed retry queue didn't finish")
         wait_for { prim.@ack_count.get == 2 }
         if (retry_queue = prim.@delayed_retry_queue) && !retry_queue.closed?
           Dir.exists?(retry_queue.@data_dir).should be_true

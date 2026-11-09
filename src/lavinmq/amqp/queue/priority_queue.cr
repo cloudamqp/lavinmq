@@ -196,13 +196,11 @@ module LavinMQ::AMQP
       end
 
       def kept_segment_drain : UInt64?
-        return if @closed
         @stores.compact_map(&.kept_segment_drain).min?
       end
 
-      def unlink_synced_segments : Int32
-        return 0 if @closed
-        @stores.sum &.unlink_synced_segments
+      def unlink_synced_segments : Nil
+        @stores.each &.unlink_synced_segments
       end
 
       def delete(sp) : Nil
