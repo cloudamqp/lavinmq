@@ -12,6 +12,21 @@ class LavinMQ::AMQP::Queue
       @deliveries[env.segment_position] = count
     end
   end
+
+  # What #close does first, before it closes the store
+  def spec_mark_closing : Nil
+    @closed = true
+  end
+
+  def spec_close_store : Nil
+    @msg_store_lock.synchronize { @msg_store.close }
+  end
+
+  # As a release does once it has published the message's copy
+  def spec_shift_and_delete_moved : Nil
+    env = @msg_store_lock.synchronize { @msg_store.shift? } || raise "queue is empty"
+    delete_message(env.segment_position, copied: true)
+  end
 end
 
 # Parks dead-lettering inside #publish_internal until released. In the AMQP
@@ -373,6 +388,32 @@ describe "Retry Queue" do
 
           msg2.reject(requeue: true)
           wait_for { s.vhosts["/"].queue?("amq.retry-retry-store-error").try { |rq| !rq.closed? && rq.message_count == 1 } }
+        end
+      end
+    end
+
+    # A release can publish its copy to the primary queue after a store error
+    # started to close the retry queue. Without its ack the retry queue that
+    # replaces this one loads the message and releases it again.
+    it "writes the ack of a message released while the retry queue closes" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("closing-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+        end
+        retry_q = s.vhosts["/"].queue("amq.retry-closing-retry")
+        wait_for { retry_q.message_count == 1 }
+        retry_q.spec_mark_closing
+        retry_q.spec_shift_and_delete_moved
+        retry_q.spec_close_store
+        msg_dir = retry_q.@msg_store.@msg_dir
+        reloaded = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(msg_dir, nil)
+        begin
+          reloaded.size.should eq 0
+        ensure
+          reloaded.close
         end
       end
     end
