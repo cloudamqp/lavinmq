@@ -1615,6 +1615,8 @@ module LavinMQ::AMQP
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if @closed
       delete_count = @msg_store_lock.synchronize do
+        # A close that took the lock first closed the store after the check above
+        next 0_u32 if @msg_store.closed
         # Checked under the lock, so that a message published or shifted for
         # delivery between the check and the purge isn't purged uncounted
         if unacked_count == 0 && max_count >= @msg_store.size
