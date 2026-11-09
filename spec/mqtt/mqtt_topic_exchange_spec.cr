@@ -666,7 +666,8 @@ module MqttSpecs
         vhost = server.vhosts["/"]
         with_client_io(server) do |io|
           connect(io)
-          publish(io, topic: "a/b/c", payload: "retained".to_slice, qos: 0u8, retain: true)
+          # QoS 1 waits for the PUBACK, so the message is routed before the bind
+          publish(io, topic: "a/b/c", payload: "retained".to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
 
