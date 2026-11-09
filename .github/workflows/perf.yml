@@ -240,8 +240,9 @@ jobs:
           name: perf-results
           path: tmp/perf/
 
-      # Labels are fetched at runtime so that adding the label and re-running
-      # the job works (a re-run reuses the original event payload).
+      # The label only accepts a measured regression, never a comparison that
+      # failed to run. Labels are fetched at runtime so that adding the label
+      # and re-running the job works (a re-run reuses the original event payload).
       - name: Check result
         id: check
         if: steps.compare.outcome == 'failure'
@@ -249,6 +250,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          results=tmp/perf/results.json
+          if [ ! -f "$results" ] || ! jq -e 'any(.regression) and (any(.broken) | not)' "$results" >/dev/null; then
+            echo "::error::The comparison failed to run: a broker didn't start, lavinmqperf failed, or a scenario reported no throughput. See the log."
+            exit 1
+          fi
           if [ -n "$PR" ] && curl -sf -H "Authorization: Bearer $GH_TOKEN" \
               "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR/labels" |
               jq -e 'any(.[]; .name == "perf-regression-accepted")' >/dev/null; then
@@ -321,10 +327,10 @@ jobs:
                 fi
                 if [ "$COMPARE" = success ]; then
                   echo "No regression at \`${HEAD_SHA:0:7}\`."
+                elif [ ! -f results/results.json ] || jq -e 'any(.broken)' results/results.json >/dev/null; then
+                  echo "**The comparison failed to run at \`${HEAD_SHA:0:7}\`.** See [the run]($RUN_URL)."
                 elif [ "$ACCEPTED" = true ]; then
                   echo "Regression at \`${HEAD_SHA:0:7}\`, accepted with the \`perf-regression-accepted\` label."
-                elif [ "$PERF_RESULT" = failure ] && [ ! -f results/summary.md ]; then
-                  echo "The comparison failed before producing results. See [the run]($RUN_URL)."
                 else
                   echo "**Regression at \`${HEAD_SHA:0:7}\`.** If it is intentional, add the \`perf-regression-accepted\` label and re-run the job."
                 fi
