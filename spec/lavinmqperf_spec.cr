@@ -121,6 +121,31 @@ describe "LavinMQPerf" do
       end
     end
 
+    it "consumes a backlog on every queue with shared connections", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          10.times do |i|
+            q = ch.queue("backlog-#{i + 1}")
+            100.times { q.publish "x" }
+          end
+        end
+        io = IO::Memory.new
+        throughput = LavinMQPerf::AMQP::Throughput.new(io)
+        throughput.run([
+          "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
+          "-x", "0", "-y", "10", "-R", "10", "-a", "1", "-P", "10",
+          "--queue-pattern", "backlog-%", "--queue-pattern-to", "10",
+          "--connections", "1", "-z", "2",
+        ])
+        # Every consumer gets its share; none is left holding a first
+        # prefetch window it never saw.
+        10.times do |i|
+          q = s.vhosts["/"].queue("backlog-#{i + 1}")
+          (q.message_count + q.unacked_count).should be < 95
+        end
+      end
+    end
+
     it "publishes and consumes at fractional rates", tags: "slow" do
       with_amqp_server do |s|
         io = IO::Memory.new

@@ -416,10 +416,29 @@ module LavinMQPerf
           wait_until_all_are_connected(connected)
           ticker = Ticker.new(@consume_rate)
           local_consumes = 0_u64
+          hold_deliveries_until_subscribed(ch, "c")
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
             local_consumes &+= 1
             handle_consumed_message(ch, m, data, ticker, local_consumes)
           end
+        end
+      end
+
+      # amqp-client registers a consumer only once it has read the
+      # ConsumeOk, and drops the deliveries that come before: from a queue
+      # with a backlog often the whole first prefetch window, which then
+      # stays unacked, and the consumer gets nothing more. The server holds
+      # deliveries while the channel's flow is off, so it's turned off
+      # until the consumer is registered.
+      private def hold_deliveries_until_subscribed(ch, tag)
+        ch.flow(false)
+        spawn do
+          until ch.has_subscriber?(tag) || ch.closed?
+            sleep 1.millisecond
+          end
+          ch.flow(true) unless ch.closed?
+        rescue ::AMQP::Client::Error | IO::Error
+          # the channel closed meanwhile; its client reconnects
         end
       end
 
