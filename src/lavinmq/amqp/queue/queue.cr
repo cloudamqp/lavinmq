@@ -839,9 +839,11 @@ module LavinMQ::AMQP
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
-      @msg_store_lock.synchronize do
-        @msg_store.close
-        @deliveries.clear
+      synchronize_releases do
+        @msg_store_lock.synchronize do
+          @msg_store.close
+          @deliveries.clear
+        end
       end
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
@@ -1305,6 +1307,12 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       delete_message(sp)
+    end
+
+    # Overridden by queues that move messages outside @msg_store_lock, see
+    # DelayedQueue#expire_messages
+    private def synchronize_releases(&)
+      yield
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
