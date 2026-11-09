@@ -709,6 +709,9 @@ module LavinMQ
       metafile = meta_file_name(mfile)
       count = File.open(metafile) do |file|
         msg_count = file.read_bytes(UInt32)
+        # A finished segment holds at least one message. A count of 0 is a
+        # meta file whose size reached the disk before its data (power loss)
+        raise MetadataError.new("Metadata file #{metafile} has count 0") if msg_count.zero?
         @replicator.try &.register_file(file)
         read_extra_metadata_fields(file, seg)
         msg_count

@@ -121,6 +121,48 @@ describe "Message segment metadata files" do
         store.close
       end
     end
+
+    # A power loss can leave a meta file whose size reached the disk but not
+    # its data, so it reads as zeros
+    it "counts the messages of a segment whose meta file holds count 0" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        large_message = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        10.times { |i| store.push(LavinMQ::Message.new("", "rk", "#{large_message}#{i}")) }
+        store.close
+
+        meta_files = Dir.glob(File.join(dir, "meta.*")).sort!
+        meta_files.size.should be > 1
+        File.write(meta_files.first, Bytes.new(4))
+
+        new_store = LavinMQ::MessageStore.new(dir, nil)
+        new_store.size.should eq 10
+        bodies = Array(String).new
+        while env = new_store.shift?
+          bodies << String.new(env.message.body)
+        end
+        bodies.should eq Array.new(10) { |i| "#{large_message}#{i}" }
+        File.open(meta_files.first, &.read_bytes(UInt32)).should be > 0
+        new_store.close
+      end
+    end
+
+    it "counts the messages of a stream segment whose meta file holds count 0" do
+      with_datadir do |dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+        large_message = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        10.times { |i| store.push(LavinMQ::Message.new("", "rk", "#{large_message}#{i}")) }
+        store.close
+
+        meta_files = Dir.glob(File.join(dir, "meta.*")).sort!
+        meta_files.size.should be > 1
+        File.write(meta_files.first, Bytes.new(20))
+
+        new_store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+        new_store.size.should eq 10
+        new_store.close
+      end
+    end
   end
 
   describe "Segment deletion with metadata cleanup" do
