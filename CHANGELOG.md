@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Redelivering messages requeued from a stream no longer takes quadratic time. Finding each message's offset scanned its segment from the start, so requeuing many messages at once, e.g. with a `basic.nack` of many unacknowledged messages, stalled the stream consumer
+- Redelivering messages requeued from a stream no longer takes quadratic time. Finding each message's offset scanned its segment from the start, so requeuing many messages at once, e.g. with a `basic.nack` of many unacknowledged messages, stalled the stream consumer [#2699](https://github.com/cloudamqp/lavinmq/pull/2699)
 
 ### Fixed
 
