@@ -609,6 +609,41 @@ describe "Retry Queue" do
       end
     end
 
+    it "doesn't reload a retry queue that closed while loading on each reject, only on a restart" do
+      with_amqp_server do |s|
+        args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000})
+        with_channel(s) do |ch|
+          q = ch.queue("unloadable-retry", args: args)
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-unloadable-retry").message_count == 1 }
+        end
+        segment = File.join(s.vhosts["/"].queue("amq.retry-unloadable-retry").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        closed_retry_q = s.vhosts["/"].queue("amq.retry-unloadable-retry")
+        closed_retry_q.closed?.should be_true
+
+        with_channel(s) do |ch|
+          q = ch.queue("unloadable-retry", args: args)
+          q.publish_confirm "y"
+          3.times do
+            msg = wait_for { q.get(no_ack: false) }
+            msg.reject(requeue: true) # requeued instantly, as the retry queue is closed
+          end
+          s.vhosts["/"].queue("unloadable-retry").@delayed_retry_queue.should be closed_retry_q
+
+          File.open(segment, "r+", &.write_bytes(LavinMQ::Schema::VERSION))
+          closed_retry_q.restart!.should be_true
+          retry_q = s.vhosts["/"].queue("amq.retry-unloadable-retry")
+          retry_q.should_not be closed_retry_q
+          retry_q.closed?.should be_false
+          retry_q.message_count.should eq 1
+        end
+      end
+    end
+
     it "should not leak mmaps when the retry queue store can't be loaded" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

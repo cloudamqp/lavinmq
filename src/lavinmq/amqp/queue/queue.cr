@@ -112,6 +112,8 @@ module LavinMQ::AMQP
     @restart_lock = Mutex.new
     # A fiber unlinks the segments the store keeps, see #unlink_kept_segments_later
     @unlinking_kept_segments = Atomic(Bool).new(false)
+    # Whether the store closed while it loaded, e.g. on a corrupt segment
+    @closed_on_load = Atomic(Bool).new(false)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -350,6 +352,7 @@ module LavinMQ::AMQP
     end
 
     private def start : Bool
+      @closed_on_load.set(@msg_store.closed, :release)
       if @msg_store.closed
         !close
       else
@@ -763,10 +766,14 @@ module LavinMQ::AMQP
       end
     end
 
+    protected def closed_on_load? : Bool
+      @closed_on_load.get(:acquire)
+    end
+
     # For DelayedRetryQueue#restart!, e.g. through the management API, so
     # its delayed messages are released without waiting for another reject
     protected def recreate_retry_queue : DelayedRetryQueue?
-      active_retry_queue(register_later: false)
+      active_retry_queue(register_later: false, after_failed_load: true)
     end
 
     # Recreates the retry queue if it was deleted or closed itself on a store
@@ -775,13 +782,13 @@ module LavinMQ::AMQP
     # definitions waits for those loops while it holds the definitions lock:
     # so a reject never takes the definitions lock here, and *register_later*
     # registers the new retry queue in the definitions from another fiber.
-    private def active_retry_queue(*, register_later = true) : DelayedRetryQueue?
+    private def active_retry_queue(*, register_later = true, after_failed_load = false) : DelayedRetryQueue?
       closed_retry_queue = @retry_queue_lock.synchronize do
         retry_queue = @delayed_retry_queue
         return retry_queue if retry_queue && !retry_queue.closed?
         retry_queue
       end
-      return if @deleted || @closed
+      return unless recreate_retry_queue?(closed_retry_queue, after_failed_load)
       # Outside the lock: a delete of this queue takes it
       sync_copies_so_far if closed_retry_queue
       retry_queue, recreated = replace_retry_queue(closed_retry_queue)
@@ -795,6 +802,15 @@ module LavinMQ::AMQP
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
       nil
+    end
+
+    # A retry queue whose store closed while it loaded, e.g. on a corrupt
+    # record, would read the whole store again on each reject only to close
+    # again, so it's recreated only by a restart, see #recreate_retry_queue
+    private def recreate_retry_queue?(closed_retry_queue : DelayedRetryQueue?, after_failed_load : Bool) : Bool
+      return false if @deleted || @closed
+      return true if closed_retry_queue.nil? || after_failed_load
+      !closed_retry_queue.closed_on_load?
     end
 
     # Creates a new retry queue in place of *closed_retry_queue*, and returns
