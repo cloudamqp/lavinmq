@@ -74,16 +74,6 @@ module LavinMQ
       @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
-    def stop
-      return if @closed.swap(true)
-      close_log_exchange
-      @persister.close
-      @vhosts.close
-      @replicator.try &.clear
-      @authenticator.try &.cleanup
-      Fiber.yield
-    end
-
     def connections : Array(Client)
       @vhosts.values.flat_map(&.connections)
     end
@@ -123,6 +113,7 @@ module LavinMQ
       @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
+      @authenticator.cleanup
       # Closing writes files too. Unless the followers have acked them, a
       # leadership transfer target counts as behind once it disconnects to
       # campaign, and is taken out of the ISR before it gets this node's vote.
