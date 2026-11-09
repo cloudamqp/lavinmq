@@ -379,8 +379,12 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD
       ($runs | map(select(.side == "head")) | sort_by(.round)) as $head |
       ($base | map(.[$m])) as $b |
       ($head | map(.[$m])) as $h |
+      # Bytes per message can be ~0 on base (nothing flushed within the run),
+      # so divide by at least 1 B/msg and report those changes in bytes
+      ($m | IN("write", "disk")) as $bytes |
       ([range(0; $base | length)] | map(
-        if $b[.] > 0 then $h[.] / $b[.]
+        if $bytes then $h[.] / ([$b[.], 1] | max)
+        elif $b[.] > 0 then $h[.] / $b[.]
         elif $lower then (if $h[.] > 0 then 2 else 1 end)
         else 0 end)) as $ratios |
       ($ratios | median) as $ratio |
@@ -392,6 +396,7 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD
         base: ($b | median),
         head: ($h | median),
         change_pct: (($ratio - 1) * 100),
+        change_bytes: (if $bytes and ($b | median) < 1 then ($h | median) - ($b | median) else null end),
         worse_rounds: $worse,
         range_pct: [(($ratios | min) - 1) * 100, (($ratios | max) - 1) * 100],
         broken: ((if $lower then ($m == "rss" and (($b | median) == 0 or ($h | median) == 0))
@@ -416,7 +421,7 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD
                   rss: "rss (MB)", write: "write (B/msg)", disk: "disk (B/msg)"}[.];
       def num: if . >= 100 then round else . * 10 | round / 10 end;
       .[] |
-      "| \(.scenario) | \(.metric | metric_label) | \(.base | num) | \(.head | num) | \(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … ")) | \(.worse_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
+      "| \(.scenario) | \(.metric | metric_label) | \(.base | num) | \(.head | num) | \(if .change_bytes != null then "\(if .change_bytes >= 0 then "+" else "" end)\(.change_bytes | num) B/msg | base ~0" else "\(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … "))" end) | \(.worse_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
       "$OUT_DIR/results.json"
 } > "$OUT_DIR/summary.md"
 
