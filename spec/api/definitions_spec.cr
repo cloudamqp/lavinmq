@@ -1080,6 +1080,29 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    # Only a boolean x-delayed-exchange makes an exchange delayed, so the
+    # export mustn't write any other value as delayed
+    it "round-trips exchanges with a non-boolean x-delayed-exchange as not delayed" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => "true"})
+        vhost.declare_exchange("xtopic", "topic", true, false, arguments: args)
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false, arguments: args)
+
+        body = http.get("/api/definitions").body
+        exchanges = JSON.parse(body)["exchanges"].as_a
+        exchanges.find! { |e| e["name"] == "xtopic" }["type"].should eq "topic"
+        exchanges.find! { |e| e["name"] == "xmqtt" }["type"].should eq "x-mqtt-topic"
+
+        vhost.delete_exchange("xtopic")
+        vhost.delete_exchange("xmqtt")
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost.exchange("xtopic").delayed?.should be_false
+        vhost.exchange?("xmqtt").should_not be_nil
+      end
+    end
+
     it "exports exchanges" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
