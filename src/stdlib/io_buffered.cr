@@ -306,16 +306,28 @@ module IO::Buffered
   end
 
   # Flushes through the pool, so that the write buffer is detached and
-  # returned like on any flush, then detaches the IO from the pool. A reader
-  # that still holds the read buffer returns it when its read fails.
+  # returned like on any flush, then detaches the IO from the pool. Another
+  # fiber's reader may still use the read buffer, it returns it on its next read.
   def close : Nil
-    return previous_def unless @buffer_pool
+    return previous_def unless pool = @buffer_pool
     begin
       flush if @out_count > 0
     ensure
       @buffer_pool = nil
+      @closed_buffer_pool = pool
+      release_in_buffer(pool) if @read_fiber == Fiber.current
       previous_def
     end
+  end
+
+  # Only the fiber that last filled the read buffer releases it after a close
+  @read_fiber : Fiber? = nil
+  @closed_buffer_pool : IO::BufferPool? = nil
+
+  protected def check_open
+    return unless closed?
+    release_in_buffer(@closed_buffer_pool) if @read_fiber == Fiber.current
+    raise IO::Error.new "Closed stream"
   end
 
   private def out_buffer
@@ -339,6 +351,7 @@ module IO::Buffered
   private def fill_buffer
     @buffer_fills &+= 1
     return previous_def unless pool = @buffer_pool
+    @read_fiber = Fiber.current
     {% if flag?(:unix) %}
       if socket = self.as?(Socket)
         return fill_socket_buffer(socket, pool)
