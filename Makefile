@@ -13,6 +13,7 @@ LIBGC ?= ext/libgc.a
 ifneq ($(LIBGC),)
 export CRYSTAL_LIBRARY_PATH := $(abspath $(dir $(LIBGC))):$(shell crystal env CRYSTAL_LIBRARY_PATH)
 override CRYSTAL_FLAGS += -Dpatched_libgc
+export LIBGC_VERSION := $(shell sed -n 's/^VERSION := //p' packaging/libgc/Makefile)
 SPEC_FLAGS := -Dpatched_libgc
 endif
 .DELETE_ON_ERROR:
