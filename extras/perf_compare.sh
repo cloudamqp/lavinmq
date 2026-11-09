@@ -421,7 +421,7 @@ jq -s --argjson threshold "$THRESHOLD" --argjson rthreshold "$RESOURCE_THRESHOLD
                   rss: "rss (MB)", write: "write (B/msg)", disk: "disk (B/msg)"}[.];
       def num: if . >= 100 then round else . * 10 | round / 10 end;
       .[] |
-      "| \(.scenario) | \(.metric | metric_label) | \(.base | num) | \(.head | num) | \(if .change_bytes != null then "+\(.change_bytes | num) B/msg | base ~0" else "\(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … "))" end) | \(.worse_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
+      "| \(.scenario) | \(.metric | metric_label) | \(.base | num) | \(.head | num) | \(if .change_bytes != null then "\(if .change_bytes >= 0 then "+" else "" end)\(.change_bytes | num) B/msg | base ~0" else "\(.change_pct * 10 | round / 10)% | \(.range_pct | map(. * 10 | round / 10 | tostring + "%") | join(" … "))" end) | \(.worse_rounds)/\($rounds) | \(if .broken then ":warning: no data" elif .regression then ":x:" else ":white_check_mark:" end) |"' \
       "$OUT_DIR/results.json"
 } > "$OUT_DIR/summary.md"
 

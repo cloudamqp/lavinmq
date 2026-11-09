@@ -148,6 +148,8 @@
           "1",
           "-R",
           "1",
+          "-a",
+          "1",
           "-P",
           "1",
           "--queue-args",
@@ -167,7 +169,7 @@
         ]
       }
     ],
-    "why": "Messages are stored, expire after 5 ms and are dead-lettered to another queue, exercising moved messages and the deletion of the segments they leave; a slow consumer declares the source queue so publishes aren't dropped"
+    "why": "Messages are stored, expire after 5 ms and are dead-lettered to another queue, exercising moved messages and the deletion of the segments they leave; a slow, acking consumer with prefetch 1 declares the source queue so publishes aren't dropped"
   },
   {
     "name": "fanout-1to4",
