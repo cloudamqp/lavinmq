@@ -437,6 +437,33 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "unlinks an emptied segment nothing was moved out of at once, while another segment waits for its copies' drain" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      store = store_with_three_segments(data_dir, persister)
+      segment1 = File.join(data_dir, "msgs.0000000001")
+      segment2 = File.join(data_dir, "msgs.0000000002")
+      begin
+        sps = Array.new(6) { store.shift?.should_not(be_nil).segment_position }
+        sps.map(&.segment).should eq [1u32, 1u32, 1u32, 2u32, 2u32, 2u32]
+        with_drain_held do
+          store.copied_out(sps[0])
+          store.delete(sps[0]) # segment 1 isn't emptied yet
+          sps[3, 3].each { |sp| store.delete(sp) }
+          File.exists?(segment2).should be_false
+          sps[1, 2].each { |sp| store.delete(sp) }
+          File.exists?(segment1).should be_true
+        end
+        wait_for { store.copies_synced? }
+        store.unlink_synced_segments
+        File.exists?(segment1).should be_false
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
   it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -677,10 +704,18 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         src.publish "x" * 100_000
         wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
         s.persister.drains.should eq drains
+        # Still disabled: four more are moved out of segment 2, which the
+        # sixth message above started
+        dead_letter = true
+        4.times { src.publish "x" * 100_000 }
+        wait_for { s.vhosts["/"].queue("dst").message_count == 9 }
+        dead_letter = false
         LavinMQ::Config.instance.sync = true
-        5.times { src.publish "x" * 100_000 }
+        # A rollover empties segment 2, and its unlink waits for the drain of
+        # its copies. The drain that took earlier ones skipped its sync, so
+        # it's a syncfs
+        src.publish "x" * 100_000
         wait_unlinked(File.join(queue_dir(s, "src"), "msgs.0000000002")) { src.publish "x" }
-        # The drains that took the copies skipped their sync, so it's a syncfs
         s.persister.syncs.any?(&.syncfs).should be_true
       end
     end
@@ -1007,6 +1042,36 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         # Deleted with it, not left running with its files gone
         wait_for { recreated.closed? }
         vhost.queue?("amq.retry-prim").should be_nil
+      end
+    end
+  end
+
+  it "doesn't recreate a retry queue while its delete by name waits for a drain, which would unlink the new one's files" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+        prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+        deleted = Channel(Nil).new
+        with_drain_held do
+          reject_once_into_retry_queue(q)
+          q.publish "x" # released back to prim, so the retry queue has a copy that isn't synced
+          wait_for { prim.@ack_count.get == 1 }
+          vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+          spawn { vhost.delete_queue("amq.retry-prim"); deleted.close }
+          sleep 50.milliseconds # the delete waits for the drain
+          q.publish "y"         # rejected, the recreation waits for a drain too
+          sleep 50.milliseconds
+        end
+        select
+        when deleted.receive?
+        when timeout(5.seconds)
+          fail "the delete of the closed retry queue didn't finish"
+        end
+        wait_for { prim.@ack_count.get == 2 }
+        if (retry_queue = prim.@delayed_retry_queue) && !retry_queue.closed?
+          Dir.exists?(retry_queue.@data_dir).should be_true
+        end
       end
     end
   end
