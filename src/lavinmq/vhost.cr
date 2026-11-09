@@ -404,9 +404,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new, fsync = true)
+                         arguments = AMQP::Table.new, fsync = true, user : Auth::BaseUser? = nil)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments), fsync: fsync
+        auto_delete, internal, false, arguments), fsync: fsync, user: user
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -415,14 +415,16 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true,
+                   user : Auth::BaseUser? = nil)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments), fsync: fsync
+        routing_key, false, arguments), fsync: fsync, user: user
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true,
+                      user : Auth::BaseUser? = nil)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments), fsync: fsync
+        routing_key, false, arguments), fsync: fsync, user: user
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -435,8 +437,8 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false, fsync = true) : Bool
-      definitions.apply(f, loading, fsync)
+    def apply(f, loading = false, fsync = true, user : Auth::BaseUser? = nil) : Bool
+      definitions.apply(f, loading, fsync, user)
     end
 
     # Flush definitions written with fsync: false (e.g. during bulk import).

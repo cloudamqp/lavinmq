@@ -84,7 +84,7 @@ module LavinMQ
             end
             if component == "shovel"
               begin
-                Shovel::Store.validate_config!(value, context.user)
+                Shovel::Store.validate_config!(value, context.user, @server.vhosts)
               rescue ex : Shovel::ConfigError
                 bad_request(context, ex.message)
               end
