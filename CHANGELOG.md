@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
 - The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)
 - The Bindings counter and footer on the overview sat lower than the others whenever the other cards' links wrapped, e.g. with a long uptime [#2573](https://github.com/cloudamqp/lavinmq/pull/2573)
-- Since 2.11.0-rc.1, a connection that the broker closed while it held a pooled socket read buffer, such as after a failed AMQP login, didn't return the buffer to the pool. The `socket_buffer_pool_*` metrics then counted it as still in use, and the pool allocated a new buffer instead of reusing one. The buffer is now returned when the connection closes [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
+- Since 2.11.0-rc.1, a connection that the broker closed while it held a pooled socket read buffer, such as after a failed AMQP login, didn't return the buffer to the pool. The `socket_buffer_pool_*` metrics then counted it as still in use, and the pool allocated a new buffer instead of reusing one. The buffer is now returned when the connection closes [#2692](https://github.com/cloudamqp/lavinmq/pull/2692)
 
 ## [2.11.0] - 2026-11-12
 
