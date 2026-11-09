@@ -42,8 +42,10 @@ module LavinMQ
     @wfile_tail_marked = false
     # Persister#syncfs_mark when the segment being written was opened
     @wfile_syncfs_mark = 0u64
-    # Moving average of the size of written messages, see #readahead_for_writes
-    @avg_msg_size = 0i64
+    # Moving average of the size of written messages, times 16 so that it
+    # settles on the size of equal messages instead of up to 15 bytes below
+    # it, see #readahead_for_writes
+    @avg_msg_size_x16 = 0i64
     # Whether the segment being written is mapped with readahead
     @wfile_readahead = false
     # The persister drain that makes the latest copy of a message of this
@@ -577,7 +579,7 @@ module LavinMQ
         @wfile_partly_synced = @wfile_tail_marked = true
       end
       @synced_writes = true if !@synced_writes && synced?(msg)
-      @avg_msg_size += (msg.bytesize.to_i64 - @avg_msg_size) // 16
+      @avg_msg_size_x16 += msg.bytesize.to_i64 - @avg_msg_size_x16 // 16
       readahead_for_writes(wfile) if readahead_for_writes? != @wfile_readahead
       @segment_msg_count[wfile_id] += 1
       sp
@@ -603,7 +605,7 @@ module LavinMQ
     private def readahead_for_writes? : Bool
       return true unless @synced_writes
       limit = @wfile_readahead ? NO_READAHEAD_BELOW_AVG_MSG_SIZE : READAHEAD_FROM_AVG_MSG_SIZE
-      @avg_msg_size >= limit
+      @avg_msg_size_x16 // 16 >= limit
     end
 
     private def readahead_for_writes(wfile : MFile) : Nil
