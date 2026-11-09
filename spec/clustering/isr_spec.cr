@@ -9,17 +9,25 @@ require "lz4"
 class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
+  @failed_updates = 0
   getter isr_updates = Array(Set(Int32)).new
 
   def update_isr(synced_node_ids : Set(Int32)) : Nil
     @lock.synchronize do
-      raise Error.new("coordinator unavailable (spec)") if @failing
+      if @failing
+        @failed_updates += 1
+        raise Error.new("coordinator unavailable (spec)")
+      end
       @isr_updates << synced_node_ids.dup
     end
   end
 
   def failing=(value : Bool)
     @lock.synchronize { @failing = value }
+  end
+
+  def failed_updates : Int32
+    @lock.synchronize { @failed_updates }
   end
 
   def password : String
@@ -251,7 +259,9 @@ describe LavinMQ::Clustering::Server do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       coordinator = SpyCoordinator.new
-      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      # Shorter than the production ack deadline, to evict the follower sooner
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0,
+        ack_timeout: 500.milliseconds)
       tcp_server = TCPServer.new("localhost", 0)
       spawn(server.listen(tcp_server), name: "isr declare evict spec")
 
@@ -260,6 +270,11 @@ describe LavinMQ::Clustering::Server do
       wait_for { server.followers.any? &.id.== follower_id }
 
       with_amqp_server(replicator: server) do |s|
+        # Ack what the broker's startup replicated, so the ack deadline starts
+        # (about) with the declare's own bytes.
+        server.followers.find(&.id.== follower_id).try do |follower|
+          client_io.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+        end
         with_channel(s) do |ch|
           declared = Channel(Nil).new(1)
           spawn(name: "declare queue spec") do
@@ -413,7 +428,8 @@ describe LavinMQ::Clustering::Server do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       coordinator = SpyCoordinator.new
-      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0,
+        isr_retry_interval: 20.milliseconds)
       tcp_server = TCPServer.new("localhost", 0)
       spawn(server.listen(tcp_server), name: "isr confirm stall spec")
 
@@ -442,11 +458,14 @@ describe LavinMQ::Clustering::Server do
           end
 
           # While the ISR can't be written the follower might still be listed
-          # as a failover candidate, so the confirm must not be delivered.
+          # as a failover candidate, so the confirm must not be delivered: not
+          # while the ISR write is being retried, nor shortly after.
+          failed = coordinator.failed_updates
+          wait_for { coordinator.failed_updates >= failed + 5 }
           select
           when confirmed.receive
             fail "confirm delivered before the follower's ISR removal was committed"
-          when timeout(1.second)
+          when timeout(200.milliseconds)
           end
 
           coordinator.failing = false # coordinator is back

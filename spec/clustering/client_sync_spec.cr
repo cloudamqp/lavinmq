@@ -33,6 +33,17 @@ module ClientSyncSpec
     acked
   end
 
+  # Waits for a stream_changes run to end, and for its ack loop to have sent
+  # its last ack.
+  def self.await_stream_end(client : TestClient, stream_ended : Channel(Nil)) : Nil
+    select
+    when stream_ended.receive?
+    when timeout(10.seconds)
+      fail "stream_changes never ended"
+    end
+    client.@ack_loops.wait
+  end
+
   # Runs one file-list comparison pass against a leader offering `leader_files`,
   # with `resync` picking the reconnect variant (see TestClient).
   def self.sync_with_leader(client : TestClient, leader_files : Hash(String, String), resync = false)
@@ -282,9 +293,12 @@ module ClientSyncSpec
           filename = "undeletable"
           Dir.mkdir_p File.join(data_dir, filename)
 
+          stream_ended = Channel(Nil).new
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
+          ensure
+            stream_ended.close
           end
 
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
@@ -292,11 +306,14 @@ module ClientSyncSpec
           lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
           lz4_writer.flush
 
-          leader_io.read_timeout = 500.milliseconds
-          expect_raises(IO::TimeoutError) do
+          # Nothing may be acked by the time the stream has ended (with the
+          # failed delete) and the ack loop has sent all it ever will.
+          await_stream_end(client, stream_ended)
+          client_socket.close
+          leader_io.read_timeout = 2.seconds
+          expect_raises(IO::EOFError) do
             leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           end
-          client_socket.close
         end
       end
 
@@ -357,9 +374,12 @@ module ClientSyncSpec
           content = "new content"
           framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
+          stream_ended = Channel(Nil).new
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
+          ensure
+            stream_ended.close
           end
 
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
@@ -368,18 +388,20 @@ module ClientSyncSpec
           lz4_writer.write content.to_slice
           lz4_writer.flush
 
-          # The framing bytes are acked up front, but nothing further.
+          # The framing bytes are acked up front, but nothing further, even
+          # once the stream has ended (with the failed rename) and the ack
+          # loop has sent all it ever will.
+          await_stream_end(client, stream_ended)
+          client_socket.close
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing
             acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           end
           acked.should eq framing
-          leader_io.read_timeout = 500.milliseconds
-          expect_raises(IO::TimeoutError) do
+          expect_raises(IO::EOFError) do
             leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           end
-          client_socket.close
         end
       end
     end
