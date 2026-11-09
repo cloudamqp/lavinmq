@@ -1,7 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
 require "mqtt-protocol"
 
@@ -27,9 +26,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
   end
 end
 
-describe "extract_conn_info during full_sync with syncing_followers", tags: %w[etcd slow] do
-  add_etcd_around_each
-
+describe "extract_conn_info during full_sync with syncing_followers", tags: "slow" do
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
@@ -57,12 +54,10 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
             follower_client.follow("localhost", leader_tcp_server.local_address.port)
           end
 
-          sleep 0.5.seconds # Give time for sync to start but not complete
+          # Wait for the (slowed down) sync to start
+          wait_for { slow_replicator.syncing_followers.size > 0 }
 
           server_port = amqp_port(leader_s)
-
-          # Ensure we have a syncing follower
-          slow_replicator.syncing_followers.size.should be > 0
 
           client_socket = TCPSocket.new("localhost", server_port)
 
@@ -73,10 +68,8 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
             client_socket.write("AMQP\u0000\u0000\t\u0001".to_slice)
             client_socket.flush
 
-            sleep 0.1.seconds
-
             buffer = Bytes.new(128)
-            client_socket.read_timeout = 0.5.seconds
+            client_socket.read_timeout = 5.seconds
             bytes_read = client_socket.read(buffer)
 
             # Verify we got a proper AMQP Connection.Start response
@@ -111,7 +104,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
         client_socket.flush
 
         buffer = Bytes.new(8)
-        client_socket.read_timeout = 0.5.seconds
+        client_socket.read_timeout = 5.seconds
         client_socket.read(buffer)
 
         buffer.should eq LavinMQ::AMQP::PROTOCOL_START_0_9_1.to_slice
@@ -146,7 +139,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
 
           buffer = Bytes.new(128)
           begin
-            client_socket.read_timeout = 0.5.seconds
+            client_socket.read_timeout = 5.seconds
             bytes_read = client_socket.read(buffer)
 
             # Verify we got a proper AMQP Connection.Start response
