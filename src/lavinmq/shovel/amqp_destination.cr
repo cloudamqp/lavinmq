@@ -19,6 +19,7 @@ module LavinMQ
         end
         params = @uri.query_params
         params["name"] ||= "Shovel #{@name} sink"
+        params["tcp_nodelay"] = "true" if Config.instance.tcp_nodelay?
         @uri.query = params.to_s
         if queue
           @exchange = ""
