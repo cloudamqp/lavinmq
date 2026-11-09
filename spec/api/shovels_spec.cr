@@ -132,8 +132,10 @@ describe LavinMQ::HTTP::ShovelsController do
         addr = server.bind_unused_port
         spawn server.listen
         s.vhosts["/"].declare_queue("q2", true, false)
-        s.vhosts["/"].queue("q2").publish(LavinMQ::Message.new("", "q2", "m"))
         shovel = create_shovel(s, config: {"dest-uri": "http://#{addr}/", "dest-queue": nil, "reconnect-delay": 1})
+        # Published once the shovel runs: it can abort between two polls of
+        # create_shovel's wait for Running
+        s.vhosts["/"].queue("q2").publish(LavinMQ::Message.new("", "q2", "m"))
         wait_for { shovel.state.aborted? }
         status.set(200)
         response = http.put("/api/shovels/#{URI.encode_path_segment("/")}/#{shovel.name}/resume")
