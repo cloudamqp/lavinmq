@@ -50,6 +50,9 @@ describe "Alternate Exchange policy" do
       ex.apply_policy(policy, nil)
       unrouted = Atomic(Int32).new(0)
       stop = Atomic(Bool).new(false)
+      # Bounded by publish progress; the deadline only caps a slow runner
+      published = Atomic(Int32).new(0)
+      publish_target = 20_000
       deadline = Time.instant + 2.seconds
       # Re-applying a policy must never expose the exchange without its
       # alternate exchange, so publishes on other threads are never dropped.
@@ -58,7 +61,7 @@ describe "Alternate Exchange policy" do
       2.times do
         wg.add(1)
         ctx.spawn do
-          until Time.instant >= deadline
+          until stop.get || Time.instant >= deadline
             ex.reapply_policy
             Fiber.yield
           end
@@ -75,6 +78,7 @@ describe "Alternate Exchange policy" do
           until stop.get || Time.instant >= deadline
             msg = LavinMQ::Message.new(ex.name, "rk", "body")
             unrouted.add(1) unless ex.route_msg(msg).routed?
+            stop.set(true) if published.add(1) + 1 >= publish_target
             Fiber.yield
           end
         ensure
