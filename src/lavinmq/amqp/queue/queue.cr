@@ -361,6 +361,11 @@ module LavinMQ::AMQP
 
     def restart! : Bool
       return false unless @closed
+      # The closed store can have emptied segments that aren't unlinked yet.
+      # Waited for here, while the queue is still closed, not when the new
+      # store loads.
+      @vhost.persister.flush_unlinks(@data_dir) if durable?
+      return false unless @closed
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -471,12 +476,17 @@ module LavinMQ::AMQP
       MessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
+    # Where a queue, or an MQTT session, named *name* keeps its files
+    def self.data_dir(vhost : VHost, name : String, durable : Bool) : String
+      if durable
+        File.join(vhost.data_dir, Digest::SHA1.hexdigest name)
+      else
+        File.join(vhost.data_dir, "transient", Digest::SHA1.hexdigest name)
+      end
+    end
+
     private def make_data_dir : String
-      data_dir = if durable?
-                   File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
-                 else
-                   File.join(@vhost.data_dir, "transient", Digest::SHA1.hexdigest @name)
-                 end
+      data_dir = Queue.data_dir(@vhost, @name, durable?)
       if Dir.exists? data_dir
         # delete left over files from transient queues
         unless durable?
@@ -723,8 +733,7 @@ module LavinMQ::AMQP
       h["x-delay"] = delay_from(msg, delay_ms)
       h["x-delivery-count"] = delivery_count
       props.headers = h
-      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp)
       true

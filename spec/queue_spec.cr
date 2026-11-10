@@ -842,7 +842,7 @@ describe LavinMQ::AMQP::Queue do
         # What a client's basic.ack(delivery_tag: 0, multiple: true) does
         # while the delivery of that message is still being written
         q.ack(env.segment_position)
-        mfile.try(&.deleted?).should be_true
+        wait_for { mfile.try(&.deleted?) } # the persister unlinks it
         mfile.try(&.closed?).should be_false
         String.new(env.message.body).should eq body
       end.should be_true
@@ -914,7 +914,7 @@ describe LavinMQ::AMQP::Queue do
           # then purge deletes every segment but the read and write ones
           q.basic_get(true) { }
           q.purge
-          mfile.try(&.deleted?).should be_true
+          wait_for { mfile.try(&.deleted?) } # the persister unlinks it
           mfile.try(&.closed?).should be_false
           String.new(env.message.body).should eq body
         end.should be_true
