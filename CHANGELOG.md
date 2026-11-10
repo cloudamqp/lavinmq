@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A clustering follower that is closed, e.g. when it's promoted to leader, no longer waits out its 1 second reconnect delay first
+- A clustering follower that is closed, e.g. when it's promoted to leader, no longer waits out its 1 second reconnect delay first [#2710](https://github.com/cloudamqp/lavinmq/pull/2710)
 
 ### Fixed
 
