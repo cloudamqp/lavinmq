@@ -1047,6 +1047,25 @@ describe LavinMQ::Server do
     end
   end
 
+  {true, false}.each do |requeue|
+    it "basic_recover releases basic.get messages (requeue #{requeue})" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue("recover-get")
+          3.times { q.publish "m1" }
+          q.get(no_ack: false).should_not be_nil
+          ch.basic_recover(requeue: requeue)
+          s.vhosts["/"].queue(q.name).basic_get_unacked_size.should eq 0
+          delivered = 0
+          q.subscribe(no_ack: false) { |_m| delivered += 1 }
+          sleep 50.milliseconds
+          delivered.should eq 1
+        end
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

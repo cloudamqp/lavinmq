@@ -760,6 +760,7 @@ module LavinMQ
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
+              release_basic_get(unack)
               unack.queue.requeue(unack.sp)
             end
             @unacked.clear
@@ -771,6 +772,7 @@ module LavinMQ
                 # takes @unack_lock, so it can't happen in here
                 redeliver << unack
               else
+                release_basic_get(unack)
                 unack.queue.requeue(unack.sp)
               end
               true
@@ -804,6 +806,12 @@ module LavinMQ
           notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      end
+
+      private def release_basic_get(unack : Unack) : Nil
+        return unless unack.consumer.nil?
+        @basic_get_unacked_count.sub(1u32, :relaxed)
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
       end
 
       private def delivery_tag_is_in_tx?(delivery_tag) : Bool
