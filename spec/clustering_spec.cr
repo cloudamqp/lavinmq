@@ -192,8 +192,7 @@ describe LavinMQ::Clustering::Client do
   end
 end
 
-# Examples that run a real etcd are grouped further down, so the others don't
-# pay for starting one
+# Examples that run a real etcd are grouped further down
 describe LavinMQ::Clustering::Client, tags: "slow" do
   it "can stream changes" do
     with_clustering do |cluster|
@@ -502,8 +501,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     rescue ex : SpecExit
       stepped_down.send ex.code
     end
-    # Wait for controller2 to queue its election candidacy: a campaign key
-    # named after its lease, which is granted with the clustering id
+    # controller2's campaign key, named after its lease, shows it has queued its candidacy
     wait_for { etcd.get("lavinmq/leader/#{controller2.id.to_s(16)}") == config2.clustering_advertised_uri }
 
     # controller2 falls out of the ISR (e.g. lagging replication) while its

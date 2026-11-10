@@ -6,11 +6,7 @@ def ensure_etcd_in_path!
         "Install etcd or exclude these specs with --tag=~etcd"
 end
 
-# Raft timing (ms) for single member spec clusters. etcd's defaults (100/1000)
-# are tuned for real networks; on loopback a shorter election timeout makes a
-# new cluster elect its leader sooner. Clusters with more members keep the
-# defaults: there a member that stalls for longer than the election timeout,
-# e.g. on a loaded runner, triggers an election the spec didn't ask for.
+# Faster Raft timing for single member clusters; with more members, a stalled member would trigger elections
 ETCD_SPEC_TIMING_FLAGS = {"--heartbeat-interval=25", "--election-timeout=250"}
 
 def with_etcd(&)

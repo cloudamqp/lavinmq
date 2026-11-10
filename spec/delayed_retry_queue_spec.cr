@@ -320,8 +320,7 @@ describe "Retry Queue" do
           q.publish_confirm "block"
           msg.reject(requeue: true)
 
-          # Delayed once by the reject, and again when its release found the
-          # primary queue full
+          # Delayed by the reject, then again when its release found the primary queue full
           retry_q = s.vhosts["/"].queue("amq.retry-retry-overflow-redelay")
           wait_for { retry_q.publish_count >= 2 }
           should_eventually(eq 1) { retry_q.message_count }

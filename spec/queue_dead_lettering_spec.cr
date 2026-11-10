@@ -218,9 +218,7 @@ module DeadLetteringSpec
 
       it "should dead letter when ttl expires while unacked and reject(requeue=true)", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, ch, _|
-          # The clock is paused, so the message can't expire before we get it
-          # however slow the runner, and moving it past the TTL expires the
-          # message while it's unacked, without waiting for it.
+          # With the clock paused, the message expires only when moved past its TTL, while unacked
           RoughTime.paused do |t|
             props = AMQP::Client::Properties.new(expiration: "1000")
             ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
@@ -1291,8 +1289,7 @@ module DeadLetteringSpec
         src = vhost.queue("dl-src").as(LavinMQ::AMQP::Queue)
         dead_letter = src.@dead_letter
         stop = Atomic(Bool).new(false)
-        # Bounded by publish progress rather than wall time; the deadline
-        # only caps a slow runner
+        # Bounded by publish progress; the deadline only caps a slow runner
         published = Atomic(Int32).new(0)
         publish_target = 10_000
         deadline = Time.instant + 2.seconds

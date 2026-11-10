@@ -13,8 +13,7 @@ module SessionResumeHelpers
     end
   end
 
-  # A new message is delivered first when nothing is resent. Owed messages are
-  # requeued as the session attaches, which is done once a ping is answered.
+  # Owed messages are requeued once a ping is answered, so a new message first means none were owed
   def expect_nothing_owed(server, io, topic = "a/b")
     ping(io)
     read_packet(io).should be_a(MQTT::Protocol::PingResp)

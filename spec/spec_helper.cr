@@ -188,9 +188,7 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  # Disable Nagle: specs often send a frame without a reply (e.g. a reject)
-  # followed by a request, which would otherwise wait for the server's
-  # delayed ACK (~40 ms) before going out.
+  # Nagle would hold a request sent after an unanswered frame until the server's delayed ACK
   args = {port: amqp_port(s), name: name, tcp: AMQP::Client::TCPConfig.new(nodelay: true)}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -211,8 +209,7 @@ end
 def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
-  # Frames are written in pieces to an unbuffered socket. With Nagle each
-  # piece after the first waits for the server's delayed ACK (40 ms or more).
+  # Frames are written in pieces, which Nagle would hold until the server's delayed ACK
   io.tcp_nodelay = true
 
   io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
@@ -561,8 +558,7 @@ end
 
 private SPEC_TIMEOUT = 15.seconds
 
-# A timed out example is reported as failed while its fiber keeps running. The
-# result that fiber reports when it finishes would count the example twice.
+# A timed out example's fiber keeps running and would report its result a second time
 module TimedOutExamples
   @@fibers = Set(Fiber).new
   @@lock = Mutex.new

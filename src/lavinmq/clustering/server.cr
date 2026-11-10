@@ -44,8 +44,7 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      # `ack_timeout` (see Follower::ACK_TIMEOUT) and `isr_retry_interval`
-      # (see #flush_isr) are only lowered by specs.
+      # ack_timeout and isr_retry_interval are only lowered by specs
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32,
                      @ack_timeout : Time::Span = Follower::ACK_TIMEOUT,
                      @isr_retry_interval : Time::Span = 0.5.seconds)

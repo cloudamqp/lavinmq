@@ -227,9 +227,7 @@ describe LavinMQ::Server do
           last_write = RoughTime.instant
           io.write bytes[4, 4]
           io.flush
-          # Timed out for the missed heartbeats only once nothing was read for
-          # the whole timeout, not at the first read timeout (0.5 s) as if
-          # nothing was read during the writes
+          # Closed only after a whole heartbeat timeout without reads, not at the first 0.5 s read timeout
           wait_for { client.closed? }
           (RoughTime.instant - last_write).should be >= heartbeat_timeout
         end

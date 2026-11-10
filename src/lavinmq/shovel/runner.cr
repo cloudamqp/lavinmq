@@ -185,9 +185,7 @@ module LavinMQ
         sleep wait unless wait.zero?
       end
 
-      # Backoff before the next delivery attempt after `failures` consecutive
-      # transient failures: `base` (0.5s by default), then doubling (1s, 2s,
-      # 4s, …), capped at MAX_DELIVERY_DELAY, then holding there.
+      # Delay after `failures` consecutive transient failures: `base`, doubling, capped at MAX_DELIVERY_DELAY
       def self.delivery_backoff(failures : Int32, base : Time::Span = DEFAULT_DELIVERY_BACKOFF) : Time::Span
         return 0.seconds if failures <= 0
         secs = Math.min(MAX_DELIVERY_DELAY.to_f, base.total_seconds * 2.0 ** Math.min(failures - 1, 6))

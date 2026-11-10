@@ -1,7 +1,6 @@
 require "./spec_helper"
 
-# A paused RoughTime doesn't move the delayed queue's expire timer, so wake its
-# loop, like a newly delayed message does, to release what's due by the clock
+# The paused clock doesn't move the expire timer, so wake the loop like a newly delayed message does
 private def nudge_expire_loop(s : LavinMQ::Server, delay_q_name : String) : Nil
   s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::Queue).@message_ttl_change.try_send?(nil)
 end
@@ -223,8 +222,7 @@ describe "Delayed Message Exchange" do
         q = ch.queue(q_name)
         q.bind(x.name, "#")
         queue = s.vhosts["/"].queue(q_name)
-        # The clock only moves when the spec moves it, so what's due at each
-        # step doesn't depend on how fast the runner is
+        # With the clock paused, what's due at each step doesn't depend on runner speed
         RoughTime.paused do |t|
           # Publish three message with delay 3000ms, 2000ms, 1000ms
           3.downto(1) do |i|
@@ -237,8 +235,7 @@ describe "Delayed Message Exchange" do
           t.travel 1.5.seconds
           wait_for { nudge_expire_loop(s, delay_q_name); queue.message_count >= 1 }
           queue.message_count.should eq 1
-          # publish another message, with a delay that makes it due (at 2.2s)
-          # after the 2000ms message but before the 3000ms message
+          # publish another message, due at 2.2s, between the 2000ms and 3000ms messages
           hdrs = AMQP::Client::Arguments.new({"x-delay" => 700})
           x.publish_confirm "700", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           t.travel 0.6.seconds # 2.1s

@@ -275,9 +275,7 @@ describe LavinMQ::AMQP::Queue do
           channel = Channel(String).new
 
           # Subscribe on the queue
-          # Once the consumer is added a running queue would deliver right
-          # away, so wait a while and unpause the queue, fail test if we get
-          # message during that time
+          # A running queue would deliver right away, so fail if a message arrives before unpausing
           # Make sure the queue continues
           q.subscribe(no_ack: false) do |msg|
             channel.send msg.body_io.to_s
@@ -487,8 +485,7 @@ describe LavinMQ::AMQP::Queue do
           ))
           queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
-          # The clock is paused, so the message can't expire before the
-          # restart however slow the runner
+          # With the clock paused, the message can't expire before the restart
           RoughTime.paused do |t|
             # Publish a message
             q.publish_confirm "test message"
@@ -503,8 +500,7 @@ describe LavinMQ::AMQP::Queue do
             queue.closed?.should be_false
             queue.message_count.should eq 1
             t.travel 600.milliseconds
-            # The paused clock doesn't move the expire loop's timer, so wake the
-            # (restarted) loop, like a TTL change does, to expire the message
+            # The paused clock doesn't move the expire timer, so wake the restarted loop
             should_eventually(be_true) do
               queue.@message_ttl_change.try_send?(nil)
               queue.message_count == 0
@@ -865,8 +861,7 @@ describe LavinMQ::AMQP::Queue do
         done = Atomic(Bool).new(false)
         published = Atomic(Int32).new(0)
         purged = Atomic(Int64).new(0)
-        # Bounded by publish progress rather than wall time; the deadline
-        # only caps a slow runner
+        # Bounded by publish progress; the deadline only caps a slow runner
         publish_target = 200_000
         deadline = Time.instant + 2.seconds
         wg = WaitGroup.new(4)

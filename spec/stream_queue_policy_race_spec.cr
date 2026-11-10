@@ -36,9 +36,7 @@ describe "stream queue policy/publish concurrency" do
 
       stop = Atomic(Bool).new(false)
       errors = Atomic(Int32).new(0)
-      # Bounded by publisher progress (~1000 segment rolls) rather than wall
-      # time, so a fast runner doesn't idle out a long window. The deadline
-      # only caps a slow runner.
+      # Bounded by publisher progress (~1000 segment rolls); the deadline only caps a slow runner
       published = Atomic(Int32).new(0)
       publish_target = 8_000
       deadline = Time.instant + 8.seconds

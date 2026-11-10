@@ -50,8 +50,7 @@ describe "Alternate Exchange policy" do
       ex.apply_policy(policy, nil)
       unrouted = Atomic(Int32).new(0)
       stop = Atomic(Bool).new(false)
-      # Bounded by publish progress rather than wall time; the deadline only
-      # caps a slow runner
+      # Bounded by publish progress; the deadline only caps a slow runner
       published = Atomic(Int32).new(0)
       publish_target = 20_000
       deadline = Time.instant + 2.seconds

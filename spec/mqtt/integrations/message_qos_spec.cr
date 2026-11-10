@@ -379,8 +379,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io)
-          # Answered once the session is attached, so a QoS 0 publish from
-          # now on is delivered, after anything enqueued while offline
+          # Answered once the session is attached, so QoS 0 publishes from now on are delivered
           ping(io)
           read_packet(io).should be_a(MQTT::Protocol::PingResp)
           with_client_io(server) do |publisher_io|

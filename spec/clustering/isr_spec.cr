@@ -270,8 +270,7 @@ describe LavinMQ::Clustering::Server do
       wait_for { server.followers.any? &.id.== follower_id }
 
       with_amqp_server(replicator: server) do |s|
-        # Ack what the broker's startup replicated, so the ack deadline starts
-        # (about) with the declare's own bytes.
+        # Ack what the startup replicated, so the ack deadline starts with the declare's bytes
         server.followers.find(&.id.== follower_id).try do |follower|
           client_io.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
         end
@@ -457,9 +456,7 @@ describe LavinMQ::Clustering::Server do
             confirmed.close
           end
 
-          # While the ISR can't be written the follower might still be listed
-          # as a failover candidate, so the confirm must not be delivered: not
-          # while the ISR write is being retried, nor shortly after.
+          # The follower may still be a failover candidate, so the confirm must not be delivered
           failed = coordinator.failed_updates
           wait_for { coordinator.failed_updates >= failed + 5 }
           select

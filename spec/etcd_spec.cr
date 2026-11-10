@@ -77,8 +77,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       rescue SpecExit
         # expect this when etcd nodes are terminated
       end
-      # etcd rounded TTLs below 2s up to 2s with its default election timeout,
-      # keep that margin for keepalives now that the spec cluster's is shorter
+      # 2s, what etcd rounded shorter TTLs up to with its default election timeout
       lease = etcd.elect(key, "bar", 2)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
@@ -131,8 +130,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      # Short enough that the next keepalive, sent after ttl/3, finds the lease
-      # revoked soon, long enough that it can't just expire before that
+      # The keepalive after ttl/3 finds the lease revoked before it could expire
       lease = etcd.elect(key, "bar", ttl: 3)
 
       etcd.lease_revoke(lease.id)
@@ -312,16 +310,13 @@ class EtcdCluster
 
   def start : Array(Process)
     ensure_etcd_in_path!
-    # One member at a time: a starting member asks its peers whether the cluster
-    # is already bootstrapped, and a peer that has bound its peer port but isn't
-    # serving it yet stalls that check for etcd's 1s bootstrap timeout.
+    # One member at a time, as a peer that isn't serving yet stalls a starting member's bootstrap check for 1s
     @ports.map_with_index do |p, i|
       start_process(p, i).tap { wait_until_serving_peers(p) }
     end
   end
 
-  # The peer port serves as soon as the member has started, the client port
-  # only once the cluster has a quorum
+  # The peer port serves once the member has started, the client port only with a quorum
   private def wait_until_serving_peers(port)
     client = HTTP::Client.new("127.0.0.1", 24000 + port)
     client.read_timeout = 1.second

@@ -58,8 +58,7 @@ module MqttSpecs
             connect(sub, client_id: "sub")
             subscribe(sub, topic_filters: [subtopic(topic_filter, 1u8)])
 
-            # A message routed to the filter, published after, is delivered
-            # first if a/b/c wasn't routed
+            # A marker published after is delivered first if a/b/c wasn't routed
             marker_topic = topic_filter.gsub(/[+#]/, "x")
             with_client_io(server) do |pub_io|
               connect(pub_io, client_id: "pub")

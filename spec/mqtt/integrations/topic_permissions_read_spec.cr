@@ -142,8 +142,7 @@ module MqttSpecs
           msg.topic.should eq("chat/alice/news")
           msg.payload.should eq("retained-alice".to_slice)
 
-          # chat/bob/old must NOT arrive. Retained messages are queued on
-          # subscribe, so before a marker published after.
+          # chat/bob/old must NOT arrive; as a retained message it would come before the marker
           with_client_io(server) do |writer_io|
             connect(writer_io, client_id: "writer")
             publish(writer_io, topic: "chat/alice/marker", payload: "marker".to_slice, qos: 0u8)

@@ -312,9 +312,7 @@ describe "Queue policy re-apply" do
       queue.publish(LavinMQ::Message.new("", queue.name, "body")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
       accepted = Atomic(Int32).new(0)
       stop = Atomic(Bool).new(false)
-      # Re-applying a policy must never expose the queue without its limits,
-      # so publishes on other threads keep being rejected. Bounded by publish
-      # progress rather than wall time; the deadline only caps a slow runner.
+      # A re-applied policy must never expose the queue without its limits, so publishes keep being rejected
       published = Atomic(Int32).new(0)
       publish_target = 20_000
       deadline = Time.instant + 2.seconds

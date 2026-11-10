@@ -26,8 +26,7 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = false
     socket.buffer_size = 16384
-    # Only a cap on packets that are expected, a loaded runner can take
-    # seconds to send them. Use expect_no_packet to assert that none arrive.
+    # Only caps expected packets; use expect_no_packet to assert that none arrive
     socket.read_timeout = 10.seconds
     socket
   end

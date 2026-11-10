@@ -93,9 +93,7 @@ module MqttSpecs
               topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: true)
             connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
           end
-          # The broker retains a message before routing it, so the will is
-          # stored once the watcher gets it. A subscription made earlier gets
-          # it as a live publish, without the retain flag.
+          # The will is retained before it's routed, so it's stored once the watcher gets it
           read_packet(watcher).should be_a(MQTT::Protocol::Publish)
           disconnect(watcher)
         end

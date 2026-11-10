@@ -33,8 +33,7 @@ module ClientSyncSpec
     acked
   end
 
-  # Waits for a stream_changes run to end, and for its ack loop to have sent
-  # its last ack.
+  # Waits for a stream_changes run to end and its ack loop to send its last ack
   def self.await_stream_end(client : TestClient, stream_ended : Channel(Nil)) : Nil
     select
     when stream_ended.receive?
@@ -306,8 +305,7 @@ module ClientSyncSpec
           lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
           lz4_writer.flush
 
-          # Nothing may be acked by the time the stream has ended (with the
-          # failed delete) and the ack loop has sent all it ever will.
+          # Nothing may be acked once the stream (with the failed delete) and its acks are done
           await_stream_end(client, stream_ended)
           client_socket.close
           leader_io.read_timeout = 2.seconds
@@ -388,9 +386,7 @@ module ClientSyncSpec
           lz4_writer.write content.to_slice
           lz4_writer.flush
 
-          # The framing bytes are acked up front, but nothing further, even
-          # once the stream has ended (with the failed rename) and the ack
-          # loop has sent all it ever will.
+          # Only the framing bytes may be acked, even once the stream (with the failed rename) and its acks are done
           await_stream_end(client, stream_ended)
           client_socket.close
           leader_io.read_timeout = 2.seconds

@@ -353,8 +353,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "should sort results by nested keys" do
-      # The rates are updated below instead, and the stats loop mustn't reset
-      # them to zero meanwhile, as nothing more is published
+      # Keeps the stats loop from zeroing the rates set below
       LavinMQ::Config.instance.stats_interval = 60_000
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
