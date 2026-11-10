@@ -19,6 +19,8 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
+        # Serializes state changes, so that a stop can't be undone (see #state)
+        @state_lock = Mutex.new
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -56,11 +58,19 @@ module LavinMQ
           Fiber.yield
         end
 
+        # A stop wins: once the link is terminating, a run loop that is still
+        # starting can't take it back to Starting, Running or Stopped, or it
+        # would reconnect instead of ending
         private def state(state)
           @log.debug { "state change from=#{@state} to=#{state}" }
           @last_changed = RoughTime.unix_ms
-          return if @state == state
-          @state = state
+          changed = @state_lock.synchronize do
+            next false if @state == state
+            next false if stop_link? && !stop_link?(state)
+            @state = state
+            true
+          end
+          return unless changed
           loop { @state_changed.try_send?(state) || break }
         end
 
@@ -306,11 +316,11 @@ module LavinMQ
           setup_connection do |upstream_connection|
             upstream_channel, q = setup_queue(upstream_connection)
             @upstream_channel = upstream_channel
-            # A stop during setup must not be undone by going Running
-            return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
+            # A stop during setup leaves the link terminating (see #state)
+            return if stop_link?
             loop do
               @log.debug { "Waiting for consumers" }
               select
@@ -456,11 +466,11 @@ module LavinMQ
           @upstream.vhost.upstreams.await_pending_deletes(@upstream.uri, @upstream_q)
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
-            # A stop during setup must not be undone by going Running
-            return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
+            # A stop during setup leaves the link terminating (see #state)
+            return if stop_link?
             upstream_q.subscribe(no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               if should_forward?(msg.properties.headers)
                 federate_to_downstream_exchange(msg)
