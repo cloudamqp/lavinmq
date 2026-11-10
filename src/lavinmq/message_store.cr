@@ -47,7 +47,7 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       # Another instance can have emptied segments in the same directory,
       # e.g. the store of a queue that is restarted
-      @persister.try &.flush_unlinks
+      @persister.try &.flush_unlinks(@msg_dir)
       load_segments_from_disk
       load_acks_from_disk
       @wfile_id = @segments.last_key

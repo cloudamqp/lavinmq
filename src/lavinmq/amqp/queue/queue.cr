@@ -364,7 +364,7 @@ module LavinMQ::AMQP
       # The closed store can have emptied segments that aren't unlinked yet.
       # Waited for here, while the queue is still closed, not when the new
       # store loads.
-      @vhost.persister.flush_unlinks
+      @vhost.persister.flush_unlinks(@data_dir) if durable?
       return false unless @closed
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
@@ -473,13 +473,13 @@ module LavinMQ::AMQP
     end
 
     private def make_data_dir : String
-      # A deleted queue of the same name can have its directory left to remove
-      @vhost.persister.flush_unlinks
       data_dir = if durable?
                    File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
                  else
                    File.join(@vhost.data_dir, "transient", Digest::SHA1.hexdigest @name)
                  end
+      # A deleted queue of the same name can have its directory left to remove
+      @vhost.persister.flush_unlinks(data_dir) if durable?
       if Dir.exists? data_dir
         # delete left over files from transient queues
         unless durable?

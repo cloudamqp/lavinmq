@@ -455,6 +455,50 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "declares a queue without waiting for the unlinks in other queues' directories" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        with_drain_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+          sleep 50.milliseconds
+          File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")).should be_true
+          declared = Channel(Nil).new
+          spawn { s.vhosts["/"].declare_queue("other", true, false); declared.close }
+          select
+          when declared.receive?
+          when timeout(2.seconds)
+            fail "the declare waited for another queue's unlink"
+          end
+        end
+      end
+    end
+  end
+
+  it "removes a deleted queue's files before the persister is closed, so a restart can't bring them back" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      msg_dir = File.join(data_dir, "q")
+      Dir.mkdir(msg_dir)
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      closed = Channel(Nil).new
+      with_drain_held do
+        store.delete
+        spawn { persister.close; closed.close }
+        sleep 50.milliseconds
+        Dir.exists?(msg_dir).should be_true
+      end
+      select
+      when closed.receive?
+      when timeout(5.seconds)
+        fail "the persister didn't close"
+      end
+      Dir.exists?(msg_dir).should be_false
+    end
+  end
+
   it "reloads a restarted queue's store only after its emptied segments are unlinked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

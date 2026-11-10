@@ -97,8 +97,12 @@ module LavinMQ
     # disabled, aren't marked dirty, so the next drain that something is
     # unlinked after syncs the whole filesystem
     @unmarked_writes = true
-    @unlinks_pending = Atomic(Int32).new(0)
+    # The directories with files, or that are themselves, still to be
+    # unlinked, with how many, see #flush_unlinks
+    @unlinking = Sync::Exclusive(Hash(String, Int32)).new(Hash(String, Int32).new(0), :unchecked)
     @synced = ::Channel(Synced).new(64)
+    # Closed when the unlink loop has exited
+    @unlinks_done = ::Channel(Nil).new
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
@@ -184,7 +188,7 @@ module LavinMQ
     # the files, a delivery can still hold a lease on the mapping.
     def unlink_after_sync(segment : MFile, meta_path : String, acks : MFile?) : Nil
       unlink = Unlink.new(segment, meta_path, acks)
-      @unlinks_pending.add(1, :release)
+      unlinking(File.dirname(segment.path))
       @pending.lock &.unlinks.push(unlink)
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
@@ -201,7 +205,7 @@ module LavinMQ
     # without blocking the caller. Whatever creates a directory calls
     # #flush_unlinks first, in case it's one that is still to be removed.
     def remove_dir_after_sync(dir : String) : Nil
-      @unlinks_pending.add(1, :release)
+      unlinking(dir)
       @pending.lock &.removed_dirs.push(dir)
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
@@ -220,21 +224,41 @@ module LavinMQ
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
-        return syncfs_closed
+        syncfs_closed
+        @unlinks_done.receive? # what the final drain left for the unlink loop
+        return
       end
       waiter.receive?
     end
 
-    # Blocks until the files handed to #unlink_after_sync and the
-    # directories handed to #remove_dir_after_sync are gone. Before a
+    # Blocks until what was handed to #unlink_after_sync and
+    # #remove_dir_after_sync in *dir*, and below it, is gone. Before a store
     # directory is created, and before a store loads one that another store
-    # instance emptied segments in.
-    def flush_unlinks : Nil
-      sync_marked if @unlinks_pending.get(:acquire) > 0
+    # instance emptied segments in. Unlinks elsewhere aren't waited for.
+    def flush_unlinks(dir : String) : Nil
+      pending = @unlinking.lock do |dirs|
+        next false if dirs.empty?
+        below = "#{dir}/"
+        dirs.each_key.any? { |d| d == dir || d.starts_with?(below) }
+      end
+      sync_marked if pending
     end
 
+    # Waits for the pending unlinks: the files of a deleted queue must not
+    # be left for a queue declared with the same name after a restart
     def close : Nil
       @publish_confirm_requested.close
+      @unlinks_done.receive? unless @unlinking.lock &.empty?
+    end
+
+    private def unlinking(dir : String) : Nil
+      @unlinking.lock { |dirs| dirs[dir] += 1 }
+    end
+
+    private def unlinked(dir : String) : Nil
+      @unlinking.lock do |dirs|
+        dirs.delete(dir) if (dirs[dir] -= 1) <= 0
+      end
     end
 
     # After the loop has exited its fd may be closed
@@ -248,6 +272,8 @@ module LavinMQ
         synced.dirs.each { |dir| remove_dir(dir) }
         synced.waiters.each &.close
       end
+    ensure
+      @unlinks_done.close
     end
 
     private def perform(unlink : Unlink) : Nil
@@ -259,7 +285,7 @@ module LavinMQ
     rescue ex
       Log.error(exception: ex) { "Failed to unlink #{unlink.segment.path}" }
     ensure
-      @unlinks_pending.sub(1, :release)
+      unlinked(File.dirname(unlink.segment.path))
     end
 
     private def remove_dir(dir : String) : Nil
@@ -267,7 +293,7 @@ module LavinMQ
     rescue ex
       Log.error(exception: ex) { "Failed to remove #{dir}" }
     ensure
-      @unlinks_pending.sub(1, :release)
+      unlinked(dir)
     end
 
     private def delete_file(file : MFile, meta_path : String? = nil) : Nil

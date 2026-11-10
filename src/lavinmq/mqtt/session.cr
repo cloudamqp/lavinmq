@@ -68,7 +68,7 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        @vhost.persister.flush_unlinks # a deleted session's directory
+        @vhost.persister.flush_unlinks(data_dir) if durable? # a deleted session's directory
         created = durable? && !Dir.exists?(data_dir)
         Dir.mkdir_p(data_dir)
         # Like a queue's, the directory's entry is fsynced with the next
