@@ -294,7 +294,9 @@ module LavinMQ
 
             if federate(msg, EXCHANGE, @federated_q.name, immediate: true)
               msg.ack if @upstream.ack_mode != AckMode::NoAck
-            elsif @federated_q.consumers_empty? || @federated_q.closed?
+            elsif @federated_q.consumers_empty? || @federated_q.closed? || @federated_q.is_a?(AMQP::Stream)
+              # A stream isn't waited on below: it keeps what its consumers
+              # have read, so it doesn't get empty when they catch up
               @log.info { "Federate failed, no downstream consumer available" }
               queue.unsubscribe(@upstream.consumer_tag)
               msg.reject(requeue: true)

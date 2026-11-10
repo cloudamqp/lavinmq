@@ -441,6 +441,38 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should hand back messages when a downstream stream's consumer is at its prefetch limit" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test busy stream", s.amqp_server.url, nil, "federation_q1")
+        msgs = [] of AMQP::Client::DeliverMessage
+
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("federation_q1")
+          q2 = ch.queue("federation_q2", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          ch.prefetch(1)
+          q2.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            msgs << msg
+          end
+          upstream.link(vhost.queue("federation_q2"))
+          x.publish_confirm "m1", "federation_q1"
+          wait_for { msgs.size == 1 }
+          x.publish_confirm "m2", "federation_q1"
+          x.publish_confirm "m3", "federation_q1"
+          # A stream keeps what its consumers have read, so it doesn't get
+          # empty when they catch up. The link hands the messages back and
+          # unsubscribes, as when there are no consumers. (Regression: it put
+          # m2 in the stream and waited for the stream to be empty, still
+          # subscribed and holding m3 unacked.)
+          upstream_q = vhost.queue("federation_q1")
+          wait_for { upstream_q.consumers_empty? && upstream_q.message_count == 2 }
+        end
+      ensure
+        upstream.try &.close
+      end
+    end
+
     it "should keep message properties" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
