@@ -11,15 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
-### Added
-
-- `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
-
 ### Fixed
 
 - Since 2.11.0-rc.1, the management UI charts repeated y axis labels at low rates, such as `0, 0, 0, 0.1, 0.1` at 0.2 msgs/s, showed only a 0 tick for byte rates under 1 B/s, and stepped message counts by fractions. Ticks are now labelled with the precision of their step, byte rate axes go below 1 B/s and message counts step in whole messages [#2675](https://github.com/cloudamqp/lavinmq/pull/2675)
-- A queue whose message count on disk was higher than the messages its segments held made the broker exit at startup, and restart in a loop: the check for messages to expire raised on the missing messages and failed the whole vhost load. Now only that queue is closed, and the vhost loads [#2703](https://github.com/cloudamqp/lavinmq/pull/2703)
-- Since 2.10.3, with a global prefetch (`basic.qos` with `global` set) and several consumers on one channel, one queue could get nearly all deliveries while the other queues sat idle until it was empty. Deliveries are now spread across the consumers again [#2685](https://github.com/cloudamqp/lavinmq/pull/2685)
 - A crash while the broker deleted an emptied segment could bring its messages back after the restart: the ack file was unlinked before the segment, so a crash in between left a segment without its acks. Messages that were acked, dead-lettered or retried were then delivered or moved again. The segment is now unlinked first, and an ack file left without its segment is removed at the next start [#2696](https://github.com/cloudamqp/lavinmq/pull/2696)
 - Since 2.11.0-rc.1, the management UI pages with charts (overview, nodes, queue, stream, exchange, connection, channel) showed no charts or counters and stopped refreshing when the browser reported an invalid language tag, such as `en-US@posix` from Chromium on Linux started without `LANG`. Such a tag now falls back to `en-US` [#2661](https://github.com/cloudamqp/lavinmq/pull/2661)
 - Binding an exchange to or from `mqtt.default`, or unbinding an exchange from `mqtt.default` as source, closed the whole connection with `INTERNAL_ERROR`. Now only the channel is closed, with `ACCESS_REFUSED` [#2672](https://github.com/cloudamqp/lavinmq/pull/2672)
@@ -36,13 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Since 2.11.0-rc.1, a power loss soon after a clustered node's first start could leave `.clustering_id` empty, and every later start of that node failed. It's now written durably when it's created [#2598](https://github.com/cloudamqp/lavinmq/pull/2598)
 - Since 2.11.0-rc.1, `tcp_send_timeout` didn't apply to clients connected through a follower. The leader closed its side, but the follower kept a client that stopped reading connected, with its proxy fibers blocked in a write. The follower now closes the client connection after `tcp_send_timeout` too [#2600](https://github.com/cloudamqp/lavinmq/pull/2600)
 
+## [2.10.5] - 2026-11-10
+
+### Added
+
+- `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
+
+### Fixed
+
+- A queue whose message count on disk was higher than the messages its segments held made the broker exit at startup, and restart in a loop: the check for messages to expire raised on the missing messages and failed the whole vhost load. Now only that queue is closed, and the vhost loads [#2703](https://github.com/cloudamqp/lavinmq/pull/2703)
+- Since 2.10.3, with a global prefetch (`basic.qos` with `global` set) and several consumers on one channel, one queue could get nearly all deliveries while the other queues sat idle until it was empty. Deliveries are now spread across the consumers again [#2685](https://github.com/cloudamqp/lavinmq/pull/2685)
+- Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
+
 ## [2.11.0-rc.3] - 2026-11-03
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites`, `syncfs_threshold` and `etcd_lease_ttl` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker. Federation links and their upstream resources now survive policy re-applies, publishes over the HTTP API and MQTT respect the disk alarm, and the MQTT retain store no longer mixes up non-ASCII topics or keeps an open file per topic. Since rc.2 it fixes the startup, HTTP API and message throughput regressions against 2.10 that were found in the release candidates.
 
 ### Added
 
-- `[clustering] etcd_lease_ttl` config option (default 10 seconds, the previous hardcoded value). A leader that does not renew its etcd lease within the TTL loses leadership, so a higher value lets large nodes survive longer GC pauses, at the cost of slower failover on crashes [#2582](https://github.com/cloudamqp/lavinmq/pull/2582)
 - `LavinMQ-Stats-Interval` header on every HTTP API response, giving the configured stats interval in milliseconds so clients can place the timestamp-less history logs on a time axis [#2447](https://github.com/cloudamqp/lavinmq/pull/2447)
 - `x-mqtt-topic` exchange type: queues and exchanges bound to it with MQTT topic filters receive MQTT publishes, with the MQTT topic as routing key. The exchange is always internal, and malformed filters are refused at bind time [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
@@ -57,7 +62,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 
 ### Changed
 
-- Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
 - Lower CPU usage when scanning message segments at startup [#2559](https://github.com/cloudamqp/lavinmq/pull/2559)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
 - Use amq-protocol 1.3.2, which parses incoming AMQP frames with less CPU [#2577](https://github.com/cloudamqp/lavinmq/pull/2577)
@@ -90,7 +94,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Importing definitions that contain a `federation-upstream-set` parameter failed with 400 "Cast from Array(JSON::Any) to Hash(K, V) failed", so the broker's own export couldn't be imported [#2536](https://github.com/cloudamqp/lavinmq/pull/2536)
 - A TLS 1.2 connection that sent a servername bypassed the listener's `tls_ciphers` when any `[sni:host]` section was configured: OpenSSL picks the TLS 1.2 cipher after the servername callback, and the swapped-in SNI context carried OpenSSL's default cipher list. The listener's `tls_ciphers` and `tls_ciphersuites` now apply to every SNI context [#2540](https://github.com/cloudamqp/lavinmq/pull/2540)
 - With `tcp_nodelay` on (the default since 2.11.0-rc.1), a delivery that didn't fit what was left of the socket's write buffer went out as a small TCP segment of the buffered frames and then the rest, about a quarter of the throughput at 16 KiB messages with one publisher and one consumer. A write that doesn't fit now tops the buffer up first, and the socket is corked until the flush that ends the batch [#2568](https://github.com/cloudamqp/lavinmq/pull/2568)
-- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 - Since 2.11.0-rc.1, reading an AMQP frame from a connection's pooled socket buffer went through a read that isn't inlined for every field, about 3% lower throughput with 16-byte messages. A read served from the buffer now copies from it directly [#2578](https://github.com/cloudamqp/lavinmq/pull/2578)
 - Since 2.11.0-rc.1, the clock was read for every received frame and every delivered message to track heartbeats, about 3% lower throughput with 16-byte messages. It's now read once per socket read and once per socket flush [#2579](https://github.com/cloudamqp/lavinmq/pull/2579)
 - Since 2.11.0-rc.1, the segment being written was mapped without readahead, so a queue written fast could use up to twice the CPU per message. It's mapped with readahead again until a publish to the queue is synced (publish confirm, MQTT QoS 1 or transaction), from then on it stays random access so a sync writes a page instead of a large folio [#2589](https://github.com/cloudamqp/lavinmq/pull/2589)
@@ -132,7 +135,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - A delayed-message exchange read its index of delayed messages without its lock while publishes could change it on another thread [#2407](https://github.com/cloudamqp/lavinmq/pull/2407)
 - Delivery counts for `x-delivery-limit` could be corrupted, or crash the broker, when messages were fetched, rejected and acknowledged on several threads at once [#2401](https://github.com/cloudamqp/lavinmq/pull/2401)
 - Data race on the vhost and server flow-control flags read by every publish [#2400](https://github.com/cloudamqp/lavinmq/pull/2400)
-- Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
 - Management UI login failed with "Authentication failure" in Safari versions without iterator helpers (before 18.4), even though credentials were accepted. The UI no longer uses `Iterator.prototype.filter`/`toArray` on `DOMTokenList` [#2428](https://github.com/cloudamqp/lavinmq/pull/2428)
 - A publish to a queue that was closed, e.g. on shutdown, is nacked instead of confirmed, as the message wasn't stored [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
 - Closing a vhost, e.g. on shutdown, could leave a connection open that was then served by the closed vhost: its publishes were never confirmed and its consumers got nothing [#2425](https://github.com/cloudamqp/lavinmq/pull/2425)
@@ -148,6 +150,20 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - The queue API's `exclusive_consumer_tag` reports the tag of the queue's exclusive consumer. It was based on whether the queue itself was exclusive, so it showed the first consumer of an exclusive queue and nothing for a normal queue with an exclusive consumer [#2328](https://github.com/cloudamqp/lavinmq/pull/2328)
 - An exclusive consumer is refused with `ACCESS_REFUSED` when the queue already has non-exclusive-consumers [#2327](https://github.com/cloudamqp/lavinmq/pull/2327)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+
+## [2.10.4] - 2026-10-29
+
+### Added
+
+- `[clustering] etcd_lease_ttl` (`--clustering-etcd-lease-ttl`, `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL`) sets the etcd lease TTL, default 10 seconds as before. The lease is kept alive every TTL/3, so a pause longer than about 2/3 of the TTL loses leadership; a higher TTL lets large nodes survive longer GC pauses, at the cost of slower failover on crashes [#2582](https://github.com/cloudamqp/lavinmq/pull/2582)
+
+### Changed
+
+- Large JSON API responses and Prometheus scrapes used 32 to 48% more CPU than needed: every byte went through two virtual IO dispatches and a one-byte slice write. Controllers now write to the response output and the Prometheus writer formats into a buffer [#2569](https://github.com/cloudamqp/lavinmq/pull/2569)
+
+### Fixed
+
+- HTTP API list endpoints built the details of every item before paging, which with tens of thousands of queues could grow the heap by gigabytes or stall the broker [#2452](https://github.com/cloudamqp/lavinmq/pull/2452)
 
 ## [2.11.0-rc.2] - 2026-10-23
 
