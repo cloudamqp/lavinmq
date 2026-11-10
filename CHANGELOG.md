@@ -141,9 +141,9 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.11.0-rc.4> for changes
 
 ### Fixed
 
-- `basic.recover` with `requeue=false` closed the connection with an internal error when the consumer of an unacknowledged message was still open. The message is now redelivered to that consumer under a new delivery tag
-- `basic.recover` with `requeue=true` dropped the channel's record of messages already acked in an open transaction, so committing it left them unacknowledged on the queue until restart
-- `basic.recover` left a `basic.get` message counted as unacknowledged on the channel and listed on the queue after requeueing it, so the channel's consumers could get one message more than its global prefetch for every such message
+- `basic.recover` with `requeue=false` closed the connection with an internal error when the consumer of an unacknowledged message was still open. The message is now redelivered to that consumer under a new delivery tag [#2717](https://github.com/cloudamqp/lavinmq/pull/2717)
+- `basic.recover` with `requeue=true` dropped the channel's record of messages already acked in an open transaction, so committing it left them unacknowledged on the queue until restart [#2717](https://github.com/cloudamqp/lavinmq/pull/2717)
+- `basic.recover` left a `basic.get` message counted as unacknowledged on the channel and listed on the queue after requeueing it, so the channel's consumers could get one message more than its global prefetch for every such message [#2717](https://github.com/cloudamqp/lavinmq/pull/2717)
 - A queue whose message count on disk was higher than the messages its segments held made the broker exit at startup, and restart in a loop: the check for messages to expire raised on the missing messages and failed the whole vhost load. Now only that queue is closed, and the vhost loads [#2703](https://github.com/cloudamqp/lavinmq/pull/2703)
 - Since 2.10.3, with a global prefetch (`basic.qos` with `global` set) and several consumers on one channel, one queue could get nearly all deliveries while the other queues sat idle until it was empty. Deliveries are now spread across the consumers again [#2685](https://github.com/cloudamqp/lavinmq/pull/2685)
 - Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
