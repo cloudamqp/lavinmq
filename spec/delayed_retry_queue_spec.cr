@@ -27,6 +27,18 @@ class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Rejects (requeue: true) a message the first time it's delivered, so it goes
+# to the retry queue, and acks it when the retry queue releases it back
+private def reject_once_into_retry_queue(q)
+  q.subscribe(no_ack: false) do |m|
+    if m.properties.headers.try &.has_key?("x-delivery-count")
+      m.ack
+    else
+      m.reject(requeue: true)
+    end
+  end
+end
+
 describe "Retry Queue" do
   describe "Scaffold" do
     it "should create internal retry queue when x-delayed-retry-min is set" do
@@ -511,6 +523,166 @@ describe "Retry Queue" do
 
           sleep 50.milliseconds
           s.vhosts["/"].queue("retry-limit-zero").message_count.should eq 0
+        end
+      end
+    end
+  end
+
+  # A reject recreates a closed retry queue while its channel holds the lock
+  # its deliver loops wait for, and a queue delete through the definitions
+  # waits for those loops while it holds the definitions lock
+  describe "Recreation" do
+    # A policy re-apply runs under the queue's policy lock, which a declare
+    # through the definitions takes after the definitions lock
+    it "re-applies policies without taking the definitions lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("retry-policy", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+        end
+        vhost = s.vhosts["/"]
+        held = Channel(Nil).new
+        release = Channel(Nil).new
+        spawn { vhost.synchronize_definitions { held.send nil; release.receive? } }
+        held.receive
+        begin
+          applied = Channel(Nil).new
+          spawn { vhost.queue("retry-policy").apply_policy(nil, nil); applied.close }
+          select
+          when applied.receive?
+          when timeout(2.seconds)
+            fail "the policy re-apply waited for the definitions lock"
+          end
+        ensure
+          release.close
+        end
+      end
+    end
+
+    it "deletes a queue directly while the retry queue it recreates waits for the definitions lock" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1}))
+          reject_once_into_retry_queue(q)
+          prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+          q.publish "x"
+          wait_for { prim.@ack_count.get == 1 }
+          vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+          deleted = Channel(Nil).new
+          vhost.synchronize_definitions do
+            q.publish "y" # rejected, the retry queue's recreation waits for the definitions lock
+            sleep 100.milliseconds
+            # Not through the definitions, like an auto-delete when the last consumer cancels
+            spawn { prim.delete; deleted.close }
+            sleep 100.milliseconds
+          end
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the queue delete deadlocked with the retry queue's recreation"
+          end
+          vhost.declare_queue("after", true, false)
+          vhost.queue?("after").should_not be_nil
+        end
+      end
+    end
+
+    it "deletes a queue while a nack multiple recreates its retry queue, and the definitions lock is held" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          20.times { q.publish_confirm "x" }
+          vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue).close
+          tags = Channel(UInt64).new(100)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          5.times { tags.receive }
+          deleted = Channel(Nil).new
+          spawn do
+            vhost.synchronize_definitions do
+              ch.basic_nack(5u64, requeue: true, multiple: true)
+              sleep 100.milliseconds
+              vhost.delete_queue("prim")
+            end
+            deleted.close
+          end
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the queue delete deadlocked with the nack's recreation of the retry queue"
+          end
+          vhost.queue?("amq.retry-prim").should be_nil
+        end
+      end
+    end
+
+    it "delays the rejected messages in the retry queue a nack multiple recreates, and registers it" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          5.times { q.publish_confirm "x" }
+          closed = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          closed.close
+          tags = Channel(UInt64).new(100)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          5.times { tags.receive }
+          ch.basic_nack(5u64, requeue: true, multiple: true)
+          wait_for { (rq = vhost.queue?("amq.retry-prim")) && !rq.same?(closed) }
+          recreated = vhost.queue("amq.retry-prim")
+          recreated.closed?.should be_false
+          wait_for { recreated.message_count == 5 }
+          vhost.queue("prim").message_count.should eq 0
+        end
+      end
+    end
+
+    it "deletes the retry queue in use when the one it replaced is deleted by name before the new one is registered" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          2.times { q.publish_confirm "x" }
+          prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+          closed = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          closed.close
+          tags = Channel(UInt64).new(10)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          2.times { tags.receive }
+          vhost.synchronize_definitions do
+            ch.basic_reject(1u64, requeue: true)
+            # The recreated retry queue waits for this lock to be registered
+            wait_for { prim.@delayed_retry_queue.try { |r| !r.same?(closed) && r.message_count == 1 } }
+            vhost.queue("amq.retry-prim").should be closed
+            vhost.delete_queue("amq.retry-prim")
+          end
+          recreated = prim.@delayed_retry_queue.should_not be_nil
+          # Deleted with it, not left running with its files gone
+          wait_for { recreated.closed? }
+          vhost.queue?("amq.retry-prim").should be_nil
+        end
+      end
+    end
+
+    it "restarts a closed retry queue through its primary queue, which releases its delayed messages" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 300}))
+          reject_once_into_retry_queue(q)
+          prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+          q.publish "x"
+          wait_for { vhost.queue("amq.retry-prim").message_count == 1 }
+          retry_queue = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          retry_queue.close
+          # Like PUT /api/queues/:vhost/:name/restart, without another reject
+          retry_queue.restart!.should be_true
+          recreated = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          recreated.should_not be retry_queue
+          recreated.closed?.should be_false
+          wait_for { prim.@ack_count.get == 1 } # released back to prim and acked
         end
       end
     end
