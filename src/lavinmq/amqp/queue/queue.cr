@@ -355,7 +355,7 @@ module LavinMQ::AMQP
         handle_arguments
         ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
-        true
+        !@closed
       end
     end
 

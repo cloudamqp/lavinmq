@@ -433,6 +433,8 @@ describe LavinMQ::AMQP::Queue do
         restart_server(s)
         queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
         queue.closed?.should be_true
+        queue.restart!.should be_false
+        queue.closed?.should be_true
       end
     end
 
