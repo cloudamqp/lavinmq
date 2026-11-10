@@ -380,20 +380,18 @@ module LavinMQ
       sync_was = sync?
       apply(new_config)
       setup_logger
-      sync_data_dir_soon if sync? && !sync_was
+      sync_data_dir_after_enabled if sync? && !sync_was
     end
 
     # What was written while sync was disabled is in the page cache only, and
     # the syncs that follow cover only newer writes, so the data dir is synced
-    # once. Not waited for, as it can take seconds under load: until it's
-    # done a follower can ack that older data as durable.
-    private def sync_data_dir_soon : Nil
-      spawn(name: "Sync data dir after sync was enabled") do
-        sync_data_dir
-        Log.info { "Synced the data dir after sync was enabled" }
-      rescue ex
-        Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
-      end
+    # once. It can take seconds under load, and until it's done a follower can
+    # ack that older data as durable.
+    private def sync_data_dir_after_enabled : Nil
+      sync_data_dir
+      Log.info { "Synced the data dir after sync was enabled" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
     end
 
     private def sync_data_dir : Nil

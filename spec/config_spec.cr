@@ -12,7 +12,7 @@ class LavinMQ::Launcher
   end
 end
 
-# Counts the data dir syncs a reload starts, see Config#sync_data_dir_soon
+# Counts the data dir syncs a reload does, see Config#sync_data_dir_after_enabled
 class LavinMQ::Config
   getter spec_data_dir_syncs = Atomic(Int32).new(0)
 
@@ -732,9 +732,8 @@ describe LavinMQ::Config do
         File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = true\n")
         config.reload
         config.sync?.should be_true
-        wait_for { config.spec_data_dir_syncs.get == 1 }
-        config.reload # already enabled
-        sleep 50.milliseconds
+        config.spec_data_dir_syncs.get.should eq 1 # before the reload returns
+        config.reload                              # already enabled
         config.spec_data_dir_syncs.get.should eq 1
       ensure
         File.delete?(config_file.path)
