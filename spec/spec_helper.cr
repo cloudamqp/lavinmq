@@ -38,7 +38,10 @@ def init_config(config = LavinMQ::Config.instance)
   config
 end
 
-LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
+# Per process data dir for servers created outside an example (e.g. at describe level)
+SPEC_PROCESS_DATA_DIR = File.tempname("lavinmq", "spec")
+LavinMQ::Config.instance.data_dir = SPEC_PROCESS_DATA_DIR
+Spec.after_suite { FileUtils.rm_rf SPEC_PROCESS_DATA_DIR }
 init_config
 
 # Allow creating custom config objects for specs
@@ -187,6 +190,34 @@ def with_stats_interval(ms : Int32, &)
   ensure
     cfg.stats_interval = orig
   end
+end
+
+# Free ports below the OS ephemeral ranges, from a separate slice per parallel spec process (see spec/support/parallel.cr)
+module FreePort
+  WORKERS = ENV["SPEC_WORKERS"]?.try(&.to_i) || 1
+  SLICE   = (32_768 - 20_000) // WORKERS
+  FIRST   = 20_000 + (ENV["SPEC_WORKER"]?.try(&.to_i) || 0) * SLICE
+  @@next : Int32 = Random.rand(SLICE)
+  @@lock = Mutex.new
+
+  def self.take : Int32
+    @@lock.synchronize do
+      SLICE.times do
+        port = FIRST + @@next
+        @@next = (@@next + 1) % SLICE
+        begin
+          TCPServer.new("127.0.0.1", port).close
+          return port
+        rescue Socket::BindError
+        end
+      end
+      raise "No free port in #{FIRST}...#{FIRST + SLICE}"
+    end
+  end
+end
+
+def free_port : Int32
+  FreePort.take
 end
 
 def with_datadir(&)
