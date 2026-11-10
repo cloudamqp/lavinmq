@@ -116,6 +116,54 @@ class SelfLeaderController < LavinMQ::Clustering::Controller
   end
 end
 
+# Calls on_won when this node wins the election, before #campaign returns
+class OnWonCoordinator < LavinMQ::Clustering::EtcdCoordinator
+  property on_won : Proc(Nil)? = nil
+
+  def campaign(advertised_uri : String, lease_id : Int) : LavinMQ::Etcd::ElectionLeader
+    leader = super
+    @on_won.try &.call
+    leader
+  end
+end
+
+# A replication client whose #close blocks until the spec closes the gate
+class GatedCloseClient < LavinMQ::Clustering::Client
+  getter entered = Channel(Nil).new
+  getter gate = Channel(Nil).new
+
+  def close
+    @entered.send nil
+    @gate.receive?
+  end
+end
+
+# The spec sets the replication client, there is no leader watcher
+class PromotionController < LavinMQ::Clustering::Controller
+  def repli_client=(client : LavinMQ::Clustering::Client)
+    @repli_client = client
+  end
+
+  private def follow_leader
+  end
+end
+
+private def promotion_spec_config(data_dir : String) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering_etcd_endpoints = "localhost:12379"
+  config.clustering_advertised_uri = "tcp://localhost:5686"
+  config
+end
+
+private def receive_within(ch : Channel, message : String, span = 5.seconds)
+  select
+  when ch.receive?
+  when timeout(span)
+    fail message
+  end
+end
+
 class ProxyBindEtcd < LavinMQ::Etcd
   def initialize(@leader_uri : String)
     super("localhost:1")
@@ -155,6 +203,81 @@ describe LavinMQ::Clustering::Controller do
     end
   ensure
     blocker.try &.close
+  end
+end
+
+describe LavinMQ::Clustering::Controller, tags: "etcd" do
+  add_etcd_around_each
+
+  # A stop (SIGTERM) right after the node wins the election must not make it
+  # the leader: it would set the ISR to only itself and then exit, and the
+  # other nodes could then not become leader.
+  it "doesn't promote a node that is stopped right after it wins the election" do
+    with_datadir do |data_dir|
+      config = promotion_spec_config(data_dir)
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      coordinator = OnWonCoordinator.new(config, etcd)
+      controller = PromotionController.new(config, etcd, coordinator)
+      coordinator.on_won = -> { controller.stop }
+      promoted = false
+      done = Channel(Nil).new
+      spawn(name: "promotion spec") do
+        controller.run do
+          promoted = true
+          coordinator.update_isr(Set{controller.id}) rescue nil
+        end
+      rescue SpecExit
+      ensure
+        done.close
+      end
+
+      receive_within done, "Controller#run didn't return after stop"
+      promoted.should be_false
+      etcd.get("lavinmq/isr").should be_nil
+      # The lease is released, so another node can win the election at once
+      lease = etcd.lease_grant(5)
+      elected = Channel(Nil).new
+      spawn { etcd.election_campaign("lavinmq/leader", "other", lease.id); elected.close }
+      receive_within elected, "the leader election wasn't released", 2.seconds
+    end
+  end
+
+  it "doesn't promote a node that is stopped while the replication client closes" do
+    with_datadir do |data_dir|
+      config = promotion_spec_config(data_dir)
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      hook_ran = File.join(data_dir, "leader_elected_hook_ran")
+      config.clustering_on_leader_elected = "touch #{hook_ran}"
+      controller = PromotionController.new(config, etcd, coordinator)
+      client = GatedCloseClient.new(config, controller.id, "secret", proxy: false)
+      controller.repli_client = client
+      promoted = false
+      done = Channel(Nil).new
+      spawn(name: "promotion spec") do
+        controller.run do
+          promoted = true
+          coordinator.update_isr(Set{controller.id}) rescue nil
+        end
+      rescue SpecExit
+      ensure
+        done.close
+      end
+
+      # The node won the election and waits for the replication client to close
+      receive_within client.entered, "promotion didn't close the replication client"
+      spawn(name: "stop spec") { controller.stop }
+      # Controller#stop is called and also waits for the close
+      receive_within client.entered, "stop didn't close the replication client"
+      client.gate.close
+
+      receive_within done, "Controller#run didn't return after stop"
+      promoted.should be_false
+      etcd.get("lavinmq/isr").should be_nil
+      # The hook runs in the background, give it time to run if it was started
+      sleep 200.milliseconds
+      File.exists?(hook_ran).should be_false
+    end
   end
 end
 

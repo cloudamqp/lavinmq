@@ -38,16 +38,19 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync(lease)
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
+    return if stopped_before_promotion?(lease)
     ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
+    return if stopped_before_promotion?(lease)
+    # Only once this node will lead, e.g. a hook that points DNS here
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
     end
   rescue Etcd::Lease::Expired
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopped
+    unless @stopped.get
       Log.fatal { "Lease expired, lost leadership" }
       exit 3
     end
@@ -59,12 +62,25 @@ class LavinMQ::Clustering::Controller
     exit 3
   end
 
-  @stopped = false
+  # Set by #stop from the shutdown fiber, read by the #run fiber
+  @stopped = Atomic(Bool).new(false)
 
   def stop
-    @stopped = true
+    @stopped.set(true)
     @repli_client.try &.close
     @lease.try &.release
+  end
+
+  # A stop can come after this node won the election but before it is leader,
+  # e.g. while it waits for the replication client to close. The node must
+  # not become leader then: it would set the ISR to only itself and exit, and
+  # no other node could become leader. #stop releases the lease, wait for that
+  # so another node can win the election at once.
+  private def stopped_before_promotion?(lease : Etcd::Lease) : Bool
+    return false unless @stopped.get
+    Log.info { "Stopping, will not become leader" }
+    lease.expired.receive?
+    true
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
