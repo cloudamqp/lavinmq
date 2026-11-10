@@ -54,7 +54,7 @@ module LavinMQ
       unless @closed
         load_stats_from_segments
         prune_orphaned_acks
-        delete_unused_segments
+        delete_unused_segments(sync_first: false) # nothing was moved yet
       end
       readahead_for_writes(@wfile) unless @closed
       @empty.set empty? unless @closed
@@ -228,12 +228,14 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
+          sync
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
+          # The segment first, see #delete_unused_segments
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
+          end
+          if a = @acks.delete(sp.segment)
+            delete_file(a)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -311,6 +313,13 @@ module LavinMQ
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
+    end
+
+    # Messages moved out of a segment (dead-lettered, delayed, retried) can be
+    # unsynced in their destinations, and the unlink must not become durable
+    # first. One syncfs instead of tracking the destinations, as on tx commit.
+    private def sync : Nil
+      @persister.try &.sync
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -495,7 +504,7 @@ module LavinMQ
       @replicator.try &.append_value path, Schema::VERSION, 0i64
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
-      delete_unused_segments
+      delete_unused_segments(sync_first: true)
       @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
     end
@@ -827,20 +836,27 @@ module LavinMQ
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
-    private def delete_unused_segments : Nil
+    private def delete_unused_segments(sync_first : Bool) : Nil
       current_seg = @segments.last_key
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
+          if sync_first
+            sync
+            sync_first = false
+          end
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
+          # The segment first: a crash in between leaves an ack file without
+          # its segment, which the next start removes, not a segment without
+          # its acks, whose messages would come back
+          delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile, including_meta: true)
           true
         else
           false

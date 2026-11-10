@@ -243,3 +243,23 @@ describe LavinMQ::Persister do
     end
   end
 end
+
+describe LavinMQ::Persister, "messages the broker moves between queues" do
+  it "syncs the filesystem before an emptied segment is unlinked" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        src = ch.queue("src", args: AMQP::Client::Arguments.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        # Plain publishes: no confirm requests a sync, only the segment delete can
+        8.times { src.publish "x" * 100_000 }
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        wait_for { !File.exists?(src_segment) }
+        last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+end

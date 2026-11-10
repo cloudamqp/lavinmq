@@ -55,6 +55,27 @@ test.describe('exchange', _ => {
     await expect(page).toHaveURL(new RegExp(`exchange${newHash}`))
   })
 
+  // Only a boolean x-delayed-exchange makes an exchange delayed
+  for (const [value, features] of [[true, 'Durable, Delayed'], ['true', 'Durable']]) {
+    test(`shows x-delayed-exchange=${JSON.stringify(value)} as ${features}`, async ({ page }) => {
+      const exchangeResponse = {
+        name: 'amq.topic',
+        vhost: '/',
+        type: 'topic',
+        durable: true,
+        auto_delete: false,
+        internal: false,
+        arguments: { 'x-delayed-exchange': value },
+        effective_arguments: [],
+        message_stats: {}
+      }
+      const exchangeLoaded = helpers.waitForPathRequest(page, apiPath, { response: exchangeResponse })
+      await page.goto(pagePath)
+      await expect(exchangeLoaded).toBeRequested()
+      await expect(page.locator('#e-features')).toHaveText(features)
+    })
+  }
+
   test('marks policy and arguments unsupported for x-mqtt-topic exchanges', async ({ page }) => {
     const exchangeResponse = {
       name: 'mlogs',

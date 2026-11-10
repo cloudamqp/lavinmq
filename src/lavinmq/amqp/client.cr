@@ -196,6 +196,8 @@ module LavinMQ
             end
           rescue e : LavinMQ::Error::PreconditionFailed
             send_precondition_failed(frame, e.message)
+          rescue e : LavinMQ::Exchange::AccessRefused
+            send_access_refused(frame, e.message)
           end
         rescue IO::TimeoutError
           send_heartbeat || break
@@ -238,10 +240,11 @@ module LavinMQ
         true
       end
 
-      # Reads from the socket so far, nil if the socket isn't buffered
+      # Reads from the socket so far, nil if the socket doesn't buffer reads
+      # (socket_buffer_size = 0), as its buffer is never filled then
       private def socket_reads : UInt32?
         socket = @socket
-        socket.buffer_fills if socket.is_a?(IO::Buffered)
+        socket.buffer_fills if socket.is_a?(IO::Buffered) && socket.read_buffering?
       end
 
       # A client that keeps sending never lets the read time out, so this is
@@ -908,12 +911,8 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          begin
-            @vhost.apply(frame)
-            send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
-          end
+          @vhost.apply(frame)
+          send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
 
@@ -953,12 +952,8 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          begin
-            @vhost.apply(frame)
-            send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
-          end
+          @vhost.apply(frame)
+          send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         end
       end
 
