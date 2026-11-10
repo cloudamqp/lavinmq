@@ -24,19 +24,6 @@ module StreamSpecHelpers
     end
   end
 
-  # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
-  def self.mapped_rss_kb(path : String) : Int32
-    in_mapping = false
-    File.each_line("/proc/self/smaps") do |line|
-      if line.ends_with?(path)
-        in_mapping = true
-      elsif in_mapping && line.starts_with?("Rss:")
-        return line.split[1].to_i
-      end
-    end
-    fail("No mapping found for #{path}")
-  end
-
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
@@ -1829,9 +1816,9 @@ describe LavinMQ::AMQP::Stream do
             consumer.requeued.push(sp2)
 
             stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
+            mapped_rss_kb(first.path).should be > 0
             stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+            mapped_rss_kb(first.path).should eq 0
           end
         end
       end
@@ -1848,7 +1835,7 @@ describe LavinMQ::AMQP::Stream do
           end
           stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
           first = stream.stream_msg_store.@segments.first_value
-          StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+          mapped_rss_kb(first.path).should eq 0
         end
       end
 

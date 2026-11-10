@@ -394,6 +394,15 @@ module LavinMQ
       file.close
     end
 
+    # Unmaps the pages of the segment being written, for when nothing will
+    # read it soon. Writing keeps them mapped until the segment is full,
+    # which for an idle queue can be never. They stay in the page cache, dirty
+    # ones too, so a later read or msync still finds them.
+    def release_idle_pages : Nil
+      return if @closed || @wfile.closed?
+      @wfile.dontneed
+    end
+
     def empty?
       @size.zero?
     end
