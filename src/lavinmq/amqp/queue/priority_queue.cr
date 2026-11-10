@@ -205,7 +205,11 @@ module LavinMQ::AMQP
         @closed = true
         @empty.close
         @stores.each &.delete
-        FileUtils.rm_rf @msg_dir
+        if @durable && (persister = @persister)
+          persister.remove_dir_after_sync(@msg_dir) # after the sub stores' directories
+        else
+          FileUtils.rm_rf @msg_dir
+        end
       end
 
       def close : Nil

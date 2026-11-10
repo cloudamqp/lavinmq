@@ -468,6 +468,8 @@ module LavinMQ::AMQP
     end
 
     private def make_data_dir : String
+      # A deleted queue of the same name can have its directory left to remove
+      @vhost.persister.flush_unlinks
       data_dir = if durable?
                    File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
                  else
@@ -719,8 +721,7 @@ module LavinMQ::AMQP
       h["x-delay"] = delay_from(msg, delay_ms)
       h["x-delivery-count"] = delivery_count
       props.headers = h
-      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp)
       true

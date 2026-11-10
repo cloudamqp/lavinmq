@@ -244,21 +244,147 @@ describe LavinMQ::Persister do
   end
 end
 
-describe LavinMQ::Persister, "messages the broker moves between queues" do
-  it "syncs the filesystem before an emptied segment is unlinked" do
+private def declare_dead_lettering(ch, ttl = 1)
+  ch.queue("dst")
+  ch.queue("src", args: AMQP::Client::Arguments.new({
+    "x-message-ttl"             => ttl,
+    "x-dead-letter-exchange"    => "",
+    "x-dead-letter-routing-key" => "dst",
+  }))
+end
+
+describe LavinMQ::Persister, "segments the stores have emptied" do
+  it "syncs the whole filesystem before the first unlink, the copies of an earlier process aren't marked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("dst")
-        src = ch.queue("src", args: AMQP::Client::Arguments.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
-          "x-dead-letter-routing-key" => "dst",
-        }))
-        # Plain publishes: no confirm requests a sync, only the segment delete can
+        src = declare_dead_lettering(ch)
+        # Plain publishes: no confirm requests a sync, only the segment unlink can
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
         last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  it "syncs the segments the messages were moved to, not the filesystem, before the unlink" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        s.persister.sync # a syncfs, nothing is unmarked after it
+        8.times { src.publish "x" * 100_000 }
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        wait_for { !File.exists?(src_segment) }
+        File.exists?("#{src_segment.sub("msgs.", "acks.")}").should be_false
+        sync = last_sync(s)
+        sync.syncfs.should be_false
+        sync.paths.should contain File.join(queue_dir(s, "dst"), "msgs.0000000001")
+      end
+    end
+  end
+
+  it "syncs nothing before the unlink of a segment that consumers emptied" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("acked")
+        s.persister.sync
+        8.times { q.publish "x" * 100_000 }
+        segment = File.join(queue_dir(s, "acked"), "msgs.0000000001")
+        q.subscribe(no_ack: false, &.ack)
+        wait_for { !File.exists?(segment) }
+        sync = last_sync(s)
+        sync.syncfs.should be_false
+        sync.paths.should be_empty
+      end
+    end
+  end
+
+  it "syncs the whole filesystem before an unlink after sync was disabled, its drains drop the marks" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000)
+        s.persister.sync
+        LavinMQ::Config.instance.sync = false
+        ch.confirm_select
+        src.publish_confirm "x" # a drain that skips its sync
+        LavinMQ::Config.instance.sync = true
+        q = ch.queue("acked")
+        8.times { q.publish "x" * 100_000 }
+        segment = File.join(queue_dir(s, "acked"), "msgs.0000000001")
+        q.subscribe(no_ack: false, &.ack)
+        wait_for { !File.exists?(segment) }
+        last_sync(s).syncfs.should be_true
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+  end
+
+  it "has unlinked the handed over segments when #sync_marked returns" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      Dir.mkdir(File.join(data_dir, "q"))
+      store = LavinMQ::MessageStore.new(File.join(data_dir, "q"), nil, persister: persister)
+      begin
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position)
+        store.@segments.has_key?(1u32).should be_false
+        persister.sync_marked
+        File.exists?(File.join(data_dir, "q", "msgs.0000000001")).should be_false
+        File.exists?(File.join(data_dir, "q", "acks.0000000001")).should be_false
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "loads a store only after the segments another instance emptied in its directory are unlinked" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      msg_dir = File.join(data_dir, "q")
+      Dir.mkdir(msg_dir)
+      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+      begin
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position)
+        store.close
+        store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
+        store.@segments.keys.should eq [2u32, 3u32]
+        File.exists?(File.join(msg_dir, "msgs.0000000001")).should be_false
+        store.size.should eq 2
+      ensure
+        store.close
+        persister.close
+      end
+    end
+  end
+
+  it "unlinks the segments handed over at shutdown, after the final drain" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      Dir.mkdir(File.join(data_dir, "q"))
+      store = LavinMQ::MessageStore.new(File.join(data_dir, "q"), nil, persister: persister)
+      begin
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        env = store.shift?.should_not be_nil
+        persister.close
+        sleep 50.milliseconds # the loop has exited
+        store.delete(env.segment_position)
+        File.exists?(File.join(data_dir, "q", "msgs.0000000001")).should be_false
+      ensure
+        store.close
       end
     end
   end
