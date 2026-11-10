@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.5] - 2026-11-10
+
+### Added
+
+- `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
+
+### Fixed
+
+- A queue whose message count on disk was higher than the messages its segments held made the broker exit at startup, and restart in a loop: the check for messages to expire raised on the missing messages and failed the whole vhost load. Now only that queue is closed, and the vhost loads [#2703](https://github.com/cloudamqp/lavinmq/pull/2703)
+- Since 2.10.3, with a global prefetch (`basic.qos` with `global` set) and several consumers on one channel, one queue could get nearly all deliveries while the other queues sat idle until it was empty. Deliveries are now spread across the consumers again [#2685](https://github.com/cloudamqp/lavinmq/pull/2685)
+- Waiting on a queue's internal state flags (paused, consumers empty, has capacity) could miss or wake on the wrong state when the flag was changed from several threads at once [#2399](https://github.com/cloudamqp/lavinmq/pull/2399)
+
 ## [2.10.4] - 2026-10-29
 
 ### Added
