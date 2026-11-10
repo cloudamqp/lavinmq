@@ -100,7 +100,10 @@ module LavinMQ
     # The directories with files, or that are themselves, still to be
     # unlinked, with how many, see #flush_unlinks
     @unlinking = Sync::Exclusive(Hash(String, Int32)).new(Hash(String, Int32).new(0), :unchecked)
-    @synced = ::Channel(Synced).new(64)
+    # Unbounded, so a drain never waits for the unlink loop, which can
+    # block on a follower
+    @synced = Sync::Exclusive(Deque(Synced)).new(Deque(Synced).new, :unchecked)
+    @synced_added = ::Channel(Bool).new(1)
     # Closed when the unlink loop has exited
     @unlinks_done = ::Channel(Nil).new
     @data_dir_fd : Int32 = -1
@@ -188,8 +191,12 @@ module LavinMQ
     # the files, a delivery can still hold a lease on the mapping.
     def unlink_after_sync(segment : MFile, meta_path : String, acks : MFile?) : Nil
       unlink = Unlink.new(segment, meta_path, acks)
-      unlinking(File.dirname(segment.path))
-      @pending.lock &.unlinks.push(unlink)
+      # Counted under the lock, so a #flush_unlinks that sees it queues its
+      # waiter behind the unlink
+      @pending.lock do |batch|
+        unlinking(File.dirname(segment.path))
+        batch.unlinks.push(unlink)
+      end
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
       # The loop has exited (shutdown). Its final drain took the unlink
@@ -205,8 +212,10 @@ module LavinMQ
     # without blocking the caller. Whatever creates a directory calls
     # #flush_unlinks first, in case it's one that is still to be removed.
     def remove_dir_after_sync(dir : String) : Nil
-      unlinking(dir)
-      @pending.lock &.removed_dirs.push(dir)
+      @pending.lock do |batch|
+        unlinking(dir)
+        batch.removed_dirs.push(dir)
+      end
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
       if @pending.lock &.removed_dirs.delete(dir)
@@ -244,11 +253,20 @@ module LavinMQ
       sync_marked if pending
     end
 
-    # Waits for the pending unlinks: the files of a deleted queue must not
-    # be left for a queue declared with the same name after a restart
     def close : Nil
       @publish_confirm_requested.close
-      @unlinks_done.receive? unless @unlinking.lock &.empty?
+    end
+
+    # After #close, waits for the pending unlinks: the files of a deleted
+    # queue must not be left for a queue declared with the same name after a
+    # restart. Bounded, as the final drain waits for the followers.
+    def wait_for_unlinks(timeout : Time::Span = 10.seconds) : Nil
+      return if @unlinking.lock &.empty?
+      select
+      when @unlinks_done.receive?
+      when timeout(timeout)
+        Log.warn { "Gave up waiting for emptied segments and deleted queues to be unlinked" }
+      end
     end
 
     private def unlinking(dir : String) : Nil
@@ -267,10 +285,14 @@ module LavinMQ
     end
 
     private def unlink_loop : Nil
-      while synced = @synced.receive?
-        synced.unlinks.each { |unlink| perform(unlink) }
-        synced.dirs.each { |dir| remove_dir(dir) }
-        synced.waiters.each &.close
+      open = true
+      while open
+        open = !@synced_added.receive?.nil?
+        while synced = @synced.lock &.shift?
+          synced.unlinks.each { |unlink| perform(unlink) }
+          synced.dirs.each { |dir| remove_dir(dir) }
+          synced.waiters.each &.close
+        end
       end
     ensure
       @unlinks_done.close
@@ -319,7 +341,7 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
-      @synced.close
+      @synced_added.close
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
     end
 
@@ -391,8 +413,9 @@ module LavinMQ
       replicator.try &.wait_for_followers
 
       if batch.after_sync?
+        @synced.lock &.push(Synced.new(batch.unlinks, batch.removed_dirs, batch.unlink_waiters))
         begin
-          @synced.send Synced.new(batch.unlinks, batch.removed_dirs, batch.unlink_waiters)
+          @synced_added.try_send true
         rescue ::Channel::ClosedError
         end
       end

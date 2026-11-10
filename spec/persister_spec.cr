@@ -476,7 +476,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "removes a deleted queue's files before the persister is closed, so a restart can't bring them back" do
+  it "removes a deleted queue's files before a shutdown is done, so a restart can't bring them back" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       msg_dir = File.join(data_dir, "q")
@@ -486,7 +486,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
       closed = Channel(Nil).new
       with_drain_held do
         store.delete
-        spawn { persister.close; closed.close }
+        spawn { persister.close; persister.wait_for_unlinks; closed.close }
         sleep 50.milliseconds
         Dir.exists?(msg_dir).should be_true
       end
