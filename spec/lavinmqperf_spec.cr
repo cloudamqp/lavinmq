@@ -102,8 +102,7 @@ describe "LavinMQPerf" do
   end
 
   describe "Ticker" do
-    # Bursty pacing runs ops ahead of their schedule; smooth pacing never
-    # does. A stalled process only runs them late, so this holds under load.
+    # A stalled process only runs ops late, never ahead of schedule, so this holds under load
     it "paces evenly across the configured rate window" do
       rate = 500
       total_ops = 250
