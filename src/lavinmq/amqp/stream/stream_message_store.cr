@@ -17,15 +17,10 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
-    # segment_id => position of every 64th message in the segment, built on
-    # demand and dropped with the segment's pages. Requeued redeliveries look
-    # up the offset of arbitrary positions, and scanning each from the segment
-    # start is quadratic.
+    # segment_id => position of every 64th message, so an offset lookup needn't scan from the segment start
     @offset_index = Hash(UInt32, Array(UInt32)).new
     OFFSET_INDEX_INTERVAL = 64
-    # Segment, position and message count of the last offset lookup. Requeues
-    # mostly come in delivery order, e.g. from a basic.nack with multiple, and
-    # then each lookup only scans the messages since the previous one.
+    # Segment, position and count of the last lookup, so requeues in delivery order only scan forward
     @offset_cursor = {0u32, 0u32, 0i64}
 
     def initialize(*args, **kwargs)
@@ -133,8 +128,7 @@ module LavinMQ::AMQP
       @offset_index.delete(seg)
     end
 
-    # Scans from the nearest message before `pos` that is indexed or was the
-    # last lookup, see @offset_index and @offset_cursor
+    # Scans from the nearest indexed position or the last lookup before `pos`
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]
