@@ -38,3 +38,16 @@ def vm_flags(path : String) : Array(String)
   end
   fail "#{path} isn't mapped"
 end
+
+# Resident kB of the mapping of the file at `path` in this process
+def mapped_rss_kb(path : String) : Int32
+  in_mapping = false
+  File.each_line("/proc/self/smaps") do |line|
+    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
+      in_mapping = line.ends_with?(" #{path}")
+    elsif in_mapping && line.starts_with?("Rss:")
+      return line.split[1].to_i
+    end
+  end
+  fail "#{path} isn't mapped"
+end
