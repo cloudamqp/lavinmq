@@ -45,9 +45,7 @@ module LavinMQ
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
       @follower_done = Channel(Nil).new
-      # Claimed by whichever of #follow and #close runs first: once #close has
-      # it the follow loop never starts, and until #follow has it there is no
-      # follow loop for #close to wait for.
+      # Claimed by whichever of #follow and #close runs first, so #close only waits for a started follow loop
       @follow_claimed = Atomic(Bool).new(false)
       # Closed by #close to cut a reconnect backoff short
       @closing = Channel(Nil).new
@@ -803,8 +801,7 @@ module LavinMQ
         @files.each_value &.close
         @socket.try &.close
         @closing.close
-        # Wait for the follow loop to exit, if it was started (with timeout to
-        # prevent hanging)
+        # Wait for the follow loop to exit, if it was started
         if @follow_claimed.swap(true)
           select
           when @follower_done.receive
