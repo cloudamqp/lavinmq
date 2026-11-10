@@ -101,7 +101,8 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
@@ -167,7 +168,8 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
@@ -345,6 +347,26 @@ module LavinMQ
         delete_file(segment, including_meta: true)
         acks.try { |file| delete_file(file) }
       end
+    end
+
+    # Segment files are the source of truth: count their msgs and rewrite the
+    # meta files, as a load does without them
+    private def recount_from_segments : Nil
+      @log.warn { "#{@size} msgs counted but none left to read, recounting from the segment files" }
+      @segments.each do |seg, mfile|
+        read_pos = mfile.pos
+        count_messages(seg, mfile)
+        raise Error.new(mfile) if @closed # a corrupt segment closed the store
+        mfile.pos = read_pos
+      end
+      readahead_for_writes(@wfile) # count_messages left it advised for random access
+      # count_messages adds the msgs that aren't acked to the counters, as at
+      # load, but all of them have been read
+      @size = 0u32
+      @bytesize = 0u64
+      @empty.set true
+      # Segments whose msgs turned out to all be acked
+      delete_unused_segments
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -752,6 +774,12 @@ module LavinMQ
           @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
           raise ex
         end
+      end
+      # Every msg is at least MIN_BYTESIZE, so the msgs left in the segment have
+      # to fit in the bytes the acked msgs don't take up. If they don't, the
+      # meta file counts msgs that the segment doesn't hold.
+      if count.to_u64 * BytesMessage::MIN_BYTESIZE > bytesize
+        raise MetadataError.new("Metadata file #{metafile} counts #{count} msgs left in #{bytesize} bytes")
       end
       mfile.pos = 4
       mfile.dontneed
