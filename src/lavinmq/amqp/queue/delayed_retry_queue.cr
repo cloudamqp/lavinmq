@@ -33,8 +33,8 @@ module LavinMQ::AMQP
     # it replaced (see Queue#active_retry_queue), so a delete by name in
     # between finds this closed one. The new one uses the same files, so the
     # delete goes to it, instead of removing its files from under it. For the
-    # same reason the primary queue doesn't recreate this one while it's
-    # being deleted, see Queue#start_retry_queue_delete.
+    # same reason the primary queue doesn't recreate this one while its
+    # delete waits for its copies' drain, see Queue#start_retry_queue_delete.
     def delete : Bool
       if current = @primary_queue.start_retry_queue_delete(self)
         return current.delete
@@ -80,13 +80,12 @@ module LavinMQ::AMQP
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { |stored| delete_message sp if stored }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { |copied, stored| delete_message sp, copied: copied if stored }
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+      result = @primary_queue.publish_internal(Message.moved_copy(msg))
       return redelay(env) unless result.ok?
-      delete_message sp
+      delete_message sp, copied: true
     end
 
     # The primary queue is full with overflow=reject-publish, or closed; delay
@@ -99,11 +98,9 @@ module LavinMQ::AMQP
       backoff = @primary_queue.retry_delay_for(delivery_count)
       h["x-delay"] = @primary_queue.delay_from(msg, backoff)
       msg.properties.headers = h
-      redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
-      if delay(redelayed)
+      if delay(Message.moved_copy(msg))
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
-        delete_message sp
+        delete_message sp, copied: true
       else
         @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
       end

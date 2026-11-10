@@ -134,6 +134,36 @@ private def rebind_tcp(address : String, port : Int32) : TCPServer
   end
 end
 
+# Lets a spec hold the publish confirm loop's drain, so what happens before
+# the data is durable can be observed
+class LavinMQ::Persister
+  class_property drain_gate : ::Channel(Nil)? = nil
+
+  private def drain : Nil
+    @@drain_gate.try &.receive?
+    previous_def
+  end
+end
+
+# Holds the persister's drains until the block returns or #release_drain is
+# called with the gate it yields
+def with_drain_held(&)
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield gate
+  ensure
+    release_drain(gate)
+  end
+end
+
+# A timed out example releases its gate when it ends, and must not release
+# the gate a later example holds
+def release_drain(gate : ::Channel(Nil)) : Nil
+  LavinMQ::Persister.drain_gate = nil if LavinMQ::Persister.drain_gate.same?(gate)
+  gate.close
+end
+
 def restart_server(server : LavinMQ::Server)
   # Read the raw ivars (not the lazy getters) so we don't build a frontend a
   # spec never had just to capture its state.
@@ -561,6 +591,8 @@ end
 # (which previously caused "Invalid memory access"). On normal completion the
 # dir is removed.
 Spec.around_each do |example|
+  # A timed out example skips its ensure, and can leave the drains held
+  LavinMQ::Persister.drain_gate.try { |gate| release_drain(gate) }
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
   config = init_config(LavinMQ::Config.new)

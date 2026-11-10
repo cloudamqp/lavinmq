@@ -108,6 +108,10 @@ module LavinMQ::AMQP
     # #start_retry_queue_delete
     @deleting_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
+    # Serializes restarts, which wait for a sync before they load the store
+    @restart_lock = Mutex.new
+    # A fiber unlinks the segments the store keeps, see #unlink_kept_segments_later
+    @unlinking_kept_segments = Atomic(Bool).new(false)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -334,6 +338,7 @@ module LavinMQ::AMQP
         @vhost.replicator.try &.register_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
+      @msg_store.on_kept_segment = ->unlink_kept_segments_later
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       begin
@@ -363,12 +368,58 @@ module LavinMQ::AMQP
     end
 
     def restart! : Bool
-      return false unless @closed
-      reset_queue_state
-      @msg_store = init_msg_store(@data_dir)
-      @empty = @msg_store.empty
-      start.tap do |started|
-        reapply_policy if started
+      @restart_lock.synchronize do
+        return false unless @closed
+        # A store loaded from the same files doesn't know which messages the
+        # closed one copied to other queues, and would unlink the segments
+        # they were copied from at once. Synced while the queue is still
+        # closed, so nothing uses the old store meanwhile, and a delete that
+        # ran meanwhile wins.
+        @msg_store.sync_copies
+        return false if @deleted
+        reset_queue_state
+        @msg_store = init_msg_store(@data_dir)
+        @msg_store.on_kept_segment = ->unlink_kept_segments_later
+        @empty = @msg_store.empty
+        start.tap do |started|
+          reapply_policy if started
+        end
+      end
+    end
+
+    # Called under @msg_store_lock when the store keeps an emptied segment for
+    # the drain that syncs the copies of its messages (see
+    # MessageStore#unlink_segment). The store unlinks it at its next delete or
+    # rollover after that drain, this unlinks it also when none follows.
+    private def unlink_kept_segments_later : Nil
+      return if @unlinking_kept_segments.swap(true)
+      spawn(name: "Queue#unlink_kept_segments #{@vhost.name}/#{@name}") { unlink_kept_segments }
+    end
+
+    private def unlink_kept_segments : Nil
+      persister = @vhost.persister
+      while drain = next_kept_segment_drain
+        persister.wait_drain(drain)
+        @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
+        # At shutdown the persister's loop has exited, and nothing syncs
+        if Config.instance.sync? && !persister.drain_synced?(drain)
+          @unlinking_kept_segments.set(false)
+          break
+        end
+      end
+    rescue ex
+      @unlinking_kept_segments.set(false)
+      @log.error(exception: ex) { "Failed to unlink emptied segments" }
+    end
+
+    # Ends the fiber under the same lock that the store keeps a segment
+    # under, so a segment kept right after either sees the flag cleared and
+    # spawns a new fiber, or is seen by this one's next round
+    private def next_kept_segment_drain : UInt64?
+      @msg_store_lock.synchronize do
+        drain = @msg_store.kept_segment_drain
+        @unlinking_kept_segments.set(false) unless drain
+        drain
       end
     end
 
@@ -697,9 +748,9 @@ module LavinMQ::AMQP
 
     # For DelayedRetryQueue#delete. Returns the retry queue in use when it
     # replaced *retry_queue*, which the delete goes to instead. Otherwise
-    # *retry_queue* isn't recreated until #retry_queue_deleted: the delete
-    # yields before it removes the files, and a new retry queue would load
-    # the same files meanwhile, see #replace_retry_queue
+    # *retry_queue* isn't recreated until #retry_queue_deleted: its store
+    # waits for a drain before it unlinks its files, and a new retry queue
+    # would load the same files meanwhile, see #replace_retry_queue
     protected def start_retry_queue_delete(retry_queue : DelayedRetryQueue) : DelayedRetryQueue?
       @retry_queue_lock.synchronize do
         current = @delayed_retry_queue
@@ -729,7 +780,15 @@ module LavinMQ::AMQP
     # so a reject never takes the definitions lock here, and *register_later*
     # registers the new retry queue in the definitions from another fiber.
     private def active_retry_queue(*, register_later = true) : DelayedRetryQueue?
-      retry_queue, recreated = replace_retry_queue
+      closed_retry_queue = @retry_queue_lock.synchronize do
+        retry_queue = @delayed_retry_queue
+        return retry_queue if retry_queue && !retry_queue.closed?
+        retry_queue
+      end
+      return if @deleted || @closed
+      # Outside the lock: a delete of this queue takes it
+      sync_copies_so_far if closed_retry_queue
+      retry_queue, recreated = replace_retry_queue(closed_retry_queue)
       return retry_queue unless recreated && retry_queue
       if register_later
         spawn(name: "Queue#register_retry_queue #{@vhost.name}/#{@name}") { register_retry_queue(retry_queue) }
@@ -742,13 +801,16 @@ module LavinMQ::AMQP
       nil
     end
 
-    # Returns the open retry queue with false, or a new one in place of a
-    # closed or deleted one with true, or nil if this queue was deleted or
-    # closed, or the closed retry queue is being deleted by name
-    private def replace_retry_queue : {DelayedRetryQueue?, Bool}
+    # Creates a new retry queue in place of *closed_retry_queue*, and returns
+    # it with true. Returns the open retry queue with false if another fiber
+    # recreated it meanwhile, and nil if this queue was deleted or closed, or
+    # the retry queue was closed or deleted again, without the sync before,
+    # or its delete by name hasn't unlinked its files yet.
+    private def replace_retry_queue(closed_retry_queue) : {DelayedRetryQueue?, Bool}
       @retry_queue_lock.synchronize do
         retry_queue = @delayed_retry_queue
         return {retry_queue, false} if retry_queue && !retry_queue.closed?
+        return {nil, false} unless retry_queue.same?(closed_retry_queue)
         return {nil, false} if @deleted || @closed
         return {nil, false} if retry_queue && retry_queue.same?(@deleting_retry_queue)
         @log.info { "Recreating retry queue" }
@@ -767,6 +829,18 @@ module LavinMQ::AMQP
       end
     rescue ex
       @log.error(ex) { "Failed to register the recreated retry queue" }
+    end
+
+    # Before a retry queue that closed itself is recreated. A release in flight
+    # when it closed can record its copy in the closed store after any check
+    # of it, so this waits for a drain that covers every copy written so far.
+    # At shutdown the persister's loop has exited, and #sync falls back to a
+    # syncfs.
+    private def sync_copies_so_far : Nil
+      persister = @vhost.persister
+      drain = persister.copy_drain
+      persister.wait_drain(drain)
+      persister.sync if Config.instance.sync? && !persister.drain_synced?(drain)
     end
 
     # Only call while holding the definitions lock and @retry_queue_lock
@@ -791,10 +865,9 @@ module LavinMQ::AMQP
       h["x-delay"] = delay_from(msg, delay_ms)
       h["x-delivery-count"] = delivery_count
       props.headers = h
-      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
-      delete_message(sp)
+      delete_message(sp, copied: true)
       true
     end
 
@@ -817,7 +890,7 @@ module LavinMQ::AMQP
 
     # Dead-letters a message of this queue that the retry queue holds. The
     # block removes it from the retry queue once routed
-    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool -> Nil) : Nil
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool, Bool -> Nil) : Nil
       @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
       @dead_letter.route(msg, reason, &routed)
     end
@@ -1235,10 +1308,10 @@ module LavinMQ::AMQP
         end
         routed = false
         begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
+          @dead_letter.route(env.message, reason, dlx_tasks) do |copied, stored|
             routed = true
             begin
-              delete_message sp if stored
+              delete_message sp, copied: copied if stored
             ensure
               env.release
             end
@@ -1248,7 +1321,7 @@ module LavinMQ::AMQP
           raise ex
         end
       else
-        delete_message sp
+        delete_message sp, copied: false
       end
     end
 
@@ -1318,7 +1391,7 @@ module LavinMQ::AMQP
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
-            delete_message(sp)
+            delete_message(sp, copied: false)
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
@@ -1376,10 +1449,11 @@ module LavinMQ::AMQP
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
+      delete_message(sp, copied: false)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    # *copied*: the message was copied to another queue, see MessageStore#copied_out
+    protected def delete_message(sp : SegmentPosition, *, copied : Bool) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1390,6 +1464,7 @@ module LavinMQ::AMQP
       {% end %}
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
+        @msg_store.copied_out(sp) if copied
         @msg_store.delete(sp)
       end
     end

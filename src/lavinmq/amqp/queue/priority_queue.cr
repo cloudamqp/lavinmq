@@ -179,6 +179,32 @@ module LavinMQ::AMQP
         store_for sp, &.envelope(sp, redelivered)
       end
 
+      def copied_out(sp : SegmentPosition) : Nil
+        store_for sp, &.copied_out(sp)
+      end
+
+      def copies_synced? : Bool
+        @stores.all? &.copies_synced?
+      end
+
+      def sync_copies : Nil
+        @stores.each &.sync_copies
+      end
+
+      def on_kept_segment=(callback : Proc(Nil)?)
+        @stores.each &.on_kept_segment = callback
+      end
+
+      def kept_segment_drain : UInt64?
+        return if @closed
+        @stores.compact_map(&.kept_segment_drain).min?
+      end
+
+      def unlink_synced_segments : Int32
+        return 0 if @closed
+        @stores.sum &.unlink_synced_segments
+      end
+
       def delete(sp) : Nil
         raise ClosedError.new if @closed
         store_for sp, &.delete(sp)
