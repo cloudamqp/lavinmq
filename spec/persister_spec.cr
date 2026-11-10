@@ -244,13 +244,277 @@ describe LavinMQ::Persister do
   end
 end
 
-private def declare_dead_lettering(ch, ttl = 1)
+# Declares queue "src", which dead-letters into "dst" after *ttl* ms. The
+# block declares "dst", a durable classic queue if it's omitted.
+private def declare_dead_lettering(ch, ttl = 1, extra = {} of String => Int32)
   ch.queue("dst")
-  ch.queue("src", args: AMQP::Client::Arguments.new({
+  declare_src(ch, ttl, extra)
+end
+
+private def declare_src(ch, ttl = 1, extra = {} of String => Int32)
+  args = AMQP::Client::Arguments.new({
     "x-message-ttl"             => ttl,
     "x-dead-letter-exchange"    => "",
     "x-dead-letter-routing-key" => "dst",
-  }))
+  })
+  extra.each { |k, v| args[k] = v }
+  ch.queue("src", args: args)
+end
+
+private def reject_once_into_retry_queue(q)
+  q.subscribe(no_ack: false) do |m|
+    if m.properties.headers.try &.has_key?("x-delivery-count")
+      m.ack
+    else
+      m.reject(requeue: true)
+    end
+  end
+end
+
+# The block moves the messages of *segment* to other queues and empties it,
+# while the persister's drains are held: the segment has to stay until a
+# drain has synced the copies, in *dst_dir*, and only them.
+private def expect_kept_until_synced(s : LavinMQ::Server, segment : String, dst_dir : String, &) : Nil
+  s.persister.sync # a syncfs, so nothing written before is unmarked
+  since = s.persister.syncs.size
+  with_drain_held do
+    yield
+    sleep 50.milliseconds # the sources are deleted right after their copies
+    File.exists?(segment).should be_true
+  end
+  wait_for { !File.exists?(segment) }
+  syncs = s.persister.syncs[since..]
+  syncs.none?(&.syncfs).should be_true
+  syncs.any?(&.paths.any?(&.starts_with?(dst_dir))).should be_true
+end
+
+private def message_count(s : LavinMQ::Server, queue : String)
+  s.vhosts["/"].queue(queue).message_count
+end
+
+describe LavinMQ::Persister, "messages the broker moves between queues" do
+  it "keeps a segment until a drain has synced its dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          # Plain publishes: no confirm requests a sync, only the unlink does
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps a priority queue segment until a drain has synced its copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, extra: {"x-max-priority" => 1})
+        segment = File.join(queue_dir(s, "src"), "prio.000", "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps a segment until a drain has synced the messages dead-lettered into a stream" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        src = declare_src(ch)
+        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps a delayed exchange segment until a drain has synced the released messages" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("delayed", "direct", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+        ch.queue("dst").bind(x.name, "dst")
+        props = AMQ::Protocol::Properties.new(headers: AMQP::Client::Arguments.new({"x-delay" => 1}))
+        segment = File.join(queue_dir(s, "amq.delayed-delayed"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          8.times { x.publish "x" * 100_000, "dst", props: props }
+          wait_for { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps a segment until a drain has synced the messages rejected into the retry queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        segment = File.join(queue_dir(s, "prim"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "amq.retry-prim")) do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          wait_for { message_count(s, "amq.retry-prim") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps a retry queue segment until a drain has synced the messages it released" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 500}))
+        segment = File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "prim")) do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          wait_for { message_count(s, "amq.retry-prim") == 8 }
+          wait_for(timeout: 5.seconds) { message_count(s, "amq.retry-prim") == 0 }
+        end
+      end
+    end
+  end
+
+  it "keeps a retry queue segment until a drain has synced the messages that expired out of it" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst")
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({
+          "x-delayed-retry-min"       => 60_000,
+          "x-message-ttl"             => 500,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dst",
+        }))
+        segment = File.join(queue_dir(s, "amq.retry-prim"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          reject_once_into_retry_queue(q)
+          8.times { q.publish "x" * 100_000 }
+          wait_for(timeout: 5.seconds) { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "keeps the segments a purge unlinks until a drain has synced the copies moved out of them" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000)
+        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
+        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { queue.message_count == 8 }
+          ch.basic_get("src", no_ack: false).should_not(be_nil).reject(requeue: false) # dead-lettered
+          wait_for { message_count(s, "dst") == 1 }
+          queue.purge
+        end
+      end
+    end
+  end
+
+  it "deletes a queue without waiting, and keeps its files until a drain has synced the copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        src_dir = queue_dir(s, "src")
+        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
+        expect_kept_until_synced(s, File.join(src_dir, "msgs.0000000001"), queue_dir(s, "dst")) do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+          queue.delete
+          s.vhosts["/"].queue?("src").should be_nil
+        end
+        wait_for { !Dir.exists?(src_dir) }
+      end
+    end
+  end
+
+  it "declares a queue again only after the directory of the deleted one is removed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000)
+        src.publish_confirm "old"
+        declared = Channel(Nil).new
+        with_drain_held do
+          s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue).delete
+          spawn { s.vhosts["/"].declare_queue("src", true, false); declared.close }
+          sleep 50.milliseconds
+          s.vhosts["/"].queue?("src").should be_nil
+        end
+        select
+        when declared.receive?
+        when timeout(5.seconds)
+          fail "the queue wasn't declared"
+        end
+        message_count(s, "src").should eq 0
+        File.exists?(File.join(queue_dir(s, "src"), ".queue")).should be_true
+      end
+    end
+  end
+
+  it "reloads a restarted queue's store only after its emptied segments are unlinked" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
+        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        restarted = Channel(Bool).new
+        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+          queue.close
+          spawn { restarted.send queue.restart! }
+          sleep 50.milliseconds
+          queue.closed?.should be_true
+        end
+        restarted.receive.should be_true
+        queue.@msg_store.@segments.has_key?(1u32).should be_false
+      end
+    end
+  end
+
+  it "syncs nothing before the unlink when the dead-letter exchange routes nowhere" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_src(ch) # no "dst"
+        s.persister.sync
+        since = s.persister.syncs.size
+        8.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+        s.persister.syncs[since..].all? { |sync| !sync.syncfs && sync.paths.empty? }.should be_true
+      end
+    end
+  end
+
+  it "syncs nothing before the unlink when messages were dead-lettered only into a transient queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dst", durable: false)
+        src = declare_src(ch)
+        s.persister.sync
+        since = s.persister.syncs.size
+        8.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+        s.persister.syncs[since..].all? { |sync| !sync.syncfs && sync.paths.empty? }.should be_true
+      end
+    end
+  end
+
+  it "unlinks an emptied segment when sync is disabled" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        LavinMQ::Config.instance.sync = false
+        8.times { src.publish "x" * 100_000 }
+        wait_for { !File.exists?(File.join(queue_dir(s, "src"), "msgs.0000000001")) }
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+  end
 end
 
 describe LavinMQ::Persister, "segments the stores have emptied" do

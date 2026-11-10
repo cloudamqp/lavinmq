@@ -361,6 +361,11 @@ module LavinMQ::AMQP
 
     def restart! : Bool
       return false unless @closed
+      # The closed store can have emptied segments that aren't unlinked yet.
+      # Waited for here, while the queue is still closed, not when the new
+      # store loads.
+      @vhost.persister.flush_unlinks
+      return false unless @closed
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty

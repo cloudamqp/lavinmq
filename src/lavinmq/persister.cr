@@ -80,8 +80,17 @@ module LavinMQ
 
     {% unless flag?(:release) %}
       record SyncRecord, syncfs : Bool, paths : Array(String)
-      # Spec instrumentation: what the most recent drain synced
-      getter last_sync : SyncRecord?
+      # Spec instrumentation: what the latest drains synced, oldest first
+      @syncs = Array(SyncRecord).new
+      @syncs_lock = Mutex.new
+
+      def syncs : Array(SyncRecord)
+        @syncs_lock.synchronize { @syncs.dup }
+      end
+
+      def last_sync : SyncRecord?
+        @syncs_lock.synchronize { @syncs.last? }
+      end
     {% end %}
 
     # The files written before this process started, or while sync was
@@ -339,7 +348,11 @@ module LavinMQ
         exit 1
       end
       {% unless flag?(:release) %}
-        @last_sync = SyncRecord.new(syncfs, paths || Array(String).new)
+        record = SyncRecord.new(syncfs, paths || Array(String).new)
+        @syncs_lock.synchronize do
+          @syncs.shift if @syncs.size >= 1024 # debug builds run for long
+          @syncs << record
+        end
       {% end %}
 
       # Block until every in-sync follower has acked the replicated bytes
