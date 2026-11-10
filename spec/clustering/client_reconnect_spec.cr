@@ -75,6 +75,11 @@ module ClientReconnectSpec
     acked
   end
 
+  # A port that nothing listens on, so connecting to it is refused
+  def self.closed_port : Int32
+    TCPServer.open("127.0.0.1", 0, &.local_address.port)
+  end
+
   def self.framing(filename) : Int64
     (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
   end
@@ -144,6 +149,29 @@ module ClientReconnectSpec
         end
 
         client.close
+      end
+    end
+
+    it "closes at once when it never started following, and doesn't follow after" do
+      with_datadir do |data_dir|
+        client = make_client(data_dir, sync: false)
+        Time.measure { client.close }.should be < 1.second
+
+        followed = Channel(Nil).new
+        spawn { client.follow("127.0.0.1", closed_port); followed.send nil }
+        select
+        when followed.receive
+        when timeout(1.second) then fail "follow didn't return after close"
+        end
+      end
+    end
+
+    it "cuts the reconnect backoff short when closed" do
+      with_datadir do |data_dir|
+        client = make_client(data_dir, sync: false)
+        spawn { client.follow("127.0.0.1", closed_port) }
+        sleep 100.milliseconds # the connect is refused at once, then it backs off for 1s
+        Time.measure { client.close }.should be < 500.milliseconds
       end
     end
   end
