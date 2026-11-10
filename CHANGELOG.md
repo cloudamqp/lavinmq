@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Since 2.11.0-rc.1, the overview's queued messages chart covered a shorter time span than the rate charts beside it when the oldest queue was younger than the stats window, such as on a new broker. Its history now covers the same window, with zeros before the first queue [#2676](https://github.com/cloudamqp/lavinmq/pull/2676)
 - Since 2.11.0-rc.1, the management UI charts repeated y axis labels at low rates, such as `0, 0, 0, 0.1, 0.1` at 0.2 msgs/s, showed only a 0 tick for byte rates under 1 B/s, and stepped message counts by fractions. Ticks are now labelled with the precision of their step, byte rate axes go below 1 B/s and message counts step in whole messages [#2675](https://github.com/cloudamqp/lavinmq/pull/2675)
 - A queue whose message count on disk was higher than the messages its segments held made the broker exit at startup, and restart in a loop: the check for messages to expire raised on the missing messages and failed the whole vhost load. Now only that queue is closed, and the vhost loads [#2703](https://github.com/cloudamqp/lavinmq/pull/2703)
 - Since 2.10.3, with a global prefetch (`basic.qos` with `global` set) and several consumers on one channel, one queue could get nearly all deliveries while the other queues sat idle until it was empty. Deliveries are now spread across the consumers again [#2685](https://github.com/cloudamqp/lavinmq/pull/2685)
