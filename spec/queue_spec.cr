@@ -951,7 +951,7 @@ describe LavinMQ::AMQP::Queue do
         q.basic_get(false) { |env| sp = env.segment_position }.should be_true
         mfile = nil
         # What basic.recover(requeue: false) does to redeliver an unacked message
-        q.read(sp.not_nil!) do |env|
+        q.read(sp.should_not be_nil) do |env|
           segment = segment_file.call(q, env.segment_position)
           mfile = segment
           q.close

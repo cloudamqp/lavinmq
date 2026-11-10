@@ -752,7 +752,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
-        redeliver = Array(Unack).new
+        redeliver = Array({Unack, AMQP::Consumer}).new
         notify_has_capacity do
           if frame.requeue
             @unacked.reject! do |unack|
@@ -770,7 +770,7 @@ module LavinMQ
               if (consumer = unack.consumer) && !consumer.closed?
                 # Delivered again below with a new delivery tag, which
                 # takes @unack_lock, so it can't happen in here
-                redeliver << unack
+                redeliver << {unack, consumer}
               else
                 release_basic_get(unack)
                 unack.queue.requeue(unack.sp)
@@ -783,8 +783,7 @@ module LavinMQ
         end
         handed_over = 0
         begin
-          redeliver.each do |unack|
-            consumer = unack.consumer.not_nil!
+          redeliver.each do |(unack, consumer)|
             if consumer.closed?
               handed_over += 1
               unack.queue.requeue(unack.sp)
@@ -799,8 +798,8 @@ module LavinMQ
         ensure
           # Requeue what is no longer in @unacked if a delivery raised
           (handed_over...redeliver.size).each do |i|
-            unack = redeliver[i]
-            unack.consumer.try &.reject(unack.sp, requeue: true)
+            unack, consumer = redeliver[i]
+            consumer.reject(unack.sp, requeue: true)
             unack.queue.requeue(unack.sp)
           end
           notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
