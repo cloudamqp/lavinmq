@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
         @flow = active
@@ -112,15 +113,13 @@ module LavinMQ
         raise ex
       end
 
+      # Consumers wait for global capacity in line, so the one that delivered
+      # last can't take every freed slot and starve the others
       private def wait_for_global_capacity
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        flush
-        select
-        when ch.has_capacity.when_true.receive
-        when @notify_closed.receive
-        end
+        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
         true
       end
 
