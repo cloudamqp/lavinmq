@@ -45,6 +45,8 @@ module LavinMQ
     # Emptied segments, with their ack files, whose unlink waits for their
     # drain, see #unlink_segment
     @unlink_after = Deque(KeptSegment).new
+    # The kept segment whose unlink failed last, logged once
+    @unlink_failed : MFile?
     # Called, under the lock that guards the store, when it keeps an emptied
     # segment, so its owner can unlink it once the drain is done, also if
     # nothing else happens on the store, see #unlink_synced_segments
@@ -391,12 +393,23 @@ module LavinMQ
     end
 
     # Unlinks the kept segments whose drain is done, returns how many. A
-    # closed store leaves them to the next start.
+    # closed store leaves them to the next start. A failed unlink is logged,
+    # not raised, as the ack or publish that calls this is already done, and
+    # the segment stays kept, so a later call retries it.
     def unlink_synced_segments : Int32
       return 0 if @closed
       count = 0
       while (kept = @unlink_after.first?) && drain_done?(kept.drain)
-        unlink_now(kept.segment, kept.acks) # a later call retries it if it raises
+        begin
+          unlink_now(kept.segment, kept.acks)
+        rescue ex
+          # Once per segment, as every ack retries it
+          unless kept.segment.same?(@unlink_failed)
+            @unlink_failed = kept.segment
+            @log.error(exception: ex) { "Failed to unlink #{kept.segment.path}, will retry" }
+          end
+          break
+        end
         @unlink_after.shift
         count += 1
       end

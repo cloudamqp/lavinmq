@@ -400,9 +400,10 @@ module LavinMQ::AMQP
       persister = @vhost.persister
       while drain = next_kept_segment_drain
         persister.wait_drain(drain)
-        @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
-        # At shutdown the persister's loop has exited, and nothing syncs
-        if Config.instance.sync? && !persister.drain_synced?(drain)
+        unlinked = @msg_store_lock.synchronize { @msg_store.unlink_synced_segments }
+        # At shutdown the persister's loop has exited, and nothing syncs. An
+        # unlink that failed is left to the store's next delete or rollover.
+        if unlinked.zero? || (Config.instance.sync? && !persister.drain_synced?(drain))
           @unlinking_kept_segments.set(false)
           break
         end

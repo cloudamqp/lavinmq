@@ -464,7 +464,7 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "keeps an emptied segment whose unlink failed, and raises it as a store error" do
+  it "keeps an emptied segment whose unlink failed, and retries it without failing later acks" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
       store = store_with_three_segments(data_dir, persister)
@@ -481,9 +481,12 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         File.exists?(segment).should be_true # kept until the next delete
         # The segment is unlinked first, so its ack file stays too
         MFile.fail_delete_of = segment
-        expect_raises(LavinMQ::MessageStore::Error) { store.delete(sps[3]) }
+        # Logged, not raised: the ack is done, and so are later ones
+        store.delete(sps[3])
         File.exists?(segment).should be_true
         File.exists?(File.join(data_dir, "acks.0000000001")).should be_true
+        # A rollover, which also retries it
+        store.push(LavinMQ::Message.new("", "rk", "y" * LavinMQ::Config.instance.segment_size))
         MFile.fail_delete_of = nil
         store.purge(1)
         File.exists?(segment).should be_false
@@ -509,6 +512,31 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
         # No publish or delete on src from here
         wait_for { !File.exists?(src_segment) }
         synced_in?(s, queue_dir(s, "dst")).should be_true
+      end
+    end
+  end
+
+  it "stops the queue's unlink of kept segments when an unlink fails, and the next delete retries it" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        src_queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
+        src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        begin
+          with_drain_held do
+            8.times { src.publish "x" * 100_000 }
+            wait_for { s.vhosts["/"].queue("dst").message_count == 8 }
+            sleep 50.milliseconds
+            MFile.fail_delete_of = src_segment
+          end
+          wait_for { !src_queue.@unlinking_kept_segments.get }
+          File.exists?(src_segment).should be_true
+          MFile.fail_delete_of = nil
+          src.publish_confirm "y" # dead-lettered, and its delete retries the unlink
+          wait_for { !File.exists?(src_segment) }
+        ensure
+          MFile.fail_delete_of = nil
+        end
       end
     end
   end
