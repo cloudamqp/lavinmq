@@ -248,8 +248,7 @@ end
 describe LavinMQ::Auth::UserStore do
   describe "#delete" do
     it "should clear permissions cache when deleting a user" do
-      Dir.mkdir_p "/tmp/lavinmq-spec"
-      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store = LavinMQ::Auth::UserStore.new(LavinMQ::Config.instance.data_dir, nil)
 
       # Create a user and add permissions
       user_store.create("testuser", "password")
@@ -269,13 +268,10 @@ describe LavinMQ::Auth::UserStore do
       # Verify the revision was incremented (cache was cleared)
       final_revision = user.@permission_revision.get
       final_revision.should eq(initial_revision + 1)
-    ensure
-      FileUtils.rm_rf "/tmp/lavinmq-spec"
     end
 
     it "should invalidate existing permission caches on delete" do
-      Dir.mkdir_p "/tmp/lavinmq-spec"
-      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store = LavinMQ::Auth::UserStore.new(LavinMQ::Config.instance.data_dir, nil)
 
       # Create user with permissions
       user_store.create("testuser", "password")
@@ -295,13 +291,10 @@ describe LavinMQ::Auth::UserStore do
       # (if we could still access the deleted user)
       # The important thing is the user's revision was incremented
       user.@permission_revision.get.should eq(cache_revision_before + 1)
-    ensure
-      FileUtils.rm_rf "/tmp/lavinmq-spec"
     end
 
     it "should not clear cache when deleting non-existent user" do
-      Dir.mkdir_p "/tmp/lavinmq-spec"
-      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store = LavinMQ::Auth::UserStore.new(LavinMQ::Config.instance.data_dir, nil)
 
       # Create a user
       user_store.create("testuser", "password")
@@ -314,8 +307,6 @@ describe LavinMQ::Auth::UserStore do
 
       # Original user's cache should not be affected
       user.@permission_revision.get.should eq(initial_revision)
-    ensure
-      FileUtils.rm_rf "/tmp/lavinmq-spec"
     end
   end
 end
