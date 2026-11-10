@@ -282,6 +282,7 @@ describe LavinMQ::Federation::Upstream do
         upstream.links.should eq [link]
       ensure
         upstream.try &.close
+        link.try { |l| wait_for { l.state.terminated? } }
       end
     end
 
