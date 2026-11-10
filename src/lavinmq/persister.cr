@@ -163,6 +163,12 @@ module LavinMQ
     rescue ::Channel::ClosedError
     end
 
+    # Requests a drain of what is marked dirty, without waiting for it
+    def drain_soon : Nil
+      @publish_confirm_requested.try_send true
+    rescue ::Channel::ClosedError
+    end
+
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.

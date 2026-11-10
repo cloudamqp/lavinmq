@@ -305,7 +305,9 @@ module LavinMQ
       @empty.close
       # Not left to the persister like an emptied segment: a queue's delete
       # is durable in the definitions before its store is deleted, so its
-      # files have nothing left to recover
+      # files have nothing left to recover. The messages moved out of them
+      # are only in their destinations now, so those are synced soon.
+      @persister.try &.drain_soon
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir

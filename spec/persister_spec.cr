@@ -439,6 +439,22 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "syncs the messages moved out of a queue soon after the queue is deleted" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        s.persister.sync
+        since = s.persister.syncs.size
+        # Too few to empty a segment, so nothing has requested a drain for them
+        2.times { src.publish "x" }
+        wait_for { message_count(s, "dst") == 2 }
+        s.vhosts["/"].delete_queue("src")
+        dst_dir = queue_dir(s, "dst")
+        wait_for { s.persister.syncs[since..].any?(&.paths.any?(&.starts_with?(dst_dir))) }
+      end
+    end
+  end
+
   it "starts a declared queue empty when a crash left the directory of a deleted queue with its name" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
