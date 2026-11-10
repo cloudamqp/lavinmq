@@ -94,6 +94,10 @@ module LavinMQ
       @runner.run do
         start
       end
+      # The runner returns without a start when the node is stopped before it
+      # becomes leader. Nothing was started then, so let the signal handler
+      # exit, as for a follower (see #shutdown_server).
+      sleep unless @server
       @replicator.try &.close
       @data_dir_lock.try &.release
     ensure
