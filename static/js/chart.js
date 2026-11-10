@@ -1,4 +1,5 @@
 /* global ResizeObserver MutationObserver */
+import './locale.js'
 import UPlot from './lib/uplot.esm.js'
 import * as helpers from './helpers.js'
 import * as Poller from './poller.js'

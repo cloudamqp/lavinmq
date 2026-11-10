@@ -192,6 +192,20 @@ test.describe('overview', _ => {
     expect(maxes).toEqual([...new Array(12).fill(1000), 100, 100, 100])
   })
 
+  // Chromium on Linux reports e.g. 'en-US@posix' when started without LANG
+  for (const language of ['en-US@posix', 'C']) {
+    test(`renders charts when navigator.language is '${language}'`, async ({ page }) => {
+      await page.addInitScript(language => {
+        Object.defineProperty(Navigator.prototype, 'language', { get: () => language })
+      }, language)
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.goto('/')
+      await expect(page.locator('#msgChart .u-legend-item')).toHaveCount(2)
+      expect(errors).toEqual([])
+    })
+  }
+
   test('definitions export trigger GET to /api/definitions for all vhosts', async ({ page }) => {
     const definitionsRequest = helpers.waitForPathRequest(page, '/api/definitions')
     await page.goto('/')
