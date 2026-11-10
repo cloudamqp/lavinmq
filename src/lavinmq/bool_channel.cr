@@ -40,6 +40,8 @@ class BoolChannel
   # Makes updating the value and switching the active channel one step, so
   # concurrent sets can't leave them disagreeing
   @lock = Mutex.new
+  # Turn channels of the fibers in #wait_until_true, first in line first
+  @line = Deque(::Channel(Nil)).new
 
   def initialize(value : Bool)
     @value = Atomic.new(value)
@@ -74,12 +76,44 @@ class BoolChannel
     if value
       @when_false.deactivate
       @when_true.activate
+      wake_first_in_line
     else
       @when_true.deactivate
       @when_false.activate
     end
   end
 
+  # Blocks until the value is true and this fiber is first in line. Only the
+  # first is woken, and it wakes the next as it leaves.
+  def wait_until_true(turn : ::Channel(Nil), abort : ::Channel, & : ->) : Bool
+    @lock.synchronize { @line.push turn }
+    loop do
+      return true if @lock.synchronize { value && @line.first? == turn }
+      yield
+      select
+      when turn.receive
+      when abort.receive?
+        return false
+      end
+    end
+  ensure
+    @lock.synchronize do
+      @line.first? == turn ? @line.shift : @line.delete(turn)
+      wake_first_in_line if value
+    end
+  end
+
+  private def wake_first_in_line : Nil
+    if turn = @line.first?
+      select
+      when turn.send(nil)
+      else
+      end
+    end
+  end
+
+  # Doesn't release fibers in #wait_until_true, they leave through their
+  # abort channel
   def close
     @when_true.close
     @when_false.close

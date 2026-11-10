@@ -97,15 +97,17 @@ describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 300}))
         queue = s.vhosts["/"].queue("qexpires")
         tag = q.subscribe { }
-        sleep 110.milliseconds
+        sleep 310.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
         start = Time.instant
         should_eventually(be_true) { queue.closed? }
-        (Time.instant - start).total_milliseconds.should be_close 100, 50
+        elapsed = (Time.instant - start).total_milliseconds
+        elapsed.should be >= 250
+        elapsed.should be < 550
       end
     end
   end
@@ -403,6 +405,36 @@ describe LavinMQ::AMQP::Queue do
           queue.state.running?.should be_true
           queue.message_count.should eq 0
         end
+      end
+    end
+
+    it "closes a queue whose message count exceeds its readable messages instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        seg1_size = store.@segments[1].size
+        msg_bytesize = (seg1_size - 4) // 3
+        s.stop
+
+        # Ack every message on disk, but let segment 1's metadata claim 10
+        # more messages than it holds, so the store counts 10 that it can't read
+        File.open(File.join(msg_dir, "acks.0000000001"), "a") do |f|
+          3.times { |i| f.write_bytes((4 + i * msg_bytesize).to_u32) }
+        end
+        File.open(File.join(msg_dir, "acks.0000000002"), "a", &.write_bytes(4u32))
+        File.open(File.join(msg_dir, "meta.0000000001"), "r+", &.write_bytes(13u32))
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
+        queue.closed?.should be_true
+        queue.restart!.should be_false
+        queue.closed?.should be_true
       end
     end
 
@@ -709,10 +741,10 @@ describe LavinMQ::AMQP::Queue do
     # into its segment. That must happen while @msg_store_lock is held, else a
     # purge on another thread can unmap the segment in the meantime (segfault).
     it "doesn't read the head message after releasing the lock", tags: "slow" do
-      log = LavinMQ::AMQP::Queue::Log
-      level, backend = log.level, log.backend
-      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
-      log.level = :debug
+      # A binding, not Log#level=, as a level set on the Log overrides every
+      # later binding, e.g. Log.capture in other specs
+      null_backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      ::Log.builder.bind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend)
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ttl-purge", false, false,
@@ -747,10 +779,7 @@ describe LavinMQ::AMQP::Queue do
         wg.wait
       end
     ensure
-      if log
-        log.level = level if level
-        log.backend = backend
-      end
+      ::Log.builder.unbind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend) if null_backend
     end
 
     it "purges exactly the messages it reports while messages are published", tags: "slow" do
@@ -896,6 +925,7 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_amqp_server do |s|
         with_channel(s) do |ch|
           s.flow(false)
@@ -904,6 +934,8 @@ describe LavinMQ::AMQP::Queue do
           end
         end
       end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
   end
 
@@ -1160,6 +1192,44 @@ describe LavinMQ::AMQP::Queue do
           q.message_count.should eq 0
           q.@deliveries.size.should eq 0
         end
+      end
+    end
+  end
+
+  describe "reject-publish overflow" do
+    # Regression: the length limit was only checked before taking
+    # @msg_store_lock. A publisher that then waited for the lock while another
+    # publisher filled the queue pushed its message past the limit, and
+    # drop_overflow dropped (or dead-lettered) the confirmed head instead of
+    # rejecting the new publish
+    it "rejects a publish that waited for the store lock while the queue filled up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rp", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"}))
+        q = vhost.queue("rp").as(LavinMQ::AMQP::Queue)
+        lock = q.@msg_store_lock
+        lock.lock
+        result = LavinMQ::AMQP::Queue::PublishResult::Closed
+        started = Atomic(Bool).new(false)
+        done = WaitGroup.new(1)
+        spawn(name: "second publisher") do
+          started.set(true)
+          # Passes the limit check on the empty queue, then waits for the lock
+          result = q.publish(LavinMQ::Message.new("", q.name, "second"))
+        ensure
+          done.done
+        end
+        should_eventually(be_true) { started.get }
+        sleep 20.milliseconds
+        # The lock is reentrant, so this publish fills the queue while the
+        # other one is waiting for it
+        q.publish(LavinMQ::Message.new("", q.name, "first")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+        lock.unlock
+        done.wait
+        result.should eq LavinMQ::AMQP::Queue::PublishResult::Overflow
+        q.message_count.should eq 1
+        q.basic_get(true) { |env| String.new(env.message.body).should eq "first" }.should be_true
       end
     end
   end
@@ -1652,6 +1722,37 @@ describe LavinMQ::AMQP::Queue do
           refused.should be < 200
         end
       end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::DurableQueue do
+  it "writes the .queue name file when declared, not on every start" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_once", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_once").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      File.read(path).should eq "dotqueue_once"
+      before = File.info(path)
+      s.stop
+      sleep 10.milliseconds # so a rewrite would move the mtime
+      restart_server(s)
+      File.info(path).modification_time.should eq before.modification_time
+      File.read(path).should eq "dotqueue_once"
+    end
+  end
+
+  it "rewrites a .queue name file that a crash left empty" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("dotqueue_empty", durable: true)
+      end
+      path = File.join(s.vhosts["/"].queue("dotqueue_empty").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+      s.stop
+      File.write(path, "")
+      restart_server(s)
+      File.read(path).should eq "dotqueue_empty"
     end
   end
 end

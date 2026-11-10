@@ -179,6 +179,7 @@ describe LavinMQ::Config do
           port = 5680
           etcd_endpoints = localhost:2380,localhost:2381
           etcd_prefix = test-lavinmq
+          etcd_lease_ttl = 30
           max_unsynced_actions = 16384
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
@@ -268,6 +269,7 @@ describe LavinMQ::Config do
     config.clustering_port.should eq 5680
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
     config.clustering_etcd_prefix.should eq "test-lavinmq"
+    config.clustering_etcd_lease_ttl.should eq 30
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
     config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
     config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
@@ -316,6 +318,7 @@ describe LavinMQ::Config do
       "--clustering-bind=0.0.0.0",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
       "--clustering-etcd-prefix=cli-prefix",
+      "--clustering-etcd-lease-ttl=20",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
     ]
@@ -358,6 +361,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
+    config.clustering_etcd_lease_ttl.should eq 20
     config.clustering_port.should eq 5680
   end
 
@@ -393,6 +397,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
     ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
+    ENV["LAVINMQ_CLUSTERING_ETCD_LEASE_TTL"] = "15"
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
     ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
     ENV["LAVINMQ_SYNC"] = "false"
@@ -420,6 +425,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "10.3.3.3"
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
+    config.clustering_etcd_lease_ttl.should eq 15
     config.clustering_port.should eq 5681
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
   ensure
@@ -444,6 +450,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_BIND")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
@@ -679,6 +686,27 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering_etcd_lease_ttl" do
+    it "defaults to 10 seconds" do
+      LavinMQ::Config.new.clustering_etcd_lease_ttl.should eq 10
+    end
+
+    it "rejects non-positive values" do
+      [0, -1].each do |ttl|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            etcd_lease_ttl = #{ttl}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /etcd_lease_ttl/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
@@ -750,16 +778,38 @@ describe LavinMQ::Config do
       end
     end
 
-    it "parses a broken [sni:] section when TLS is not configured" do
+    it "refuses a broken [sni:] section when TLS is configured" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /SNI host 'foobar.localhost'/) do
+          config.parse(["-c", config_file.path])
+        end
+      ensure
+        File.delete?(config_file.path)
+      end
+    end
+
+    it "warns on a broken [sni:] section when TLS is not configured" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
         File.write(config_file.path, <<-INI)
           [sni:foobar.localhost]
           tls_cert = spec/resources/no_such_certificate.pem
           INI
-        config = LavinMQ::Config.new
+        io = IO::Memory.new
+        config = LavinMQ::Config.new(io)
         # No TLS listener can use the section, so it must not stop startup
         config.parse(["-c", config_file.path])
+        io.to_s.should contain "Invalid TLS settings for SNI host 'foobar.localhost'"
         config.sni_manager.get_host("foobar.localhost").should_not be_nil
       ensure
         File.delete?(config_file.path)

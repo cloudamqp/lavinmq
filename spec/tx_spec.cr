@@ -70,6 +70,24 @@ describe "Transactions" do
       end
     end
 
+    it "doesn't return a mandatory publish that a full queue rejects" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          returned = Channel(String).new
+          ch.on_return { |msg| returned.send msg.routing_key }
+          args = AMQP::Client::Arguments.new
+          args["x-max-length"] = 0_i64
+          args["x-overflow"] = "reject-publish"
+          q = ch.queue("", args: args)
+          ch.tx_select
+          ch.basic_publish("m1", "", q.name, mandatory: true)
+          ch.basic_publish("m2", "", "unroutable", mandatory: true)
+          ch.tx_commit
+          returned.receive.should eq "unroutable"
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

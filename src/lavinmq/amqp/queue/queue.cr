@@ -33,8 +33,7 @@ module LavinMQ::AMQP
     VALIDATOR_STRING    = ArgumentValidator::StringValidator.new
     VALIDATOR_BOOL      = ArgumentValidator::BoolValidator.new
 
-    DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT = 20_i64
-    DELAYED_RETRY_MAX_DELAY_MS           = UInt32::MAX.to_i64
+    DELAYED_RETRY_MAX_DELAY_MS = UInt32::MAX.to_i64
 
     add_argument_validator "x-expires", VALIDATOR_INT_ONE
     add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
@@ -322,10 +321,14 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
-      fresh = !File.exists?(dotqueue_file)
-      File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
-      if durable?
-        @vhost.replicator.try &.replace_file(dotqueue_file)
+      dotqueue_info = File.info?(dotqueue_file)
+      fresh = dotqueue_info.nil?
+      # It isn't fsynced, so a crash can leave it empty
+      if dotqueue_info.nil? || dotqueue_info.size != @name.bytesize
+        File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
+        @vhost.replicator.try &.replace_file(dotqueue_file) if durable?
+      elsif durable?
+        @vhost.replicator.try &.register_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -352,7 +355,7 @@ module LavinMQ::AMQP
         handle_arguments
         ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
-        true
+        !@closed
       end
     end
 
@@ -440,6 +443,10 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
       end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      false
     end
 
     private def reset_queue_state
@@ -477,7 +484,12 @@ module LavinMQ::AMQP
           Dir.mkdir_p data_dir
         end
       elsif durable?
-        FileSystem.mkdir_p data_dir
+        Dir.mkdir_p data_dir
+        # Nothing in the queue's directory is durable before a confirmed
+        # publish, and a lost directory is recreated from the definitions on
+        # start, so its entry is fsynced with the next confirm instead of on
+        # every declare
+        @vhost.persister.mark_dirty(@vhost.data_dir)
       else
         Dir.mkdir_p data_dir
       end
@@ -653,7 +665,6 @@ module LavinMQ::AMQP
           raise LavinMQ::Error::PreconditionFailed.new(
             "x-delayed-retry-min cannot be combined with x-message-deduplication")
         end
-        settings.delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
         effective_args << "x-delayed-retry-min"
         settings.delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
         effective_args << "x-delayed-retry-multiplier" if settings.delayed_retry_multiplier
@@ -738,7 +749,7 @@ module LavinMQ::AMQP
 
     # Dead-letters a message of this queue that the retry queue holds. The
     # block removes it from the retry queue once routed
-    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : -> Nil) : Nil
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool -> Nil) : Nil
       @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
       @dead_letter.route(msg, reason, &routed)
     end
@@ -755,6 +766,9 @@ module LavinMQ::AMQP
       cap = Math.min(settings.delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
       delay = Math.min(base_delay, cap)
       if mult = settings.delayed_retry_multiplier
+        # Without a delivery limit the count is unbounded, and a constant
+        # delay would otherwise loop once per attempt
+        return delay if mult == 1
         (delivery_count - 1).times do
           if delay > cap // mult
             delay = cap
@@ -945,10 +959,13 @@ module LavinMQ::AMQP
         end
         d.add(msg)
       end
-      return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
       pushed = false
       @msg_store_lock.synchronize do
+        # Checked under the lock: other publishers can fill the queue while
+        # this one waits for it, and a message pushed past the limit would
+        # make drop_overflow drop the confirmed head
+        return PublishResult::Overflow if reject_on_overflow?(msg)
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
@@ -1004,6 +1021,9 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
       settings = self.settings
+      # In reject-publish mode publishes past the limit are refused instead,
+      # and a stored message is never dropped for the limit
+      return if settings.reject_on_overflow?
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb
@@ -1146,10 +1166,10 @@ module LavinMQ::AMQP
         end
         routed = false
         begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do
+          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
             routed = true
             begin
-              delete_message sp
+              delete_message sp if stored
             ensure
               env.release
             end
@@ -1266,7 +1286,8 @@ module LavinMQ::AMQP
       # Acks and rejects on other threads update @deliveries too
       delivery_count = @msg_store_lock.synchronize do
         count = @deliveries[sp]? || delivery_count_from_header(headers, settings) || 0
-        @deliveries[sp] = count + 1
+        # Saturates, since without a delivery limit the count is unbounded
+        @deliveries[sp] = count == Int32::MAX ? count : count + 1
         count
       end
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery

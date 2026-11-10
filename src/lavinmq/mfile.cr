@@ -36,6 +36,10 @@ class MFile < IO
   getter pos : Int64 = 0i64
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
+  # Bytes the file occupies on disk as of open. A segment a crash left at
+  # its capacity is sparse past its data, and reading the hole would only
+  # zero-fill page cache
+  getter allocated_size : Int64 = 0i64
   getter path : String
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
@@ -73,7 +77,7 @@ class MFile < IO
     raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
     fd = open_fd
     begin
-      @size = file_size(fd)
+      stat_file(fd)
       @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
       if @capacity > @size
         code = LibC.ftruncate(fd, @capacity)
@@ -121,10 +125,11 @@ class MFile < IO
     raise File::Error.from_errno("Error closing file", file: @path) if code < 0
   end
 
-  private def file_size(fd) : Int64
+  private def stat_file(fd) : Nil
     code = LibC.fstat(fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_size.to_i64
+    @size = stat.st_size.to_i64
+    @allocated_size = stat.st_blocks.to_i64 * 512
   end
 
   private def mmap(fd, length = @capacity) : Pointer(UInt8)
@@ -300,6 +305,14 @@ class MFile < IO
     slice.copy_from(@buffer + pos, len)
     @pos = pos + len
     len
+  end
+
+  def read_byte : UInt8?
+    check_open
+    pos = @pos
+    return if pos >= @size
+    @pos = pos + 1
+    @buffer[pos]
   end
 
   def rewind

@@ -96,6 +96,18 @@ module LavinMQ
       end
     end
 
+    # Checked before anything is imported, so a refused import doesn't leave
+    # the queues and exchanges listed before the refused one behind
+    private def refuse_delayed_mqtt_topic_exchanges(body)
+      body["exchanges"]?.try &.as_a.each do |e|
+        type = e["type"].as_s
+        arguments = AMQP::Table.new(e["arguments"].as_h)
+        if DefinitionsStore.delayed_mqtt_topic?(type, arguments)
+          raise Error::PreconditionFailed.new("Exchange '#{e["name"]}' can't be delayed: an x-mqtt-topic exchange only routes MQTT publishes")
+        end
+      end
+    end
+
     private def import_exchanges(body)
       if exchanges = body["exchanges"]?
         exchanges.as_a.each do |e|
@@ -234,16 +246,17 @@ module LavinMQ
         parameters.as_a.each do |p|
           next unless v = fetch_vhost?(p)
           name = p["name"].as_s
-          value = p["value"].as_h
           case component = p["component"].as_s
           when "vhost-limits"
-            limits << {v, value}
+            limits << {v, p["value"].as_h}
           when "operator_policy"
             next if skip_existing && v.operator_policies[name]?
+            value = p["value"].as_h
             operator_policies << {v, name, value["pattern"].as_s, value["apply-to"].as_s,
                                   value["definition"].as_h, value["priority"].as_i.to_i8}
           else
             next if skip_existing && v.parameters[{component, name}]?
+            validate_parameter_value(component, p["value"])
             params << {v, Parameter.new(component, name, p["value"])}
           end
         end
@@ -265,6 +278,18 @@ module LavinMQ
         touched_parameters.each(&.save_parameters!)
         touched_operator_policies.each(&.save_operator_policies!)
         apply_policies(touched_parameters | touched_operator_policies)
+      end
+    end
+
+    private def validate_parameter_value(component, value)
+      if component == VHost::FEDERATION_UPSTREAM_SET
+        value.as_a.each do |entry|
+          unless entry.as_h?.try(&.["upstream"]?).try(&.as_s?)
+            raise ArgumentError.new("Each entry in a federation-upstream-set must have a string 'upstream'")
+          end
+        end
+      else
+        value.as_h
       end
     end
 
@@ -365,7 +390,7 @@ module LavinMQ
           # are exported: their bindings are exported either way, so skipping the
           # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
           v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
-            delayed = e.arguments["x-delayed-exchange"]?
+            delayed = e.arguments["x-delayed-exchange"]?.try &.as?(Bool)
             if delayed
               arguments = e.arguments.clone
               arguments["x-delayed-type"] = e.type
@@ -438,6 +463,7 @@ module LavinMQ
     getter vhosts : Hash(String, VHost)
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
@@ -475,6 +501,7 @@ module LavinMQ
     end
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
       import_vhosts(body)

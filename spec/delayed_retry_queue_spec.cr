@@ -1,6 +1,19 @@
 require "./spec_helper"
 require "log/spec"
 
+class LavinMQ::AMQP::Queue
+  def spec_retry_delay_for(delivery_count : Int32) : Int64
+    retry_delay_for(delivery_count)
+  end
+
+  def spec_set_first_delivery_count(count : Int32) : Nil
+    @msg_store_lock.synchronize do
+      env = @msg_store.first? || raise "queue is empty"
+      @deliveries[env.segment_position] = count
+    end
+  end
+end
+
 # Parks dead-lettering inside #publish_internal until released. In the AMQP
 # namespace because AMQP::Exchange#bind refuses destinations outside it.
 class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
@@ -56,21 +69,52 @@ describe "Retry Queue" do
       end
     end
 
-    it "should default x-delivery-limit to 20 when x-delayed-retry-min is set" do
+    it "should keep retrying without x-delivery-limit" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1})
-          q = ch.queue("retry-default-limit", args: args)
-          ch.default_exchange.publish_confirm("default limit", q.name)
+          q = ch.queue("retry-no-limit", args: args)
+          ch.default_exchange.publish_confirm("no limit", q.name)
 
-          21.times do
+          25.times do
             msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
             msg.reject(requeue: true)
           end
 
-          sleep 50.milliseconds
-          q.get(no_ack: true).should be_nil
-          s.vhosts["/"].queue("retry-default-limit").message_count.should eq 0
+          msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          msg.properties.headers.try(&.["x-delivery-count"]?).should eq 25
+        end
+      end
+    end
+
+    it "should give a constant delay without looping over a large delivery count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delayed-retry-min"        => 200,
+            "x-delayed-retry-multiplier" => 1,
+          })
+          ch.queue("retry-constant-large-count", args: args)
+          q = s.vhosts["/"].queue("retry-constant-large-count").as(LavinMQ::AMQP::Queue)
+          elapsed = Time.measure do
+            q.spec_retry_delay_for(Int32::MAX).should eq 200
+          end
+          elapsed.should be < 100.milliseconds
+        end
+      end
+    end
+
+    it "should not overflow the delivery count without x-delivery-limit" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1})
+          q = ch.queue("retry-count-overflow", args: args)
+          ch.default_exchange.publish_confirm("many retries", q.name)
+          queue = s.vhosts["/"].queue("retry-count-overflow").as(LavinMQ::AMQP::Queue)
+          queue.spec_set_first_delivery_count(Int32::MAX)
+
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.properties.headers.try(&.["x-delivery-count"]?).should eq Int32::MAX
         end
       end
     end

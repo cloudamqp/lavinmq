@@ -36,7 +36,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            e.to_json(context.response)
+            e.to_json(context.response.output)
           end
         end
 
@@ -64,9 +64,6 @@ module LavinMQ
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
-              end
-              if e.internal?
-                bad_request(context, "Not allowed to publish to internal exchange")
               end
               context.response.status_code = 204
             elsif NameValidator.reserved_prefix?(name)
@@ -155,7 +152,7 @@ module LavinMQ
             # signal a publisher-confirms client would: any queue that didn't
             # store the message turns the publish into "not routed", even if
             # other bound queues accepted.
-            {routed: result.routed? && !result.rejected?}.to_json(context.response)
+            {routed: result.routed? && !result.rejected?}.to_json(context.response.output)
           end
         end
       end

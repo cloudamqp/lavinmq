@@ -231,6 +231,54 @@ describe LavinMQ::Server do
   end
 
   describe "unexpected frames" do
+    it "doesn't time out a client whose frames never start at a socket read" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          frame = IO::Memory.new
+          frame.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+          bytes = frame.to_slice
+          # Every write ends in the middle of a frame, for longer than the
+          # heartbeat timeout (1 s + 5 s), then the client goes quiet
+          straddling = IO::Memory.new
+          straddling.write bytes[4, 4]
+          straddling.write bytes[0, 4]
+          io.write bytes[0, 4]
+          io.flush
+          deadline = Time.instant + 7.seconds
+          while Time.instant < deadline
+            io.write straddling.to_slice
+            io.flush
+            sleep 100.milliseconds
+          end
+          io.write bytes[4, 4]
+          io.flush
+          sleep 1.5.seconds
+          client.closed?.should be_false
+        end
+      end
+    end
+
+    it "doesn't time out a client that sends heartbeats when socket_buffer_size is 0" do
+      config = LavinMQ::Config.new
+      config.socket_buffer_size = 0
+      with_amqp_server(config: config) do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          # Longer than the heartbeat timeout (1 s + 5 s), with a pause
+          # between heartbeats that lets the server's read time out
+          8.times do
+            io.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+            io.flush
+            sleep 1.second
+          end
+          client.closed?.should be_false
+        end
+      end
+    end
+
     it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
       with_amqp_server do |s|
         with_raw_amqp_connection(s) do |io, stream|
