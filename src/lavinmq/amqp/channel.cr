@@ -755,15 +755,15 @@ module LavinMQ
         redeliver = Array(Unack).new
         notify_has_capacity do
           if frame.requeue
-            @unacked.each do |unack|
-              next if delivery_tag_is_in_tx?(unack.tag)
+            @unacked.reject! do |unack|
+              next false if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
               release_basic_get(unack)
               unack.queue.requeue(unack.sp)
+              true
             end
-            @unacked.clear
           else # redeliver to the original recipient
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
