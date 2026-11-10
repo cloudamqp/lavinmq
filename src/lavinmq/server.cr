@@ -80,7 +80,6 @@ module LavinMQ
       @persister.close
       @vhosts.close
       @replicator.try &.clear
-      @persister.wait_for_unlinks
       @authenticator.try &.cleanup
       Fiber.yield
     end
@@ -122,7 +121,6 @@ module LavinMQ
       @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
-      @persister.wait_for_unlinks
     end
 
     private def close_log_exchange

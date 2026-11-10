@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A queue no longer stalls for a `syncfs` each time one of its segments is emptied. The messages the broker moves between queues (dead-lettered, delayed, retried) are synced like confirmed publishes, and the emptied segment is unlinked after that sync, in the background. A deleted queue's files are removed the same way [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
+- A queue no longer stalls for a `syncfs` each time one of its segments is emptied. The messages the broker moves between queues (dead-lettered, delayed, retried) are synced like confirmed publishes, and the emptied segment is unlinked after that sync, in the background. [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
+- A durable queue that is declared, not loaded at start, now starts empty when a directory for its name already exists, and that directory is removed. A crash while a queue was being deleted could leave its directory behind, and a queue declared with the same name later got the deleted queue's messages [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
 - Queues with `x-delayed-retry-min` no longer default `x-delivery-limit` to 20. Since 2.11.0-rc.1, a message was dead-lettered, or dropped without a dead letter exchange, after 21 deliveries even when no limit was set, and redeliveries from consumer disconnects counted towards it. Retries now end only at an explicit `x-delivery-limit` or `delivery-limit` policy, like on other queues [#2603](https://github.com/cloudamqp/lavinmq/pull/2603)
 
 ### Fixed

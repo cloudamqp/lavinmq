@@ -2,7 +2,6 @@ require "./config"
 require "./logger"
 require "./mfile"
 require "./filesystem"
-require "file_utils"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "sync/exclusive"
@@ -49,8 +48,6 @@ module LavinMQ
       # Emptied segments to unlink once this batch is synced, and the callers
       # of #sync_marked, released after those unlinks
       getter unlinks = Array(Unlink).new
-      # Directories of deleted stores, removed after the unlinks
-      getter removed_dirs = Array(String).new
       getter unlink_waiters = Array(::Channel(Nil)).new
 
       def drainable? : Bool
@@ -58,7 +55,7 @@ module LavinMQ
       end
 
       def after_sync? : Bool
-        !unlinks.empty? || !removed_dirs.empty? || !unlink_waiters.empty?
+        !unlinks.empty? || !unlink_waiters.empty?
       end
 
       # Past the syncfs threshold a drain syncs the whole filesystem and
@@ -76,7 +73,7 @@ module LavinMQ
     # An emptied segment, with its ack file, see #unlink_after_sync
     record Unlink, segment : MFile, meta_path : String, acks : MFile?
     # What a synced batch leaves for the unlink loop
-    private record Synced, unlinks : Array(Unlink), dirs : Array(String), waiters : Array(::Channel(Nil))
+    private record Synced, unlinks : Array(Unlink), waiters : Array(::Channel(Nil))
 
     {% unless flag?(:release) %}
       record SyncRecord, syncfs : Bool, paths : Array(String)
@@ -104,8 +101,6 @@ module LavinMQ
     # block on a follower
     @synced = Sync::Exclusive(Deque(Synced)).new(Deque(Synced).new, :unchecked)
     @synced_added = ::Channel(Bool).new(1)
-    # Closed when the unlink loop has exited
-    @unlinks_done = ::Channel(Nil).new
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
@@ -207,23 +202,6 @@ module LavinMQ
       end
     end
 
-    # Removes the directory of a deleted store, and what is left in it,
-    # after the segments it handed to #unlink_after_sync are unlinked,
-    # without blocking the caller. Whatever creates a directory calls
-    # #flush_unlinks first, in case it's one that is still to be removed.
-    def remove_dir_after_sync(dir : String) : Nil
-      @pending.lock do |batch|
-        unlinking(dir)
-        batch.removed_dirs.push(dir)
-      end
-      @publish_confirm_requested.try_send true
-    rescue ::Channel::ClosedError
-      if @pending.lock &.removed_dirs.delete(dir)
-        syncfs_closed
-        remove_dir(dir)
-      end
-    end
-
     # Blocks until everything marked dirty so far is durable and the files
     # handed to #unlink_after_sync so far are unlinked. Unlike #sync it
     # only syncs the whole filesystem when there can be unmarked writes.
@@ -233,17 +211,15 @@ module LavinMQ
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
-        syncfs_closed
-        @unlinks_done.receive? # what the final drain left for the unlink loop
-        return
+        return syncfs_closed
       end
       waiter.receive?
     end
 
-    # Blocks until what was handed to #unlink_after_sync and
-    # #remove_dir_after_sync in *dir*, and below it, is gone. Before a store
-    # directory is created, and before a store loads one that another store
-    # instance emptied segments in. Unlinks elsewhere aren't waited for.
+    # Blocks until what was handed to #unlink_after_sync in *dir*, and below
+    # it, is unlinked. Before a store loads a directory, or a declared queue
+    # reuses one, that another store instance emptied segments in: they are
+    # unlinked by their paths. Unlinks elsewhere aren't waited for.
     def flush_unlinks(dir : String) : Nil
       pending = @unlinking.lock do |dirs|
         next false if dirs.empty?
@@ -255,18 +231,6 @@ module LavinMQ
 
     def close : Nil
       @publish_confirm_requested.close
-    end
-
-    # After #close, waits for the pending unlinks: the files of a deleted
-    # queue must not be left for a queue declared with the same name after a
-    # restart. Bounded, as the final drain waits for the followers.
-    def wait_for_unlinks(timeout : Time::Span = 10.seconds) : Nil
-      return if @unlinking.lock &.empty?
-      select
-      when @unlinks_done.receive?
-      when timeout(timeout)
-        Log.warn { "Gave up waiting for emptied segments and deleted queues to be unlinked" }
-      end
     end
 
     private def unlinking(dir : String) : Nil
@@ -290,12 +254,9 @@ module LavinMQ
         open = !@synced_added.receive?.nil?
         while synced = @synced.lock &.shift?
           synced.unlinks.each { |unlink| perform(unlink) }
-          synced.dirs.each { |dir| remove_dir(dir) }
           synced.waiters.each &.close
         end
       end
-    ensure
-      @unlinks_done.close
     end
 
     private def perform(unlink : Unlink) : Nil
@@ -308,14 +269,6 @@ module LavinMQ
       Log.error(exception: ex) { "Failed to unlink #{unlink.segment.path}" }
     ensure
       unlinked(File.dirname(unlink.segment.path))
-    end
-
-    private def remove_dir(dir : String) : Nil
-      FileUtils.rm_rf dir
-    rescue ex
-      Log.error(exception: ex) { "Failed to remove #{dir}" }
-    ensure
-      unlinked(dir)
     end
 
     private def delete_file(file : MFile, meta_path : String? = nil) : Nil
@@ -413,7 +366,7 @@ module LavinMQ
       replicator.try &.wait_for_followers
 
       if batch.after_sync?
-        @synced.lock &.push(Synced.new(batch.unlinks, batch.removed_dirs, batch.unlink_waiters))
+        @synced.lock &.push(Synced.new(batch.unlinks, batch.unlink_waiters))
         begin
           @synced_added.try_send true
         rescue ::Channel::ClosedError

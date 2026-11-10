@@ -700,7 +700,8 @@ describe LavinMQ::AMQP::Queue do
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
-        wait_for { !Dir.exists?(data_dir) } # the persister removes it
+        sleep 0.1.seconds
+        Dir.exists?(data_dir).should be_false
       end
     end
   end

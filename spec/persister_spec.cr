@@ -415,43 +415,53 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "deletes a queue without waiting, and keeps its files until a drain has synced the copies" do
+  it "removes a deleted queue's directory at once, also when its moved messages aren't synced" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch)
         src_dir = queue_dir(s, "src")
-        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
-        expect_kept_until_synced(s, File.join(src_dir, "msgs.0000000001"), queue_dir(s, "dst")) do
+        with_drain_held do
           8.times { src.publish "x" * 100_000 }
           wait_for { message_count(s, "dst") == 8 }
-          queue.delete
-          s.vhosts["/"].queue?("src").should be_nil
-        end
-        wait_for { !Dir.exists?(src_dir) }
-      end
-    end
-  end
-
-  it "declares a queue again only after the directory of the deleted one is removed" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        src = declare_dead_lettering(ch, ttl: 60_000)
-        src.publish_confirm "old"
-        declared = Channel(Nil).new
-        with_drain_held do
-          s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue).delete
+          s.vhosts["/"].delete_queue("src")
+          Dir.exists?(src_dir).should be_false
+          # A segment the deleted queue emptied is still to be unlinked, by its path
+          declared = Channel(Nil).new
           spawn { s.vhosts["/"].declare_queue("src", true, false); declared.close }
           sleep 50.milliseconds
           s.vhosts["/"].queue?("src").should be_nil
         end
-        select
-        when declared.receive?
-        when timeout(5.seconds)
-          fail "the queue wasn't declared"
-        end
-        message_count(s, "src").should eq 0
-        File.exists?(File.join(queue_dir(s, "src"), ".queue")).should be_true
+        wait_for { s.vhosts["/"].queue?("src") }
+        ch.queue("src", passive: true).publish_confirm "new"
+        File.exists?(File.join(src_dir, "msgs.0000000001")).should be_true
+        message_count(s, "src").should eq 1
       end
+    end
+  end
+
+  it "starts a declared queue empty when a crash left the directory of a deleted queue with its name" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        old = ch.queue("old")
+        3.times { old.publish_confirm "left behind" }
+        # What a crash between a queue's delete and the removal of its files leaves
+        FileUtils.cp_r queue_dir(s, "old"), queue_dir(s, "again")
+        ch.queue("again")
+        message_count(s, "again").should eq 0
+        message_count(s, "old").should eq 3
+      end
+    end
+  end
+
+  it "keeps the messages of a queue that is loaded from the definitions" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        3.times { ch.queue("kept").publish_confirm "kept" }
+      end
+      restart_server(s)
+      message_count(s, "kept").should eq 3
     end
   end
 
@@ -473,29 +483,6 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           end
         end
       end
-    end
-  end
-
-  it "removes a deleted queue's files before a shutdown is done, so a restart can't bring them back" do
-    with_datadir do |data_dir|
-      persister = LavinMQ::Persister.new(data_dir)
-      msg_dir = File.join(data_dir, "q")
-      Dir.mkdir(msg_dir)
-      store = LavinMQ::MessageStore.new(msg_dir, nil, persister: persister)
-      store.push(LavinMQ::Message.new("ex", "rk", "body"))
-      closed = Channel(Nil).new
-      with_drain_held do
-        store.delete
-        spawn { persister.close; persister.wait_for_unlinks; closed.close }
-        sleep 50.milliseconds
-        Dir.exists?(msg_dir).should be_true
-      end
-      select
-      when closed.receive?
-      when timeout(5.seconds)
-        fail "the persister didn't close"
-      end
-      Dir.exists?(msg_dir).should be_false
     end
   end
 

@@ -1,3 +1,4 @@
+require "file_utils"
 require "./logger"
 require "./filesystem"
 require "./schema"
@@ -207,6 +208,7 @@ module LavinMQ
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          remove_leftover_queue_dir(f.queue_name) if !loading && f.durable
           q = QueueFactory.make(@vhost, f)
           if q.is_a?(MQTT::Session)
             @sessions[f.queue_name] = q
@@ -410,6 +412,19 @@ module LavinMQ
         @definitions_file.close
         @definitions_file = io
       end
+    end
+
+    # A queue that is declared, not loaded from the definitions, has no
+    # messages. A directory with its name is what a crash left of a deleted
+    # queue, whose messages must not come back.
+    private def remove_leftover_queue_dir(name : String) : Nil
+      dir = AMQP::Queue.data_dir(@vhost, name, durable: true)
+      return unless Dir.exists?(dir)
+      @log.info { "Removing the directory left by a deleted queue named #{name}" }
+      # Segments the deleted queue emptied can still be about to be unlinked,
+      # by their paths
+      @vhost.persister.flush_unlinks(dir)
+      FileUtils.rm_rf dir
     end
 
     private def store_definition(frame, dirty = false, fsync = true)

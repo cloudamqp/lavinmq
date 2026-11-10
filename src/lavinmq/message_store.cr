@@ -303,16 +303,12 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
-      if persister = @persister
-        # Messages moved out of this store can be unsynced in their destinations
-        @segments.reject! { |id, segment| unlink_files(segment, @acks.delete(id)); true }
-        @acks.reject! { |_, f| delete_file(f); true }
-        persister.remove_dir_after_sync(@msg_dir)
-      else
-        @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
-        @acks.reject! { |_, f| delete_file(f); true }
-        FileUtils.rm_rf @msg_dir
-      end
+      # Not left to the persister like an emptied segment: a queue's delete
+      # is durable in the definitions before its store is deleted, so its
+      # files have nothing left to recover
+      @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
+      @acks.reject! { |_, f| delete_file(f); true }
+      FileUtils.rm_rf @msg_dir
     end
 
     # Messages moved out of a segment (dead-lettered, delayed, retried) can be

@@ -423,8 +423,7 @@ describe "Retry Queue" do
           end
         end
         s.vhosts["/"].queue?(name).should be_nil
-        # The persister removes it, after its next sync
-        wait_for { !Dir.exists?(File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(name))) }
+        Dir.exists?(File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(name))).should be_false
       end
     end
 
