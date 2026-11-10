@@ -691,6 +691,25 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "accepts writes to a first segment that was empty at load, with a replicator" do
+    mktmpdir do |dir|
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.close
+      # A power loss or a full disk can leave the first segment empty
+      File.write(File.join(dir, "msgs.0000000001"), "")
+
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      begin
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        store.size.should eq 1
+        store.close
+      ensure
+        replicator.close
+      end
+    end
+  end
+
   it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
