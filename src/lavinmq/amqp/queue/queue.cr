@@ -263,7 +263,7 @@ module LavinMQ::AMQP
         handle_arguments
         ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
-        true
+        !@closed
       end
     end
 
@@ -351,6 +351,10 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
       end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      false
     end
 
     private def reset_queue_state
