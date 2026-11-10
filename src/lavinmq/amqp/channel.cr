@@ -840,7 +840,8 @@ module LavinMQ
           begin
             yield
           ensure
-            @has_capacity.set(true) if !had_capacity && has_capacity?
+            capacity = has_capacity?
+            @has_capacity.set(capacity) unless capacity == had_capacity
           end
         end
       end
