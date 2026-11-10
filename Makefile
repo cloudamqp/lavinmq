@@ -129,9 +129,14 @@ lint-js:
 lint-openapi:
 	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
+# The full suite runs in SPEC_JOBS parallel processes (default one per CPU), a SPEC file in one
 .PHONY: test
 test: lib views $(LIBGC)
+ifdef SPEC
 	crystal spec $(SPEC_FLAGS) --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
+else
+	SPEC_JOBS=$${SPEC_JOBS:-$$(getconf _NPROCESSORS_ONLN)} crystal spec $(SPEC_FLAGS) --order $${SPEC_SEED:-random} --verbose $(if $(TAGS),--tag '$(TAGS)')
+endif
 
 .PHONY: format
 format:
