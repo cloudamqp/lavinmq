@@ -64,6 +64,10 @@ module LavinMQ
         count
       end
 
+      def routes_amqp_messages? : Bool
+        false
+      end
+
       # Only here to make superclass happy
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
       end

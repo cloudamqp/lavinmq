@@ -96,6 +96,18 @@ module LavinMQ
       end
     end
 
+    # Checked before anything is imported, so a refused import doesn't leave
+    # the queues and exchanges listed before the refused one behind
+    private def refuse_delayed_mqtt_topic_exchanges(body)
+      body["exchanges"]?.try &.as_a.each do |e|
+        type = e["type"].as_s
+        arguments = AMQP::Table.new(e["arguments"].as_h)
+        if DefinitionsStore.delayed_mqtt_topic?(type, arguments)
+          raise Error::PreconditionFailed.new("Exchange '#{e["name"]}' can't be delayed: an x-mqtt-topic exchange only routes MQTT publishes")
+        end
+      end
+    end
+
     private def import_exchanges(body)
       if exchanges = body["exchanges"]?
         exchanges.as_a.each do |e|
@@ -378,7 +390,7 @@ module LavinMQ
           # are exported: their bindings are exported either way, so skipping the
           # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
           v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
-            delayed = e.arguments["x-delayed-exchange"]?
+            delayed = e.arguments["x-delayed-exchange"]?.try &.as?(Bool)
             if delayed
               arguments = e.arguments.clone
               arguments["x-delayed-type"] = e.type
@@ -451,6 +463,7 @@ module LavinMQ
     getter vhosts : Hash(String, VHost)
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
@@ -488,6 +501,7 @@ module LavinMQ
     end
 
     def import(body, skip_existing = false)
+      refuse_delayed_mqtt_topic_exchanges(body)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
       import_vhosts(body)
