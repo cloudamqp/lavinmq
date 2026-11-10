@@ -336,8 +336,7 @@ describe LavinMQ::Federation::Upstream do
           conn.close
         end
         conn_id.should_not be_nil
-        # The link reconnects after 1ms, so the vhost can be without
-        # connections for less than a wait_for poll
+        # The link reconnects after 1ms, quicker than wait_for could see zero connections
         wait_for do
           reconnected = false
           upstream_vhost.each_connection do |c|
