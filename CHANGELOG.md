@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Shovel and federation connections follow the `tcp_nodelay` setting, like the broker's own sockets. With it on, the default, starting a federation link or a shovel no longer stalls about 40 ms per round trip on Nagle's algorithm
+- Shovel and federation connections follow the `tcp_nodelay` setting, like the broker's own sockets. With it on, the default, starting a federation link or a shovel no longer stalls about 40 ms per round trip on Nagle's algorithm [#2707](https://github.com/cloudamqp/lavinmq/pull/2707)
 
 ### Fixed
 
