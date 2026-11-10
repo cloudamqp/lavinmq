@@ -659,11 +659,14 @@ describe "Retry Queue" do
             msg.reject(requeue: true)
           end
 
-          # Linear: delay = min × delivery_count → 200ms, 400ms, ...
+          # Linear: delay = min × delivery_count
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 400, 600]
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 350.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 380.milliseconds
-          delays[2].should be < 600.milliseconds
+          delays[2].should be < 1.4.seconds
         end
       end
     end
