@@ -25,6 +25,8 @@ require "http/client"
 require "amqp-client"
 require "./support/*"
 
+LavinMQ::GCPauseRecorder.install
+
 # Applies the spec config defaults. Inherits the current per-example data dir
 # (set by the `around_each` hook below) rather than hardcoding one, so a custom
 # Config passed to `with_amqp_server`/mtls still ends up in the same dir that
