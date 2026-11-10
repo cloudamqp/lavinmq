@@ -408,6 +408,36 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "closes a queue whose message count exceeds its readable messages instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        seg1_size = store.@segments[1].size
+        msg_bytesize = (seg1_size - 4) // 3
+        s.stop
+
+        # Ack every message on disk, but let segment 1's metadata claim 10
+        # more messages than it holds, so the store counts 10 that it can't read
+        File.open(File.join(msg_dir, "acks.0000000001"), "a") do |f|
+          3.times { |i| f.write_bytes((4 + i * msg_bytesize).to_u32) }
+        end
+        File.open(File.join(msg_dir, "acks.0000000002"), "a", &.write_bytes(4u32))
+        File.open(File.join(msg_dir, "meta.0000000001"), "r+", &.write_bytes(13u32))
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
+        queue.closed?.should be_true
+        queue.restart!.should be_false
+        queue.closed?.should be_true
+      end
+    end
+
     it "should expire msgs after restarting a queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
