@@ -104,6 +104,9 @@ module LavinMQ::AMQP
     # federation links, not handle_arguments commits on queue start
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
+    # The closed retry queue whose delete by name is in progress, see
+    # #start_retry_queue_delete
+    @deleting_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
@@ -692,9 +695,25 @@ module LavinMQ::AMQP
       end
     end
 
-    # The retry queue in use, see DelayedRetryQueue#delete
-    protected def current_retry_queue : DelayedRetryQueue?
-      @retry_queue_lock.synchronize { @delayed_retry_queue }
+    # For DelayedRetryQueue#delete. Returns the retry queue in use when it
+    # replaced *retry_queue*, which the delete goes to instead. Otherwise
+    # *retry_queue* isn't recreated until #retry_queue_deleted: the delete
+    # yields before it removes the files, and a new retry queue would load
+    # the same files meanwhile, see #replace_retry_queue
+    protected def start_retry_queue_delete(retry_queue : DelayedRetryQueue) : DelayedRetryQueue?
+      @retry_queue_lock.synchronize do
+        current = @delayed_retry_queue
+        return current if current && !current.same?(retry_queue)
+        @deleting_retry_queue = retry_queue
+        nil
+      end
+    end
+
+    # The delete of *retry_queue* is done, so it can be recreated
+    protected def retry_queue_deleted(retry_queue : DelayedRetryQueue) : Nil
+      @retry_queue_lock.synchronize do
+        @deleting_retry_queue = nil if @deleting_retry_queue.same?(retry_queue)
+      end
     end
 
     # For DelayedRetryQueue#restart!, e.g. through the management API, so
@@ -725,12 +744,13 @@ module LavinMQ::AMQP
 
     # Returns the open retry queue with false, or a new one in place of a
     # closed or deleted one with true, or nil if this queue was deleted or
-    # closed
+    # closed, or the closed retry queue is being deleted by name
     private def replace_retry_queue : {DelayedRetryQueue?, Bool}
       @retry_queue_lock.synchronize do
         retry_queue = @delayed_retry_queue
         return {retry_queue, false} if retry_queue && !retry_queue.closed?
         return {nil, false} if @deleted || @closed
+        return {nil, false} if retry_queue && retry_queue.same?(@deleting_retry_queue)
         @log.info { "Recreating retry queue" }
         {@delayed_retry_queue = DelayedRetryQueue.create(@vhost, self), true}
       end

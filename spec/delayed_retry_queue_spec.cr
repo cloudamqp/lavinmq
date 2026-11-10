@@ -27,6 +27,22 @@ class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Parks a retry queue's store delete, before it removes the files, while
+# delete_entered is set
+class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
+  class_property delete_entered : ::Channel(Nil)?
+  class_property delete_release = ::Channel(Nil).new
+
+  def delete
+    if entered = self.class.delete_entered
+      self.class.delete_entered = nil
+      entered.send nil
+      self.class.delete_release.receive?
+    end
+    super
+  end
+end
+
 # Rejects (requeue: true) a message the first time it's delivered, so it goes
 # to the retry queue, and acks it when the retry queue releases it back
 private def reject_once_into_retry_queue(q)
@@ -662,6 +678,73 @@ describe "Retry Queue" do
           # Deleted with it, not left running with its files gone
           wait_for { recreated.closed? }
           vhost.queue?("amq.retry-prim").should be_nil
+        end
+      end
+    end
+
+    # The close of a non-durable retry queue deletes it, through the definitions
+    it "closes a non-durable retry queue whose store failed without taking the definitions lock on the reject" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", durable: false, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          retry_q = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          retry_q.durable?.should be_false
+          FileUtils.rm_rf(retry_q.@msg_store.@msg_dir)
+          q.publish_confirm "x" * (LavinMQ::Config.instance.segment_size + 1)
+          tags = Channel(UInt64).new(10)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          tag = tags.receive
+          deleted = Channel(Nil).new
+          spawn do
+            vhost.synchronize_definitions do
+              ch.basic_reject(tag, requeue: true) # the retry queue's push fails
+              tags.receive                        # requeued instantly
+              vhost.delete_queue("prim")
+            end
+            deleted.close
+          end
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the queue delete deadlocked with the reject's close of the retry queue"
+          end
+          wait_for { retry_q.closed? }
+          vhost.queue?("amq.retry-prim").should be_nil
+        end
+      end
+    end
+
+    it "doesn't recreate a retry queue while it's deleted by name, which would load the files being removed" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          prim = vhost.queue("prim").as(LavinMQ::AMQP::Queue)
+          closed = vhost.queue("amq.retry-prim").as(LavinMQ::AMQP::Queue)
+          closed.close
+          q.publish_confirm "x"
+          tags = Channel(UInt64).new(10)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          tag = tags.receive
+          entered = Channel(Nil).new
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.delete_entered = entered
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.delete_release = Channel(Nil).new
+          deleted = Channel(Nil).new
+          spawn { vhost.delete_queue("amq.retry-prim"); deleted.close }
+          entered.receive
+          begin
+            ch.basic_reject(tag, requeue: true)
+            tag = tags.receive # requeued instantly, not delayed in a recreated retry queue
+            prim.@delayed_retry_queue.should be closed
+          ensure
+            LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.delete_release.close
+          end
+          deleted.receive?
+          vhost.queue?("amq.retry-prim").should be_nil
+          ch.basic_reject(tag, requeue: true)
+          wait_for { (rq = prim.@delayed_retry_queue) && !rq.same?(closed) && rq.message_count == 1 }
+          wait_for { vhost.queue?("amq.retry-prim") }
         end
       end
     end

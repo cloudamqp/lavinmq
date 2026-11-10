@@ -32,11 +32,18 @@ module LavinMQ::AMQP
     # A recreated retry queue is registered in the definitions after the one
     # it replaced (see Queue#active_retry_queue), so a delete by name in
     # between finds this closed one. The new one uses the same files, so the
-    # delete goes to it, instead of removing its files from under it.
+    # delete goes to it, instead of removing its files from under it. For the
+    # same reason the primary queue doesn't recreate this one while it's
+    # being deleted, see Queue#start_retry_queue_delete.
     def delete : Bool
-      current = @primary_queue.current_retry_queue
-      return current.delete if current && !current.same?(self)
-      super
+      if current = @primary_queue.start_retry_queue_delete(self)
+        return current.delete
+      end
+      begin
+        super
+      ensure
+        @primary_queue.retry_queue_deleted(self)
+      end
     end
 
     def delay(msg : Message) : Bool
@@ -52,7 +59,11 @@ module LavinMQ::AMQP
       false
     rescue ex : MessageStore::Error | IO::Error
       @log.error(ex) { "Queue closed due to error, message requeued instantly" }
-      close
+      # From another fiber: a reject calls this while its channel holds the
+      # lock its deliver loops wait for, and the close of a non-durable retry
+      # queue deletes it, which takes the definitions lock, see
+      # Queue#active_retry_queue
+      spawn(name: "DelayedRetryQueue#close #{@vhost.name}/#{@name}") { close }
       false
     end
 
