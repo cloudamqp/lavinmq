@@ -782,8 +782,9 @@ module PrometheusMqttSpecs
           amqp = AMQP::Client.new(port: port, name: "prometheus-spec").connect
           with_client_io(s) do |io|
             connect(io, client_id: "metrics")
-            metric_value(http, "lavinmq_connections").should eq 2
-            metric_value(http, "lavinmq_mqtt_connections").should eq 1
+            # The server registers the connection after sending CONNACK
+            should_eventually(eq(2)) { metric_value(http, "lavinmq_connections") }
+            should_eventually(eq(1)) { metric_value(http, "lavinmq_mqtt_connections") }
             disconnect(io)
           end
           should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
