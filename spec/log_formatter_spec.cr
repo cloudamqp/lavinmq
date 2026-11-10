@@ -13,4 +13,15 @@ describe LavinMQ::JournalLogFormat do
       "<3> Caused by: inner failure (IO::Error)",
     ]
   end
+
+  it "escapes line breaks in the exception message" do
+    ex = RuntimeError.new("line one\nline two\r\nline three")
+    entry = Log::Entry.new("spec", :error, "Read Loop error", Log::Metadata.empty, ex)
+    io = IO::Memory.new
+    LavinMQ::JournalLogFormat.format(entry, io)
+    io.to_s.lines.should eq [
+      "<3> spec Read Loop error",
+      "<3> line one\\nline two\\r\\nline three (RuntimeError)",
+    ]
+  end
 end
