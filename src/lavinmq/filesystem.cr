@@ -8,6 +8,12 @@ module LavinMQ
   # renames and newly created directories fsync the directory they changed.
   # The fsyncs are skipped when `sync` is disabled.
   module FileSystem
+    # Whether `ex` is a failed syscall for lack of a free file descriptor,
+    # either in this process (EMFILE) or system wide (ENFILE)
+    def self.out_of_file_descriptors?(ex : Exception) : Bool
+      ex.is_a?(SystemError) && ex.os_error.in?(Errno::EMFILE, Errno::ENFILE)
+    end
+
     def self.syncfs(fd : Int32) : Nil
       {% if flag?(:linux) %}
         ret, errno = Fiber.syscall do
@@ -55,14 +61,27 @@ module LavinMQ
 
     # Like `Dir.mkdir_p`, but also fsyncs the parent of each created directory
     def self.mkdir_p(path : String) : Nil
+      mkdir_p(path) { |parent| fsync_dir(parent) }
+    end
+
+    # Like `Dir.mkdir_p`, but yields the parent of each created directory,
+    # outermost first, for the caller to make its new entry durable
+    def self.mkdir_p(path : String, & : String ->) : Nil
       return if Dir.exists?(path)
-      mkdir_p(File.dirname(path))
-      begin
-        Dir.mkdir(path)
-      rescue File::AlreadyExistsError
-        return
+      missing = [path]
+      parent = File.dirname(path)
+      until Dir.exists?(parent)
+        missing << parent
+        parent = File.dirname(parent)
       end
-      fsync_dir(File.dirname(path))
+      missing.reverse_each do |dir|
+        begin
+          Dir.mkdir(dir)
+        rescue File::AlreadyExistsError
+          next
+        end
+        yield File.dirname(dir)
+      end
     end
 
     private def self.fsync_rename_dirs(source : String, destination : String) : Nil

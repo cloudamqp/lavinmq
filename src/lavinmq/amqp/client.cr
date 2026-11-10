@@ -151,11 +151,19 @@ module LavinMQ
       private def read_loop
         received_bytes = 0_u32
         stream = AMQ::Protocol::Stream.new(@socket, @max_frame_size)
+        stamped_reads = nil
         loop do
           stream.next_frame do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
+            # Frames that arrived in the same socket read were received at the
+            # same time, so the clock is only read once per socket read
+            reads = socket_reads
+            if reads.nil? || reads != stamped_reads
+              stamped_reads = reads
+              received_from_socket
+            end
             if (received_bytes &+= frame.bytesize) > Config.instance.yield_each_received_bytes
               received_bytes = 0_u32
               Fiber.yield
@@ -188,6 +196,8 @@ module LavinMQ
             end
           rescue e : LavinMQ::Error::PreconditionFailed
             send_precondition_failed(frame, e.message)
+          rescue e : LavinMQ::Exchange::AccessRefused
+            send_access_refused(frame, e.message)
           end
         rescue IO::TimeoutError
           send_heartbeat || break
@@ -228,6 +238,25 @@ module LavinMQ
           return false
         end
         true
+      end
+
+      # Reads from the socket so far, nil if the socket doesn't buffer reads
+      # (socket_buffer_size = 0), as its buffer is never filled then
+      private def socket_reads : UInt32?
+        socket = @socket
+        socket.buffer_fills if socket.is_a?(IO::Buffered) && socket.read_buffering?
+      end
+
+      # A client that keeps sending never lets the read time out, so this is
+      # where heartbeats are sent to it when nothing else was
+      private def received_from_socket : Nil
+        now = RoughTime.instant
+        @last_recv_frame = now
+        if heartbeat_interval_ms = @heartbeat_interval_ms
+          if @last_sent_frame + heartbeat_interval_ms.milliseconds < now
+            send AMQP::Frame::Heartbeat.new
+          end
+        end
       end
 
       private def send_heartbeat
@@ -349,7 +378,7 @@ module LavinMQ
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
-          @last_sent_frame = RoughTime.instant
+          @last_sent_frame = RoughTime.instant if flush || websocket
         end
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
@@ -447,7 +476,6 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
-        @last_recv_frame = RoughTime.instant
         @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
         @vhost.add_recv_bytes(8_u64 + frame.bytesize)
         case frame
@@ -517,11 +545,6 @@ module LavinMQ
           end
         else
           send_not_implemented(frame)
-        end
-        if heartbeat_interval_ms = @heartbeat_interval_ms
-          if @last_sent_frame + heartbeat_interval_ms.milliseconds < RoughTime.instant
-            send AMQP::Frame::Heartbeat.new
-          end
         end
       rescue ex : LavinMQ::Error::UnexpectedFrame
         @log.error { ex.inspect }
@@ -888,12 +911,8 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          begin
-            @vhost.apply(frame)
-            send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
-          end
+          @vhost.apply(frame)
+          send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
 
@@ -933,12 +952,8 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          begin
-            @vhost.apply(frame)
-            send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
-          end
+          @vhost.apply(frame)
+          send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         end
       end
 
@@ -1063,6 +1078,7 @@ module LavinMQ
         @write_lock.synchronize do
           @socket.flush
         end
+        @last_sent_frame = RoughTime.instant
       end
     end
   end
