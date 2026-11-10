@@ -60,12 +60,15 @@ module LavinMQ
 
         # A stop wins: once the link is terminating, a run loop that is still
         # starting can't take it back to Starting, Running or Stopped, or it
-        # would reconnect instead of ending
+        # would reconnect instead of ending. Terminated is final, so that a
+        # stop that checked for it just before the run loop ended can't make
+        # the link Terminating again.
         private def state(state)
           @log.debug { "state change from=#{@state} to=#{state}" }
           @last_changed = RoughTime.unix_ms
           changed = @state_lock.synchronize do
             next false if @state == state
+            next false if @state.terminated?
             next false if stop_link? && !stop_link?(state)
             @state = state
             true

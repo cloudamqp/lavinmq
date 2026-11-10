@@ -3,6 +3,13 @@ require "log/spec"
 require "../src/lavinmq/federation/upstream"
 require "../src/lavinmq/federation/upstream_store"
 
+# Test-only seam: change a link's state the way its run loop or a stop does
+abstract class LavinMQ::Federation::Upstream::Link
+  def change_state_for_spec(state : State)
+    state(state)
+  end
+end
+
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
     x = ch.exchange("", "direct", passive: true)
@@ -818,6 +825,19 @@ describe LavinMQ::Federation::Upstream do
         link = upstream.link(downstream_vhost.queue("dq"))
         # It went Running over the stop, and reconnected until the broker closed
         wait_for { link.state.terminated? }
+      end
+    end
+
+    it "stays terminated when a stop races the end of its run loop" do
+      with_amqp_server do |s|
+        upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, queue: "uq")
+        downstream_vhost.declare_queue("dq", false, false)
+        link = upstream.link(downstream_vhost.queue("dq"))
+        wait_for { link.state.terminated? }
+        # What a stop does when it checked for Terminated just before the run
+        # loop set it
+        link.change_state_for_spec(LavinMQ::Federation::Upstream::Link::State::Terminating)
+        link.state.terminated?.should be_true
       end
     end
 
