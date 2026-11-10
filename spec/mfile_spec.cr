@@ -1,4 +1,5 @@
 require "spec"
+require "file_utils"
 require "../src/lavinmq/mfile"
 
 describe MFile do
@@ -12,6 +13,29 @@ describe MFile do
       mfile.close
     ensure
       file.delete
+    end
+  end
+
+  it "unlinks on a later delete when an unlink failed" do
+    path = File.tempname("mfile_spec")
+    moved = "#{path}.moved"
+    begin
+      mfile = MFile.new(path, 4096)
+      # A non-empty directory in its place makes the unlink fail
+      File.rename(path, moved)
+      Dir.mkdir(path)
+      File.touch(File.join(path, "x"))
+      expect_raises(File::Error) { mfile.delete }
+      mfile.deleted?.should be_false
+      FileUtils.rm_rf(path)
+      File.rename(moved, path)
+      mfile.delete
+      mfile.deleted?.should be_true
+      File.exists?(path).should be_false
+    ensure
+      mfile.try &.close
+      FileUtils.rm_rf(path)
+      File.delete?(moved)
     end
   end
 

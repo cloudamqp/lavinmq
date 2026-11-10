@@ -149,10 +149,15 @@ class MFile < IO
 
   def delete(*, raise_on_missing = true) : Nil
     return if @deleted.swap(true, :acquire_release) # avoid double deletes
-    if raise_on_missing
-      File.delete(@path)
-    else
-      File.delete?(@path)
+    begin
+      if raise_on_missing
+        File.delete(@path)
+      else
+        File.delete?(@path)
+      end
+    rescue ex
+      @deleted.set(false, :release) # so the next delete tries again
+      raise ex
     end
   end
 
