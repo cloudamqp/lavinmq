@@ -40,14 +40,23 @@ class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
     end
     previous_def
   end
+end
 
+# The close hook is on MessageStore, which defines #close, so previous_def
+# always runs the real close, even if DelayedMessageStore gets its own. The
+# type is checked at compile time: #close can run from #initialize, before
+# self may be used.
+class LavinMQ::MessageStore
   def close : Nil
-    if entered = self.class.close_entered
-      self.class.close_entered = nil
-      entered.send nil
-      self.class.close_release.receive?
-    end
-    super
+    {% if @type <= LavinMQ::AMQP::DelayedQueue::DelayedMessageStore %}
+      store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
+      if entered = store.close_entered
+        store.close_entered = nil
+        entered.send nil
+        store.close_release.receive?
+      end
+    {% end %}
+    previous_def
   end
 end
 
