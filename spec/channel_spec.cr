@@ -4,8 +4,8 @@ require "amqp-client"
 class LavinMQ::MessageStore
   class_property? fail_next_requeue = false
 
-  # Yields before it raises, as a reject may before it fails, e.g. when a
-  # retry queue closes first, so a deliver loop takes the slot it freed
+  # Yields before it raises, as a reject that does I/O before it fails may,
+  # so that a deliver loop takes the slot the reject freed
   def requeue(sp : SegmentPosition)
     if LavinMQ::MessageStore.fail_next_requeue?
       LavinMQ::MessageStore.fail_next_requeue = false

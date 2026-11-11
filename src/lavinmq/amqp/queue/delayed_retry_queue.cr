@@ -21,25 +21,17 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
-    # Shares its primary queue's lifecycle: a retry queue that closes, e.g. on
-    # a store error, closes the primary too, and a restart of the primary
-    # replaces it. The primary closes after this queue's store is closed, so
-    # the replacement can't load the files while this instance still has them.
-    def close : Bool
-      return false unless super
-      @primary_queue.close
-      true
-    end
-
     # Only the primary queue's restart replaces a retry queue
     def restart! : Bool
       false
     end
 
-    # Only the primary queue's delete removes a retry queue, also a
-    # non-durable one, so that its close never goes through the definitions
-    protected def delete_on_close? : Bool
-      false
+    # A retry queue never closes on its own, only with its primary queue, so
+    # a reject never closes or deletes it, which would take the definitions
+    # lock while the rejecting channel holds its own lock.
+    # The loop is restarted by the next delay.
+    private def expire_loop_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Release of delayed messages stopped due to error, restarted by the next delay" }
     end
 
     def delay(msg : Message) : Bool
@@ -49,13 +41,12 @@ module LavinMQ::AMQP
       end
       @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber # restart the expire fiber if it died on a transient store error
+      ensure_expire_fiber # restart the expire fiber if it stopped on a store error
       true
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
-      @log.error(ex) { "Queue closed due to error, closing #{@primary_queue.name}" }
-      close
+      @log.error(ex) { "Failed to delay message, requeuing instantly" }
       false
     end
 
