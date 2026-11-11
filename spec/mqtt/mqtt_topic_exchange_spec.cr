@@ -551,141 +551,6 @@ module MqttSpecs
       end
     end
 
-    # The exchange carries the vhost's MQTT traffic: without this, a user that
-    # may only configure its own names could read every MQTT topic
-    describe "bind permissions" do
-      lim_perms = ->(server : LavinMQ::Server, read : Regex) do
-        server.users.create("lim", "pw", [LavinMQ::Tag::Management])
-        server.users.add_permission("lim", "/", /^lim\./, read, /^lim\./)
-      end
-      lim_headers = ::HTTP::Headers{"Authorization" => "Basic bGltOnB3", "Content-Type" => "application/json"} # lim:pw
-
-      it "refuses queue.bind without read permission on mqtt.default" do
-        with_server do |server|
-          lim_perms.call(server, /^lim\./)
-          server.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", false, false)
-          with_channel(server, user: "lim", password: "pw") do |ch|
-            ch.queue_declare("lim.spy")
-            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
-              ch.queue_bind("lim.spy", "lim.mq", "#")
-            end
-          end
-          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 0
-        end
-      end
-
-      it "allows queue.bind with read permission on mqtt.default" do
-        with_server do |server|
-          lim_perms.call(server, /^(lim\.|mqtt\.default$)/)
-          with_channel(server, user: "lim", password: "pw") do |ch|
-            ch.exchange_declare("lim.mq", "x-mqtt-topic")
-            ch.queue_declare("lim.spy")
-            ch.queue_bind("lim.spy", "lim.mq", "#")
-          end
-          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 1
-        end
-      end
-
-      it "refuses exchange.bind from the exchange without read permission on mqtt.default" do
-        with_server do |server|
-          lim_perms.call(server, /^lim\./)
-          server.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", false, false)
-          with_channel(server, user: "lim", password: "pw") do |ch|
-            ch.exchange_declare("lim.fan", "fanout")
-            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
-              ch.exchange_bind("lim.mq", "lim.fan", "#")
-            end
-          end
-          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 0
-        end
-      end
-
-      it "refuses exchange.declare without read permission on mqtt.default" do
-        with_server do |server|
-          lim_perms.call(server, /^lim\./)
-          with_channel(server, user: "lim", password: "pw") do |ch|
-            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
-              ch.exchange_declare("lim.mq", "x-mqtt-topic")
-            end
-          end
-          # A delayed x-mqtt-topic is refused for everyone, before the
-          # exchange or its delayed queue is built
-          with_channel(server, user: "lim", password: "pw") do |ch|
-            args = AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"})
-            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
-              ch.exchange_declare("lim.delayed", "x-delayed-message", durable: true, args: args)
-            end
-          end
-          server.vhosts["/"].exchange?("lim.mq").should be_nil
-          server.vhosts["/"].exchange?("lim.delayed").should be_nil
-          server.vhosts["/"].queue?("amq.delayed-lim.delayed").should be_nil
-        end
-      end
-
-      it "refuses declaring the exchange over the HTTP API without read permission on mqtt.default" do
-        with_http_server do |http, s|
-          lim_perms.call(s, /^lim\./)
-          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
-          response.status_code.should eq 403
-          response.body.should contain "mqtt.default"
-          s.vhosts["/"].exchange?("lim.mq").should be_nil
-        end
-      end
-
-      # Deleting an exchange stores no unbinds, so a binding made to a fanout
-      # came back on boot on an x-mqtt-topic exchange declared with its name
-      it "doesn't restore a deleted exchange's bindings on a redeclared one" do
-        with_server do |server|
-          vhost = server.vhosts["/"]
-          vhost.declare_exchange("lim.x", "fanout", true, false)
-          vhost.declare_exchange("lim.fan", "fanout", true, false)
-          vhost.declare_queue("lim.spy", true, false)
-          vhost.bind_queue("lim.spy", "lim.x", "#")
-          vhost.bind_exchange("lim.fan", "lim.x", "#")
-          vhost.delete_exchange("lim.x")
-          vhost.declare_exchange("lim.x", "x-mqtt-topic", true, false)
-          restart_server(server)
-          server.vhosts["/"].exchange("lim.x").binding_count.should eq 0
-        end
-      end
-
-      it "refuses queue and exchange bindings over the HTTP API without read permission on mqtt.default" do
-        with_http_server do |http, s|
-          lim_perms.call(s, /^lim\./)
-          vhost = s.vhosts["/"]
-          vhost.declare_exchange("lim.mq", "x-mqtt-topic", true, false)
-          vhost.declare_exchange("lim.fan", "fanout", true, false)
-          vhost.declare_queue("lim.spy", true, false)
-          response = http.post("/api/bindings/%2f/e/lim.mq/q/lim.spy", headers: lim_headers, body: %({"routing_key": "#"}))
-          response.status_code.should eq 403
-          response = http.post("/api/bindings/%2f/e/lim.mq/e/lim.fan", headers: lim_headers, body: %({"routing_key": "#"}))
-          response.status_code.should eq 403
-          vhost.exchange("lim.mq").binding_count.should eq 0
-        end
-      end
-
-      # A check before the bind can see another exchange of the same name, as
-      # it can be deleted and redeclared as x-mqtt-topic in between
-      it "refuses the bind where it's applied, under the definitions lock" do
-        with_server do |server|
-          lim_perms.call(server, /^lim\./)
-          lim = server.users["lim"]
-          vhost = server.vhosts["/"]
-          vhost.declare_exchange("lim.mq", "x-mqtt-topic", true, false)
-          vhost.declare_exchange("lim.fan", "fanout", true, false)
-          vhost.declare_queue("lim.spy", true, false)
-          expect_raises(LavinMQ::Exchange::AccessRefused, /mqtt\.default/) do
-            vhost.bind_queue("lim.spy", "lim.mq", "#", user: lim)
-          end
-          expect_raises(LavinMQ::Exchange::AccessRefused, /mqtt\.default/) do
-            vhost.bind_exchange("lim.fan", "lim.mq", "#", user: lim)
-          end
-          vhost.exchange("lim.mq").binding_count.should eq 0
-          vhost.bind_queue("lim.spy", "lim.mq", "#").should be_true # no user: definitions import
-        end
-      end
-    end
-
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
@@ -849,6 +714,59 @@ module MqttSpecs
         queue.basic_get(no_ack: true) do |env|
           env.message.routing_key.should eq "a/b"
         end.should be_true
+      end
+    end
+
+    # The exchange carries the vhost's MQTT traffic: without this, a user that
+    # may only configure its own names could read every MQTT topic
+    describe "declare permissions" do
+      lim_perms = ->(server : LavinMQ::Server, read : Regex) do
+        server.users.create("lim", "pw", [LavinMQ::Tag::Management])
+        server.users.add_permission("lim", "/", /^lim\./, read, /^lim\./)
+      end
+      lim_headers = ::HTTP::Headers{"Authorization" => "Basic bGltOnB3", "Content-Type" => "application/json"} # lim:pw
+
+      it "refuses exchange.declare without read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^lim\./)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            end
+          end
+          server.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows exchange.declare and binding with read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^(lim\.|mqtt\.default$)/)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            ch.queue_declare("lim.q")
+            ch.queue_bind("lim.q", "lim.mq", "#")
+          end
+          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 1
+        end
+      end
+
+      it "refuses declaring over the HTTP API without read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^lim\./)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 403
+          response.body.should contain "mqtt.default"
+          s.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows declaring over the HTTP API with read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^(lim\.|mqtt\.default$)/)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 201
+          s.vhosts["/"].exchange?("lim.mq").should be_a(LavinMQ::AMQP::MqttTopicExchange)
+        end
       end
     end
   end

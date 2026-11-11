@@ -5,9 +5,6 @@ module LavinMQ
   module Shovel
     class AMQPSource < Source
       Log = LavinMQ::Log.for "amqp_source"
-      # Called with the vhost and exchange before a local source binds, to
-      # raise if the binding isn't allowed
-      alias BindGuard = Proc(String, String, Nil)
       @conn : ::AMQP::Client::Connection?
       @ch : ::AMQP::Client::Channel?
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
@@ -40,16 +37,12 @@ module LavinMQ
       @settled = 0_u32
 
       getter delete_after
-      # The URIs that connect as the direct user, and the one connected to
-      @local_uris = Array(URI).new
-      @uri : URI?
 
       def initialize(@name : String, @uris : Array(URI), @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : Auth::User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT,
-                     @bind_guard : BindGuard? = nil)
+                     direct_user : Auth::User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -58,7 +51,6 @@ module LavinMQ
             if direct_user
               uri.user = direct_user.name
               uri.password = direct_user.plain_text_password
-              @local_uris << uri
             else
               raise ArgumentError.new("direct_user required")
             end
@@ -84,8 +76,7 @@ module LavinMQ
         if c = @conn
           c.close
         end
-        @uri = uri = @uris.sample
-        @conn = ::AMQP::Client.new(uri).connect
+        @conn = ::AMQP::Client.new(@uris.sample).connect
         open_channel
       end
 
@@ -246,7 +237,6 @@ module LavinMQ
           @settled = 0_u32
         end
         if @exchange || @exchange_key
-          check_bind_guard
           ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
         end
         if @delete_after.queue_length? && q[:message_count] > 0
@@ -258,14 +248,6 @@ module LavinMQ
         if ack_batch_size > 1
           spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(ch) }
         end
-      end
-
-      private def check_bind_guard
-        guard = @bind_guard || return
-        exchange = @exchange || return
-        uri = @uri || return
-        return unless @local_uris.any? &.same?(uri)
-        guard.call(Store.vhost_from_uri(uri), exchange)
       end
 
       # Flush a batch that has been waiting a whole timeout without growing.

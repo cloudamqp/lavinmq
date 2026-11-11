@@ -240,8 +240,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true,
-                   mqtt_topic_lookup : Proc(String, String, Bool?)? = nil)
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -253,7 +252,7 @@ module LavinMQ
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
-      @shovels = Shovel::Store.new(self, mqtt_topic_lookup)
+      @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
@@ -400,9 +399,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new, fsync = true, user : Auth::BaseUser? = nil)
+                         arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments), fsync: fsync, user: user
+        auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -411,16 +410,14 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true,
-                   user : Auth::BaseUser? = nil)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments), fsync: fsync, user: user
+        routing_key, false, arguments), fsync: fsync
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true,
-                      user : Auth::BaseUser? = nil)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments), fsync: fsync, user: user
+        routing_key, false, arguments), fsync: fsync
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -433,8 +430,8 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false, fsync = true, user : Auth::BaseUser? = nil) : Bool
-      definitions.apply(f, loading, fsync, user)
+    def apply(f, loading = false, fsync = true) : Bool
+      definitions.apply(f, loading, fsync)
     end
 
     # Flush definitions written with fsync: false (e.g. during bulk import).

@@ -60,6 +60,10 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
+            if type == "x-mqtt-topic" && !user.can_read?(vhost.name, MQTT::EXCHANGE)
+              access_refused(context, "User doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                      "which declaring an x-mqtt-topic exchange requires")
+            end
             e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
@@ -71,13 +75,11 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
-              vhost.declare_exchange(name, type, durable, auto_delete, internal, tbl, user: user)
+              vhost.declare_exchange(name, type, durable, auto_delete, internal, tbl)
               context.response.status_code = 201
             end
           rescue ex : Error::ExchangeTypeError
             bad_request(context, ex.message)
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            access_refused(context, ex.message.to_s)
           end
         end
 

@@ -737,15 +737,18 @@ module LavinMQ
             send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
-          declare_new_exchange(frame)
+          if frame.exchange_type == "x-mqtt-topic" && !@user.can_read?(@vhost.name, MQTT::EXCHANGE)
+            send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                       "which declaring an x-mqtt-topic exchange requires")
+            return
+          end
+          begin
+            @vhost.apply(frame)
+          rescue e : LavinMQ::Error::ExchangeTypeError
+            send_precondition_failed(frame, e.message)
+          end
+          send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
         end
-      end
-
-      private def declare_new_exchange(frame)
-        @vhost.apply(frame, user: @user)
-        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
-      rescue e : LavinMQ::Error::ExchangeTypeError
-        send_precondition_failed(frame, e.message)
       end
 
       private def redeclare_exchange(e, frame)
@@ -913,7 +916,7 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          @vhost.apply(frame, user: @user)
+          @vhost.apply(frame)
           send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
@@ -984,7 +987,7 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
-          @vhost.apply(frame, user: @user)
+          @vhost.apply(frame)
           send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
         end
       end

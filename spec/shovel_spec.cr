@@ -2217,7 +2217,7 @@ describe LavinMQ::Shovel do
           "src-queue":  "q1",
           "dest-queue": "q2",
         }.to_json)
-        LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+        LavinMQ::Shovel::Store.validate_config!(config, user)
       end
     end
 
@@ -2232,7 +2232,7 @@ describe LavinMQ::Shovel do
           "dest-queue": "q2",
         }.to_json)
         expect_raises(LavinMQ::Shovel::ConfigError) do
-          LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+          LavinMQ::Shovel::Store.validate_config!(config, user)
         end
       end
     end
@@ -2246,7 +2246,7 @@ describe LavinMQ::Shovel do
           "dest-uri":  "https://example.com/webhook",
           "src-queue": "q1",
         }.to_json)
-        LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+        LavinMQ::Shovel::Store.validate_config!(config, user)
       end
     end
 
@@ -2260,7 +2260,7 @@ describe LavinMQ::Shovel do
           "src-queue": "q1",
         }.to_json)
         expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
-          LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+          LavinMQ::Shovel::Store.validate_config!(config, user)
         end
       end
     end
@@ -2276,7 +2276,7 @@ describe LavinMQ::Shovel do
           "src-queue": "q1",
         }.to_json)
         expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
-          LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+          LavinMQ::Shovel::Store.validate_config!(config, user)
         end
       end
     end
@@ -2291,55 +2291,8 @@ describe LavinMQ::Shovel do
           "src-queue": "q1",
         }.to_json)
         expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
-          LavinMQ::Shovel::Store.validate_config!(config, user, nil)
+          LavinMQ::Shovel::Store.validate_config!(config, user)
         end
-      end
-    end
-
-    # A local shovel binds as the direct user, which may read mqtt.default
-    it "raises for an x-mqtt-topic source exchange without read permission on mqtt.default" do
-      with_amqp_server do |s|
-        s.vhosts["/"].declare_exchange("lim.mq", "x-mqtt-topic", true, false)
-        user = s.users.create("shovel_user7", "pass")
-        s.users.add_permission("shovel_user7", "/", /^lim\./, /^lim\./, /^lim\./)
-        config = JSON.parse({
-          "src-uri":          "amqp:///",
-          "src-exchange":     "lim.mq",
-          "src-exchange-key": "#",
-          "dest-uri":         "https://example.com/webhook",
-        }.to_json)
-        expect_raises(LavinMQ::Shovel::ConfigError, /mqtt\.default/) do
-          LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
-        end
-        s.users.add_permission("shovel_user7", "/", /^lim\./, /^(lim\.|mqtt\.default$)/, /^lim\./)
-        LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
-      end
-    end
-
-    # Only local users can be looked up before each bind, see #mqtt_source_guard
-    it "raises for a local exchange source saved by an OAuth user" do
-      with_amqp_server do |s|
-        s.vhosts["/"].declare_exchange("x1", "fanout", true, false)
-        verifier = LavinMQ::Auth::JWT::TokenVerifier.new(LavinMQ::Config.new,
-          LavinMQ::Auth::JWT::JWKSFetcher.new(URI.new, 1.second))
-        all = {config: /.*/, read: /.*/, write: /.*/}
-        user = LavinMQ::Auth::OAuthUser.new("sso-user", [] of LavinMQ::Tag,
-          {"/" => all}, Time.utc + 1.hour, verifier)
-        config = JSON.parse({
-          "src-uri":      "amqp:///",
-          "src-exchange": "x1",
-          "dest-uri":     "https://example.com/webhook",
-        }.to_json)
-        expect_raises(LavinMQ::Shovel::ConfigError, /isn't a local user/) do
-          LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
-        end
-        # A queue source binds nothing, so it's allowed
-        config = JSON.parse({
-          "src-uri":   "amqp:///",
-          "src-queue": "q1",
-          "dest-uri":  "https://example.com/webhook",
-        }.to_json)
-        LavinMQ::Shovel::Store.validate_config!(config, user, s.vhosts)
       end
     end
 
@@ -2349,7 +2302,7 @@ describe LavinMQ::Shovel do
         "src-queue": "q1",
         "dest-uri":  "http://example.com/hook",
       }.to_json)
-      LavinMQ::Shovel::Store.validate_config!(config, nil, nil)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
     end
 
     it "rejects a dest-timeout that is not a positive number of seconds" do
@@ -2363,7 +2316,7 @@ describe LavinMQ::Shovel do
         # Like reconnect-delay and src-prefetch-count, a malformed value fails
         # the PUT rather than being stored and silently replaced by the default.
         expect_raises(LavinMQ::Shovel::ConfigError, "dest-timeout") do
-          LavinMQ::Shovel::Store.validate_config!(config, nil, nil)
+          LavinMQ::Shovel::Store.validate_config!(config, nil)
         end
       end
       [5, 2.5].each do |good|
@@ -2373,7 +2326,7 @@ describe LavinMQ::Shovel do
           "dest-uri":     "http://example.com/hook",
           "dest-timeout": good,
         }.to_json)
-        LavinMQ::Shovel::Store.validate_config!(config, nil, nil)
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
       end
     end
 
@@ -2384,7 +2337,7 @@ describe LavinMQ::Shovel do
         "dest-uri":  "amqp:///test",
       }.to_json)
       expect_raises(LavinMQ::Shovel::ConfigError, "destination requires") do
-        LavinMQ::Shovel::Store.validate_config!(config, nil, nil)
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
       end
     end
   end
