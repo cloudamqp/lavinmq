@@ -6,6 +6,13 @@ class LavinMQ::AMQP::Queue
     retry_delay_for(delivery_count)
   end
 
+  def spec_first_message : LavinMQ::BytesMessage
+    @msg_store_lock.synchronize do
+      env = @msg_store.first? || raise "queue is empty"
+      env.message
+    end
+  end
+
   def spec_set_first_delivery_count(count : Int32) : Nil
     @msg_store_lock.synchronize do
       env = @msg_store.first? || raise "queue is empty"
@@ -641,6 +648,41 @@ describe "Retry Queue" do
   end
 
   describe "Exponential backoff" do
+    {
+      "linear without a multiplier"   => {nil, nil, [10_000, 20_000, 30_000]},
+      "constant with multiplier 1"    => {1, nil, [10_000, 10_000, 10_000]},
+      "exponential with multiplier 2" => {2, nil, [10_000, 20_000, 40_000]},
+      "capped at x-delayed-retry-max" => {2, 25_000, [10_000, 20_000, 25_000, 25_000]},
+    }.each do |backoff, (multiplier, max, delays)|
+      it "should delay a rejected message by its delivery count, #{backoff}" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 10_000})
+            args["x-delayed-retry-multiplier"] = multiplier if multiplier
+            args["x-delayed-retry-max"] = max if max
+            # A message's age is added to its x-delay, so it must not age
+            RoughTime.paused do
+              delays.each_with_index(1) do |delay, delivery_count|
+                q = ch.queue("retry-delay-#{delivery_count}", args: args)
+                q.publish_confirm "msg"
+                queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+                queue.spec_set_first_delivery_count(delivery_count - 1)
+                msg = q.get(no_ack: false).should_not be_nil
+                msg.reject(requeue: true)
+
+                retry_queue = s.vhosts["/"].queue("amq.retry-#{q.name}").as(LavinMQ::AMQP::Queue)
+                should_eventually(eq(1)) { retry_queue.message_count }
+                headers = retry_queue.spec_first_message.properties.headers.should_not be_nil
+                headers["x-delivery-count"].should eq delivery_count
+                headers["x-delay"].should eq delay
+                q.delete
+              end
+            end
+          end
+        end
+      end
+    end
+
     it "should default to linear backoff when multiplier is omitted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -660,8 +702,6 @@ describe "Retry Queue" do
           end
 
           # Linear: delay = min × delivery_count
-          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
-          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 400, 600]
           # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
           delays[1].should be < 1.2.seconds
@@ -691,8 +731,6 @@ describe "Retry Queue" do
           end
 
           # All retries should wait ~200ms (constant), not grow
-          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
-          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 200, 200]
           # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
           delays[1].should be < 1.2.seconds
@@ -721,8 +759,6 @@ describe "Retry Queue" do
             msg.reject(requeue: true)
           end
 
-          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
-          (1..3).map { |n| queue.spec_retry_delay_for(n) }.should eq [200, 400, 800]
           # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
           delays[1].should be < 1.2.seconds
@@ -749,8 +785,6 @@ describe "Retry Queue" do
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay1 = Time.instant - start
-          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
-          (1..4).map { |n| queue.spec_retry_delay_for(n) }.should eq [100, 200, 250, 250]
           # Measured by the client, so only bounded loosely above
           delay1.should be >= 80.milliseconds
           delay1.should be < 1.1.seconds
