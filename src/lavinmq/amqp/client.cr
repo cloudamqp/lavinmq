@@ -731,19 +731,28 @@ module LavinMQ
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         else
-          ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
-          ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
-          unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
-            send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
-            return
-          end
-          begin
-            @vhost.apply(frame)
-          rescue e : LavinMQ::Error::ExchangeTypeError
-            send_precondition_failed(frame, e.message)
-          end
-          send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
+          declare_new_exchange(frame)
         end
+      end
+
+      private def declare_new_exchange(frame)
+        ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
+        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
+        unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
+          return
+        end
+        if frame.exchange_type == "x-mqtt-topic" && !@user.can_read?(@vhost.name, MQTT::EXCHANGE)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                     "which declaring an x-mqtt-topic exchange requires")
+          return
+        end
+        begin
+          @vhost.apply(frame)
+        rescue e : LavinMQ::Error::ExchangeTypeError
+          send_precondition_failed(frame, e.message)
+        end
+        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
       end
 
       private def redeclare_exchange(e, frame)

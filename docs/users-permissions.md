@@ -61,6 +61,8 @@ If a published message carries the `user_id` property, the server checks it matc
 | `basic.get` | `read` on the queue |
 | `queue.purge` | `read` on the queue |
 
+Declaring an `x-mqtt-topic` exchange also needs `read` on `mqtt.default`, see [Consuming MQTT messages over AMQP](mqtt.md#consuming-mqtt-messages-over-amqp).
+
 ### Default Permissions
 
 The default user (`guest`) is created with full permissions (`".*"` for configure, read, and write) on the default vhost (`/`).
