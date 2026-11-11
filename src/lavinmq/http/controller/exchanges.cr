@@ -60,6 +60,11 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
+            # It carries all MQTT traffic in the vhost
+            if type == "x-mqtt-topic" && !user.can_read?(vhost.name, MQTT::EXCHANGE)
+              access_refused(context, "User doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                      "which declaring an x-mqtt-topic exchange requires")
+            end
             e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)

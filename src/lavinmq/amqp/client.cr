@@ -737,6 +737,12 @@ module LavinMQ
             send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
+          # It carries all MQTT traffic in the vhost
+          if frame.exchange_type == "x-mqtt-topic" && !@user.can_read?(@vhost.name, MQTT::EXCHANGE)
+            send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                       "which declaring an x-mqtt-topic exchange requires")
+            return
+          end
           begin
             @vhost.apply(frame)
           rescue e : LavinMQ::Error::ExchangeTypeError

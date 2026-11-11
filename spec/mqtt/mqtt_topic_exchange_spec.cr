@@ -716,5 +716,58 @@ module MqttSpecs
         end.should be_true
       end
     end
+
+    # The exchange carries the vhost's MQTT traffic: without this, a user that
+    # may only configure its own names could read every MQTT topic
+    describe "declare permissions" do
+      lim_perms = ->(server : LavinMQ::Server, read : Regex) do
+        server.users.create("lim", "pw", [LavinMQ::Tag::Management])
+        server.users.add_permission("lim", "/", /^lim\./, read, /^lim\./)
+      end
+      lim_headers = ::HTTP::Headers{"Authorization" => "Basic bGltOnB3", "Content-Type" => "application/json"} # lim:pw
+
+      it "refuses exchange.declare without read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^lim\./)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            end
+          end
+          server.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows exchange.declare and binding with read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^(lim\.|mqtt\.default$)/)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            ch.queue_declare("lim.q")
+            ch.queue_bind("lim.q", "lim.mq", "#")
+          end
+          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 1
+        end
+      end
+
+      it "refuses declaring over the HTTP API without read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^lim\./)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 403
+          response.body.should contain "mqtt.default"
+          s.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows declaring over the HTTP API with read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^(lim\.|mqtt\.default$)/)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 201
+          s.vhosts["/"].exchange?("lim.mq").should be_a(LavinMQ::AMQP::MqttTopicExchange)
+        end
+      end
+    end
   end
 end
