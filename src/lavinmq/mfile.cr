@@ -298,11 +298,11 @@ class MFile < IO
     @size = new_size
   end
 
-  # Overwrites a value that is already written, where #write only appends
-  def write_at(pos : Int, value : Int64, format = IO::ByteFormat::SystemEndian) : Nil
+  # Overwrites bytes that are already written, where #write only appends
+  def write_at(pos : Int, slice : Bytes) : Nil
     check_open
-    raise IO::EOFError.new if pos + sizeof(Int64) > @size
-    format.encode(value, Bytes.new(@buffer + pos, sizeof(Int64)))
+    raise IO::EOFError.new if pos + slice.size > @size
+    slice.copy_to(@buffer + pos, slice.size)
   end
 
   # Zeroes the bytes from `pos` up to `upto` and makes `pos` the new size, so
