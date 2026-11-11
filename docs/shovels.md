@@ -145,7 +145,7 @@ There is no in-place retry of a failed request; a `Retry` goes straight back to 
 
 ## Reconnection
 
-Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay increases exponentially up to a maximum of 300 seconds.
+Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay grows exponentially, starting from at least 2 seconds, up to 300 seconds. It is never shorter than `reconnect-delay`.
 
 A reconnect is a fresh start: both the source and the destination are stopped before the delay, and a [multi-destination](#multi-destination) shovel draws a destination at random again when it restarts.
 
