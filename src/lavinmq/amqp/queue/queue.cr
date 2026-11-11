@@ -707,7 +707,7 @@ module LavinMQ::AMQP
     rescue ex : LavinMQ::Error::PreconditionFailed
       raise ex
     rescue ex
-      @log.error(ex) { "Failed to create retry queue, requeuing instantly" }
+      @log.error(ex) { "Failed to create retry queue, rejected messages are requeued instantly until the queue is restarted" }
     end
 
     # The message keeps its original timestamp while delayed, so x-message-ttl
@@ -1482,9 +1482,13 @@ module LavinMQ::AMQP
       delete_count += purge_delayed(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
+      purge_failed(ex)
+      raise ex
+    end
+
+    private def purge_failed(ex : MessageStore::Error) : Nil
       @log.error(ex) { "Queue closed due to error" }
       close
-      raise ex
     end
 
     # Delayed messages would otherwise be republished after their backoff,

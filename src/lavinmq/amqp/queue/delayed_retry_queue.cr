@@ -34,6 +34,10 @@ module LavinMQ::AMQP
       @log.error(ex) { "Release of delayed messages stopped due to error, restarted by the next delay" }
     end
 
+    private def purge_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Purge failed due to error" }
+    end
+
     def delay(msg : Message) : Bool
       return false if @closed
       @msg_store_lock.synchronize do

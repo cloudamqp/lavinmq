@@ -29,6 +29,15 @@ end
 
 class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
   class_property? fail_next_push = false
+  class_property? fail_next_purge = false
+
+  def purge_all
+    if self.class.fail_next_purge?
+      self.class.fail_next_purge = false
+      raise LavinMQ::MessageStore::Error.new(@wfile)
+    end
+    previous_def
+  end
 
   def push(msg) : SegmentPosition
     if self.class.fail_next_push?
@@ -364,6 +373,25 @@ describe "Retry Queue" do
         end
       ensure
         LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = false
+      end
+    end
+
+    it "should keep the retry queue open if its purge fails" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-purge-error", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          retry_q = vhost.queue("amq.retry-retry-purge-error")
+          q.publish_confirm "a"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { retry_q.message_count == 1 }
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_purge = true
+          expect_raises(LavinMQ::MessageStore::Error) { retry_q.purge }
+          retry_q.closed?.should be_false
+          retry_q.purge.should eq 1
+        end
+      ensure
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_purge = false
       end
     end
 
