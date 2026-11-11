@@ -25,7 +25,7 @@ class LavinMQ::AMQP::Queue
   # As a release does once it has published the message's copy
   def spec_shift_and_delete_moved : Nil
     env = @msg_store_lock.synchronize { @msg_store.shift? } || raise "queue is empty"
-    delete_message(env.segment_position, copied: true)
+    delete_message(env.segment_position)
   end
 end
 
