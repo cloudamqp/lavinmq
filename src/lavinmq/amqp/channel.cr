@@ -706,8 +706,11 @@ module LavinMQ
       private def restore_unacked(from : Int32) : Nil
         notify_has_capacity do
           @rejects.each(start: from, count: @rejects.size - from) do |(unack, _)|
-            unless @running
+            unless @running # closed meanwhile, so requeue as #close does
               unack.queue.requeue(unack.sp)
+              if unack.consumer.nil?
+                unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+              end
               next
             end
             idx = @unacked.bsearch_index { |u, _| u.tag >= unack.tag } || @unacked.size
