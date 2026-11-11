@@ -1,3 +1,4 @@
+require "file_utils"
 require "./logger"
 require "./filesystem"
 require "./schema"
@@ -171,6 +172,7 @@ module LavinMQ
         case f
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
+          refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
@@ -206,6 +208,7 @@ module LavinMQ
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          remove_leftover_queue_dir(f.queue_name) if !loading && f.durable
           q = QueueFactory.make(@vhost, f)
           if q.is_a?(MQTT::Session)
             @sessions[f.queue_name] = q
@@ -411,6 +414,19 @@ module LavinMQ
       end
     end
 
+    # A queue that is declared, not loaded from the definitions, has no
+    # messages. A directory with its name is what a crash left of a deleted
+    # queue, whose messages must not come back.
+    private def remove_leftover_queue_dir(name : String) : Nil
+      dir = AMQP::Queue.data_dir(@vhost, name, durable: true)
+      return unless Dir.exists?(dir)
+      @log.info { "Removing the directory left by a deleted queue named #{name}" }
+      # Segments the deleted queue emptied can still be about to be unlinked,
+      # by their paths
+      @vhost.persister.flush_unlinks(dir)
+      FileUtils.rm_rf dir
+    end
+
     private def store_definition(frame, dirty = false, fsync = true)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
@@ -441,6 +457,22 @@ module LavinMQ
           @definitions_deletes = 0
         end
       end
+    end
+
+    # An x-mqtt-topic exchange only routes MQTT publishes, which can't carry
+    # an x-delay, so it would ignore x-delayed-exchange and only look delayed.
+    # Any value but false is refused, not only true, since the intent is clear.
+    def self.delayed_mqtt_topic?(type : String, arguments : AMQP::Table) : Bool
+      if type.in?("x-delayed-message", "x-delayed-exchange")
+        arguments["x-delayed-type"]? == "x-mqtt-topic"
+      else
+        type == "x-mqtt-topic" && !arguments["x-delayed-exchange"]?.in?(nil, false)
+      end
+    end
+
+    private def refuse_delayed_mqtt_topic!(type : String, arguments : AMQP::Table) : Nil
+      return unless DefinitionsStore.delayed_mqtt_topic?(type, arguments)
+      raise Error::ExchangeTypeError.new("An x-mqtt-topic exchange can't be delayed: it only routes MQTT publishes")
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)

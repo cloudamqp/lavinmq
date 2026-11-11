@@ -60,11 +60,10 @@ module LavinMQ::AMQP
       end
       if @primary_queue.expired_while_delayed?(msg)
         @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
-        return @primary_queue.dead_letter_delayed(msg, :expired) { delete_message sp }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { |stored| delete_message sp if stored }
       end
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
-      result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+      result = @primary_queue.publish_internal(Message.moved_copy(msg))
       return redelay(env) unless result.ok?
       delete_message sp
     end
@@ -79,8 +78,7 @@ module LavinMQ::AMQP
       backoff = @primary_queue.retry_delay_for(delivery_count)
       h["x-delay"] = @primary_queue.delay_from(msg, backoff)
       msg.properties.headers = h
-      redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      redelayed = Message.moved_copy(msg)
       if delay(redelayed)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
         delete_message sp

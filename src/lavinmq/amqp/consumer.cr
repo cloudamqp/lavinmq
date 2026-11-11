@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
         @flow = active
@@ -90,6 +91,8 @@ module LavinMQ
             next if wait_for_flow
             break
           end
+          # The waits above can suspend the fiber while the channel closes
+          raise ClosedError.new if @closed
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
@@ -120,15 +123,13 @@ module LavinMQ
         raise ex
       end
 
+      # Consumers wait for global capacity in line, so the one that delivered
+      # last can't take every freed slot and starve the others
       private def wait_for_global_capacity
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        flush
-        select
-        when ch.has_capacity.when_true.receive
-        when @notify_closed.receive
-        end
+        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
         true
       end
 
@@ -238,7 +239,17 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = begin
+          @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        rescue ex : AMQP::Channel::ClosedError
+          # Only raised in ack mode. The channel closed after the message was
+          # shifted from the queue, so it was never recorded as unacked and
+          # close won't requeue it. When recovering, the channel still holds
+          # the original Unack, so it's not requeued here. The segment lease
+          # is released by the caller.
+          @queue.requeue(sp) unless recover
+          raise ex
+        end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,

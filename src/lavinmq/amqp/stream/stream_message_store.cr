@@ -343,7 +343,9 @@ module LavinMQ::AMQP
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      finished = @wfile
       super.tap do
+        @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset

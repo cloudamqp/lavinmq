@@ -365,6 +365,77 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "Message store at startup" do
+    it "recounts a queue whose message count exceeds its readable messages instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        seg1_size = store.@segments[1].size
+        msg_bytesize = (seg1_size - 4) // 3
+        s.stop
+
+        # Ack every message on disk, but let segment 1's metadata claim 10
+        # more messages than it holds, so the store counts 10 that it can't read
+        File.open(File.join(msg_dir, "acks.0000000001"), "a") do |f|
+          3.times { |i| f.write_bytes((4 + i * msg_bytesize).to_u32) }
+        end
+        File.open(File.join(msg_dir, "acks.0000000002"), "a", &.write_bytes(4u32))
+        File.open(File.join(msg_dir, "meta.0000000001"), "r+", &.write_bytes(13u32))
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
+        queue.closed?.should be_false
+        queue.message_count.should eq 0
+        # Segment 1's msgs are all acked once it's recounted, so it's deleted,
+        # unlinked after the persister's sync
+        wait_for { !File.exists?(File.join(msg_dir, "msgs.0000000001")) }
+        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_false
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          q.publish_confirm "after"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+        end
+      end
+    end
+
+    it "pauses a queue whose first message is corrupt instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-msg", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        s.stop
+
+        # Segment 1 has a meta file, so the load trusts it without reading the
+        # segment, and the corrupt message is first found when the queue
+        # starts and checks whether the first message expires
+        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_true
+        # Invalid property flags on the first message: ts (8), exchange "" (1),
+        # routing key "corrupt-msg" (1 + 11), then the flags
+        File.open(File.join(msg_dir, "msgs.0000000001"), "r+") do |f|
+          f.seek(4 + 8 + 1 + 1 + "corrupt-msg".bytesize)
+          f.write_bytes(0x0003u16)
+        end
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue)
+        queue.closed?.should be_false
+        queue.state.paused?.should be_true
+        queue.unreadable_segments.should eq 1
+      end
+    end
+  end
+
   describe "Purge" do
     x_name = "purge"
     q_name = "purge"
@@ -567,10 +638,10 @@ describe LavinMQ::AMQP::Queue do
     # into its segment. That must happen while @msg_store_lock is held, else a
     # purge on another thread can unmap the segment in the meantime (segfault).
     it "doesn't read the head message after releasing the lock", tags: "slow" do
-      log = LavinMQ::AMQP::Queue::Log
-      level, backend = log.level, log.backend
-      log.backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
-      log.level = :debug
+      # A binding, not Log#level=, as a level set on the Log overrides every
+      # later binding, e.g. Log.capture in other specs
+      null_backend = ::Log::IOBackend.new(File.open(File::NULL, "w"), dispatcher: :sync)
+      ::Log.builder.bind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend)
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ttl-purge", false, false,
@@ -605,10 +676,7 @@ describe LavinMQ::AMQP::Queue do
         wg.wait
       end
     ensure
-      if log
-        log.level = level if level
-        log.backend = backend
-      end
+      ::Log.builder.unbind(LavinMQ::AMQP::Queue::Log.source, :debug, null_backend) if null_backend
     end
 
     it "purges exactly the messages it reports while messages are published", tags: "slow" do
@@ -671,7 +739,7 @@ describe LavinMQ::AMQP::Queue do
         # What a client's basic.ack(delivery_tag: 0, multiple: true) does
         # while the delivery of that message is still being written
         q.ack(env.segment_position)
-        mfile.try(&.deleted?).should be_true
+        wait_for { mfile.try(&.deleted?) } # the persister unlinks it
         mfile.try(&.closed?).should be_false
         String.new(env.message.body).should eq body
       end.should be_true
@@ -743,7 +811,7 @@ describe LavinMQ::AMQP::Queue do
           # then purge deletes every segment but the read and write ones
           q.basic_get(true) { }
           q.purge
-          mfile.try(&.deleted?).should be_true
+          wait_for { mfile.try(&.deleted?) } # the persister unlinks it
           mfile.try(&.closed?).should be_false
           String.new(env.message.body).should eq body
         end.should be_true
@@ -1077,6 +1145,44 @@ describe LavinMQ::AMQP::Queue do
           q.message_count.should eq 0
           q.@deliveries.size.should eq 0
         end
+      end
+    end
+  end
+
+  describe "reject-publish overflow" do
+    # Regression: the length limit was only checked before taking
+    # @msg_store_lock. A publisher that then waited for the lock while another
+    # publisher filled the queue pushed its message past the limit, and
+    # drop_overflow dropped (or dead-lettered) the confirmed head instead of
+    # rejecting the new publish
+    it "rejects a publish that waited for the store lock while the queue filled up" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rp", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1, "x-overflow" => "reject-publish"}))
+        q = vhost.queue("rp").as(LavinMQ::AMQP::Queue)
+        lock = q.@msg_store_lock
+        lock.lock
+        result = LavinMQ::AMQP::Queue::PublishResult::Closed
+        started = Atomic(Bool).new(false)
+        done = WaitGroup.new(1)
+        spawn(name: "second publisher") do
+          started.set(true)
+          # Passes the limit check on the empty queue, then waits for the lock
+          result = q.publish(LavinMQ::Message.new("", q.name, "second"))
+        ensure
+          done.done
+        end
+        should_eventually(be_true) { started.get }
+        sleep 20.milliseconds
+        # The lock is reentrant, so this publish fills the queue while the
+        # other one is waiting for it
+        q.publish(LavinMQ::Message.new("", q.name, "first")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+        lock.unlock
+        done.wait
+        result.should eq LavinMQ::AMQP::Queue::PublishResult::Overflow
+        q.message_count.should eq 1
+        q.basic_get(true) { |env| String.new(env.message.body).should eq "first" }.should be_true
       end
     end
   end
