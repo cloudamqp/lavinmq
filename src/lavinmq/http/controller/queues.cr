@@ -130,6 +130,9 @@ module LavinMQ
             unless user.can_config?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
             end
+            if q.internal?
+              access_refused(context, "Queue '#{q.name}' in vhost '#{vhost.name}' is an internal queue")
+            end
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
             end

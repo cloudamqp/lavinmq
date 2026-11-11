@@ -6,6 +6,8 @@ module LavinMQ::AMQP
   # Created and deleted together with the primary queue.
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
+    @close_started = Atomic(Bool).new(false)
+    @close_done = WaitGroup.new(1)
 
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
@@ -19,6 +21,27 @@ module LavinMQ::AMQP
 
     protected def initialize(@vhost : VHost, @name : String, @primary_queue : Queue)
       super(@vhost, @name, false, false, AMQP::Table.new)
+    end
+
+    # An instance is never reopened: its primary queue replaces it with a new
+    # one, see Queue#init_retry_queue
+    def restart! : Bool
+      @primary_queue.restart_retry_queue(self)
+    end
+
+    def close : Bool
+      return false if @close_started.swap(true)
+      begin
+        super
+      ensure
+        @close_done.done
+      end
+    end
+
+    # Waits for a close in progress, including the delete that a non-durable
+    # retry queue's close does
+    protected def wait_closed : Nil
+      @close_done.wait
     end
 
     def delay(msg : Message) : Bool
