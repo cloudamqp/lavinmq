@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.6] - 2026-11-11
+
+### Fixed
+
+- A segment whose meta file counted more messages than the segment held, for example after a power loss, failed the vhost load with `EOF but @size=N`, or closed the queue, once its real messages had been consumed or purged. The segment is now counted from the segment file, both at load and when the queue reaches its end, and its meta file is rewritten [#2722](https://github.com/cloudamqp/lavinmq/pull/2722)
+- A queue purge left a segment's meta file on disk when it counted more messages than the segment held, after resetting the message count in memory only. The next start counted the missing messages again and failed to load the vhost, or closed the queue. A purge now deletes the meta files of the segments it keeps, so the next start counts their messages from the segment files [#2721](https://github.com/cloudamqp/lavinmq/pull/2721)
+
 ## [2.10.5] - 2026-11-10
 
 ### Added
