@@ -42,6 +42,8 @@ jobs:
         run: |
           git_describe=$(git describe --tags)
           echo "version=${git_describe:1}" >> $GITHUB_ENV
+          # "~" sorts before everything in Debian versions, so 2.11.0~rc.3 < 2.11.0
+          echo "deb_version=$(sed -E 's/-(alpha|beta|rc)/~\1/' <<< ${git_describe:1})" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
@@ -52,6 +54,7 @@ jobs:
           build-args: |
             build_image=84codes/crystal:latest-${{ matrix.os }}
             version=${{ env.version }}
+            deb_version=${{ env.deb_version }}
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
 
