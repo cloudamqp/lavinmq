@@ -42,6 +42,7 @@ module LavinMQ
         client.write_timeout = Config.instance.tcp_send_timeout.seconds
         if client.is_a? TCPSocket
           set_socket_opts(client)
+          client.tcp_notsent_lowat = Config::TCP_NOTSENT_LOWAT
           if @proxy_header
             proxy_header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
             target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
