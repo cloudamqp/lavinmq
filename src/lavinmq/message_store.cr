@@ -273,9 +273,21 @@ module LavinMQ
         @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
       end
 
+      # The msgs are gone, so their counts in the meta files are too
+      delete_meta_files
+
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
+    end
+
+    private def delete_meta_files : Nil
+      @segments.each_value do |file|
+        meta = meta_file_name(file)
+        next unless File.exists?(meta)
+        @replicator.try &.delete_file(meta)
+        File.delete?(meta)
+      end
     end
 
     def delete

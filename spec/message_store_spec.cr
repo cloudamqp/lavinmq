@@ -93,6 +93,31 @@ def mktmpdir(&)
   end
 end
 
+# Pushes 12 msgs (9 in seg 1, 3 in seg 2), shifts them all, yields so the spec
+# can ack some, then cuts the last 3 msgs off seg 1 at a record boundary while
+# meta.0000000001 still counts 9: the state a follower was left in when its
+# appends went to a replaced file.
+def push_with_lost_tail(dir, &) : Array(LavinMQ::SegmentPosition)
+  size = LavinMQ::Config.instance.segment_size.to_u64 // 10 + 1
+  msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+    AMQ::Protocol::Properties.new, size, IO::Memory.new("a" * size))
+  store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+  sps = Array(LavinMQ::SegmentPosition).new
+  12.times { sps << store.push(msg) }
+  sps.count(&.segment.==(sps.first.segment)).should eq 9
+  envs = Array(LavinMQ::Envelope).new
+  12.times { envs << store.shift?.should_not be_nil }
+  yield store, envs
+  store.close
+  seg1 = File.join(dir, "msgs.#{sps.first.segment.to_s.rjust(10, '0')}")
+  File.open(seg1, "r+", &.truncate(sps[6].position.to_i64))
+  sps
+end
+
+def push_with_lost_tail(dir) : Array(LavinMQ::SegmentPosition)
+  push_with_lost_tail(dir) { }
+end
+
 def with_store(*, replicator = nil, durable = true, &)
   mktmpdir do |dir|
     store = LavinMQ::MessageStore.new(dir, replicator, durable: durable)
@@ -442,6 +467,28 @@ describe LavinMQ::MessageStore do
         store = LavinMQ::MessageStore.new(dir, nil)
         store.size.should eq 0
         store.close
+      end
+    end
+
+    it "empties the store on disk when a segment's meta counts msgs the segment doesn't hold" do
+      mktmpdir do |dir|
+        sps = push_with_lost_tail(dir)
+
+        # The lost msgs sit behind real ones, so the store loads fine
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.size.should eq 12
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.first?.should be_nil
+          File.exists?(File.join(dir, "msgs.#{sps.first.segment.to_s.rjust(10, '0')}")).should be_false
+        ensure
+          store.close
+        end
       end
     end
   end
