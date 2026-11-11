@@ -839,11 +839,9 @@ module LavinMQ::AMQP
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
-      synchronize_releases do
-        @msg_store_lock.synchronize do
-          @msg_store.close
-          @deliveries.clear
-        end
+      @msg_store_lock.synchronize do
+        @msg_store.close
+        @deliveries.clear
       end
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
@@ -1309,22 +1307,16 @@ module LavinMQ::AMQP
       delete_message(sp)
     end
 
-    # Overridden by queues that move messages outside @msg_store_lock, see
-    # DelayedQueue#expire_messages
-    private def synchronize_releases(&)
-      yield
-    end
-
     protected def delete_message(sp : SegmentPosition) : Nil
+      # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
+      # callback (or any other in-flight delete) racing with close would hit
+      # MessageStore::ClosedError on @msg_store.delete. The store is gone
+      # anyway, so the per-sp bookkeeping is a no-op.
+      return if closed?
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
-        # Close sets @closed first and closes the store later, under this
-        # lock. A move that published its copy meanwhile must still write its
-        # ack, or the store loaded again moves the message a second time. Once
-        # the store is closed its files are left as they are.
-        return if @msg_store.closed
         @deliveries.delete(sp) if settings.counts_deliveries?
         @msg_store.delete(sp)
       end

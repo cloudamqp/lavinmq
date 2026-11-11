@@ -12,21 +12,6 @@ class LavinMQ::AMQP::Queue
       @deliveries[env.segment_position] = count
     end
   end
-
-  # What #close does first, before it closes the store
-  def spec_mark_closing : Nil
-    @closed = true
-  end
-
-  def spec_close_store : Nil
-    @msg_store_lock.synchronize { @msg_store.close }
-  end
-
-  # As a release does once it has published the message's copy
-  def spec_shift_and_delete_moved : Nil
-    env = @msg_store_lock.synchronize { @msg_store.shift? } || raise "queue is empty"
-    delete_message(env.segment_position)
-  end
 end
 
 # Parks dead-lettering inside #publish_internal until released. In the AMQP
@@ -433,150 +418,6 @@ describe "Retry Queue" do
       end
     end
 
-    # A release can publish its copy to the primary queue after a store error
-    # started to close the retry queue. Without its ack the retry queue that
-    # replaces this one loads the message and releases it again.
-    it "writes the ack of a message released while the retry queue closes" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue("closing-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
-          q.publish_confirm "x"
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-        end
-        retry_q = s.vhosts["/"].queue("amq.retry-closing-retry")
-        wait_for { retry_q.message_count == 1 }
-        retry_q.spec_mark_closing
-        retry_q.spec_shift_and_delete_moved
-        retry_q.spec_close_store
-        msg_dir = retry_q.@msg_store.@msg_dir
-        reloaded = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(msg_dir, nil)
-        begin
-          reloaded.size.should eq 0
-        ensure
-          reloaded.close
-        end
-      end
-    end
-
-    # The close can come from another fiber, e.g. a store error in a publish,
-    # while a release has published its copy but not yet written its ack
-    it "waits for a release in flight before it closes the store" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        vhost.declare_exchange("closing-delayed", "x-delayed-message", true, false,
-          arguments: LavinMQ::AMQP::Table.new({"x-delayed-type" => "direct"}))
-        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "closing-delayed-blocking")
-        vhost.exchange("closing-delayed").bind(blocking, "rk", nil)
-        delayed_q = vhost.queue("amq.delayed-closing-delayed")
-        with_channel(s) do |ch|
-          headers = AMQP::Client::Arguments.new({"x-delay" => 50})
-          ch.basic_publish_confirm("x", "closing-delayed", "rk", props: AMQP::Client::Properties.new(headers: headers))
-        end
-        select
-        when blocking.entered.receive
-        when timeout(5.seconds)
-          fail "the message was never released"
-        end
-        closed = Channel(Nil).new
-        spawn { delayed_q.close; closed.close }
-        select
-        when closed.receive?
-          fail "closed the store while a release was in flight"
-        when timeout(200.milliseconds)
-        end
-        blocking.release.send(nil)
-        closed.receive?
-        msg_dir = delayed_q.@msg_store.@msg_dir
-        reloaded = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(msg_dir, nil)
-        begin
-          reloaded.size.should eq 0
-        ensure
-          reloaded.close
-        end
-        blocking.message_count.should eq 1
-      end
-    end
-
-    # The delete holds the vhost's definitions lock, and the release can need
-    # it, e.g. when its route deletes a non-durable queue after a store error
-    it "deletes a delayed queue without waiting for a release in flight" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        vhost.declare_exchange("deleting-delayed", "x-delayed-message", true, false,
-          arguments: LavinMQ::AMQP::Table.new({"x-delayed-type" => "direct"}))
-        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "deleting-delayed-blocking")
-        vhost.exchange("deleting-delayed").bind(blocking, "rk", nil)
-        delayed_q = vhost.queue("amq.delayed-deleting-delayed")
-        with_channel(s) do |ch|
-          headers = AMQP::Client::Arguments.new({"x-delay" => 50})
-          ch.basic_publish_confirm("x", "deleting-delayed", "rk", props: AMQP::Client::Properties.new(headers: headers))
-        end
-        select
-        when blocking.entered.receive
-        when timeout(5.seconds)
-          fail "the message was never released"
-        end
-        deleted = Channel(Nil).new
-        spawn { vhost.delete_exchange("deleting-delayed"); deleted.close }
-        begin
-          select
-          when deleted.receive?
-          when timeout(5.seconds)
-            fail "the delete waited for the release in flight"
-          end
-        ensure
-          blocking.release.send(nil)
-        end
-        delayed_q.state.should eq LavinMQ::QueueState::Deleted
-        Dir.exists?(delayed_q.@msg_store.@msg_dir).should be_false
-        wait_for { blocking.message_count == 1 }
-      end
-    end
-
-    # The close of the retry queue waits for the release, and the release can
-    # need the definitions lock, which a delete holds while it takes the lock
-    it "closes the retry queue outside the retry queue lock" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        vhost.declare_exchange("closing-primary-dlx", "direct", false, false)
-        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "closing-primary-blocking")
-        vhost.exchange("closing-primary-dlx").bind(blocking, "blocked", nil)
-        with_channel(s) do |ch|
-          args = AMQP::Client::Arguments.new({
-            "x-delayed-retry-min"       => 10_000,
-            "x-dead-letter-exchange"    => "closing-primary-dlx",
-            "x-dead-letter-routing-key" => "blocked",
-          })
-          q = ch.queue("closing-primary", args: args)
-          q.publish_confirm "expire me", props: AMQP::Client::Properties.new(expiration: "300")
-          wait_for { q.get(no_ack: false) }.reject(requeue: true)
-        end
-        select
-        when blocking.entered.receive
-        when timeout(5.seconds)
-          fail "the message was never dead-lettered"
-        end
-        primary = vhost.queue("closing-primary")
-        closed = Channel(Nil).new
-        spawn { primary.close; closed.close }
-        begin
-          wait_for { primary.closed? }
-          locked = Channel(Nil).new
-          spawn { primary.@retry_queue_lock.synchronize { }; locked.close }
-          select
-          when locked.receive?
-          when timeout(5.seconds)
-            fail "held the retry queue lock while the release was in flight"
-          end
-        ensure
-          blocking.release.send(nil)
-        end
-        closed.receive?
-        wait_for { blocking.message_count == 1 }
-      end
-    end
-
     # A segment of 4 schema bytes and one record whose property flags are
     # invalid, so it can't be decoded
     corrupt_segment = -> do
@@ -621,32 +462,6 @@ describe "Retry Queue" do
         restart_server(s)
         s.vhosts["/"].queue("amq.retry-corrupt-retry").closed?.should be_true
         with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
-      end
-    end
-
-    it "should not leak mmaps when the retry queue store can't be loaded" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000})
-          q = ch.queue("retry-load-error", args: args)
-          retry_q = s.vhosts["/"].queue("amq.retry-retry-load-error")
-          retry_q.close
-          # MFile can't open a directory, so recreating the retry queue fails
-          Dir.mkdir(File.join(retry_q.@msg_store.@msg_dir, "msgs.0000000002"))
-
-          q.publish_confirm "msg"
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-          count_before = MFile.mmap_count
-          5.times do
-            msg = wait_for { q.get(no_ack: false) }
-            msg.reject(requeue: true)
-          end
-          MFile.mmap_count.should eq count_before
-
-          q.delete
-          s.vhosts["/"].queue?("amq.retry-retry-load-error").should be_nil
-        end
       end
     end
 

@@ -65,32 +65,16 @@ module LavinMQ::AMQP
       true
     end
 
-    # A release publishes the message's copy before it writes the ack. #close
-    # closes the store under this lock, so it waits for a release in flight,
-    # and a release can't start between the two. Reentrant: a store error
-    # inside a release closes the queue from the releasing fiber. A delete
-    # doesn't wait, see #synchronize_releases.
-    @release_lock = Mutex.new(:reentrant)
-
     # Routing a released message can fan out to many queues, so it runs
     # outside the lock, on a lease that keeps the message's segment mapped
     def expire_messages
       while env = next_expired_message
         begin
-          @release_lock.synchronize { expire_msg(env, :expired) }
+          expire_msg(env, :expired)
         ensure
           env.release
         end
       end
-    end
-
-    # A delete removes the store right after, so a release in flight has no
-    # ack worth waiting for. Waiting could deadlock: a delete runs under the
-    # vhost's definitions lock, and a release whose route deletes a failing
-    # non-durable queue needs that lock.
-    private def synchronize_releases(&)
-      return yield if @deleted
-      @release_lock.synchronize { yield }
     end
 
     # Shifts the next message whose delay has passed, leased before the lock

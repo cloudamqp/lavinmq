@@ -59,9 +59,6 @@ module LavinMQ::AMQP
     # the message's total age; a message that outlived it is dead-lettered by
     # the primary queue instead of being redelivered
     private def expire_msg(env : Envelope, reason : Symbol)
-      # Kept on disk for the retry queue that replaces this one when it's
-      # recreated or restarted, see Queue#delete_message
-      return if @closed
       sp = env.segment_position
       msg = env.message
       if headers = msg.properties.headers
