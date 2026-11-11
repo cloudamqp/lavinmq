@@ -87,7 +87,8 @@ describe LavinMQ::AMQP::DurableQueue do
               fail "message after the unreadable data not delivered after resume"
             end
             queue.unreadable_segments.should eq 0
-            File.exists?(path).should be_false # nothing in it left to ack
+            # Nothing in it left to ack, unlinked after the persister's next sync
+            wait_for { !File.exists?(path) }
           end
         end
       end
