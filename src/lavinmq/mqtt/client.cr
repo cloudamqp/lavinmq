@@ -87,7 +87,6 @@ module LavinMQ
         @protocol = protocol_version.name
         @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
-        @websocket = @io.io.is_a?(LavinMQ::WebSocketIO)
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
@@ -181,7 +180,7 @@ module LavinMQ
       def send(packet, flush = true)
         @lock.synchronize do
           @io.write_packet(packet)
-          @io.flush if flush || @websocket
+          @io.flush if flush || websocket?
           @send_oct_count.add(packet.bytesize, :relaxed)
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
@@ -200,6 +199,10 @@ module LavinMQ
 
       def flush
         @lock.synchronize { @io.flush }
+      end
+
+      private def websocket?
+        @io.io.is_a?(LavinMQ::WebSocketIO)
       end
 
       def receive_pingreq(packet : Protocol::PingReq)
