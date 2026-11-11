@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A message that was being written to a queue when the broker was killed could be delivered after the restart with part of its body missing (zero bytes), instead of being dropped like any other publish that was never confirmed. A message's timestamp is now written last, after its body, and a message without a timestamp is dropped at start. The segment format is unchanged [#2663](https://github.com/cloudamqp/lavinmq/issues/2663)
 - A message store that failed to load, for example on a segment file it couldn't open, kept the files it had already opened mapped in memory. They're now unmapped, also when a priority queue's sub-store or migration fails [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A stream queue with a corrupt segment, one with an unsupported schema version or a record that can't be decoded, crashed the broker at startup with an invalid memory access. The queue is now closed and the broker starts [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A `queue.purge` that ran while the queue was being closed or deleted, e.g. at shutdown, could close the client's whole connection with `INTERNAL_ERROR`. It now purges nothing from a closed queue [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)

@@ -182,6 +182,47 @@ end
   end
 {% end %}
 
+# A message body that calls a block once half of it is read, which is when
+# that half is written to the segment
+class HalfwayBody < IO
+  def initialize(@body : Bytes, &@halfway : ->)
+    @pos = 0
+  end
+
+  def read(slice : Bytes) : Int32
+    half = @body.size // 2
+    @halfway.call if @pos == half
+    limit = @pos < half ? half : @body.size
+    len = Math.min(slice.size, limit - @pos)
+    @body[@pos, len].copy_to(slice)
+    @pos += len
+    len
+  end
+
+  def write(slice : Bytes) : Nil
+    raise IO::Error.new("Can't write to a HalfwayBody")
+  end
+end
+
+private def halfway_message(bodysize, &halfway : ->) : LavinMQ::Message
+  body = HalfwayBody.new(("b" * bodysize).to_slice, &halfway)
+  LavinMQ::Message.new(RoughTime.unix_ms, "ex", "rk", AMQ::Protocol::Properties.new, bodysize.to_u64, body)
+end
+
+# Copies the store's segment as it is in the page cache, at its full capacity,
+# to a new directory. That's what a crash at that point leaves on disk.
+private def crash_image(store, dir, name) : String
+  image_dir = File.join(dir, name)
+  Dir.mkdir(image_dir)
+  File.copy(store.@segments.last_value.path, File.join(image_dir, "msgs.0000000001"))
+  image_dir
+end
+
+private def shift_body(store) : String
+  env = store.shift?.should_not be_nil
+  String.new(env.message.body)
+end
+
 # Spec instrumentation: fails the unlink of *path*, like a crash between the
 # unlink of a segment and that of its ack file
 class File
@@ -315,6 +356,55 @@ describe LavinMQ::MessageStore do
         expect_raises(File::Error) { LavinMQ::MessageStore.new(dir, nil) }
       end
       MFile.mmap_count.should eq count_before
+    end
+  end
+
+  describe "a record that isn't completely written" do
+    it "isn't loaded after a crash while its body was written" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(File.join(dir, "store").tap { |d| Dir.mkdir(d) }, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "first"))
+        crashed = ""
+        store.push(halfway_message(4096) { crashed = crash_image(store, dir, "crashed") })
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed, nil)
+        store.size.should eq 1
+        # A shorter record takes its place, and the rest of it must not be
+        # loaded as a record after another crash
+        store.push(LavinMQ::Message.new("ex", "rk", "second"))
+        crashed_again = crash_image(store, dir, "crashed_again")
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed_again, nil)
+        store.size.should eq 2
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
+        store.shift?.should be_nil
+        store.close
+      end
+    end
+
+    it "is removed when its body can't be read" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(File.join(dir, "store").tap { |d| Dir.mkdir(d) }, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "first"))
+        expect_raises(IO::Error, "Spec body failure") do
+          store.push(halfway_message(4096) { raise IO::Error.new("Spec body failure") })
+        end
+        store.size.should eq 1
+        store.push(LavinMQ::Message.new("ex", "rk", "second"))
+        crashed = crash_image(store, dir, "crashed")
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed, nil)
+        store.size.should eq 2
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
+        store.close
+      end
     end
   end
 

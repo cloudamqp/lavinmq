@@ -298,6 +298,24 @@ class MFile < IO
     @size = new_size
   end
 
+  # Overwrites a value that is already written, where #write only appends
+  def write_at(pos : Int, value : Int64, format = IO::ByteFormat::SystemEndian) : Nil
+    check_open
+    raise IO::EOFError.new if pos + sizeof(Int64) > @size
+    format.encode(value, Bytes.new(@buffer + pos, sizeof(Int64)))
+  end
+
+  # Zeroes the bytes from `pos` up to `upto` and makes `pos` the new size, so
+  # that the next write starts there. Unlike after #resize, nothing of what
+  # was written after `pos` is left in the file.
+  def erase(pos : Int, upto : Int = @size) : Nil
+    check_open
+    raise IO::Error.new("Can't erase in a read only file") if @readonly
+    raise ArgumentError.new("Can't erase #{pos} to #{upto}") if pos > upto || upto > @capacity
+    (@buffer + pos).clear(upto - pos)
+    resize(pos)
+  end
+
   def read(slice : Bytes)
     check_open
     pos = @pos

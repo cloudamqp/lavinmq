@@ -42,8 +42,9 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
     end
 
-    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
-      io.write_bytes @timestamp, format
+    # `timestamp` is what's written as the timestamp, see MessageStore#write_record
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian, *, timestamp : Int64 = @timestamp)
+      io.write_bytes timestamp, format
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
@@ -115,8 +116,9 @@ module LavinMQ
         @properties.bytesize + sizeof(UInt64) + @bodysize
     end
 
-    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
-      io.write_bytes @timestamp, format
+    # `timestamp` is what's written as the timestamp, see MessageStore#write_record
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian, *, timestamp : Int64 = @timestamp)
+      io.write_bytes timestamp, format
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format

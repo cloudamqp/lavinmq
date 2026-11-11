@@ -475,7 +475,7 @@ module LavinMQ
       end
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
-      wfile.write_bytes msg
+      write_record(wfile, msg)
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
@@ -485,6 +485,23 @@ module LavinMQ
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
       @segment_msg_count[wfile_id] += 1
       sp
+    end
+
+    # Writes the timestamp last, after the body. Nothing else marks a record
+    # as complete, and a zero timestamp ends a segment's records at load (see
+    # #end_of_records), so a record that a crash cut off isn't loaded with
+    # part of its body missing.
+    private def write_record(wfile : MFile, msg) : Nil
+      pos = wfile.size
+      begin
+        msg.to_io(wfile, timestamp: 0i64)
+      rescue ex
+        # The body could not be read, don't leave half a record for the next
+        # one to be written after
+        wfile.erase(pos) unless wfile.closed?
+        raise ex
+      end
+      wfile.write_at(pos, msg.timestamp)
     end
 
     private def synced?(msg) : Bool
@@ -880,7 +897,7 @@ module LavinMQ
       loop do
         pos = mfile.pos
         ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-        break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+        break end_of_records(seg, mfile, pos) if ts.zero?
         bytesize = BytesMessage.skip(mfile)
         count += 1
         next if deleted?(seg, pos)
@@ -890,9 +907,8 @@ module LavinMQ
         # EOF at a record boundary is the normal end of an intact segment;
         # anything before it is an incomplete record to drop.
         if pos && pos < mfile.size
-          mfile.resize(pos)
+          drop_incomplete_record(seg, mfile, pos)
           @replicator.try &.replace_file(mfile) # followers append at their own end
-          @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
         end
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
@@ -905,6 +921,36 @@ module LavinMQ
       Fiber.yield
       @segment_msg_count[seg] = count
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
+    end
+
+    # A zero timestamp at *pos* ends the records of a segment: either the rest
+    # of the file is zero, or a crash cut off the record that was being
+    # written there, as its timestamp is written last (see #write_record).
+    private def end_of_records(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+      if unfinished_record?(mfile, pos)
+        drop_incomplete_record(seg, mfile, pos)
+      else
+        mfile.resize(pos)
+      end
+    end
+
+    # In the segment that's written to, what's left of the record is zeroed.
+    # Else a shorter record written over it would leave its tail in the
+    # file, to be loaded as a record after the next crash. The other
+    # segments are mapped read only, and nothing more is written to them.
+    private def drop_incomplete_record(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+      @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
+      seg == @segments.last_key ? mfile.erase(pos) : mfile.resize(pos)
+    end
+
+    # The first byte that isn't zero in a record without a timestamp is in
+    # the length of its exchange name or routing key, in its property flags
+    # or in its body size. They're written in that order and before anything
+    # else, so they tell if a record was being written. Without any of them
+    # the record is all zero and nothing needs to be zeroed.
+    private def unfinished_record?(mfile : MFile, pos : Int64) : Bool
+      length = Math.min(BytesMessage::MIN_BYTESIZE.to_i64, mfile.size - pos)
+      mfile.to_slice(pos, length).any? { |byte| !byte.zero? }
     end
 
     private def delete_unused_segments : Nil
