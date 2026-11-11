@@ -358,6 +358,19 @@ describe "Delayed Message Exchange" do
     end
   end
 
+  it "nacks a delayed publish when the internal queue is closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
+        ex.@delayed_queue.should_not(be_nil).close
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+        x.publish_confirm("test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)).should be_false
+        ex.publish_out_count.should eq 0
+      end
+    end
+  end
+
   it "should prevent binding delayed exchange to its own internal queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
