@@ -45,7 +45,8 @@ Part of a segment can't be read when the data is corrupt, for example after disk
 
 - **When a message is read**: the queue is paused, and no message after the data that can't be read is delivered. Publishing continues, to a new segment. The message and the rest of its segment are no longer counted. A requeued message that can't be read is handled the same way.
 - **At startup**: a segment is counted up to its last readable message, and a segment whose header can't be read, for example one from a newer LavinMQ version, isn't loaded. The queue starts paused.
-- **Streams and internal queues** aren't paused. A stream consumer that reads data that can't be read continues with the next segment, or with the next message written if it was reading the last segment.
+- **Retry queues** (`amq.retry-<queue>`) are paused the same way: they release no messages back to their queue until resumed, while rejected messages are still delayed into them.
+- **Streams and other internal queues** aren't paused. A stream consumer that reads data that can't be read continues with the next segment, or with the next message written if it was reading the last segment. The queue of a delayed exchange gives the data up right away.
 
 Each case is logged as an error with the segment's path, the position and the first bytes there. The number of segments with data that can't be read is shown as `unreadable_segments` in the queue's details in the HTTP API, and as the `queue_unreadable_segments` Prometheus metric, per queue in the `queue_coarse_metrics` family. Anything above 0 needs a look, for example by comparing the segment with the copies on the cluster's followers. Then:
 

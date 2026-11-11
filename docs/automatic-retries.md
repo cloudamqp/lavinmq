@@ -57,5 +57,6 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
 - If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period, unless its TTL has run out, in which case it is dead-lettered
 - The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
-- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff and the retry queue is recreated on the next reject
+- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff. The retry queue stays open, and the next reject tries to store the message again
+- If data in the retry queue can't be read, the retry queue is paused and releases nothing until it's resumed, see [Unreadable Data](storage.md#unreadable-data)
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit

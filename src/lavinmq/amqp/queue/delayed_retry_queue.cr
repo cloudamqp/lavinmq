@@ -33,10 +33,18 @@ module LavinMQ::AMQP
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
-      # Closed so that its primary queue replaces it, see #active_retry_queue
-      @log.error(ex) { "Queue closed due to error, message requeued instantly" }
-      close
+      # Not closed, like other queues on a store error: the message is
+      # requeued instantly, and the next reject tries the store again
+      @log.error(ex) { "Failed to delay message, requeued instantly" }
       false
+    end
+
+    # Unlike other internal queues, data that can't be read pauses the retry
+    # queue, so that it isn't given up before someone has decided, as for its
+    # primary queue: while paused nothing is released, and rejects are still
+    # delayed
+    private def pauses_for_unreadable_data? : Bool
+      true
     end
 
     # Publishes an expired message back to the primary queue. The message kept

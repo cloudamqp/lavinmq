@@ -786,14 +786,19 @@ module LavinMQ::AMQP
     # deliveries, so that nothing after it is delivered before someone has
     # decided: resume the queue to give the data up, or restart, or fail over,
     # to read it again. Internal queues, with no consumers, keep going, and
-    # give the data up right away, see DelayedMessageStore.
+    # give the data up right away, see DelayedMessageStore, except for the
+    # retry queue, see #pauses_for_unreadable_data?
     private def pause_for_unreadable_data : Nil
-      return if internal? || !@state.running?
+      return unless pauses_for_unreadable_data? && @state.running?
       @log.error do
         "Pausing the queue, as data in its message store can't be read. Resume it to give that data up, " \
         "or restart, or fail over to another node, to read it again"
       end
       pause!
+    end
+
+    private def pauses_for_unreadable_data? : Bool
+      !internal?
     end
 
     # Also gives up data that can't be read, see #pause_for_unreadable_data

@@ -324,12 +324,80 @@ describe "Retry Queue" do
 
           msg2 = wait_for { q.get(no_ack: false) }
           msg2.body_io.to_s.should eq body
-          retry_q.closed?.should be_true
+          retry_q.closed?.should be_false
           s.vhosts["/"].queue("retry-store-error").closed?.should be_false
 
+          # Not recreated: the store is tried again, and still fails
           msg2.reject(requeue: true)
-          wait_for { s.vhosts["/"].queue?("amq.retry-retry-store-error").try { |rq| !rq.closed? && rq.message_count == 1 } }
+          msg3 = wait_for { q.get(no_ack: false) }
+          msg3.body_io.to_s.should eq body
+          s.vhosts["/"].queue("amq.retry-retry-store-error").should be retry_q
+          retry_q.message_count.should eq 0
         end
+      end
+    end
+
+    it "pauses on data that can't be read, and gives it up when resumed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("retry-unreadable", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 500}))
+          body = "x" * 1000
+          2.times { q.publish_confirm body }
+          2.times { wait_for { q.get(no_ack: false) }.reject(requeue: true) }
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-unreadable")
+          wait_for { retry_q.message_count == 2 }
+          store = retry_q.@msg_store.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore)
+          retry_q.@msg_store_lock.synchronize do
+            # After the first message's timestamp: empty exchange, routing
+            # key and properties, and a body size that can't be read
+            first = (store.first_delayed? || raise "no delayed message").segment_position
+            File.open(store.@segments[first.segment].path, "r+") do |f|
+              f.seek(first.position + 8)
+              f.write(Bytes[0, 0, 0, 0])
+              f.write(Bytes.new(8, 0xff_u8))
+            end
+          end
+
+          should_eventually(be_true) { retry_q.state.paused? }
+          retry_q.unreadable_segments.should eq 1
+          # The readable message is due, but isn't released while paused
+          sleep 700.milliseconds
+          s.vhosts["/"].queue("retry-unreadable").message_count.should eq 0
+          retry_q.message_count.should eq 1
+
+          retry_q.resume!
+          should_eventually(eq 1) { s.vhosts["/"].queue("retry-unreadable").message_count }
+          retry_q.unreadable_segments.should eq 0
+          retry_q.message_count.should eq 0
+        end
+      end
+    end
+
+    it "starts paused when data can't be read at startup" do
+      with_amqp_server do |s|
+        path = ""
+        with_channel(s) do |ch|
+          q = ch.queue("retry-unreadable-start", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-unreadable-start")
+          wait_for { retry_q.message_count == 1 }
+          path = retry_q.@msg_store.@segments.last_value.path
+        end
+        s.stop
+        # After the message's timestamp: empty exchange, routing key and
+        # properties, and a body size that can't be read
+        File.open(path, "r+") do |f|
+          f.seek(4 + 8)
+          f.write(Bytes[0, 0, 0, 0])
+          f.write(Bytes.new(8, 0xff_u8))
+        end
+        restart_server(s)
+        retry_q = s.vhosts["/"].queue("amq.retry-retry-unreadable-start")
+        retry_q.state.paused?.should be_true
+        retry_q.unreadable_segments.should eq 1
+        File.exists?(path).should be_true
+        s.vhosts["/"].queue("retry-unreadable-start").state.running?.should be_true
       end
     end
 

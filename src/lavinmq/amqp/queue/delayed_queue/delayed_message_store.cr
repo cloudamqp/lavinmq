@@ -23,10 +23,19 @@ module LavinMQ::AMQP
         requeued.time_to_next_expiration?
       end
 
-      def initialize(*args, **kwargs)
-        super
+      # Data that can't be read is given up right away, unless the queue
+      # pauses for it, see Queue#pauses_for_unreadable_data?
+      @give_up_unreadable : Bool
+
+      def initialize(*args, give_up_unreadable : Bool = true, **kwargs)
+        @give_up_unreadable = give_up_unreadable
+        super(*args, **kwargs)
         build_index
-        release_unreadable
+        release_unreadable_unless_paused
+      end
+
+      private def release_unreadable_unless_paused : Nil
+        release_unreadable if @give_up_unreadable
       end
 
       def build_index
@@ -73,8 +82,8 @@ module LavinMQ::AMQP
       end
 
       # Messages that can't be read are dropped, see #drop_requeued, and
-      # given up right away, as an internal queue isn't paused for them, see
-      # MessageStore#release_unreadable
+      # given up right away, unless the queue pauses for them, see
+      # #release_unreadable_unless_paused
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
         while sp = @requeued.first?
@@ -83,7 +92,7 @@ module LavinMQ::AMQP
           end
           @requeued.shift?
           drop_requeued(sp)
-          release_unreadable
+          release_unreadable_unless_paused
         end
       end
 
@@ -97,7 +106,7 @@ module LavinMQ::AMQP
             return env
           end
           drop_requeued(sp)
-          release_unreadable
+          release_unreadable_unless_paused
         end
       end
 

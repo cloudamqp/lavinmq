@@ -141,6 +141,30 @@ describe "Delayed Message Exchange" do
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
       end
     end
+
+    it "gives up data that can't be read at startup, without pausing" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "topic", args: x_args)
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 300_000})
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        end
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(delay_q_name))
+        s.stop
+        # After the message's timestamp: empty exchange, routing key and
+        # properties, and a body size that can't be read
+        File.open(File.join(data_dir, "msgs.0000000001"), "r+") do |f|
+          f.seek(4 + 8)
+          f.write(Bytes[0, 0, 0, 0])
+          f.write(Bytes.new(8, 0xff_u8))
+        end
+        restart_server(s)
+        queue = s.vhosts["/"].queue(delay_q_name)
+        queue.state.running?.should be_true
+        queue.unreadable_segments.should eq 0
+        queue.message_count.should eq 0
+      end
+    end
   end
 
   q_name = "delayed_q"

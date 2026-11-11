@@ -12,7 +12,8 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister,
+        give_up_unreadable: !pauses_for_unreadable_data?)
     end
 
     # Simplified expire loop: no consumers and no per-message TTL to consider,
@@ -23,6 +24,10 @@ module LavinMQ::AMQP
       # released before the vhost has loaded the bindings they route through
       @vhost.closed.when_false.receive?
       loop do
+        if @paused.value
+          @paused.when_false.receive
+          next
+        end
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
             expire_messages
@@ -72,10 +77,13 @@ module LavinMQ::AMQP
     end
 
     # Shifts the next message whose delay has passed, leased before the lock
-    # is released
+    # is released. Nothing is shifted while paused, also when the read just
+    # paused the queue, see #pauses_for_unreadable_data?
     private def next_expired_message : Envelope?
       @msg_store_lock.synchronize do
-        if (env = delayed_msg_store.first_delayed?) && has_expired?(env)
+        env = delayed_msg_store.first_delayed?
+        return if @state.paused?
+        if env && has_expired?(env)
           delayed_msg_store.shift_delayed?.try &.lease
         end
       end
