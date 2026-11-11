@@ -64,6 +64,30 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "Purge" do
+    it "purges nothing from a store that closed while the purge waited for the lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("purge-closing-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        q = s.vhosts["/"].queue("purge-closing-stream")
+        lock = q.@msg_store_lock
+        lock.lock
+        purged = Channel(UInt32 | Exception).new
+        spawn do
+          purged.send q.purge
+        rescue ex
+          purged.send ex
+        end
+        Fiber.yield
+        q.@msg_store.close
+        lock.unlock
+        purged.receive.should eq 0
+      end
+    end
+  end
+
   describe "Requeue" do
     it "should not requeue messages into the store on channel close" do
       with_amqp_server do |s|
@@ -1057,6 +1081,64 @@ describe LavinMQ::AMQP::Stream do
         bytesize = consumer_tag.bytesize + 1 + 8
         msg_store.@consumer_offsets.size.should eq bytesize
         msg_store.close
+      end
+    end
+
+    it "unmaps the segments it opened when loading raises" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+        # MFile can't open a directory, so loading fails after segment 1 is mapped
+        Dir.mkdir(File.join(data_dir, "msgs.0000000002"))
+        count_before = MFile.mmap_count
+        expect_raises(File::Error) { LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil) }
+        MFile.mmap_count.should eq count_before
+      end
+    end
+
+    # Closing the store runs StreamMessageStore#close, which closes state
+    # that is only set up after loading, and crashed the process
+    it "gives up a segment with an unsupported schema version instead of crashing" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x09\x00\x00\x00")
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.closed.should be_false
+        store.size.should eq 0
+      ensure
+        store.try &.close
+      end
+    end
+
+    it "gives up a record in a segment that can't be decoded instead of crashing" do
+      with_datadir do |data_dir|
+        io = IO::Memory.new
+        io.write_bytes LavinMQ::Schema::VERSION
+        io.write_bytes 1_i64       # timestamp
+        io.write_byte 0_u8         # exchange name
+        io.write_byte 0_u8         # routing key
+        io.write_bytes 0_u16       # property flags
+        io.write_bytes UInt64::MAX # body size, overflows when skipped
+        File.write(File.join(data_dir, "msgs.0000000001"), io.to_slice)
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.closed.should be_false
+        store.size.should eq 0
+      ensure
+        store.try &.close
+      end
+    end
+
+    it "starts with a stream queue whose segment is corrupt, and gives up that segment" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        stream = s.vhosts["/"].queue("corrupt-stream")
+        stream.closed?.should be_false
+        stream.message_count.should eq 0
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
       end
     end
 

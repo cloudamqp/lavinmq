@@ -46,7 +46,7 @@ The `x-delivery-count` header on a delivery tells the consumer how many deliveri
 
 ## Retry Queue
 
-Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created with the queue, deleted with it, and recreated automatically if it disappears. Like all internal queues it cannot be operated on by AMQP clients, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
+Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created when the queue starts, and closed, restarted and deleted with it. Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
 
 ## Notes and Limitations
 
@@ -58,6 +58,6 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
 - If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period, unless its TTL has run out, in which case it is dead-lettered
 - The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
-- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff. The retry queue stays open, and the next reject tries to store the message again
+- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff. The retry queue stays open, so later rejects are delayed again once it can store messages. If it fails to release a delayed message, it tries again on the next reject that it delays
 - If data in the retry queue can't be read, the retry queue is paused and releases nothing until it's resumed, see [Unreadable Data](storage.md#unreadable-data)
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit

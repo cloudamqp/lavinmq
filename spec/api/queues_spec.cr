@@ -492,6 +492,15 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should refuse to delete an internal queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("delq", true, false, LavinMQ::AMQP::Table.new({"x-delayed-retry-min" => 1000}))
+        response = http.delete("/api/queues/%2f/amq.retry-delq")
+        response.status_code.should eq 403
+        s.vhosts["/"].queue?("amq.retry-delq").should_not be_nil
+      end
+    end
+
     it "should not delete queue if it has messasge when query param if-unused is set" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

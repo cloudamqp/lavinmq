@@ -19,7 +19,7 @@ module LavinMQ::AMQP
     # Simplified expire loop: no consumers and no per-message TTL to consider,
     # only the delays ordered by the delayed store.
     private def message_expire_loop
-      failed = false
+      stopped_on_error = false
       # Messages restored from disk can be overdue already, but must not be
       # released before the vhost has loaded the bindings they route through
       @vhost.closed.when_false.receive?
@@ -48,15 +48,22 @@ module LavinMQ::AMQP
         end
       end
     rescue ex : MessageStore::Error
-      # Not restarted here, where it would run into the error again, but by
-      # the next delayed message
-      failed = true
-      @log.error(ex) { "Message expire loop stopped due to error" }
+      stopped_on_error = true
+      expire_loop_failed(ex)
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
-      ensure_expire_fiber unless failed # restart if a message arrived during teardown
+      # Restart if a message arrived during teardown, but not after an error,
+      # so that a lasting one can't make the loop spin
+      ensure_expire_fiber unless stopped_on_error
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Not closed, like other queues on a store error; data that can't be read
+    # doesn't get here, see DelayedMessageStore. The loop is restarted by the
+    # next delayed message.
+    private def expire_loop_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Release of delayed messages stopped due to error, restarted by the next delayed message" }
     end
 
     # The expire fiber must always run, otherwise delayed messages are never released

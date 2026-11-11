@@ -482,6 +482,29 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    # The purge checks for a closed queue before it waits for the store lock,
+    # and a close can take the lock first and close the store
+    it "purges nothing from a store that closed while the purge waited for the lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("purge-closing", durable: true).publish_confirm "x"
+        end
+        q = s.vhosts["/"].queue("purge-closing")
+        lock = q.@msg_store_lock
+        lock.lock
+        purged = Channel(UInt32 | Exception).new
+        spawn do
+          purged.send q.purge
+        rescue ex
+          purged.send ex
+        end
+        Fiber.yield
+        q.@msg_store.close
+        lock.unlock
+        purged.receive.should eq 0
+      end
+    end
   end
 
   it "should keep track of unacked basic_get messages" do

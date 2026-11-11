@@ -30,8 +30,12 @@ module LavinMQ::AMQP
       def initialize(*args, give_up_unreadable : Bool = true, **kwargs)
         @give_up_unreadable = give_up_unreadable
         super(*args, **kwargs)
-        build_index
-        release_unreadable_unless_paused
+        # A segment that failed to load closed the store and unmapped its
+        # segments, so they can't be indexed
+        unless @closed
+          close_on_error { build_index }
+          release_unreadable_unless_paused
+        end
       end
 
       private def release_unreadable_unless_paused : Nil

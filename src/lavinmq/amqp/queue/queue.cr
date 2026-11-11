@@ -354,6 +354,7 @@ module LavinMQ::AMQP
       @msg_store.on_unreadable = ->pause_for_unreadable_data
       pause_for_unreadable_data if @msg_store.unreadable_segments > 0
       handle_arguments
+      init_retry_queue if settings.delayed_retry_min
       ensure_queue_expire_fiber
       start_message_expire_loop if should_start_expire_fiber?
     end
@@ -649,7 +650,6 @@ module LavinMQ::AMQP
         effective_args << "x-delayed-retry-multiplier" if settings.delayed_retry_multiplier
         settings.delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
         effective_args << "x-delayed-retry-max" if settings.delayed_retry_max
-        init_retry_queue
       end
       settings
     end
@@ -660,35 +660,23 @@ module LavinMQ::AMQP
       end
     end
 
-    private def init_retry_queue
-      @retry_queue_lock.synchronize { create_retry_queue }
-    end
-
-    # Recreates the retry queue if it was deleted or closed itself on a store error.
-    private def active_retry_queue : DelayedRetryQueue?
-      @retry_queue_lock.synchronize do
-        if retry_queue = @delayed_retry_queue
-          next retry_queue unless retry_queue.closed?
-          @delayed_retry_queue = nil
+    # Creates the retry queue when this queue starts, and nowhere else. It
+    # only closes with this queue.
+    private def init_retry_queue : Nil
+      # The definitions lock first, as a delete through the definitions takes them
+      @vhost.synchronize_definitions do
+        @retry_queue_lock.synchronize do
+          return if @deleted || @closed
+          return if @delayed_retry_queue.try { |q| !q.closed? }
+          queue = DelayedRetryQueue.create(@vhost, self)
+          @delayed_retry_queue = queue
+          @vhost.register_queue(queue)
         end
-        next if @deleted || @closed
-        @log.info { "Recreating retry queue" }
-        create_retry_queue
       end
+    rescue ex : LavinMQ::Error::PreconditionFailed
+      raise ex
     rescue ex
-      @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
-      nil
-    end
-
-    # Only call while holding @retry_queue_lock
-    private def create_retry_queue : DelayedRetryQueue
-      if queue = @delayed_retry_queue
-        return queue
-      end
-      queue = DelayedRetryQueue.create(@vhost, self)
-      @delayed_retry_queue = queue
-      @vhost.register_queue(queue)
-      queue
+      @log.error(ex) { "Failed to create retry queue, rejected messages are requeued instantly until LavinMQ is restarted" }
     end
 
     # The message keeps its original timestamp while delayed, so x-message-ttl
@@ -853,7 +841,7 @@ module LavinMQ::AMQP
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
-      @retry_queue_lock.synchronize { @delayed_retry_queue.try &.close }
+      @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.close
       Fiber.yield
       @log.debug { "Closed" }
       true
@@ -862,12 +850,12 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      @retry_queue_lock.synchronize do
-        if retry_queue = @delayed_retry_queue
-          @delayed_retry_queue = nil
-          retry_queue.delete
-        end
+      # Outside @retry_queue_lock: the delete takes the definitions lock, which
+      # #init_retry_queue holds while it takes @retry_queue_lock
+      retry_queue = @retry_queue_lock.synchronize do
+        @delayed_retry_queue.tap { @delayed_retry_queue = nil }
       end
+      retry_queue.try &.delete
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -1369,7 +1357,7 @@ module LavinMQ::AMQP
         end
       end
       if route_to_retry && (delayed_retry_min = settings.delayed_retry_min)
-        if retry_queue = active_retry_queue
+        if retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
           # DelayedRetryQueue#delay writes the message to its own store before
           # returning, so the lease only has to cover the call
           env = @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
@@ -1463,6 +1451,8 @@ module LavinMQ::AMQP
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if @closed
       delete_count = @msg_store_lock.synchronize do
+        # A close that took the lock first closed the store after the check above
+        next 0_u32 if @msg_store.closed
         # Checked under the lock, so that a message published or shifted for
         # delivery between the check and the purge isn't purged uncounted
         if unacked_count == 0 && max_count >= @msg_store.size

@@ -319,7 +319,11 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store_lock.synchronize do
+        # Closed by a close, or a store error, while the purge waited for the lock
+        next 0_u32 if @msg_store.closed
+        @msg_store.purge(max_count)
+      end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     end
