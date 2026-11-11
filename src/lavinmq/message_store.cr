@@ -48,19 +48,33 @@ module LavinMQ
       # Another instance can have emptied segments in the same directory,
       # e.g. the store of a queue that is restarted
       @persister.try &.flush_unlinks(@msg_dir)
-      load_segments_from_disk
-      load_acks_from_disk
+      close_on_error do
+        load_segments_from_disk
+        load_acks_from_disk
+      end
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
-      unless @closed
-        load_stats_from_segments
-        prune_orphaned_acks
-        delete_unused_segments
+      close_on_error do
+        unless @closed
+          load_stats_from_segments
+          prune_orphaned_acks
+          delete_unused_segments
+        end
+        readahead_for_writes(@wfile) unless @closed
+        @empty.set empty? unless @closed
       end
-      readahead_for_writes(@wfile) unless @closed
-      @empty.set empty? unless @closed
+    end
+
+    # Unmaps the segments and ack files opened before a failure while
+    # loading, the caller gets no store to close. Doesn't call #close, which
+    # subclasses override to close what they set up after super.
+    private def close_on_error(&)
+      yield
+    rescue ex
+      close_store
+      raise ex
     end
 
     def push(msg) : SegmentPosition
@@ -385,6 +399,10 @@ module LavinMQ
     end
 
     def close : Nil
+      close_store
+    end
+
+    private def close_store : Nil
       return if @closed
       @closed = true
       @empty.close
@@ -681,7 +699,7 @@ module LavinMQ
                 replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
               end
             end
-            close
+            close_store
             break
           end
         end
@@ -879,7 +897,7 @@ module LavinMQ
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close
+        close_store
         return count
       end
       mfile.pos = 4

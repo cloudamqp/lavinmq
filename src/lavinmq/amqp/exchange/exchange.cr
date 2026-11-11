@@ -280,9 +280,12 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.delay(msg)
-            @publish_out_count.add(1, :relaxed)
-            return PublishResult::Routed
+            if q.delay(msg)
+              @publish_out_count.add(1, :relaxed)
+              return PublishResult::Routed
+            else # Closed, e.g. on a corrupt segment at start, so a confirm is a nack
+              return PublishResult::Rejected
+            end
           else
             @unroutable_count.add(1, :relaxed)
             return PublishResult::None
