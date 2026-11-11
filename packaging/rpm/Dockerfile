@@ -1,8 +1,8 @@
 ARG build_image=84codes/crystal:latest-fedora-43
 
 FROM $build_image AS builder
-# Enable CRB repository for el-9 to access help2man
-RUN if grep -q 'PLATFORM_ID="platform:el9"' /etc/os-release; then \
+# Enable CRB repository for el-9 and el-10 to access help2man
+RUN if grep -qE 'PLATFORM_ID="platform:el(9|10)"' /etc/os-release; then \
       dnf install -y dnf-plugins-core && \
       dnf config-manager --enable crb; \
     fi
