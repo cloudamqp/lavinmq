@@ -283,8 +283,7 @@ module LavinMQ
             if q.delay(msg)
               @publish_out_count.add(1, :relaxed)
               return PublishResult::Routed
-            else
-              # Closed, e.g. on a corrupt segment at start, so a confirm is a nack
+            else # Closed, e.g. on a corrupt segment at start, so a confirm is a nack
               return PublishResult::Rejected
             end
           else
