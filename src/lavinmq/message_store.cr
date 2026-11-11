@@ -475,7 +475,7 @@ module LavinMQ
       end
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
-      write_record(wfile, msg)
+      write_message(wfile, msg)
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
@@ -489,7 +489,7 @@ module LavinMQ
 
     # A record whose body can't be read is removed, so that half of it isn't
     # left for the next one to be written after
-    private def write_record(wfile : MFile, msg) : Nil
+    private def write_message(wfile : MFile, msg) : Nil
       pos = wfile.size
       wfile.write_bytes msg
     rescue ex
@@ -890,7 +890,7 @@ module LavinMQ
       loop do
         pos = mfile.pos
         ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-        break end_of_records(seg, mfile, pos) if ts.zero?
+        break end_of_messages(seg, mfile, pos) if ts.zero?
         bytesize = BytesMessage.skip(mfile)
         count += 1
         next if deleted?(seg, pos)
@@ -900,7 +900,7 @@ module LavinMQ
         # EOF at a record boundary is the normal end of an intact segment;
         # anything before it is an incomplete record to drop.
         if pos && pos < mfile.size
-          drop_incomplete_record(seg, mfile, pos)
+          drop_incomplete_message(seg, mfile, pos)
           @replicator.try &.replace_file(mfile) # followers append at their own end
         end
         break
@@ -919,9 +919,9 @@ module LavinMQ
     # A zero timestamp at *pos* ends the records of a segment: either the rest
     # of the file is zero, or a crash cut off the record that was being
     # written there, as its timestamp is written last (see Message#to_io).
-    private def end_of_records(seg : UInt32, mfile : MFile, pos : Int64) : Nil
-      if unfinished_record?(mfile, pos)
-        drop_incomplete_record(seg, mfile, pos)
+    private def end_of_messages(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+      if unfinished_message?(mfile, pos)
+        drop_incomplete_message(seg, mfile, pos)
       else
         mfile.resize(pos)
       end
@@ -931,7 +931,7 @@ module LavinMQ
     # Else a shorter record written over it would leave its tail in the
     # file, to be loaded as a record after the next crash. The other
     # segments are mapped read only, and nothing more is written to them.
-    private def drop_incomplete_record(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+    private def drop_incomplete_message(seg : UInt32, mfile : MFile, pos : Int64) : Nil
       @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
       seg == @segments.last_key ? mfile.erase(pos) : mfile.resize(pos)
     end
@@ -941,7 +941,7 @@ module LavinMQ
     # or in its body size. They're written in that order and before anything
     # else, so they tell if a record was being written. Without any of them
     # the record is all zero and nothing needs to be zeroed.
-    private def unfinished_record?(mfile : MFile, pos : Int64) : Bool
+    private def unfinished_message?(mfile : MFile, pos : Int64) : Bool
       length = Math.min(BytesMessage::MIN_BYTESIZE.to_i64, mfile.size - pos)
       mfile.to_slice(pos, length).any? { |byte| !byte.zero? }
     end
