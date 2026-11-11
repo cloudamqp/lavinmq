@@ -21,6 +21,23 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
+    # Only the primary queue's restart replaces a retry queue
+    def restart! : Bool
+      false
+    end
+
+    # A retry queue never closes on its own, only with its primary queue, so
+    # a reject never closes or deletes it, which would take the definitions
+    # lock while the rejecting channel holds its own lock.
+    # The loop is restarted by the next delay.
+    private def expire_loop_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Release of delayed messages stopped due to error, restarted by the next delay" }
+    end
+
+    private def purge_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Purge failed due to error" }
+    end
+
     def delay(msg : Message) : Bool
       return false if @closed
       @msg_store_lock.synchronize do
@@ -28,13 +45,12 @@ module LavinMQ::AMQP
       end
       @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber # restart the expire fiber if it died on a transient store error
+      ensure_expire_fiber # restart the expire fiber if it stopped on a store error
       true
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
-      @log.error(ex) { "Queue closed due to error, message requeued instantly" }
-      close
+      @log.error(ex) { "Failed to delay message, requeuing instantly" }
       false
     end
 

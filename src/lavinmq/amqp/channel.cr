@@ -569,6 +569,8 @@ module LavinMQ
 
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
       @tx_acks = Array(TxAck).new
+      # Only used by the fiber that reads the client's frames
+      @rejects = Array({Unack, Bool}).new
 
       def basic_ack(frame)
         if @tx
@@ -659,8 +661,9 @@ module LavinMQ
         if frame.multiple
           delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
-            do_reject(frame.requeue, unack)
+            @rejects << {unack, frame.requeue}
           end
+          reject_all
         elsif unack = delete_unacked(frame.delivery_tag)
           found = true
           do_reject(frame.requeue, unack)
@@ -683,6 +686,38 @@ module LavinMQ
       private def unknown_tag(delivery_tag)
         # Lower case u important for bunny on_error callback
         "unknown delivery tag #{delivery_tag}"
+      end
+
+      # Rejects outside @unack_lock, which the channel's deliver loops wait
+      # for: a reject can close a queue, which waits for its deliver loops. If
+      # a reject raises, the rest are put back as unacked, so that the
+      # channel's close requeues them.
+      private def reject_all : Nil
+        @rejects.each_with_index do |(unack, requeue), i|
+          do_reject(requeue, unack)
+        rescue ex
+          restore_unacked(i + 1)
+          raise ex
+        end
+      ensure
+        @rejects.clear
+      end
+
+      private def restore_unacked(from : Int32) : Nil
+        notify_has_capacity do
+          @rejects.each(start: from, count: @rejects.size - from) do |(unack, _)|
+            unless @running # closed meanwhile, so requeue as #close does
+              unack.queue.requeue(unack.sp)
+              if unack.consumer.nil?
+                unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+              end
+              next
+            end
+            idx = @unacked.bsearch_index { |u, _| u.tag >= unack.tag } || @unacked.size
+            @unacked.insert(idx, unack)
+            @basic_get_unacked_count.add(1u32, :relaxed) if unack.consumer.nil?
+          end
+        end
       end
 
       private def do_reject(requeue, unack)
@@ -914,7 +949,7 @@ module LavinMQ
                   unack = @unacked.shift
                   @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                   if tx_ack.negative
-                    do_reject(tx_ack.requeue, unack)
+                    @rejects << {unack, tx_ack.requeue}
                   else
                     do_ack(unack)
                   end
@@ -923,7 +958,7 @@ module LavinMQ
                 unack = @unacked.delete_at(idx)
                 @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                 if tx_ack.negative
-                  do_reject(tx_ack.requeue, unack)
+                  @rejects << {unack, tx_ack.requeue}
                 else
                   do_ack(unack)
                 end
@@ -932,6 +967,12 @@ module LavinMQ
           end
           @tx_acks.clear
         end
+      rescue ex
+        restore_unacked(0)
+        @rejects.clear
+        raise ex
+      else
+        reject_all
       end
 
       def tx_rollback(frame)
