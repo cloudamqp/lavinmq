@@ -6,8 +6,6 @@ module LavinMQ::AMQP
   # Created and deleted together with the primary queue.
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
-    @close_started = Atomic(Bool).new(false)
-    @close_done = WaitGroup.new(1)
 
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
@@ -23,25 +21,25 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
-    # An instance is never reopened: its primary queue replaces it with a new
-    # one, see Queue#init_retry_queue
-    def restart! : Bool
-      @primary_queue.restart_retry_queue(self)
-    end
-
+    # Shares its primary queue's lifecycle: a retry queue that closes, e.g. on
+    # a store error, closes the primary too, and a restart of the primary
+    # replaces it. The primary closes after this queue's store is closed, so
+    # the replacement can't load the files while this instance still has them.
     def close : Bool
-      return false if @close_started.swap(true)
-      begin
-        super
-      ensure
-        @close_done.done
-      end
+      return false unless super
+      @primary_queue.close
+      true
     end
 
-    # Waits for a close in progress, including the delete that a non-durable
-    # retry queue's close does
-    protected def wait_closed : Nil
-      @close_done.wait
+    # Only the primary queue's restart replaces a retry queue
+    def restart! : Bool
+      false
+    end
+
+    # Only the primary queue's delete removes a retry queue, also a
+    # non-durable one, so that its close never goes through the definitions
+    protected def delete_on_close? : Bool
+      false
     end
 
     def delay(msg : Message) : Bool
@@ -56,7 +54,7 @@ module LavinMQ::AMQP
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
-      @log.error(ex) { "Queue closed due to error, message requeued instantly" }
+      @log.error(ex) { "Queue closed due to error, closing #{@primary_queue.name}" }
       close
       false
     end

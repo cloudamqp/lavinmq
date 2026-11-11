@@ -691,37 +691,24 @@ module LavinMQ::AMQP
       end
     end
 
-    # Creates the retry queue when this queue starts, and replaces one that
-    # closed, so a restart reopens it. A closed retry queue is only replaced
-    # once its close is done: until then it still has the files the new one
-    # loads, and a non-durable one deletes itself by name. A reject never
-    # replaces it, it requeues instantly instead.
-    private def init_retry_queue : Bool
-      old = @retry_queue_lock.synchronize { @delayed_retry_queue }
-      return true if old && !old.closed?
-      old.try &.wait_closed
+    # Creates the retry queue when this queue starts, and nowhere else. A
+    # retry queue that closed closed this queue too, so a restart of this
+    # queue replaces it.
+    private def init_retry_queue : Nil
       # The definitions lock first, as a delete through the definitions takes them
       @vhost.synchronize_definitions do
         @retry_queue_lock.synchronize do
-          return false if @deleted || @closed || !@delayed_retry_queue.same?(old)
-          @log.info { "Recreating retry queue" } if old
+          return if @deleted || @closed
+          return if @delayed_retry_queue.try { |q| !q.closed? }
           queue = DelayedRetryQueue.create(@vhost, self)
           @delayed_retry_queue = queue
           @vhost.register_queue(queue)
-          !queue.closed?
         end
       end
     rescue ex : LavinMQ::Error::PreconditionFailed
       raise ex
     rescue ex
       @log.error(ex) { "Failed to create retry queue, requeuing instantly" }
-      false
-    end
-
-    protected def restart_retry_queue(retry_queue : DelayedRetryQueue) : Bool
-      return false unless retry_queue.closed?
-      return false unless @retry_queue_lock.synchronize { @delayed_retry_queue.same?(retry_queue) }
-      init_retry_queue
     end
 
     # The message keeps its original timestamp while delayed, so x-message-ttl
@@ -860,11 +847,15 @@ module LavinMQ::AMQP
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
-      delete if !durable? || @exclusive
+      delete if delete_on_close?
       @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.close
       Fiber.yield
       @log.debug { "Closed" }
       true
+    end
+
+    protected def delete_on_close? : Bool
+      !durable? || @exclusive
     end
 
     def delete : Bool
@@ -1390,6 +1381,9 @@ module LavinMQ::AMQP
           ensure
             env.release
           end
+          # A retry queue that fails closes this queue, which keeps the
+          # message on disk until it's restarted
+          return if @closed
         end
       end
       was_empty = false

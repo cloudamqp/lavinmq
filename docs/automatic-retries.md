@@ -46,7 +46,7 @@ The `x-delivery-count` header on a delivery tells the consumer how many deliveri
 
 ## Retry Queue
 
-Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created with the queue and deleted with it. Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
+Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created when the queue starts, and closed, restarted and deleted with it. Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
 
 ## Notes and Limitations
 
@@ -58,5 +58,5 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
 - If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period, unless its TTL has run out, in which case it is dead-lettered
 - The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
-- If the retry queue cannot store a message, for example on a disk error, it closes and the message is requeued instantly without backoff. Later rejects are also requeued instantly until the retry queue is restarted, either directly (`PUT /api/queues/:vhost/amq.retry-<queue>/restart`) or together with its queue
+- If the retry queue cannot store a message, for example on a disk error, it closes and closes its queue too, as a queue does when it can't store a message itself. The rejected message stays on disk, and a restart of the queue (`PUT /api/queues/:vhost/<queue>/restart`) brings it back and replaces the retry queue. The retry queue can't be restarted on its own
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit
