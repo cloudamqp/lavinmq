@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Since 2.11.0-rc.1, `tcp_send_timeout` also disconnected clients that kept reading, only slower than about a third of the socket's send buffer per timeout, about 90 KB/s with the default 15 seconds, e.g. a consumer on a slow link receiving large messages, or an MQTT subscriber getting a large QoS 1 message. Client sockets now set `TCP_NOTSENT_LOWAT`, so a blocked write resumes once the client has read a little, and only a client that stops reading is disconnected [#TBD](https://github.com/cloudamqp/lavinmq/pulls)
 - A message store that failed to load, for example on a segment file it couldn't open, kept the files it had already opened mapped in memory. They're now unmapped, also when a priority queue's sub-store or migration fails [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A stream queue with a corrupt segment, one with an unsupported schema version or a record that can't be decoded, crashed the broker at startup with an invalid memory access. The queue is now closed and the broker starts [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A `queue.purge` that ran while the queue was being closed or deleted, e.g. at shutdown, could close the client's whole connection with `INTERNAL_ERROR`. It now purges nothing from a closed queue [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)

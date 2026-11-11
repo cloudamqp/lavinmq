@@ -280,9 +280,12 @@ module LavinMQ
     end
 
     # Writes, and closing the connection, wait for the client's write lock,
-    # so a client that stops reading mustn't block a write forever
+    # so a client that stops reading mustn't block a write forever. The low
+    # unsent-data mark makes a client that reads, however slowly, unblock
+    # the write before the timeout.
     private def set_write_timeout(socket)
       socket.write_timeout = @config.tcp_send_timeout.seconds
+      socket.tcp_notsent_lowat = Config::TCP_NOTSENT_LOWAT if socket.is_a?(TCPSocket)
     end
 
     # The TCP socket under a TLS socket buffers OpenSSL's reads (a record
