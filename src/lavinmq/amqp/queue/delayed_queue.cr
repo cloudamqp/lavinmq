@@ -83,17 +83,10 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         env = delayed_msg_store.first_delayed?
         return if @state.paused?
-        if env && has_expired?(env)
+        if env && delayed_msg_store.first_due?
           delayed_msg_store.shift_delayed?.try &.lease
         end
       end
-    end
-
-    private def has_expired?(env : Envelope) : Bool
-      delay = env.segment_position.delay
-      timestamp = env.message.timestamp
-      expire_at = timestamp + delay
-      expire_at <= RoughTime.unix_ms
     end
 
     private def delayed_msg_store

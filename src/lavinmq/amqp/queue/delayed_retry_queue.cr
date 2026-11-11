@@ -82,8 +82,13 @@ module LavinMQ::AMQP
       if delay(redelayed)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
         delete_message sp
-      else
+      elsif @closed
         @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
+      else
+        # The store couldn't take the copy, so the message itself is delayed
+        # again, rather than left out of the index
+        @msg_store_lock.synchronize { delayed_msg_store.delay_again(sp, backoff) }
+        @log.warn { "Primary queue #{@primary_queue.name} unavailable, retrying message #{sp} in #{backoff}ms" }
       end
     end
   end

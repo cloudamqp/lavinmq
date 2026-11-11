@@ -122,6 +122,22 @@ module LavinMQ::AMQP
         sp
       end
 
+      def first_due? : Bool
+        requeued.first_due?(RoughTime.unix_ms)
+      end
+
+      # Puts a message that was shifted, but not delivered nor deleted, back in
+      # the index, due in `delay_ms` from now
+      def delay_again(sp : SegmentPosition, delay_ms : Int) : Nil
+        raise ClosedError.new if @closed
+        was_empty = @size.zero?
+        # The index adds the message's own delay to the timestamp
+        requeued.insert(sp, RoughTime.unix_ms + delay_ms - sp.delay)
+        @bytesize += sp.bytesize
+        @size += 1
+        @empty.set false if was_empty
+      end
+
       def purge_all
         while sp = @requeued.shift?
           @size -= 1

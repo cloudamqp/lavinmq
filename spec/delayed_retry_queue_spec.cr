@@ -328,6 +328,33 @@ describe "Retry Queue" do
       end
     end
 
+    it "should keep a retried message when it can't be delayed again while the primary queue is full" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 100,
+            "x-max-length"        => 1,
+            "x-overflow"          => "reject-publish",
+          })
+          q = ch.queue("retry-overflow-store-error", args: args)
+          body = "x" * (LavinMQ::Config.instance.segment_size + 1) # a segment of its own
+          q.publish_confirm body
+          msg = wait_for { q.get(no_ack: false) }
+          q.publish_confirm "block"
+          msg.reject(requeue: true)
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-overflow-store-error")
+          wait_for { retry_q.message_count == 1 }
+          # The copy delaying it again needs a new segment, which can't be made
+          FileUtils.rm_rf(retry_q.@msg_store.@msg_dir)
+
+          sleep 350.milliseconds # released, and failed to be delayed again, a few times
+          retry_q.message_count.should eq 1
+          retry_q.closed?.should be_false
+        end
+      end
+    end
+
     it "should close the retry queue with the primary queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

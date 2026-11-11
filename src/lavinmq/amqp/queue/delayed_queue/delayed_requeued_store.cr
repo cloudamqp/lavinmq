@@ -29,6 +29,17 @@ module LavinMQ::AMQP
           @segment_positions.first?.try &.sp
         end
 
+        # Whether the first message is due at `now`, by the time it was inserted
+        # with, which is later than its own delay when it's delayed again, see
+        # DelayedMessageStore#delay_again
+        def first_due?(now : Int64) : Bool
+          if first = @segment_positions.first?
+            first.expire_at <= now
+          else
+            false
+          end
+        end
+
         def time_to_next_expiration? : Time::Span?
           sp = @segment_positions.first?
           return if sp.nil?
