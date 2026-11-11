@@ -365,7 +365,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "closes a queue whose message count exceeds its readable messages instead of failing the vhost load" do
+    it "recounts a queue whose message count exceeds its readable messages instead of failing the vhost load" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("phantom-msgs", durable: true)
@@ -389,9 +389,47 @@ describe LavinMQ::AMQP::Queue do
 
         restart_server(s)
         queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
+        queue.closed?.should be_false
+        queue.message_count.should eq 0
+        # Segment 1's msgs are all acked once it's recounted, so it's deleted,
+        # unlinked after the persister's sync
+        wait_for { !File.exists?(File.join(msg_dir, "msgs.0000000001")) }
+        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_false
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          q.publish_confirm "after"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+        end
+      end
+    end
+
+    it "closes a queue whose first message is corrupt instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-msg", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        s.stop
+
+        # Segment 1 has a meta file, so the load trusts it without reading the
+        # segment, and the corrupt message is first found when the queue
+        # starts and checks whether the first message expires
+        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_true
+        # Invalid property flags on the first message: ts (8), exchange "" (1),
+        # routing key "corrupt-msg" (1 + 11), then the flags
+        File.open(File.join(msg_dir, "msgs.0000000001"), "r+") do |f|
+          f.seek(4 + 8 + 1 + 1 + "corrupt-msg".bytesize)
+          f.write_bytes(0x0003u16)
+        end
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue)
         queue.closed?.should be_true
         queue.restart!.should be_false
-        queue.closed?.should be_true
       end
     end
 

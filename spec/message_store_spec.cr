@@ -493,6 +493,68 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "when a segment's meta counts msgs the segment doesn't hold" do
+    it "counts the segment at load when the msgs left in it can't fit" do
+      mktmpdir do |dir|
+        sps = push_with_lost_tail(dir) do |store, envs|
+          # Ack everything but the 3 msgs that are about to be lost
+          envs.each_with_index { |env, i| store.delete(env.segment_position) unless 6 <= i < 9 }
+        end
+        seg1 = sps.first.segment.to_s.rjust(10, '0')
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.empty?.should be_true
+          store.first?.should be_nil
+          # Every msg left in seg 1 is acked, so the segment is gone
+          File.exists?(File.join(dir, "msgs.#{seg1}")).should be_false
+          File.exists?(File.join(dir, "meta.#{seg1}")).should be_false
+        ensure
+          store.close
+        end
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.shift?.should be_nil
+        ensure
+          store.close
+        end
+      end
+    end
+
+    it "recounts when the msgs run out while still counted, and keeps working" do
+      mktmpdir do |dir|
+        sps = push_with_lost_tail(dir)
+        seg1 = sps.first.segment.to_s.rjust(10, '0')
+
+        # Msgs left in seg 1 hide the lost ones at load
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 12
+          count = 0
+          while env = store.shift?
+            store.delete(env.segment_position)
+            count += 1
+          end
+          count.should eq 9 # 6 left in seg 1, 3 in seg 2
+          store.size.should eq 0
+          # Seg 1 is recounted, and all its msgs are acked, so it's gone
+          File.exists?(File.join(dir, "msgs.#{seg1}")).should be_false
+          # The recount leaves the read position where it was, so the next
+          # shift? gets the new msg, not a redelivery of an old one
+          store.push(LavinMQ::Message.new("ex", "rk", "after"))
+          env = store.shift?.should_not be_nil
+          String.new(env.message.body).should eq "after"
+          store.shift?.should be_nil
+        ensure
+          store.close
+        end
+      end
+    end
+  end
+
   it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
