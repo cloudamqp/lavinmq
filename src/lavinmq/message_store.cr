@@ -45,6 +45,9 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
+      # Another instance can have emptied segments in the same directory,
+      # e.g. the store of a queue that is restarted
+      @persister.try &.flush_unlinks(@msg_dir)
       load_segments_from_disk
       load_acks_from_disk
       @wfile_id = @segments.last_key
@@ -54,7 +57,7 @@ module LavinMQ
       unless @closed
         load_stats_from_segments
         prune_orphaned_acks
-        delete_unused_segments(sync_first: false) # nothing was moved yet
+        delete_unused_segments
       end
       readahead_for_writes(@wfile) unless @closed
       @empty.set empty? unless @closed
@@ -228,14 +231,8 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
-          sync
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
-          if seg = @segments.delete(sp.segment)
-            delete_file(seg, including_meta: true)
-          end
+          unlink_segment(sp.segment)
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
         end
@@ -269,7 +266,6 @@ module LavinMQ
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
-        delete_file(file, including_meta: true)
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
@@ -283,9 +279,7 @@ module LavinMQ
           ready = acked < msg_count ? msg_count - acked : 0u32
           @size -= Math.min(ready, @size)
         end
-        if afile = @acks.delete(seg_id)
-          delete_file(afile)
-        end
+        unlink_files(file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
         true
       end
@@ -309,6 +303,11 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
+      # Not left to the persister like an emptied segment: a queue's delete
+      # is durable in the definitions before its store is deleted, so its
+      # files have nothing left to recover. The messages moved out of them
+      # are only in their destinations now, so those are synced soon.
+      @persister.try &.drain_soon
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
@@ -316,9 +315,24 @@ module LavinMQ
 
     # Messages moved out of a segment (dead-lettered, delayed, retried) can be
     # unsynced in their destinations, and the unlink must not become durable
-    # first. One syncfs instead of tracking the destinations, as on tx commit.
-    private def sync : Nil
-      @persister.try &.sync
+    # first, so the persister unlinks the files, after its next sync. A
+    # non-durable store has none, and no copy to wait for.
+    private def unlink_segment(seg_id : UInt32) : Nil
+      if segment = @segments.delete(seg_id)
+        unlink_files(segment, @acks.delete(seg_id))
+      elsif acks = @acks.delete(seg_id)
+        delete_file(acks)
+      end
+    end
+
+    private def unlink_files(segment : MFile, acks : MFile?) : Nil
+      if persister = @persister
+        persister.unlink_after_sync(segment, meta_file_name(segment), acks)
+      else
+        # The segment first, see Persister#perform
+        delete_file(segment, including_meta: true)
+        acks.try { |file| delete_file(file) }
+      end
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -413,7 +427,7 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      if msg.needs_sync? && (persister = @persister)
+      if (msg.needs_sync? || msg.moved?) && (persister = @persister)
         persister.mark_dirty(wfile)
       end
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
@@ -503,7 +517,7 @@ module LavinMQ
       @replicator.try &.append_value path, Schema::VERSION, 0i64
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
-      delete_unused_segments(sync_first: true)
+      delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
     end
@@ -835,24 +849,17 @@ module LavinMQ
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
-    private def delete_unused_segments(sync_first : Bool) : Nil
+    private def delete_unused_segments : Nil
       current_seg = @segments.last_key
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
-          if sync_first
-            sync
-            sync_first = false
-          end
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          if ack = @acks.delete(seg)
-            delete_file(ack)
-          end
-          delete_file(mfile, including_meta: true)
+          unlink_files(mfile, @acks.delete(seg))
           true
         else
           false

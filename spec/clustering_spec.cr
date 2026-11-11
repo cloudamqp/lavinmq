@@ -980,7 +980,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
           # a segment file was deleted, but the queue dir exists
           Dir.exists?(repl_qdir).should be_true
-          Dir.children(repl_qdir).size.should be < files_before
+          wait_for { Dir.children(repl_qdir).size < files_before } # unlinked after the persister's sync
         end
       end
     end
