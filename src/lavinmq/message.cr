@@ -133,8 +133,8 @@ module LavinMQ
     end
 
     # To a segment the timestamp is written last, after the body. Nothing
-    # else marks a record as complete, and a zero timestamp ends a segment's
-    # records at load (see MessageStore#end_of_messages), so a record that a
+    # else marks a message as complete, and a zero timestamp ends a segment's
+    # messages at load (see MessageStore#end_of_messages), so a message that a
     # crash cut off isn't loaded with part of its body missing.
     def to_io(io : MFile, format = IO::ByteFormat::SystemEndian)
       pos = io.size

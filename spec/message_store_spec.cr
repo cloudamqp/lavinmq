@@ -359,7 +359,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  describe "a record that isn't completely written" do
+  describe "a message that isn't completely written" do
     it "isn't loaded after a crash while its body was written" do
       mktmpdir do |dir|
         store = LavinMQ::MessageStore.new(File.join(dir, "store").tap { |d| Dir.mkdir(d) }, nil)
@@ -370,8 +370,8 @@ describe LavinMQ::MessageStore do
 
         store = LavinMQ::MessageStore.new(crashed, nil)
         store.size.should eq 1
-        # A shorter record takes its place, and the rest of it must not be
-        # loaded as a record after another crash
+        # A shorter message takes its place, and the rest of it must not be
+        # loaded as a message after another crash
         store.push(LavinMQ::Message.new("ex", "rk", "second"))
         crashed_again = crash_image(store, dir, "crashed_again")
         store.close

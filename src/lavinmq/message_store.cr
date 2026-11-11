@@ -487,7 +487,7 @@ module LavinMQ
       sp
     end
 
-    # A record whose body can't be read is removed, so that half of it isn't
+    # A message whose body can't be read is removed, so that half of it isn't
     # left for the next one to be written after
     private def write_message(wfile : MFile, msg) : Nil
       pos = wfile.size
@@ -916,8 +916,8 @@ module LavinMQ
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
-    # A zero timestamp at *pos* ends the records of a segment: either the rest
-    # of the file is zero, or a crash cut off the record that was being
+    # A zero timestamp at *pos* ends the messages of a segment: either the rest
+    # of the file is zero, or a crash cut off the message that was being
     # written there, as its timestamp is written last (see Message#to_io).
     private def end_of_messages(seg : UInt32, mfile : MFile, pos : Int64) : Nil
       if unfinished_message?(mfile, pos)
@@ -927,20 +927,20 @@ module LavinMQ
       end
     end
 
-    # In the segment that's written to, what's left of the record is zeroed.
-    # Else a shorter record written over it would leave its tail in the
-    # file, to be loaded as a record after the next crash. The other
+    # In the segment that's written to, what's left of the message is zeroed.
+    # Else a shorter message written over it would leave its tail in the
+    # file, to be loaded as a message after the next crash. The other
     # segments are mapped read only, and nothing more is written to them.
     private def drop_incomplete_message(seg : UInt32, mfile : MFile, pos : Int64) : Nil
-      @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
+      @log.warn { "Dropping incomplete trailing message in segment #{seg} at pos #{pos}" }
       seg == @segments.last_key ? mfile.erase(pos) : mfile.resize(pos)
     end
 
-    # The first byte that isn't zero in a record without a timestamp is in
+    # The first byte that isn't zero in a message without a timestamp is in
     # the length of its exchange name or routing key, in its property flags
     # or in its body size. They're written in that order and before anything
-    # else, so they tell if a record was being written. Without any of them
-    # the record is all zero and nothing needs to be zeroed.
+    # else, so they tell if a message was being written. Without any of them
+    # the message is all zero and nothing needs to be zeroed.
     private def unfinished_message?(mfile : MFile, pos : Int64) : Bool
       length = Math.min(BytesMessage::MIN_BYTESIZE.to_i64, mfile.size - pos)
       mfile.to_slice(pos, length).any? { |byte| !byte.zero? }
