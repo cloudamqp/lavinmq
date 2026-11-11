@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Select and delete multiple exchanges at once on the exchanges page of the management UI, like on the queues page. The built-in exchanges, which can't be deleted, can't be selected [#2534](https://github.com/cloudamqp/lavinmq/pull/2534)
+
 ### Changed
 
 - A queue no longer stalls for a `syncfs` each time one of its segments is emptied. The messages the broker moves between queues (dead-lettered, delayed, retried) are synced like confirmed publishes, and the emptied segment is unlinked after that sync, in the background. [#2701](https://github.com/cloudamqp/lavinmq/pull/2701)
