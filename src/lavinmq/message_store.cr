@@ -487,21 +487,14 @@ module LavinMQ
       sp
     end
 
-    # Writes the timestamp last, after the body. Nothing else marks a record
-    # as complete, and a zero timestamp ends a segment's records at load (see
-    # #end_of_records), so a record that a crash cut off isn't loaded with
-    # part of its body missing.
+    # A record whose body can't be read is removed, so that half of it isn't
+    # left for the next one to be written after
     private def write_record(wfile : MFile, msg) : Nil
       pos = wfile.size
-      begin
-        msg.to_io(wfile, timestamp: 0i64)
-      rescue ex
-        # The body could not be read, don't leave half a record for the next
-        # one to be written after
-        wfile.erase(pos) unless wfile.closed?
-        raise ex
-      end
-      wfile.write_at(pos, msg.timestamp)
+      wfile.write_bytes msg
+    rescue ex
+      wfile.erase(pos) if pos && !wfile.closed?
+      raise ex
     end
 
     private def synced?(msg) : Bool
@@ -925,7 +918,7 @@ module LavinMQ
 
     # A zero timestamp at *pos* ends the records of a segment: either the rest
     # of the file is zero, or a crash cut off the record that was being
-    # written there, as its timestamp is written last (see #write_record).
+    # written there, as its timestamp is written last (see Message#to_io).
     private def end_of_records(seg : UInt32, mfile : MFile, pos : Int64) : Nil
       if unfinished_record?(mfile, pos)
         drop_incomplete_record(seg, mfile, pos)

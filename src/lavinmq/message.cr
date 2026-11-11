@@ -42,9 +42,20 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
     end
 
-    # `timestamp` is what's written as the timestamp, see MessageStore#write_record
-    def to_io(io : IO, format = IO::ByteFormat::SystemEndian, *, timestamp : Int64 = @timestamp)
-      io.write_bytes timestamp, format
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
+      io.write_bytes @timestamp, format
+      write_after_timestamp(io, format)
+    end
+
+    # To a segment the timestamp is written last, see Message#to_io
+    def to_io(io : MFile, format = IO::ByteFormat::SystemEndian)
+      pos = io.size
+      io.write_bytes 0i64, format
+      write_after_timestamp(io, format)
+      io.write_at(pos, @timestamp, format)
+    end
+
+    private def write_after_timestamp(io : IO, format) : Nil
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
@@ -116,9 +127,23 @@ module LavinMQ
         @properties.bytesize + sizeof(UInt64) + @bodysize
     end
 
-    # `timestamp` is what's written as the timestamp, see MessageStore#write_record
-    def to_io(io : IO, format = IO::ByteFormat::SystemEndian, *, timestamp : Int64 = @timestamp)
-      io.write_bytes timestamp, format
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
+      io.write_bytes @timestamp, format
+      write_after_timestamp(io, format)
+    end
+
+    # To a segment the timestamp is written last, after the body. Nothing
+    # else marks a record as complete, and a zero timestamp ends a segment's
+    # records at load (see MessageStore#end_of_records), so a record that a
+    # crash cut off isn't loaded with part of its body missing.
+    def to_io(io : MFile, format = IO::ByteFormat::SystemEndian)
+      pos = io.size
+      io.write_bytes 0i64, format
+      write_after_timestamp(io, format)
+      io.write_at(pos, @timestamp, format)
+    end
+
+    private def write_after_timestamp(io : IO, format) : Nil
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
