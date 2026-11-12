@@ -38,6 +38,7 @@ module LavinMQ
         @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
+          @vhost.replicator.try &.register_file(@paused_file_path)
         end
       end
 
@@ -266,6 +267,7 @@ module LavinMQ
       def pause
         return if terminated?
         File.write(@paused_file_path, @name)
+        @vhost.replicator.try &.replace_file(@paused_file_path)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         halt(State::Paused)
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
@@ -294,7 +296,9 @@ module LavinMQ
       end
 
       def delete_paused_file
-        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
+        return unless File.exists?(@paused_file_path)
+        FileUtils.rm(@paused_file_path)
+        @vhost.replicator.try &.delete_file(@paused_file_path)
       end
 
       def should_stop_loop?(run_generation)

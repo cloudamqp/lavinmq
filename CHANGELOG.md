@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pausing a queue or a shovel wasn't replicated to followers, so a paused durable queue or shovel started running again after a failover. The paused state is now replicated, also for queues and shovels that were paused before the upgrade
 - A message store that failed to load, for example on a segment file it couldn't open, kept the files it had already opened mapped in memory. They're now unmapped, also when a priority queue's sub-store or migration fails [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A stream queue with a corrupt segment, one with an unsupported schema version or a record that can't be decoded, crashed the broker at startup with an invalid memory access. The queue is now closed and the broker starts [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A `queue.purge` that ran while the queue was being closed or deleted, e.g. at shutdown, could close the client's whole connection with `INTERNAL_ERROR`. It now purges nothing from a closed queue [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
