@@ -426,6 +426,26 @@ describe LavinMQ::Server do
       end
     end
 
+    it "doesn't disconnect a consumer that reads slowly" do
+      LavinMQ::Config.instance.tcp_send_timeout = 5
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_slow_reader") do |client, io|
+          # far slower than a third of an autotuned send buffer per timeout,
+          # which is when the socket would report writable without
+          # TCP_NOTSENT_LOWAT
+          buf = Bytes.new(16 * 1024)
+          read = 0
+          deadline = Time.instant + 12.seconds
+          while Time.instant < deadline
+            read += io.read(buf)
+            sleep 100.milliseconds
+          end
+          read.should be > 0
+          client.closed?.should be_false
+        end
+      end
+    end
+
     it "doesn't resend buffered data when disconnecting a consumer that doesn't read" do
       LavinMQ::Config.instance.tcp_send_timeout = 1
       with_amqp_server do |s|
