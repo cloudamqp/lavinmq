@@ -230,7 +230,9 @@ module LavinMQ
       end
     end
 
-    def delete(sp) : Nil
+    # *moved* is whether the broker copied the message to another queue, which
+    # makes the ack durable together with the copy, see Persister#mark_moved_ack
+    def delete(sp, moved : Bool = false) : Nil
       raise ClosedError.new if @closed
       # A message routed outside the lock can have its segment purged meanwhile,
       # and @acks would otherwise create an ack file for the deleted segment
@@ -240,6 +242,7 @@ module LavinMQ
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
+        @persister.try &.mark_moved_ack(afile) if moved
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to

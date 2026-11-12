@@ -186,6 +186,31 @@ describe LavinMQ::Persister do
     end
   end
 
+  it "syncs the ack file of a moved message after the segments, in a drain it requests" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      acks = MFile.new(File.join(data_dir, "acks.0000000001"), 1024)
+      segment = MFile.new(File.join(data_dir, "msgs.0000000001"), 1024)
+      begin
+        with_drain_held do
+          acks.write "a".to_slice
+          persister.mark_moved_ack(acks)
+          segment.write "m".to_slice
+          persister.mark_dirty(segment)
+        end
+        sync = wait_for { persister.last_sync }
+        sync.syncfs.should be_false
+        acks_idx = sync.paths.index(acks.path).should_not be_nil
+        segment_idx = sync.paths.index(segment.path).should_not be_nil
+        segment_idx.should be < acks_idx
+      ensure
+        acks.close
+        segment.close
+        persister.close
+      end
+    end
+  end
+
   it "syncs a finished stream segment and its meta file without waiting for a confirm" do
     with_datadir do |data_dir|
       persister = LavinMQ::Persister.new(data_dir)
@@ -288,6 +313,23 @@ private def expect_kept_until_synced(s : LavinMQ::Server, segment : String, dst_
   syncs.any?(&.paths.any?(&.starts_with?(dst_dir))).should be_true
 end
 
+# The block moves messages out of the queue that *src_acks* is the ack file
+# of, without emptying a segment, so nothing but the moves requests a drain:
+# it has to sync the acks of the originals, after their copies in *dst_dir*.
+private def expect_moved_acks_synced(s : LavinMQ::Server, src_acks : String, dst_dir : String, &) : Nil
+  s.persister.sync # a syncfs, so nothing written before is unmarked
+  since = s.persister.syncs.size
+  with_drain_held do
+    yield
+    sleep 50.milliseconds # the sources are deleted right after their copies
+  end
+  sync = wait_for { s.persister.syncs[since..].find(&.paths.includes?(src_acks)) }
+  sync.syncfs.should be_false
+  acks_idx = sync.paths.index(src_acks).should_not be_nil
+  copy_idx = sync.paths.index(&.starts_with?(File.join(dst_dir, "msgs."))).should_not be_nil
+  copy_idx.should be < acks_idx
+end
+
 private def message_count(s : LavinMQ::Server, queue : String)
   s.vhosts["/"].queue(queue).message_count
 end
@@ -302,6 +344,123 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
           # Plain publishes: no confirm requests a sync, only the unlink does
           8.times { src.publish "x" * 100_000 }
           wait_for { message_count(s, "dst") == 8 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of expired messages with their dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        acks = File.join(queue_dir(s, "src"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          # Plain publishes: no confirm requests a sync, only the moves do
+          2.times { src.publish "m" }
+          wait_for { message_count(s, "dst") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of a priority queue's expired messages with their dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, extra: {"x-max-priority" => 1})
+        acks = File.join(queue_dir(s, "src"), "prio.000", "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          2.times { src.publish "m" }
+          wait_for { message_count(s, "dst") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of messages dropped on overflow with their dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000, extra: {"x-max-length" => 1})
+        acks = File.join(queue_dir(s, "src"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          3.times { src.publish "m" }
+          wait_for { message_count(s, "dst") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of rejected messages with their dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000)
+        acks = File.join(queue_dir(s, "src"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          2.times { src.publish "m" }
+          2.times do
+            msg = wait_for { ch.basic_get("src", no_ack: false) }
+            msg.reject(requeue: false)
+          end
+          wait_for { message_count(s, "dst") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of messages past the delivery limit with their dead-lettered copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch, ttl: 60_000, extra: {"x-delivery-limit" => 1})
+        acks = File.join(queue_dir(s, "src"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          src.publish "m"
+          wait_for do
+            ch.basic_get("src", no_ack: false).try &.reject(requeue: true)
+            message_count(s, "dst") == 1
+          end
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of messages a delayed exchange released with their copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("delayed", "direct", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+        ch.queue("dst").bind(x.name, "dst")
+        props = AMQ::Protocol::Properties.new(headers: AMQP::Client::Arguments.new({"x-delay" => 1}))
+        acks = File.join(queue_dir(s, "amq.delayed-delayed"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "dst")) do
+          2.times { x.publish "m", "dst", props: props }
+          wait_for { message_count(s, "dst") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of messages rejected into the retry queue with their copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        acks = File.join(queue_dir(s, "prim"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "amq.retry-prim")) do
+          reject_once_into_retry_queue(q)
+          2.times { q.publish "m" }
+          wait_for { message_count(s, "amq.retry-prim") == 2 }
+        end
+      end
+    end
+  end
+
+  it "syncs the acks of messages the retry queue released with their copies" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 500}))
+        acks = File.join(queue_dir(s, "amq.retry-prim"), "acks.0000000001")
+        expect_moved_acks_synced(s, acks, queue_dir(s, "prim")) do
+          reject_once_into_retry_queue(q)
+          2.times { q.publish "m" }
+          wait_for { message_count(s, "amq.retry-prim") == 2 }
+          wait_for(timeout: 5.seconds) { message_count(s, "amq.retry-prim") == 0 }
         end
       end
     end
@@ -573,7 +732,8 @@ describe LavinMQ::Persister, "segments the stores have emptied" do
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
-        last_sync(s).syncfs.should be_true
+        # The moves request drains too, the unlink's isn't the only one
+        s.persister.syncs.any?(&.syncfs).should be_true
       end
     end
   end
@@ -583,13 +743,14 @@ describe LavinMQ::Persister, "segments the stores have emptied" do
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch)
         s.persister.sync # a syncfs, nothing is unmarked after it
+        since = s.persister.syncs.size
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
         wait_for { !File.exists?(src_segment) }
         File.exists?("#{src_segment.sub("msgs.", "acks.")}").should be_false
-        sync = last_sync(s)
-        sync.syncfs.should be_false
-        sync.paths.should contain File.join(queue_dir(s, "dst"), "msgs.0000000001")
+        syncs = s.persister.syncs[since..]
+        syncs.none?(&.syncfs).should be_true
+        syncs.any?(&.paths.includes?(File.join(queue_dir(s, "dst"), "msgs.0000000001"))).should be_true
       end
     end
   end

@@ -723,7 +723,7 @@ module LavinMQ::AMQP
       props.headers = h
       retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
-      delete_message(sp)
+      delete_message(sp, moved: true)
       true
     end
 
@@ -746,7 +746,7 @@ module LavinMQ::AMQP
 
     # Dead-letters a message of this queue that the retry queue holds. The
     # block removes it from the retry queue once routed
-    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool -> Nil) : Nil
+    protected def dead_letter_delayed(msg : BytesMessage, reason : Symbol, &routed : Bool, Bool -> Nil) : Nil
       @vhost.count_dead_lettered(reason, dlx: !(msg.dlx || @dead_letter.dlx).nil?)
       @dead_letter.route(msg, reason, &routed)
     end
@@ -1163,10 +1163,10 @@ module LavinMQ::AMQP
         end
         routed = false
         begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
+          @dead_letter.route(env.message, reason, dlx_tasks) do |stored, copied|
             routed = true
             begin
-              delete_message sp if stored
+              delete_message sp, moved: copied if stored
             ensure
               env.release
             end
@@ -1307,7 +1307,8 @@ module LavinMQ::AMQP
       delete_message(sp)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    # *moved* is whether the message was copied to another queue, see MessageStore#delete
+    protected def delete_message(sp : SegmentPosition, moved : Bool = false) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1318,7 +1319,7 @@ module LavinMQ::AMQP
       {% end %}
       @msg_store_lock.synchronize do
         @deliveries.delete(sp) if settings.counts_deliveries?
-        @msg_store.delete(sp)
+        @msg_store.delete(sp, moved)
       end
     end
 
