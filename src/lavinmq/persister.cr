@@ -427,8 +427,12 @@ module LavinMQ
       end
       # Last, so no ack is durable before the copy of the message it acks
       unless ack_files.empty?
-        sync_late_copies
-        ack_files.each &.fsync
+        if sync_late_copies
+          ack_files.each &.fsync
+        else
+          # Messages are still being moved: the acks wait for the next drain
+          ack_files.each { |file| mark_moved_ack(file) }
+        end
       end
       false
     rescue ex : IO::Error | RuntimeError
@@ -448,14 +452,18 @@ module LavinMQ
     # their acks would otherwise be durable a whole drain before them, and
     # the messages lost in a power loss in between. They stay marked: the
     # next drain requests the followers to sync them. Moves can keep coming,
-    # so the rounds are bounded, each shorter than the one before.
-    private def sync_late_copies : Nil
+    # so the rounds are bounded. Returns whether the last look found none,
+    # only then are the ack files synced after it: an ack that stays unsynced
+    # is at worst a message in both queues, while one synced before its copy
+    # is a lost message. A move can still slip in between that look and the
+    # msync of the ack files.
+    private def sync_late_copies : Bool
       synced = 0
       LATE_COPY_ROUNDS.times do
         late = @pending.lock do |batch|
           batch.files[synced..] if batch.files.size > synced
         end
-        break unless late
+        return true unless late
         synced += late.size
         late.each do |file|
           # A write after this marks the file again, for the next round
@@ -470,6 +478,7 @@ module LavinMQ
           mark_dirty(dir) # for the followers
         end
       end
+      false
     end
 
     LATE_COPY_ROUNDS = 4

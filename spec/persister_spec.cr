@@ -228,18 +228,21 @@ describe LavinMQ::Persister do
       first = MFile.new(File.join(data_dir, "msgs.0000000001"), 1024)
       late = MFile.new(File.join(data_dir, "msgs.0000000002"), 1024)
       synced = Array(String).new
+      lock = Mutex.new # the hook runs on the persister's thread
       begin
         # A message is moved while the drain syncs the first segment: its
         # ack is in the page the drain is about to sync, its copy isn't in
         # the drain's batch
         MFile.before_fsync = ->(file : MFile) do
-          if synced.empty?
-            late.write "m".to_slice
-            persister.mark_dirty(late)
-            acks.write "a".to_slice
-            persister.mark_moved_ack(acks)
+          lock.synchronize do
+            if synced.empty?
+              late.write "m".to_slice
+              persister.mark_dirty(late)
+              acks.write "a".to_slice
+              persister.mark_moved_ack(acks)
+            end
+            synced << file.path
           end
-          synced << file.path
           nil
         end
         with_drain_held do
@@ -248,11 +251,67 @@ describe LavinMQ::Persister do
           acks.write "a".to_slice
           persister.mark_moved_ack(acks)
         end
-        wait_for { synced.includes?(acks.path) }
-        late_idx = synced.index(late.path).should_not be_nil
-        late_idx.should be < synced.index!(acks.path)
+        wait_for { lock.synchronize { synced.includes?(acks.path) } }
+        lock.synchronize do
+          late_idx = synced.index(late.path).should_not be_nil
+          late_idx.should be < synced.index!(acks.path)
+        end
         # and the late copy is still synced by a drain, which the followers are part of
         wait_for { persister.syncs.any?(&.paths.includes?(late.path)) }
+      ensure
+        MFile.before_fsync = nil
+        acks.close
+        first.close
+        late.close
+        persister.close
+      end
+    end
+  end
+
+  it "leaves the ack files to a later drain while messages keep being moved" do
+    with_datadir do |data_dir|
+      persister = LavinMQ::Persister.new(data_dir)
+      acks = MFile.new(File.join(data_dir, "acks.0000000001"), 1024)
+      first = MFile.new(File.join(data_dir, "msgs.0000000001"), 1024)
+      late = MFile.new(File.join(data_dir, "msgs.0000000002"), 1024)
+      lock = Mutex.new # the hook runs on the persister's thread
+      moves = 0
+      copy_unsynced = false
+      acks_synced = false
+      acked_before_copy = false
+      begin
+        # A message is moved during each of the first syncs of a segment,
+        # more of them than a drain looks for late copies
+        MFile.before_fsync = ->(file : MFile) do
+          lock.synchronize do
+            if file == acks
+              acks_synced = true
+              acked_before_copy = true if copy_unsynced
+            else
+              copy_unsynced = false if file == late
+              if moves < 8
+                moves += 1
+                late.write "m".to_slice
+                persister.mark_dirty(late)
+                acks.write "a".to_slice
+                persister.mark_moved_ack(acks)
+                copy_unsynced = true
+              end
+            end
+          end
+          nil
+        end
+        with_drain_held do
+          first.write "m".to_slice
+          persister.mark_dirty(first)
+          acks.write "a".to_slice
+          persister.mark_moved_ack(acks)
+        end
+        wait_for { lock.synchronize { acks_synced } }
+        lock.synchronize do
+          moves.should eq 8
+          acked_before_copy.should be_false
+        end
       ensure
         MFile.before_fsync = nil
         acks.close
