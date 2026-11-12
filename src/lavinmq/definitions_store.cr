@@ -132,10 +132,6 @@ module LavinMQ
       end
     end
 
-    def synchronize(&)
-      @definitions_lock.synchronize { yield }
-    end
-
     def queues_clear : Nil
       @queues.clear
     end

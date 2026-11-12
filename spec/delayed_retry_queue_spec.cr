@@ -722,7 +722,7 @@ describe "Retry Queue" do
           5.times { tags.receive }
           deleted = Channel(Nil).new
           spawn do
-            vhost.synchronize_definitions do
+            vhost.@definitions.as(LavinMQ::DefinitionsStore).@definitions_lock.synchronize do
               ch.basic_nack(5u64, requeue: true, multiple: true)
               sleep 100.milliseconds
               vhost.delete_queue("prim")
@@ -754,7 +754,7 @@ describe "Retry Queue" do
           LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = true
           deleted = Channel(Nil).new
           spawn do
-            vhost.synchronize_definitions do
+            vhost.@definitions.as(LavinMQ::DefinitionsStore).@definitions_lock.synchronize do
               ch.basic_nack(5u64, requeue: true, multiple: true)
               sleep 100.milliseconds
               with_channel(s) { |ch2| ch2.basic_publish_confirm("y", "", "other") }

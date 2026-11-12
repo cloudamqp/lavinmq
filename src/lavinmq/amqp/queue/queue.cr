@@ -104,7 +104,6 @@ module LavinMQ::AMQP
     # federation links, not handle_arguments commits on queue start
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
-    @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -660,19 +659,13 @@ module LavinMQ::AMQP
       end
     end
 
-    # Creates the retry queue when this queue starts, and nowhere else. It
-    # only closes with this queue.
+    # Creates the retry queue when this queue starts, before the queue is
+    # registered, and nowhere else, so it's never replaced. It's only closed
+    # and deleted with this queue.
     private def init_retry_queue : Nil
-      # The definitions lock first, as a delete through the definitions takes them
-      @vhost.synchronize_definitions do
-        @retry_queue_lock.synchronize do
-          return if @deleted || @closed
-          return if @delayed_retry_queue.try { |q| !q.closed? }
-          queue = DelayedRetryQueue.create(@vhost, self)
-          @delayed_retry_queue = queue
-          @vhost.register_queue(queue)
-        end
-      end
+      queue = DelayedRetryQueue.create(@vhost, self)
+      @delayed_retry_queue = queue
+      @vhost.register_queue(queue)
     rescue ex : LavinMQ::Error::PreconditionFailed
       raise ex
     rescue ex
@@ -828,8 +821,6 @@ module LavinMQ::AMQP
         @consumers.each &.cancel
         @consumers.clear
         @consumer_count.set(0, :relaxed)
-        @exclusive_consumer = false
-        @has_priority_consumers = false
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
@@ -839,9 +830,8 @@ module LavinMQ::AMQP
       end
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
-      # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
-      @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.close
+      @delayed_retry_queue.try &.close
       Fiber.yield
       @log.debug { "Closed" }
       true
@@ -850,12 +840,7 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      # Outside @retry_queue_lock: the delete takes the definitions lock, which
-      # #init_retry_queue holds while it takes @retry_queue_lock
-      retry_queue = @retry_queue_lock.synchronize do
-        @delayed_retry_queue.tap { @delayed_retry_queue = nil }
-      end
-      retry_queue.try &.delete
+      @delayed_retry_queue.try &.delete
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -1357,7 +1342,7 @@ module LavinMQ::AMQP
         end
       end
       if route_to_retry && (delayed_retry_min = settings.delayed_retry_min)
-        if retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
+        if retry_queue = @delayed_retry_queue
           # DelayedRetryQueue#delay writes the message to its own store before
           # returning, so the lease only has to cover the call
           env = @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }

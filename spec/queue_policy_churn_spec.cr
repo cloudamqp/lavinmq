@@ -270,7 +270,7 @@ describe "Queue policy re-apply" do
         wg.add(1)
         ctx.spawn do
           until Time.instant >= deadline
-            queue.reapply_policy
+            queue.apply_policy(queue.policy, queue.operator_policy)
             Fiber.yield
           end
         ensure

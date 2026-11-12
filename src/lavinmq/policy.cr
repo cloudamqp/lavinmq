@@ -17,10 +17,6 @@ module LavinMQ
     # @effective_args / store state.
     @policy_lock = Mutex.new(:reentrant)
 
-    def reapply_policy
-      apply_policy(@policy, @operator_policy)
-    end
-
     # The generation of the newest VHost#apply_policies run applied here
     @applied_policy_generation : UInt64 = 0_u64
 

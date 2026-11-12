@@ -83,7 +83,7 @@ module LavinMQ
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       # Another instance can have emptied segments in the same directory,
-      # e.g. the store of a queue that is restarted
+      # e.g. the store of a vhost that was deleted and created again
       @persister.try &.flush_unlinks(@msg_dir)
       close_on_error do
         load_segments_from_disk
