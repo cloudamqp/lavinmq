@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.11.0-rc.4] - 2026-11-12
+## [2.11.0] - 2026-11-12
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker. Federation links and their upstream resources now survive policy re-applies, publishes over the HTTP API and MQTT respect the disk alarm, and the MQTT retain store no longer mixes up non-ASCII topics or keeps an open file per topic.
 
@@ -21,6 +21,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Prometheus metrics `global_messages_dead_lettered_{delivery_limit,expired,maxlen,rejected}_total` with a `dead_letter_strategy` label (`disabled` or `at_most_once`) [#2413](https://github.com/cloudamqp/lavinmq/pull/2413)
 - `LavinMQ-Stats-Interval` header on every HTTP API response, giving the configured stats interval in milliseconds so clients can place the timestamp-less history logs on a time axis [#2447](https://github.com/cloudamqp/lavinmq/pull/2447)
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
+- RPM packages are built for Fedora 45 [#2739](https://github.com/cloudamqp/lavinmq/pull/2739)
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
 
 ### Changed
@@ -44,10 +45,6 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - The "Add queue" form on the queues page opens as an overlay dialog from a button in the queue list card [#2207](https://github.com/cloudamqp/lavinmq/pull/2207)
 - The HTTP API docs at `/docs/` now match the management UI: they use the Inter font and LavinMQ colors, share the UI's light/dark/system theme and have a switcher for it, and have a header linking back to the management UI [#2526](https://github.com/cloudamqp/lavinmq/pull/2526)
-
-### Added
-
-- RPM packages are built for Fedora 45 [#2739](https://github.com/cloudamqp/lavinmq/pull/2739)
 
 ### Fixed
 
@@ -122,6 +119,10 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - The queue and stream pages' Consumers table headers show the total consumer count even when only part of the list is loaded, matching the tab badge and Overview [#2355](https://github.com/cloudamqp/lavinmq/pull/2355)
 - The management UI showed the wrong theme after the browser Back button restored a page from the back/forward cache [#2420](https://github.com/cloudamqp/lavinmq/pull/2420)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+
+## [2.11.0-rc.4] - 2026-11-12
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.11.0-rc.4> for changes in this pre-release
 
 ## [2.10.5] - 2026-11-10
 
