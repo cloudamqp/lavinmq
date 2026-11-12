@@ -826,10 +826,7 @@ module LavinMQ::AMQP
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
-        @deliveries.clear
       end
-      @basic_get_unacked.lock(&.clear)
-      @deduper = nil
       delete if !durable? || @exclusive
       @delayed_retry_queue.try &.close
       Fiber.yield
