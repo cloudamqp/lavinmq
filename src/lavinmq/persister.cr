@@ -31,7 +31,8 @@ module LavinMQ
   # same drain as its copy and after it: with only the copy durable a power
   # loss would leave the message in both queues. A move requests that drain,
   # so the two are only apart until it has run, and then the copy is the one
-  # that is synced first, as a message twice is better than not at all.
+  # that is synced first, as a message twice is better than not at all. The
+  # kernel can still write an ack's page back before that drain.
   class Persister
     Log = LavinMQ::Log.for "persister"
 
@@ -339,6 +340,9 @@ module LavinMQ
 
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
+      # A file synced as a late copy by the previous drain, and written to
+      # after that, is in the batch twice
+      batch.files.uniq!
       batch.files.each &.clear_needs_msync!
       batch.ack_files.each &.clear_needs_msync!
       dirs = Set(String).new
@@ -422,7 +426,10 @@ module LavinMQ
       rescue File::NotFoundError
       end
       # Last, so no ack is durable before the copy of the message it acks
-      ack_files.each &.fsync
+      unless ack_files.empty?
+        sync_late_copies
+        ack_files.each &.fsync
+      end
       false
     rescue ex : IO::Error | RuntimeError
       raise ex unless FileSystem.out_of_file_descriptors?(ex)
@@ -434,6 +441,38 @@ module LavinMQ
       syncfs_data_dir
       true
     end
+
+    # The msync of an ack file writes out every ack in its pages, also those
+    # of the messages moved while this drain was syncing, whose copies are in
+    # segments marked for the next drain. Those are synced here first, as
+    # their acks would otherwise be durable a whole drain before them, and
+    # the messages lost in a power loss in between. They stay marked: the
+    # next drain requests the followers to sync them. Moves can keep coming,
+    # so the rounds are bounded, each shorter than the one before.
+    private def sync_late_copies : Nil
+      synced = 0
+      LATE_COPY_ROUNDS.times do
+        late = @pending.lock do |batch|
+          batch.files[synced..] if batch.files.size > synced
+        end
+        break unless late
+        synced += late.size
+        late.each do |file|
+          # A write after this marks the file again, for the next round
+          file.clear_needs_msync!
+          file.fsync
+          next unless file.take_created!
+          dir = File.dirname(file.path)
+          begin
+            File.open(dir, &.fsync)
+          rescue File::NotFoundError
+          end
+          mark_dirty(dir) # for the followers
+        end
+      end
+    end
+
+    LATE_COPY_ROUNDS = 4
 
     private def syncfs_data_dir : Nil
       FileSystem.syncfs(@data_dir_fd)
