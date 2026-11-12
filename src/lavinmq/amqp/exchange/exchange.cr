@@ -207,7 +207,10 @@ module LavinMQ
           \{% if (m = @type.methods.find(&.name.== "bind"))  %}
             def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
               unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
-                raise AccessRefused.new(self)
+                # Names the destination when it's an exchange, e.g.
+                # mqtt.default: binding to it is what's refused, not this one
+                refused = \{{m.args[0].name.id}}.as?(LavinMQ::Exchange) || self
+                raise AccessRefused.new(refused)
               end
               \{{ m.body }}
           end
@@ -233,6 +236,13 @@ module LavinMQ
       end
 
       abstract def type : String
+
+      # Whether messages routed in from AMQP, e.g. dead-lettered, reach
+      # destinations. MQTT exchanges only route MQTT publishes.
+      def routes_amqp_messages? : Bool
+        true
+      end
+
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
@@ -270,9 +280,12 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.delay(msg)
-            @publish_out_count.add(1, :relaxed)
-            return PublishResult::Routed
+            if q.delay(msg)
+              @publish_out_count.add(1, :relaxed)
+              return PublishResult::Routed
+            else # Closed, e.g. on a corrupt segment at start, so a confirm is a nack
+              return PublishResult::Rejected
+            end
           else
             @unroutable_count.add(1, :relaxed)
             return PublishResult::None

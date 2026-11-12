@@ -23,8 +23,11 @@ jobs:
     name: Build RPM
     strategy:
       fail-fast: false
+      # One Depot build at a time: connections to Depot dropped when
+      # several ran at once
+      max-parallel: 1
       matrix:
-        os: ['fedora-44', 'fedora-43', 'el-9']
+        os: ['fedora-45', 'fedora-44', 'fedora-43', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:

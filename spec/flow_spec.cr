@@ -26,15 +26,17 @@ describe "Flow" do
   end
 
   it "should support server flow" do
+    LavinMQ::Config.instance.free_disk_min = Int64::MAX
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue
         s.flow(false)
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
-          q.publish_confirm("m1").should be_false
+          ch.basic_publish_confirm("m1", "", "q").should be_false
         end
       end
     end
+  ensure
+    LavinMQ::Config.instance.free_disk_min = 0
   end
 
   it "should stop flow when disk is almost full" do
