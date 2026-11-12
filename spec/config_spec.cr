@@ -12,6 +12,16 @@ class LavinMQ::Launcher
   end
 end
 
+# Counts the data dir syncs a reload does, see Config#sync_data_dir_after_enabled
+class LavinMQ::Config
+  getter spec_data_dir_syncs = Atomic(Int32).new(0)
+
+  private def sync_data_dir : Nil
+    previous_def
+    @spec_data_dir_syncs.add(1)
+  end
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -179,6 +189,7 @@ describe LavinMQ::Config do
           port = 5680
           etcd_endpoints = localhost:2380,localhost:2381
           etcd_prefix = test-lavinmq
+          etcd_lease_ttl = 30
           max_unsynced_actions = 16384
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
@@ -268,6 +279,7 @@ describe LavinMQ::Config do
     config.clustering_port.should eq 5680
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
     config.clustering_etcd_prefix.should eq "test-lavinmq"
+    config.clustering_etcd_lease_ttl.should eq 30
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
     config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
     config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
@@ -316,6 +328,7 @@ describe LavinMQ::Config do
       "--clustering-bind=0.0.0.0",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
       "--clustering-etcd-prefix=cli-prefix",
+      "--clustering-etcd-lease-ttl=20",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
     ]
@@ -358,6 +371,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
+    config.clustering_etcd_lease_ttl.should eq 20
     config.clustering_port.should eq 5680
   end
 
@@ -393,6 +407,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
     ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
+    ENV["LAVINMQ_CLUSTERING_ETCD_LEASE_TTL"] = "15"
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
     ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
     ENV["LAVINMQ_SYNC"] = "false"
@@ -420,6 +435,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "10.3.3.3"
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
+    config.clustering_etcd_lease_ttl.should eq 15
     config.clustering_port.should eq 5681
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
   ensure
@@ -444,6 +460,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_BIND")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
@@ -679,7 +696,52 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering_etcd_lease_ttl" do
+    it "defaults to 10 seconds" do
+      LavinMQ::Config.new.clustering_etcd_lease_ttl.should eq 10
+    end
+
+    it "rejects non-positive values" do
+      [0, -1].each do |ttl|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            etcd_lease_ttl = #{ttl}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /etcd_lease_ttl/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
+    it "syncs the data dir once when sync is enabled again" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      data_dir = File.tempname("lavinmq-data")
+      Dir.mkdir_p(data_dir)
+      begin
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = false\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.sync?.should be_false
+
+        config.reload # still disabled
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = true\n")
+        config.reload
+        config.sync?.should be_true
+        config.spec_data_dir_syncs.get.should eq 1 # before the reload returns
+        config.reload                              # already enabled
+        config.spec_data_dir_syncs.get.should eq 1
+      ensure
+        File.delete?(config_file.path)
+        FileUtils.rm_rf(data_dir)
+        Log.setup(:fatal)
+      end
+    end
+
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin

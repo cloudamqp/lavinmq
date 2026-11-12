@@ -295,6 +295,83 @@ describe IO::Buffered do
       writer.try &.close
     end
 
+    it "doesn't take a buffer for an empty write" do
+      io = RecordingIO.new
+      io.buffer_pool = IO::BufferPool.new(1024)
+      io.write Bytes.empty
+      io.@out_buffer.null?.should be_true
+    end
+
+    it "drops the buffered data when a write that doesn't fit fails" do
+      io = RecordingIO.new
+      io.buffer_pool = IO::BufferPool.new(1024)
+      io.write Bytes.new(100)
+      io.fail_writes = true
+      expect_raises(IO::Error) { io.write Bytes.new(2000) }
+      io.fail_writes = false
+      io.flush
+      io.writes.should be_empty
+    end
+
+    it "tops up the buffer before writing out a write that doesn't fit" do
+      io = RecordingIO.new
+      io.buffer_pool = IO::BufferPool.new(1024)
+      io.write Bytes.new(100, 1_u8)
+      io.write Bytes.new(2000, 2_u8)
+      io.writes.map(&.size).should eq [1024, 1076]
+      io.flush
+      io.writes.map(&.size).should eq [1024, 1076]
+      io.writes.sum(&.size).should eq 2100
+      io.writes.first[0, 100].should eq Bytes.new(100, 1_u8)
+      io.writes.first[100, 924].should eq Bytes.new(924, 2_u8)
+    end
+
+    {% if flag?(:linux) || flag?(:freebsd) || flag?(:darwin) %}
+      it "uncorks on the next flush after a write that doesn't fit failed" do
+        server = TCPServer.new("127.0.0.1", 0)
+        server.recv_buffer_size = 16384
+        writer = TCPSocket.new("127.0.0.1", server.local_address.port)
+        reader = server.accept
+        writer.buffer_pool = IO::BufferPool.new(1024)
+        writer.sync = false
+        writer.write_timeout = 100.milliseconds
+        fill_send_buffer(writer)
+        writer.write Bytes.new(100)
+        expect_raises(IO::TimeoutError) { writer.write Bytes.new(4000) }
+        tcp_cork?(writer).should be_true
+        writer.flush
+        tcp_cork?(writer).should be_false
+      ensure
+        reader.try &.close
+        writer.try &.close
+        server.try &.close
+      end
+
+      it "corks a TCP socket while a write that doesn't fit the buffer goes out, until the flush" do
+        server = TCPServer.new("127.0.0.1", 0)
+        writer = TCPSocket.new("127.0.0.1", server.local_address.port)
+        reader = server.accept
+        writer.buffer_pool = IO::BufferPool.new(1024)
+        writer.sync = false
+        writer.tcp_nodelay = true
+        reader.read_timeout = 1.second
+        writer.write Bytes.new(100, 1_u8)
+        tcp_cork?(writer).should be_false
+        writer.write Bytes.new(4000, 2_u8)
+        tcp_cork?(writer).should be_true
+        writer.flush
+        tcp_cork?(writer).should be_false
+        buf = Bytes.new(4100)
+        reader.read_fully(buf)
+        buf[0, 100].should eq Bytes.new(100, 1_u8)
+        buf[100, 4000].should eq Bytes.new(4000, 2_u8)
+      ensure
+        reader.try &.close
+        writer.try &.close
+        server.try &.close
+      end
+    {% end %}
+
     it "doesn't allow changing buffer_size while using a pool" do
       reader, writer = UNIXSocket.pair
       reader.buffer_pool = IO::BufferPool.new(1024)
@@ -419,17 +496,61 @@ class ScriptedIO < IO
   end
 end
 
+# Records each write that reaches the underlying IO
+class RecordingIO < IO
+  include IO::Buffered
+  getter writes = Array(Bytes).new
+  property? fail_writes = false
+
+  def unbuffered_read(slice : Bytes)
+    0
+  end
+
+  def unbuffered_write(slice : Bytes) : Nil
+    raise IO::Error.new("write failed") if fail_writes?
+    @writes << slice.dup
+  end
+
+  def unbuffered_flush
+  end
+
+  def unbuffered_close
+  end
+
+  def unbuffered_rewind
+  end
+end
+
+# TCP_CORK on Linux, TCP_NOPUSH on FreeBSD and macOS
+def tcp_cork?(socket : TCPSocket) : Bool
+  value = 0
+  len = LibC::SocklenT.new(sizeof(Int32))
+  {% if flag?(:freebsd) || flag?(:darwin) %}
+    LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_NOPUSH, pointerof(value), pointerof(len))
+  {% else %}
+    LibC.getsockopt(socket.fd, LibC::IPPROTO_TCP, LibC::TCP_CORK, pointerof(value), pointerof(len))
+  {% end %}
+  value != 0
+end
+
 # Fills the socket's send buffer, so that its next write blocks until the
-# peer reads. Returns the number of bytes written.
+# peer reads. Returns the number of bytes written. Data still on its way to
+# the peer's receive buffer frees up space when it gets there, so it fills
+# again after a pause until nothing more fits.
 def fill_send_buffer(socket : Socket) : Int64
   total = 0_i64
-  {4096, 512, 1}.each do |size|
-    buf = Bytes.new(size)
-    while (n = LibC.send(socket.fd, buf, buf.size, LibC::MSG_DONTWAIT)) > 0
-      total += n
+  loop do
+    filled = 0_i64
+    {4096, 512, 1}.each do |size|
+      buf = Bytes.new(size)
+      while (n = LibC.send(socket.fd, buf, buf.size, LibC::MSG_DONTWAIT)) > 0
+        filled += n
+      end
     end
+    return total if filled.zero?
+    total += filled
+    sleep 50.milliseconds
   end
-  total
 end
 
 describe Socket do

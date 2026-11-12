@@ -48,7 +48,8 @@ function isByteUnit (unit) {
   return unit === 'bytes' || unit === 'bytes/s'
 }
 
-function formatDigits (v) {
+function formatDigits (v, decimals) {
+  if (decimals != null) return exactFormatter.format(Number(v.toFixed(decimals)))
   return Number.isInteger(v) ? exactFormatter.format(v) : preciseFormatter.format(v)
 }
 

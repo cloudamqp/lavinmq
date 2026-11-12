@@ -8,6 +8,7 @@ require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
+require "./filesystem"
 
 module LavinMQ
   class Config
@@ -96,6 +97,9 @@ module LavinMQ
       # closing the connection, forever
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
+      unless @clustering_etcd_lease_ttl.positive?
+        raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
       end
       validate_sni_tls!
     end
@@ -373,8 +377,25 @@ module LavinMQ
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
+      sync_was = sync?
       apply(new_config)
       setup_logger
+      sync_data_dir_after_enabled if sync? && !sync_was
+    end
+
+    # What was written while sync was disabled is in the page cache only, and
+    # the syncs that follow cover only newer writes, so the data dir is synced
+    # once. It can take seconds under load, and until it's done a follower can
+    # ack that older data as durable.
+    private def sync_data_dir_after_enabled : Nil
+      sync_data_dir
+      Log.info { "Synced the data dir after sync was enabled" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
+    end
+
+    private def sync_data_dir : Nil
+      File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
     end
 
     # Try to open and immediately close the configured log file so an unopenable

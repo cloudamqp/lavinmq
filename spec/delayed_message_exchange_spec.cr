@@ -73,21 +73,23 @@ describe "Delayed Message Exchange" do
 
     it "should route messages that are overdue at startup" do
       with_amqp_server do |s|
-        with_channel(s) do |ch|
-          x = ch.exchange(x_name, "topic", args: x_args)
-          q = ch.queue("overdue_q", durable: true)
-          q.bind(x.name, "#")
-          hdrs = AMQP::Client::Arguments.new({"x-delay" => 200})
-          100.times do
-            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        RoughTime.paused do |t|
+          with_channel(s) do |ch|
+            x = ch.exchange(x_name, "topic", args: x_args)
+            q = ch.queue("overdue_q", durable: true)
+            q.bind(x.name, "#")
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => 200})
+            100.times do
+              x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            end
+            s.vhosts["/"].queue(delay_q_name).message_count.should eq 100
           end
-          s.vhosts["/"].queue(delay_q_name).message_count.should eq 100
+          s.stop
+          t.travel(300.milliseconds)
+          restart_server(s)
+          wait_for { s.vhosts["/"].queue("overdue_q").message_count == 100 }
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
         end
-        s.stop
-        sleep 300.milliseconds
-        restart_server(s)
-        wait_for { s.vhosts["/"].queue("overdue_q").message_count == 100 }
-        s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
       end
     end
 
@@ -352,6 +354,19 @@ describe "Delayed Message Exchange" do
         result.should be_false # closed queue refuses the message instead of blocking
       when timeout 2.seconds
         fail "delay() blocked the publisher after the expire fiber died"
+      end
+    end
+  end
+
+  it "nacks a delayed publish when the internal queue is closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
+        ex.@delayed_queue.should_not(be_nil).close
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+        x.publish_confirm("test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)).should be_false
+        ex.publish_out_count.should eq 0
       end
     end
   end

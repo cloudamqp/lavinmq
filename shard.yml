@@ -1,5 +1,5 @@
 name: lavinmq
-version: 2.11.0-rc.2
+version: 2.11.0
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -14,6 +14,8 @@ authors:
   - Christina Dahlén <christina@84codes.com>
   - Jon Börjesson <jon@84codes.com>
   - Viktor Erlingsson <viktor@84codes.com>
+  - Erica Weistrand <erica@84codes.com>
+  - Bianka Romero <bianka@84codes.com>
 
 targets:
   lavinmq:
