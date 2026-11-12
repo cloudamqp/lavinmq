@@ -20,7 +20,9 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      @last_offset = get_last_offset
+      # A segment that failed to load closed the store and unmapped its
+      # segments, so they can't be read for the last offset
+      @last_offset = @closed ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow
     end
@@ -322,7 +324,9 @@ module LavinMQ::AMQP
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      finished = @wfile
       super.tap do
+        @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset

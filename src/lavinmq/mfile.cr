@@ -307,6 +307,14 @@ class MFile < IO
     len
   end
 
+  def read_byte : UInt8?
+    check_open
+    pos = @pos
+    return if pos >= @size
+    @pos = pos + 1
+    @buffer[pos]
+  end
+
   def rewind
     @pos = 0u64
   end

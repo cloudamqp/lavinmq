@@ -91,6 +91,11 @@ module LavinMQ
             {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
             {% end %}
           end
+          {ready_log, unacked_log}.each do |log|
+            until log.size >= recv_rate_log.size
+              log.unshift 0
+            end
+          end
           {
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",
@@ -137,12 +142,12 @@ module LavinMQ
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners + @mqtt_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
-          }.to_json(context.response)
+          }.to_json(context.response.output)
           context
         end
 
         get "/api/whoami" do |context, _params|
-          user(context).user_details.to_json(context.response)
+          user(context).user_details.to_json(context.response.output)
           context
         end
 
@@ -161,7 +166,7 @@ module LavinMQ
             body_ok = false
             vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
             ok = routed && body_ok
-            {status: ok ? "ok" : "failed"}.to_json(context.response)
+            {status: ok ? "ok" : "failed"}.to_json(context.response.output)
           end
         end
 
@@ -184,7 +189,7 @@ module LavinMQ
         end
 
         get "/api/extensions" do |context, _params|
-          Tuple.new.to_json(context.response)
+          Tuple.new.to_json(context.response.output)
           context
         end
       end
