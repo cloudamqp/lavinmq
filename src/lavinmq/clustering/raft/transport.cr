@@ -82,7 +82,7 @@ module LavinMQ::Clustering::Raft
     # Nonces of the inbound handshakes in progress, see #authenticate_client
     @issued_nonces = Set(Bytes).new
     @server : TCPServer? = nil
-    @closed = false
+    @closed = Atomic(Bool).new(false)
 
     # Its fibers, outbound and inbound connections alike, run in
     # *execution_context*, see RaftController.
@@ -97,7 +97,7 @@ module LavinMQ::Clustering::Raft
     def update_peers(addrs : Enumerable(String)) : Nil
       wanted = addrs.to_set
       @lock.synchronize do
-        return if @closed
+        return if @closed.get
         @outbound.reject! do |peer, ch|
           next false if wanted.includes?(peer)
           Log.debug { "Disconnecting from #{peer}" }
@@ -154,7 +154,7 @@ module LavinMQ::Clustering::Raft
     def close : Nil
       @server.try &.close
       @lock.synchronize do
-        @closed = true
+        @closed.set(true)
         @outbound.each_value &.close
         # Or peers stay connected to a transport that discards what they send
         @inbound.each { |socket| socket.close rescue nil }
@@ -176,7 +176,7 @@ module LavinMQ::Clustering::Raft
     private def outbound_loop(peer : String, ch : Channel(Message)) : Nil
       backoff = 50.milliseconds
       reported_self = false
-      until @closed || ch.closed?
+      until @closed.get || ch.closed?
         connected = false
         begin
           socket = connect(peer)
@@ -201,7 +201,7 @@ module LavinMQ::Clustering::Raft
             socket.close rescue nil
           end
         rescue ex : IO::Error | Socket::Error | AuthError | ArgumentError | SelfConnection
-          return if @closed || ch.closed?
+          return if @closed.get || ch.closed?
           reported_self = connection_failed(peer, ex, reported_self)
           drain(ch)
           backoff = connected ? 50.milliseconds : Math.min(backoff * 2, 1.second)
@@ -252,7 +252,7 @@ module LavinMQ::Clustering::Raft
 
     private def inbound(socket : TCPSocket) : Nil
       @lock.synchronize do
-        if @closed
+        if @closed.get
           socket.close rescue nil
           return
         end
