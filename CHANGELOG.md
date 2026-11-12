@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Since 2.11.0-rc.1, the "+ Add queue" button did nothing in browsers without the Invoker Commands API, such as Firefox ESR 140, Chrome before 135 and Safari before 26.2, so no queue could be added from the management UI there. Dialogs opened and closed with `command`/`commandfor` buttons now fall back to a click handler in those browsers [#2738](https://github.com/cloudamqp/lavinmq/pull/2738)
 - A message store that failed to load, for example on a segment file it couldn't open, kept the files it had already opened mapped in memory. They're now unmapped, also when a priority queue's sub-store or migration fails [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A stream queue with a corrupt segment, one with an unsupported schema version or a record that can't be decoded, crashed the broker at startup with an invalid memory access. The queue is now closed and the broker starts [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)
 - A `queue.purge` that ran while the queue was being closed or deleted, e.g. at shutdown, could close the client's whole connection with `INTERNAL_ERROR`. It now purges nothing from a closed queue [#2660](https://github.com/cloudamqp/lavinmq/pull/2660)

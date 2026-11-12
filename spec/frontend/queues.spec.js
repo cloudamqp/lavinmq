@@ -117,4 +117,33 @@ test.describe("queues", _ => {
       await expect(page.locator('#multiselect-controls')).toBeHidden()
     })
   })
+
+  test.describe('add queue dialog', _ => {
+    async function openAndClose (page) {
+      const dialog = page.locator('#add-queue-dialog')
+      await page.getByRole('button', { name: '+ Add queue' }).click()
+      await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: 'Close' }).click()
+      await expect(dialog).toBeHidden()
+    }
+
+    test('opens and closes', async ({ page }) => {
+      await openAndClose(page)
+    })
+
+    test('opens and closes without the Invoker Commands API', async ({ apimap, page }) => {
+      await page.addInitScript(() => {
+        delete window.HTMLButtonElement.prototype.commandForElement
+        delete window.HTMLButtonElement.prototype.command
+        // Cancel the native commands, which such a browser doesn't run
+        window.addEventListener('click', event => {
+          if (event.target.closest?.('button[commandfor]')) event.preventDefault()
+        }, true)
+      })
+      const queuesLoaded = apimap.get('/api/queues', queues_response)
+      await page.goto('/queues')
+      await queuesLoaded
+      await openAndClose(page)
+    })
+  })
 })
