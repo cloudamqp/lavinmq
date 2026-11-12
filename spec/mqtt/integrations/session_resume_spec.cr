@@ -241,6 +241,40 @@ module MqttSpecs
       end
     end
 
+    it "keeps the session when a message can't be read, until a purge gives it up" do
+      with_server do |server|
+        deliver_unacked(server, ["1"])
+
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+        store = session.@msg_store
+        sp = store.@packet_ids.keys.first
+        # The body size of the owed message, which is the last thing before its body
+        File.open(store.@segments[sp.segment].path, "r+") do |f|
+          f.seek(sp.position + sp.bytesize - "1".bytesize - sizeof(UInt64))
+          f.write_bytes(UInt64::MAX)
+        end
+
+        # The delivery fails, which disconnects the client
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          wait_for { session.client.nil? }
+        end
+        session.closed?.should be_false
+        session.message_count.should eq 1
+
+        session.purge
+        session.message_count.should eq 0
+        store.@packet_ids.should be_empty
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          publish_from(server, "a/b", ["2"])
+          read_publishes(io, 1).first.payload.should eq "2".to_slice
+          disconnect(io)
+        end
+      end
+    end
+
     it "forgets an owed id when a max-length policy drops its message" do
       with_server do |server|
         deliver_unacked(server, ["1"])

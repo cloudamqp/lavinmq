@@ -354,10 +354,6 @@ module LavinMQ
           end || break
         end
         false
-      rescue ex : MessageStore::Error
-        @log.error(ex) { "Queue closed due to error" }
-        close
-        raise ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -465,10 +461,6 @@ module LavinMQ
       def pause!; end
 
       def resume!; end
-
-      def restart! : Bool
-        false
-      end
 
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
