@@ -596,6 +596,72 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
   end
 
+  # Every priority sub-store numbers its segments from 1, so the first message
+  # of each priority has the same segment and position
+  describe "delivery count" do
+    it "is not shared between messages of different priorities" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("prio-dlimit-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"            => 9,
+            "x-delivery-limit"          => 1,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "prio-dlimit-dlq",
+          })
+          q = ch.queue("prio-dlimit", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+          lo.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+
+          lo.reject(requeue: true)
+          lo2 = q.get(no_ack: false).should_not be_nil
+          lo2.body_io.to_s.should eq "lo"
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          s.vhosts["/"].queue("prio-dlimit-dlq").message_count.should eq 0
+          hi.ack
+          lo2.ack
+        end
+      end
+    end
+
+    it "is not shared between messages of different priorities with retries" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"             => 9,
+            "x-delivery-limit"           => 3,
+            "x-delayed-retry-min"        => 1,
+            "x-delayed-retry-multiplier" => 1,
+          })
+          q = ch.queue("prio-retry", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+
+          lo.reject(requeue: true)
+          lo2 = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          lo2.body_io.to_s.should eq "lo"
+          lo2.redelivered.should be_true
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          hi.ack
+          lo2.ack
+        end
+      end
+    end
+  end
+
   context "after restart" do
     it "can restore the priority queue" do
       with_amqp_server do |s|
