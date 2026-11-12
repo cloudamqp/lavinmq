@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
 - The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)
+- The Bindings counter and footer on the overview sat lower than the others whenever the other cards' links wrapped, e.g. with a long uptime [#2573](https://github.com/cloudamqp/lavinmq/pull/2573)
 
 ## [2.11.0] - 2026-11-12
 
