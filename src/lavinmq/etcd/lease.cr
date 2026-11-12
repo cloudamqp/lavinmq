@@ -7,6 +7,8 @@ module LavinMQ
     class Lease
       getter id, expired
 
+      @released = Atomic(Bool).new(false)
+
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @expired = Channel(Exception?).new
         Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
@@ -17,7 +19,9 @@ module LavinMQ
       # Force release of lease (and leadership). The lease is revoked before
       # anything waiting on it wakes, so writes fenced by the lease are already
       # refused by then.
+      # Both a stop and the node itself can release it, only the first revokes
       def release
+        return if @released.swap(true)
         @etcd.lease_revoke(@id)
       ensure
         @expired.close
