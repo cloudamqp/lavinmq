@@ -305,6 +305,15 @@ class MFile < IO
     slice.copy_to(@buffer + pos, slice.size)
   end
 
+  # Overwrites an integer that is already written, encoding it straight into
+  # the mapping
+  def write_at(pos : Int, value : Int::Primitive, format : IO::ByteFormat = IO::ByteFormat::SystemEndian) : Nil
+    check_open
+    bytesize = sizeof(typeof(value))
+    raise IO::EOFError.new if pos + bytesize > @size
+    format.encode(value, Bytes.new(@buffer + pos, bytesize))
+  end
+
   # Zeroes the bytes from `pos` up to `upto` and makes `pos` the new size, so
   # that the next write starts there. Unlike after #resize, nothing of what
   # was written after `pos` is left in the file.

@@ -52,9 +52,7 @@ module LavinMQ
       pos = io.size
       io.write_bytes 0i64, format
       write_after_timestamp(io, format)
-      timestamp = uninitialized UInt8[8]
-      format.encode(@timestamp, timestamp.to_slice)
-      io.write_at(pos, timestamp.to_slice)
+      io.write_at(pos, @timestamp, format)
     end
 
     private def write_after_timestamp(io : IO, format) : Nil
@@ -142,9 +140,7 @@ module LavinMQ
       pos = io.size
       io.write_bytes 0i64, format
       write_after_timestamp(io, format)
-      timestamp = uninitialized UInt8[8]
-      format.encode(@timestamp, timestamp.to_slice)
-      io.write_at(pos, timestamp.to_slice)
+      io.write_at(pos, @timestamp, format)
     end
 
     private def write_after_timestamp(io : IO, format) : Nil
