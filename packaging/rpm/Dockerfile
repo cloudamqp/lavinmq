@@ -6,6 +6,10 @@ RUN if grep -qE 'PLATFORM_ID="platform:el(9|10)"' /etc/os-release; then \
       dnf install -y dnf-plugins-core && \
       dnf config-manager --enable crb; \
     fi
+# rpmlint is only packaged in EPEL on el-10
+RUN if grep -q 'PLATFORM_ID="platform:el10"' /etc/os-release; then \
+      dnf install -y epel-release; \
+    fi
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
     rpmdevtools rpmlint systemd-rpm-macros make help2man git lz4-devel openssl openssl-devel zlib-devel
 RUN rpmdev-setuptree
