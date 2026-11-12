@@ -667,9 +667,14 @@ class LavinMQCtl
 
   @[Cmd("Display cluster status", "", section: "Server")]
   private def cluster_status
-    # The raft backend has members, leader and replication progress to show
+    # The raft backend has members, leader and replication progress to show.
+    # Without it the answer is 400, or 404 without clustering or from a
+    # server that doesn't have the endpoint. Any other error is the answer.
     resp = http.get "/api/cluster", @headers
-    return raft_cluster_status(JSON.parse(resp.body)) if resp.status_code == 200
+    unless resp.status_code.in?(400, 404)
+      handle_response(resp, 200)
+      return raft_cluster_status(JSON.parse(resp.body))
+    end
     resp = http.get "/api/nodes"
     handle_response(resp, 200)
     body = JSON.parse(resp.body)

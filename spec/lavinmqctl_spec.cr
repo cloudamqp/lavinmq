@@ -55,6 +55,23 @@ describe "LavinMQCtl" do
     server.try &.close
   end
 
+  # E.g. a user that isn't an administrator, or a raft node that didn't answer
+  it "reports an error from the cluster API instead of the follower list" do
+    paths = [] of String
+    server = HTTP::Server.new do |context|
+      paths << context.request.path
+      context.response.status_code = 403
+      context.response.print %({"error":"access_refused"})
+    end
+    addr = server.bind_tcp("127.0.0.1", 0)
+    spawn server.listen
+    result = run_lavinmqctl(addr.to_s, ["cluster_status"])
+    result[:exit].should eq 1
+    paths.should eq ["/api/cluster"]
+  ensure
+    server.try &.close
+  end
+
   describe "with http server" do
     it "should list users" do
       with_http_server do |(http, s)|
