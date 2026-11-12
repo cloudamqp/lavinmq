@@ -30,8 +30,15 @@ describe LavinMQ::Config do
       end
     end
 
-    it "advertises the address bound to otherwise" do
+    it "advertises the hostname with the etcd backend, whatever it's bound to" do
       config = LavinMQ::Config.new
+      config.clustering_bind = "10.0.0.5"
+      config.clustering_advertised_uri_or_default.should eq "tcp://#{System.hostname}:5679"
+    end
+
+    it "advertises the address bound to otherwise, with the raft backend" do
+      config = LavinMQ::Config.new
+      config.clustering_seeds = "10.0.0.5,10.0.0.6"
       config.clustering_bind = "10.0.0.5"
       config.clustering_advertised_uri_or_default.should eq "tcp://10.0.0.5:5679"
       config.clustering_raft_address.should eq "10.0.0.5:5680"
@@ -39,6 +46,7 @@ describe LavinMQ::Config do
 
     it "brackets an IPv6 bind address" do
       config = LavinMQ::Config.new
+      config.clustering_seeds = "[fd00::5],[fd00::6]"
       config.clustering_bind = "fd00::5"
       config.clustering_advertised_uri_or_default.should eq "tcp://[fd00::5]:5679"
       config.clustering_raft_address.should eq "[fd00::5]:5680"

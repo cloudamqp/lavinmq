@@ -117,7 +117,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | `tcp://hostname:port` when bound to all interfaces, else `tcp://bind:port` | Advertised URI for peers |
+| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | `tcp://hostname:port`; with the raft backend `tcp://bind:port` unless bound to all interfaces | Advertised URI for peers |
 | `backend` | `--clustering-backend` | `LAVINMQ_CLUSTERING_BACKEND` | String | `raft` when `seeds` are set, else `etcd` | Leader election backend, `raft` (built in, recommended for new clusters) or `etcd`. Rarely needed, `seeds` selects raft |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated), etcd backend only |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix, etcd backend only |

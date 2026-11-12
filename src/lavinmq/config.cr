@@ -185,8 +185,10 @@ module LavinMQ
       @clustering_backend || (@clustering_seeds.strip.empty? ? ClusteringBackend::Etcd : ClusteringBackend::Raft)
     end
 
-    # The URI followers replicate from. Defaults to this host's name when
-    # bound to all interfaces, otherwise to the address bound to.
+    # The URI followers replicate from. Defaults to this host's name, which
+    # is also where followers forward clients to. With the raft backend, to
+    # the address bound to unless that's all interfaces, as its host is this
+    # node's raft address too.
     def clustering_advertised_uri_or_default : String
       @clustering_advertised_uri || "tcp://#{bracket_ipv6(default_clustering_host)}:#{@clustering_port}"
     end
@@ -201,6 +203,7 @@ module LavinMQ
     end
 
     private def default_clustering_host : String
+      return System.hostname unless clustering_backend.raft?
       case bind = @clustering_bind
       when "::", "0.0.0.0", "" then System.hostname
       else                          bind
