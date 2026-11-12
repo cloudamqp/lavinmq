@@ -596,6 +596,29 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  it "starts over when it loses leadership and wins it back while starting to serve", tags: "slow" do
+    with_controllers do |cluster|
+      first_startup = Atomic(Bool).new(true)
+      cluster.start_all(-> {
+        if first_startup.swap(false)
+          # Cut off from its peers the leader steps down. Only it is in the
+          # ISR, so once they're back it's elected again, in a later term.
+          leader = cluster.controllers.find!(&.node.leader?)
+          others = cluster.controllers.reject(leader)
+          others.each(&.stop)
+          wait_for(5.seconds) { !leader.node.serving.value }
+          others.each { |c| cluster.restart(c) }
+          wait_for(10.seconds) { leader.node.serving.value }
+        end
+      })
+      first = cluster.next_leader
+      # The replicator of the term it lost is fenced, so it can't keep serving
+      receive_within(cluster.demotions, 15.seconds).should eq({first, true})
+      cluster.next_leader(10.seconds).should eq first
+      should_not_have_exited(cluster)
+    end
+  end
+
   it "exits when it loses leadership during a startup that hangs", tags: "slow" do
     with_controllers do |cluster|
       cluster.controllers.each &.demotion_timeout = 500.milliseconds

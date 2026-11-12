@@ -209,6 +209,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Serves as the leader until leadership is lost, a transfer is requested,
   # or the node stops. Returns the requested transfer, if that's why.
   private def lead(&) : Transfer?
+    term = @node.term
     ensure_in_isr!
     stop_following
     # No follower is replicating from this node yet, so none of them can be
@@ -225,6 +226,12 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       yield
     ensure
       started.close
+    end
+    # Leadership lost and won again while starting isn't seen below, as the
+    # node serves again, but the replicator of the lost term stays fenced
+    if (now = @node.term) != term
+      Log.warn { "Leadership was lost while starting to serve (term #{term}, now #{now}), starting over" }
+      return
     end
     loop do
       select
