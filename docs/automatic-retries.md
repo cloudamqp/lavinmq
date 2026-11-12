@@ -46,7 +46,7 @@ The `x-delivery-count` header on a delivery tells the consumer how many deliveri
 
 ## Retry Queue
 
-Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created when the queue starts, and closed, restarted and deleted with it. Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
+Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created when the queue starts, and closed and deleted with it. If its messages can't be read it is paused, like [any queue](queues.md#message-data-that-cant-be-read), and resuming or purging the queue also resumes or purges it. Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
 
 ## Notes and Limitations
 

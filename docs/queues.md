@@ -92,12 +92,24 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
+| `closed` | Queue is being shut down, with the broker or before it is deleted |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. A pause is kept when the broker restarts.
 
-The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
+The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=paused` or `?state=running,paused`.
+
+### Message data that can't be read
+
+A queue whose message store fails, for example on a segment with corrupt data or one written by a newer version of LavinMQ, is paused instead of closed. The error is logged with the segment's path. Nothing is delivered past the data, consumers stay connected, and publishes are still stored.
+
+- **Resume** the queue to read the data again. If it still can't be read the queue is paused again.
+- **Restart the broker**, or in a cluster fail over to another node. This pause isn't kept, so the data is read again: by a version that can read it after an upgrade, or from the other node's copy of the files.
+- **Purge** or delete the queue to give the data up. A purge removes the whole segment that can't be read, including messages in it that are delivered but not acked yet, whose acks are then ignored.
+
+Editing segment files by hand isn't supported.
+
+The same applies to streams and to the internal queues of delayed exchanges and [automatic retries](automatic-retries.md). An MQTT session can't be paused: the client is disconnected when a message can't be read, and the session is kept until it's purged or deleted.
 
 ## Reserved Queue Name Prefixes
 
