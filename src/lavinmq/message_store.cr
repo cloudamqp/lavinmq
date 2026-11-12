@@ -683,6 +683,8 @@ module LavinMQ
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = open_segment(path, Config.instance.segment_size)
+              # delete_file removed the path from the replicator's file index
+              @replicator.try &.register_file file
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
