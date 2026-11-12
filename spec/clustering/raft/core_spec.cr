@@ -253,9 +253,11 @@ describe Raft::Core do
     core.connected(3, "n3", now)
     announce_fresh(core, [2], now)
     core.bootstrap_choice.should be_nil
+    core.bootstrap_wait.should eq Raft::BootstrapWait::SeedsSilent
     campaigns?(core, now, after: 1.second).should be_false
     announce_fresh(core, [3], now, last_index: 4)
     core.bootstrap_choice.should be_nil
+    core.bootstrap_wait.should eq Raft::BootstrapWait::SeedHasElectionState
     campaigns?(core, now, after: 2.seconds).should be_false
     announce_fresh(core, [3], now)
     core.bootstrap_choice.should eq 1

@@ -173,7 +173,7 @@ module LavinMQ::Clustering::Raft
     @logged_seeds = false
     @election_timeout : Time::Span
     @logged_trust_moved = false
-    @logged_bootstrap_wait : String? = nil
+    @logged_bootstrap_wait : BootstrapWait? = nil
     # Metrics, only touched by the event loop
     # The leader and term last counted as a leader change: the same node
     # elected again in a later term is a change too
@@ -627,13 +627,13 @@ module LavinMQ::Clustering::Raft
       return if wait == @logged_bootstrap_wait
       @logged_bootstrap_wait = wait
       return unless wait
-      if wait.starts_with?("several")
+      if wait.blocked?
         Log.warn do
-          "No first leader: #{wait}. Keep etcd_endpoints set until the cluster has a leader, or empty " \
+          "No first leader: #{wait.message}. Keep etcd_endpoints set until the cluster has a leader, or empty " \
           "the data dirs of all but one of them, see \"Forming a cluster\" in docs/clustering.md"
         end
       else
-        Log.info { "No first leader yet: #{wait}" }
+        Log.info { "No first leader yet: #{wait.message}" }
       end
     end
 

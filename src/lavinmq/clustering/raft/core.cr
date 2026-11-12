@@ -56,6 +56,31 @@ module LavinMQ::Clustering::Raft
     end
   end
 
+  # Why a new cluster has no first leader yet, see Core#bootstrap_choice
+  enum BootstrapWait
+    SeedsUnidentified
+    SeedsSilent
+    SeedHasElectionState
+    # Nothing tells whose broker data is current, so it never resolves on its
+    # own
+    AmbiguousData
+
+    def message : String
+      case self
+      in SeedsUnidentified    then "waiting for every seed to be identified"
+      in SeedsSilent          then "waiting to hear from every seed"
+      in SeedHasElectionState then "a seed has election state"
+      in AmbiguousData
+        "several seeds have broker data but no election state, and none was in the ISR of the etcd backend"
+      end
+    end
+
+    # Whether an operator has to act before a first leader can be elected
+    def blocked? : Bool
+      ambiguous_data?
+    end
+  end
+
   enum MembershipError
     NotLeader
     # The leader hasn't committed an entry in its term yet
@@ -648,15 +673,15 @@ module LavinMQ::Clustering::Raft
 
     # Why there's no #bootstrap_choice, for logging, nil when there is one or
     # it doesn't apply
-    def bootstrap_wait : String?
-      bootstrap_state.as?(String)
+    def bootstrap_wait : BootstrapWait?
+      bootstrap_state.as?(BootstrapWait)
     end
 
-    private def bootstrap_state : (Int32 | String)?
+    private def bootstrap_state : (Int32 | BootstrapWait)?
       return if latest_membership || last_index > 0 || @seed_addresses.empty?
-      return "waiting for every seed to be identified" unless seeds_identified?
-      infos = @seed_ids.values.map { |id| @seed_info[id]? || return "waiting to hear from every seed" }
-      return "a seed has election state" if infos.any? { |i| i.last_index > 0 }
+      return BootstrapWait::SeedsUnidentified unless seeds_identified?
+      infos = @seed_ids.values.map { |id| @seed_info[id]? || return BootstrapWait::SeedsSilent }
+      return BootstrapWait::SeedHasElectionState if infos.any? { |i| i.last_index > 0 }
       nodes = infos.map { |i| {i.from, i.has_data, i.prior_in_sync} } << {@id, @has_data, @prior_in_sync}
       with_data = nodes.select(&.[1])
       candidates =
@@ -665,8 +690,7 @@ module LavinMQ::Clustering::Raft
         when 1 then with_data
         else        with_data.select(&.[2])
         end
-      candidates.min_of?(&.[0]) ||
-        "several seeds have broker data but no election state, and none was in the ISR of the etcd backend"
+      candidates.min_of?(&.[0]) || BootstrapWait::AmbiguousData
     end
 
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
