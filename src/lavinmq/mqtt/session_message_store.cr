@@ -24,6 +24,12 @@ module LavinMQ
         super
         forget_packet_id(sp)
       end
+
+      # A segment a purge removed for data that can't be read, with its messages
+      private def drop_segment(seg : UInt32) : Nil
+        super
+        @packet_ids.reject! { |sp, _| sp.segment == seg }
+      end
     end
   end
 end

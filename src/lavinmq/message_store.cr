@@ -27,6 +27,8 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
+    # Set at load when the segment written to has data that can't be read
+    @wfile_unreadable = false
     # When the reader moved into @rfile, see #read_fast?
     @rfile_since : Time::Instant = RoughTime.instant
     # Set once a publish to this store is synced, see #readahead_for_writes
@@ -57,14 +59,21 @@ module LavinMQ
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
       close_on_error do
-        unless @closed
-          load_stats_from_segments
-          prune_orphaned_acks
-          delete_unused_segments
-        end
-        readahead_for_writes(@wfile) unless @closed
-        @empty.set empty? unless @closed
+        load_stats_from_segments
+        prune_orphaned_acks
+        delete_unused_segments
+        seal_unreadable_write_segment
+        readahead_for_writes(@wfile)
+        @empty.set empty?
       end
+    end
+
+    # Nothing more is written to a segment with data that can't be read: it
+    # couldn't be read either, and would be removed with the segment when a
+    # purge gives the data up
+    private def seal_unreadable_write_segment : Nil
+      open_new_segment if @wfile_unreadable
+      @wfile_unreadable = false
     end
 
     # Unmaps the segments and ack files opened before a failure while
@@ -98,13 +107,13 @@ module LavinMQ
 
     def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      if sp = @requeued.first?
-        seg = @segments[sp.segment]
+      while sp = @requeued.first?
+        seg = @segments[sp.segment]? || next drop_requeued
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
           return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
-          raise Error.new(seg, cause: ex)
+          raise unreadable(sp.segment, seg, ex)
         end
       end
 
@@ -118,6 +127,7 @@ module LavinMQ
           recount_from_segments
           return
         end
+        verify_schema(rfile) if pos == 4
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
           next
@@ -133,7 +143,7 @@ module LavinMQ
         raise Error.new(@rfile, cause: ex)
       rescue ex
         @log.error(exception: ex) { "first? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
+        raise unreadable(@rfile_id, @rfile, ex)
       end
     end
 
@@ -155,24 +165,16 @@ module LavinMQ
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      if sp = @requeued.shift?
+      while sp = @requeued.first?
+        segment = @segments[sp.segment]? || next drop_requeued
         begin
-          segment = @segments[sp.segment]
           msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
-          # sp has already been removed from @requeued; drop its accounting too
-          # so @size/@bytesize don't leak when the segment is gone or the
-          # payload can't be parsed. Without this, future shift? calls can hit
-          # EOF with @size > 0 because the requeued entry can never be re-read.
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          raise Error.new(@segments[sp.segment]? || @rfile, cause: ex)
+          # The message stays requeued, so that the read can be tried again
+          raise unreadable(sp.segment, segment, ex)
         end
+        drop_requeued
+        return Envelope.new(sp, msg, redelivered: true, segment: segment)
       end
 
       loop do
@@ -185,6 +187,7 @@ module LavinMQ
           recount_from_segments
           return
         end
+        verify_schema(rfile) if pos == 4
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
           next
@@ -204,8 +207,41 @@ module LavinMQ
         raise Error.new(@rfile, cause: ex)
       rescue ex
         @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
+        raise unreadable(@rfile_id, @rfile, ex)
       end
+    end
+
+    # The error for a read that failed in segment *seg*. If that's the segment
+    # written to, the next write starts a new one, see
+    # #seal_unreadable_write_segment.
+    private def unreadable(seg : UInt32, mfile : MFile, cause : Exception) : Error
+      error = Error.new(mfile, cause: cause)
+      open_new_segment if seg == @wfile_id && !@closed
+      error
+    end
+
+    # Removes the first requeued message, e.g. one whose segment is gone, which
+    # can never be read
+    private def drop_requeued : Nil
+      sp = @requeued.shift? || return
+      @bytesize -= sp.bytesize
+      @size -= 1
+      @empty.set true if @size.zero?
+    end
+
+    # A segment's records are only read if it has this version's format. It's
+    # checked when a read starts the segment, as a load keeps a segment it
+    # can't read (see #count_unreadable).
+    private def verify_schema(mfile : MFile) : Nil
+      raise OutdatedSchemaVersion.new(schema_version(mfile), mfile.path) unless schema_ok?(mfile)
+    end
+
+    private def schema_ok?(mfile : MFile) : Bool
+      schema_version(mfile) == Schema::VERSION
+    end
+
+    private def schema_version(mfile : MFile) : Int32
+      IO::ByteFormat::SystemEndian.decode(Int32, mfile.to_slice(0, sizeof(Int32)))
     end
 
     def [](sp : SegmentPosition) : BytesMessage
@@ -261,13 +297,46 @@ module LavinMQ
     def purge(max_count : Int = UInt32::MAX) : UInt32
       raise ClosedError.new if @closed
       count = 0u32
-      while count < max_count && (env = shift?)
+      while count < max_count
+        env = shift_or_give_up? || break
         delete(env.segment_position)
         count += 1
         break if count >= max_count
         Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
       end
       count
+    end
+
+    # A purge gives up data that can't be read, which is the way to get rid of
+    # it: the read is tried again after what it failed on is removed
+    private def shift_or_give_up? : Envelope?
+      loop do
+        return shift?
+      rescue ex : Error
+        give_up_unreadable(ex)
+      end
+    end
+
+    # Removes the segment of what the next read can't decode: the first
+    # requeued message, else the segment being read. All of the segment goes,
+    # as where the record after one that can't be decoded starts is unknown,
+    # and an ack of it wouldn't let a load skip it either. That includes the
+    # segment's unacked messages, whose acks are ignored later (see #delete),
+    # and its requeued ones, which are dropped when they're read. Its
+    # messages stay counted until the store has been read to its end, where
+    # it's recounted.
+    private def give_up_unreadable(ex : Error) : Nil
+      seg = @requeued.first?.try(&.segment) || @rfile_id
+      @log.warn(exception: ex) { "Purging segment #{seg}, which has data that can't be read" }
+      drop_segment(seg)
+    end
+
+    private def drop_segment(seg : UInt32) : Nil
+      open_new_segment if seg == @wfile_id
+      select_next_read_segment if seg == @rfile_id
+      unlink_segment(seg)
+      @segment_msg_count.delete(seg)
+      @deleted.delete(seg)
     end
 
     def purge_all
@@ -304,7 +373,7 @@ module LavinMQ
       # on-disk segments — purge_all's postcondition is an empty store, so we
       # force the counters to zero below regardless of how the loop exits.
       begin
-        while env = shift?
+        while env = shift_or_give_up?
           delete(env.segment_position)
         end
       rescue ex : IO::EOFError | Error
@@ -370,7 +439,6 @@ module LavinMQ
       @segments.each do |seg, mfile|
         read_pos = mfile.pos
         count_messages(seg, mfile)
-        raise Error.new(mfile) if @closed # a corrupt segment closed the store
         mfile.pos = read_pos
       end
       readahead_for_writes(@wfile) # count_messages left it advised for random access
@@ -624,27 +692,22 @@ module LavinMQ
           next
         end
 
-        # We must replicate the files even if the store is closed
-        if @closed
-          @replicator.try &.register_file path
-        else
-          acked = Array(UInt32).new
-          File.open(path, "a+") do |file|
-            loop do
-              pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
-              if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
-                file.truncate(file.pos - 4)
-                break
-              end
-              acked << pos
-            rescue IO::EOFError
+        acked = Array(UInt32).new
+        File.open(path, "a+") do |file|
+          loop do
+            pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
+            if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
+              file.truncate(file.pos - 4)
               break
             end
-            @replicator.try &.register_file(file)
+            acked << pos
+          rescue IO::EOFError
+            break
           end
-          @acks[seg] = open_ack_file(seg)
-          @deleted[seg] = acked.sort! unless acked.empty?
+          @replicator.try &.register_file(file)
         end
+        @acks[seg] = open_ack_file(seg)
+        @deleted[seg] = acked.sort! unless acked.empty?
         count += 1
         Fiber.yield
       end
@@ -690,17 +753,8 @@ module LavinMQ
               next
             end
           rescue ex
-            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
-            @segments[seg] = file
-            # Register remaining segments by path so the replicator knows about
-            # all files on disk even though we won't load them due to the abort.
-            if replicator = @replicator
-              ids[(idx + 1)..].each do |remaining_seg|
-                replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
-              end
-            end
-            close_store
-            break
+            # Kept, and counted as unreadable (see #load_stats_from_segments)
+            @log.error { "Segment #{seg} can't be read: #{ex.message}" }
           end
         end
         file.pos = 4
@@ -720,7 +774,9 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
-        if File.exists?(meta_file_name(mfile))
+        if !schema_ok?(mfile)
+          count_unreadable(seg, mfile, 4)
+        elsif File.exists?(meta_file_name(mfile))
           begin
             if @deleted.has_key?(seg)
               # Skipping the acked messages reads the segment in order.
@@ -736,8 +792,6 @@ module LavinMQ
         else
           count_messages(seg, mfile)
         end
-        break if @closed # a corrupt segment closed the store and unmapped it
-
         counter &+= 1
         if is_long_queue
           log_limiter.do { @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } }
@@ -754,14 +808,27 @@ module LavinMQ
     # less than its data, so it's read ahead here too. It isn't full yet, so
     # it gets no metadata file.
     private def count_messages(seg, mfile)
-      with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
-      return if @closed # a corrupt segment closed the store and unmapped it
-      write_metadata_file(seg, mfile) unless seg == @segments.last_key
+      readable = with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
+      # A segment with unreadable data gets no metadata file, it's counted
+      # again by the next load
+      write_metadata_file(seg, mfile) if readable && seg != @segments.last_key
+    end
+
+    # The rest of segment *seg* from *pos* can't be decoded, at load. The
+    # segment is kept and the data is left for a read to fail on, which pauses
+    # the queue. It's counted as one message, so that the store isn't empty
+    # and it is read. The segment gets a message count that acks can't reach,
+    # so it isn't deleted before a purge gives the data up.
+    private def count_unreadable(seg : UInt32, mfile : MFile, pos : Int, readable_unacked : UInt32 = 0u32) : Nil
+      acked = @deleted[seg]?.try(&.size.to_u32) || 0u32
+      @segment_msg_count[seg] = acked + readable_unacked + 1
+      @wfile_unreadable = true if seg == @wfile_id
+      @bytesize += mfile.size - pos
+      @size += 1
     end
 
     # Advises *mfile* for the block, then back to random access (see
-    # #open_segment), also when the block raises. A segment a corrupt record
-    # closed is unmapped, so it's left alone.
+    # #open_segment), also when the block raises
     private def with_advice(mfile : MFile, advice : MFile::Advice, &)
       mfile.advise(advice)
       yield
@@ -873,9 +940,11 @@ module LavinMQ
       @acks[seg] = open_ack_file(seg)
     end
 
+    # Returns false if the segment has data that can't be read.
     # Overridden by specs, like #read_metadata_file
-    private def produce_metadata(seg, mfile)
+    private def produce_metadata(seg, mfile) : Bool
       count = 0u32
+      unacked = 0u32
       mfile.pos = 4
       loop do
         pos = mfile.pos
@@ -884,6 +953,7 @@ module LavinMQ
         bytesize = BytesMessage.skip(mfile)
         count += 1
         next if deleted?(seg, pos)
+        unacked += 1
         @bytesize += bytesize
         @size += 1
       rescue IO::EOFError
@@ -896,15 +966,18 @@ module LavinMQ
         end
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close_store
-        return count
+        pos ||= mfile.pos
+        @log.error { "Segment #{seg} can't be read from pos #{pos}: #{ex}" }
+        count_unreadable(seg, mfile, pos, unacked)
+        mfile.pos = 4
+        return false
       end
       mfile.pos = 4
       mfile.dontneed
       Fiber.yield
       @segment_msg_count[seg] = count
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
+      true
     end
 
     private def delete_unused_segments : Nil
