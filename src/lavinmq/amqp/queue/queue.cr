@@ -1339,9 +1339,18 @@ module LavinMQ::AMQP
       else
         expire_msg(sp, :rejected)
       end
+    rescue KeyError
+      segment_gone(sp)
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       requeue_unread(sp)
+    end
+
+    # A purge removed the message with its segment, for data in it that
+    # couldn't be read (see MessageStore#give_up_unreadable)
+    private def segment_gone(sp : SegmentPosition) : Nil
+      @log.debug { "#{sp} is gone, its segment was purged" }
+      @msg_store_lock.synchronize { @deliveries.delete(sp) }
     end
 
     # A message that can't be read when it's rejected or requeued goes back
@@ -1359,6 +1368,8 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       redeliver_message(sp, route_to_retry: false)
+    rescue KeyError
+      segment_gone(sp)
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       requeue_unread(sp)
@@ -1557,9 +1568,12 @@ module LavinMQ::AMQP
 
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
-    # nil if the message can't be read, which pauses the queue
+    # nil if the message can't be read, which pauses the queue, or if a purge
+    # removed it with its segment
     def read(sp : SegmentPosition) : Envelope?
       @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
+    rescue KeyError
+      nil
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       nil

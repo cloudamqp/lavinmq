@@ -455,6 +455,38 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "drops the unacked messages of a purged segment when they're rejected or requeued" do
+      with_amqp_server do |s|
+        queue = nil
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          5.times { |i| q.publish_confirm "msg#{i}" }
+          unacked = Array.new(4) { q.get(no_ack: false).should_not be_nil }
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(segment.pos, q_name), 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          q.purge
+          queue.resume!
+
+          unacked[0].reject(requeue: true)
+          unacked[1].reject(requeue: false)
+          should_eventually(eq 2) { queue.unacked_count }
+          ch.closed?.should be_false
+          # The channel's close requeues the other two
+        end
+        queue = queue.should_not be_nil
+        should_eventually(eq 0) { queue.unacked_count }
+        queue.message_count.should eq 0
+        queue.state.running?.should be_true
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "after"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+        end
+      end
+    end
+
     it "keeps a rejected message that can't be read, and pauses the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
