@@ -323,6 +323,44 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#purge" do
+      it "purges the highest priorities first" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            2.times { store.push LavinMQ::Message.new("ex", "rk", "body", properties: props) }
+          end
+          store.purge(3).should eq 3
+          store.size.should eq 3
+          store.@stores.map(&.size).should eq [2, 1, 0, 0, 0, 0]
+          store.purge.should eq 3
+          store.empty?.should be_true
+          store.empty.value.should be_true
+        end
+      end
+
+      it "gives up data that can't be read, also with messages left unacked" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 2u8)
+          3.times { |i| store.push LavinMQ::Message.new("ex", "rk", "body#{i}", properties: props) }
+          store.push LavinMQ::Message.new("ex", "rk", "low")
+          unacked = store.shift?.should_not be_nil
+          segment = store.@stores[2].@segments.first_value
+          # The schema version, checked when a read starts a segment
+          File.open(segment.path, "r+", &.write_bytes(9_u32))
+          segment.pos = 4
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+
+          store.purge(10).should eq 1 # the message with a lower priority
+          store.size.should eq 0
+          store.delete(unacked.segment_position) # ignored, its segment is gone
+          store.push LavinMQ::Message.new("ex", "rk", "new", properties: props)
+          env = store.shift?.should_not be_nil
+          String.new(env.message.body).should eq "new"
+        end
+      end
+    end
+
     describe "#[]" do
       it "returns messages with priority above max" do
         with_prio_store(5) do |store|
