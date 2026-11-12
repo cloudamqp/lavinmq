@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- On a clustered node, a queue whose first segment file was empty at startup, which a power loss or a full disk can leave, closed the connection of every publisher to it until the next restart: the recreated segment wasn't registered with the replicator, so each publish failed with `append(pos, length) requires an MFile-registered path`. The recreated segment is now registered
+- On a clustered node, a queue whose first segment file was empty at startup, which a power loss or a full disk can leave, closed the connection of every publisher to it until the next restart: the recreated segment wasn't registered with the replicator, so each publish failed with `append(pos, length) requires an MFile-registered path`. The recreated segment is now registered [#2747](https://github.com/cloudamqp/lavinmq/pull/2747)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
 
 ## [2.11.0] - 2026-11-12
