@@ -105,6 +105,9 @@ module LavinMQ::AMQP
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
+    # Keeps the state, the paused file and its replication in step when
+    # #pause! and #resume! race
+    @pause_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -805,22 +808,26 @@ module LavinMQ::AMQP
     end
 
     def pause!
-      return unless @state.running?
-      @state = QueueState::Paused
-      @log.debug { "Paused" }
-      @paused.set(true)
-      # Not empty: a follower applies a replaced file of zero bytes as a delete
-      File.write(paused_file, @name)
-      @vhost.replicator.try &.replace_file(paused_file) if durable?
+      @pause_lock.synchronize do
+        return unless @state.running?
+        @state = QueueState::Paused
+        @log.debug { "Paused" }
+        @paused.set(true)
+        # Not empty: a follower applies a replaced file of zero bytes as a delete
+        File.write(paused_file, @name)
+        @vhost.replicator.try &.replace_file(paused_file) if durable?
+      end
     end
 
     def resume!
-      return unless @state.paused?
-      @state = QueueState::Running
-      @log.debug { "Resuming" }
-      @paused.set(false)
-      File.delete(paused_file)
-      @vhost.replicator.try &.delete_file(paused_file) if durable?
+      @pause_lock.synchronize do
+        return unless @state.paused?
+        @state = QueueState::Running
+        @log.debug { "Resuming" }
+        @paused.set(false)
+        File.delete(paused_file)
+        @vhost.replicator.try &.delete_file(paused_file) if durable?
+      end
     end
 
     private def paused_file : String
@@ -879,7 +886,9 @@ module LavinMQ::AMQP
         @vhost.replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
           r.delete_file(dotqueue_file)
-          r.delete_file(paused_file) # removed locally with the store's directory
+          # Removed locally with the store's directory. Under the lock, so a
+          # concurrent #pause! can't replicate the file after this delete
+          @pause_lock.synchronize { r.delete_file(paused_file) }
         end
       end
       @vhost.delete_queue(@name)
