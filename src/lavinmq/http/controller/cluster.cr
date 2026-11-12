@@ -1,12 +1,14 @@
 require "../controller"
-require "../../clustering/controller"
+require "../../clustering/cluster_admin"
 
 module LavinMQ
   module HTTP
-    # Operator API for a raft cluster: the membership and leadership transfer.
-    # The requests are handled by the leader, a follower proxies them to it.
+    # Operator API for a cluster that keeps its own membership (the raft
+    # backend, see Clustering::ClusterAdmin): the membership and leadership
+    # transfer. The requests are handled by the leader, a follower proxies
+    # them to it.
     class ClusterController < Controller
-      def initialize(server : LavinMQ::Server, @cluster : Clustering::RaftController?)
+      def initialize(server : LavinMQ::Server, @cluster : Clustering::ClusterAdmin?)
         super(server)
       end
 
@@ -31,7 +33,7 @@ module LavinMQ
           if error = Config.raft_address_error(address)
             bad_request(context, "address '#{address}' #{error}")
           end
-          change(context, cluster.node.add_learner(address), 201, address)
+          change(context, cluster.add_learner(address), 201, address)
         end
 
         post "/api/cluster/members/:member/promote" do |context, params|
@@ -39,7 +41,7 @@ module LavinMQ
           cluster = require_cluster(context)
           member = params["member"]
           id = require_member(context, cluster, member)
-          change(context, cluster.node.promote(id), 200, member)
+          change(context, cluster.promote(id), 200, member)
         end
 
         delete "/api/cluster/members/:member" do |context, params|
@@ -47,7 +49,7 @@ module LavinMQ
           cluster = require_cluster(context)
           member = params["member"]
           id = require_member(context, cluster, member)
-          change(context, cluster.node.remove_member(id), 204, member)
+          change(context, cluster.remove_member(id), 204, member)
         end
 
         post "/api/cluster/transfer-leadership" do |context, _params|
@@ -60,7 +62,7 @@ module LavinMQ
             target = t.as_s?.presence || bad_request(context, "target must be a raft address or clustering id")
           end
           case plan = cluster.request_transfer(target)
-          in Clustering::RaftController::Transfer
+          in Clustering::ClusterAdmin::Transfer
             # The leader stops serving, including this connection, so the
             # response has to be complete before that.
             begin
@@ -79,7 +81,7 @@ module LavinMQ
         end
       end
 
-      private def require_cluster(context) : Clustering::RaftController
+      private def require_cluster(context) : Clustering::ClusterAdmin
         if cluster = @cluster
           return cluster
         end
@@ -90,8 +92,8 @@ module LavinMQ
         end
       end
 
-      private def require_status(context, cluster : Clustering::RaftController) : Clustering::Raft::Status
-        status = cluster.node.status ||
+      private def require_status(context, cluster : Clustering::ClusterAdmin) : Clustering::Raft::Status
+        status = cluster.status ||
                  halt(context, 503, {error: "service_unavailable", reason: "The raft node didn't answer in time, try again"})
         conflict(context, "This node is not the leader") unless status.role.leader?
         status
@@ -99,7 +101,7 @@ module LavinMQ
 
       # The clustering id of the member `ref` (a clustering id or raft address)
       # refers to.
-      private def require_member(context, cluster : Clustering::RaftController, ref : String) : Int32
+      private def require_member(context, cluster : Clustering::ClusterAdmin, ref : String) : Int32
         status = require_status(context, cluster)
         status.resolve(ref) || not_found(context, "#{ref} is not a member of the cluster")
       end

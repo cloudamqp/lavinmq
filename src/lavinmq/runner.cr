@@ -22,8 +22,9 @@ module LavinMQ
     def new_replicator : Clustering::Server?
     end
 
-    # The raft cluster, for its HTTP API
-    def raft : Clustering::RaftController?
+    # The cluster's membership and leadership, for the HTTP API, nil when
+    # the runner has none to manage
+    def cluster_admin : Clustering::ClusterAdmin?
     end
 
     # The leader's host, which client connections are forwarded to while this

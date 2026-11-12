@@ -1,4 +1,5 @@
 require "./controller"
+require "./cluster_admin"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
@@ -12,7 +13,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   # Accepted leadership transfer: who (clustering id and raft address), and
   # in which term
-  record Transfer, target : Int32, address : String, term : Int64
+  include ClusterAdmin
 
   @step_down_requested = Channel(Transfer).new(1)
   @transfer_target : Int32? = nil
@@ -166,8 +167,24 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     JSON.build { |json| status.to_json(json, leader_serving: serving) }
   end
 
-  def raft : RaftController?
+  def cluster_admin : ClusterAdmin?
     self
+  end
+
+  def status : Raft::Status?
+    @node.status
+  end
+
+  def add_learner(address : String) : Raft::MembershipError?
+    @node.add_learner(address)
+  end
+
+  def promote(id : Int32) : Raft::MembershipError?
+    @node.promote(id)
+  end
+
+  def remove_member(id : Int32) : Raft::MembershipError?
+    @node.remove_member(id)
   end
 
   # The replication client's metrics while following, and the raft node's

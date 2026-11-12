@@ -46,7 +46,7 @@ private class StoppingMidStartRunner < LavinMQ::StandaloneRunner
   def initialize(@launcher : LavinMQ::Launcher)
   end
 
-  def raft : LavinMQ::Clustering::RaftController?
+  def cluster_admin : LavinMQ::Clustering::ClusterAdmin?
     @launcher.stop
     @closed_under_startup = @launcher.@server.try &.closed?
     nil

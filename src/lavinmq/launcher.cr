@@ -92,7 +92,7 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.raft,
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.cluster_admin,
         @control_socket.path, runner_metrics)
       start_clustering_listener
       @client_listeners.serve(ClientListeners::Brokers.new(amqp_server, mqtt_server, http_server))

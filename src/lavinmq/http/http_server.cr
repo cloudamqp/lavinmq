@@ -28,7 +28,7 @@ module LavinMQ
       # as the direct user. *metrics* writes the runner's own metrics, see
       # Runner#write_metrics.
       def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
-                     cluster : Clustering::RaftController? = nil,
+                     cluster : Clustering::ClusterAdmin? = nil,
                      control_path = Config.instance.control_unix_path,
                      metrics : Proc(PrometheusWriter, Nil)? = nil)
         oauth_authenticator =
