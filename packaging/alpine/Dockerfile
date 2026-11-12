@@ -7,6 +7,7 @@ COPY ./static ./static
 COPY ./views ./views
 COPY ./src ./src
 COPY Makefile .
+COPY packaging/libgc packaging/libgc
 ARG MAKEFLAGS=-j2
 RUN make all
 
