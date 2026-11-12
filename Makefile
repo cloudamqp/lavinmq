@@ -111,6 +111,11 @@ js: $(JS)
 .PHONY: deps
 deps: js lib views
 
+# Download all build dependencies, so that make can then run without network access
+.PHONY: fetch
+fetch: lib js
+	$(if $(filter ext/libgc.a,$(LIBGC)),$(MAKE) -C packaging/libgc fetch)
+
 bin/ameba: lib/ameba | bin
 	crystal build lib/ameba/bin/ameba.cr -o $@
 
