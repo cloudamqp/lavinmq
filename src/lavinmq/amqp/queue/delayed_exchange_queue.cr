@@ -63,7 +63,7 @@ module LavinMQ::AMQP
         msg.properties.headers = headers
       end
       @vhost.exchange(@exchange_name).route_msg Message.moved_copy(msg, exchange_name: @exchange_name)
-      delete_message sp
+      delete_message sp, moved: true
     end
   end
 

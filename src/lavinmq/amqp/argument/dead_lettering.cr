@@ -13,8 +13,9 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      # stored is false when a closing vhost closed a destination; the source keeps the message
-      alias MessageRoutedCallback = Proc(Bool, Nil)
+      # stored is false when a closing vhost closed a destination; the source keeps the message.
+      # copied is whether a durable queue stored a copy, which the ack of the source is synced with
+      alias MessageRoutedCallback = Proc(Bool, Bool, Nil)
       alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
       struct Tasks
@@ -109,8 +110,8 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           target = @target.get(:acquire)
-          return routed.call(true) unless dlx = (msg.dlx || target.dlx)
-          ex = dead_letter_exchange(dlx) || return routed.call(true)
+          return routed.call(true, false) unless dlx = (msg.dlx || target.dlx)
+          ex = dead_letter_exchange(dlx) || return routed.call(true, false)
 
           dlrk = msg.dlrk || target.dlrk
 
@@ -135,7 +136,7 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return routed.call(true) if queues.empty?
+          return routed.call(true, false) if queues.empty?
 
           # The first dead lettering in a chain gets its own tasks, as the
           # queue can dead letter on several fibers/threads at once, while
@@ -185,13 +186,16 @@ module LavinMQ::AMQP
         private def drain_context(tasks : Tasks)
           # A message's destinations are queued right before its callback
           dst_closed = false
+          dst_copied = false
           while task = tasks.dequeue?
             case task
             when MessageRoutedCallback
               stored = !dst_closed
+              copied = dst_copied
               dst_closed = false
+              dst_copied = false
               begin
-                task.call(stored)
+                task.call(stored, copied)
               rescue ex
                 @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
@@ -200,8 +204,11 @@ module LavinMQ::AMQP
               begin
                 dst_q.strip_delivery_count(msg)
                 # Dropped on overflow, or by a queue closed on an error while it stays bound
-                if dst_q.publish_internal(msg, dlx_tasks: tasks).closed? && @vhost.closed?
+                result = dst_q.publish_internal(msg, dlx_tasks: tasks)
+                if result.closed? && @vhost.closed?
                   dst_closed = true
+                elsif result.ok? && dst_q.durable?
+                  dst_copied = true
                 end
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }

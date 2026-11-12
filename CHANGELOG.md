@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- After a power loss, a message the broker had moved between queues (dead-lettered by TTL, max-length, reject or delivery limit, delayed, retried) could be in both the queue it was moved out of and the one it was moved to: the copy was synced, but not the ack of the original. The ack is now synced together with the copy, after it, and a move requests that sync instead of waiting for the next publish confirm [#2745](https://github.com/cloudamqp/lavinmq/pull/2745)
+
 ## [2.11.0] - 2026-11-12
 
 This release adds the `x-mqtt-topic` exchange type, automatic retries with backoff for rejected messages, and the `tcp_send_timeout`, `tls_ciphersuites` and `syncfs_threshold` config options. The management UI charts are redrawn on uPlot, and a refresh control in the header pauses, resumes and paces auto-refresh. Publish confirms sync only the affected files, message store segments are cached in page-sized folios and connections share pooled socket buffers, lowering write amplification and memory usage. Message TTL expiry gets millisecond precision and `tcp_nodelay` defaults to `true`. It also fixes many races around policies, consumers, dead-lettering and message store segments that could corrupt state or crash the broker. Federation links and their upstream resources now survive policy re-applies, publishes over the HTTP API and MQTT respect the disk alarm, and the MQTT retain store no longer mixes up non-ASCII topics or keeps an open file per topic.

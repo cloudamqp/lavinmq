@@ -15,6 +15,7 @@ module LavinMQ
   # written by confirmed publishes, plus the directories of newly created
   # files), not the whole filesystem: a syncfs would also flush every ack
   # file that consumers append to, writing the same pages again and again.
+  # Consumer acks stay unsynced.
   # When many files are dirty, or a transaction is committed (which must also
   # persist its acks), one syncfs is cheaper and simpler than many msyncs.
   #
@@ -25,6 +26,13 @@ module LavinMQ
   # durable before the copy. The stores only mark the copies dirty and hand
   # over the files, so the order is kept here, in one place, for as long as
   # the process lives, whatever happens to the store that emptied them.
+  #
+  # The ack of a moved original is synced too (see #mark_moved_ack), in the
+  # same drain as its copy and after it: with only the copy durable a power
+  # loss would leave the message in both queues. A move requests that drain,
+  # so the two are only apart until it has run, and then the copy is the one
+  # that is synced first, as a message twice is better than not at all. The
+  # kernel can still write an ack's page back before that drain.
   class Persister
     Log = LavinMQ::Log.for "persister"
 
@@ -41,6 +49,8 @@ module LavinMQ
       # includes every prior write.
       getter acks = Hash(ConfirmTarget, UInt64).new
       getter files = Array(MFile).new
+      # Ack files of messages the broker moved, synced after the files
+      getter ack_files = Array(MFile).new
       getter paths = Set(String).new
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
@@ -51,7 +61,8 @@ module LavinMQ
       getter unlink_waiters = Array(::Channel(Nil)).new
 
       def drainable? : Bool
-        !acks.empty? || !waiters.empty? || !files.empty? || !paths.empty? || after_sync?
+        !acks.empty? || !waiters.empty? || !files.empty? || !ack_files.empty? ||
+          !paths.empty? || after_sync?
       end
 
       def after_sync? : Bool
@@ -138,6 +149,17 @@ module LavinMQ
     def mark_dirty(mfile : MFile) : Nil
       return if mfile.mark_needs_msync!
       @pending.lock &.files.push(mfile)
+    end
+
+    # Register the ack file of a message the broker moved to another queue,
+    # and request a drain: it syncs the copy, marked dirty when written,
+    # before the ack. Must be called after the ack is dispatched to the
+    # replicator, like #mark_dirty.
+    def mark_moved_ack(acks : MFile) : Nil
+      @pending.lock &.ack_files.push(acks) unless acks.mark_needs_msync!
+      # Even when already marked: the copy can be in a later batch than the mark
+      @publish_confirm_requested.try_send true
+    rescue ::Channel::ClosedError
     end
 
     # Like mark_dirty(MFile), for regular (non-mmapped) files and for
@@ -318,13 +340,21 @@ module LavinMQ
 
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
+      # A file synced as a late copy by the previous drain, and written to
+      # after that, is in the batch twice
+      batch.files.uniq!
       batch.files.each &.clear_needs_msync!
+      batch.ack_files.each &.clear_needs_msync!
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
+      batch.ack_files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       syncfs = batch.syncfs? || !batch.waiters.empty? ||
                (@unmarked_writes && batch.after_sync?) ||
-               batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
-      paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
+               batch.files.size + batch.ack_files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
+      unless syncfs
+        paths = batch.files.map(&.path).concat(batch.paths).concat(dirs)
+        batch.ack_files.each { |f| paths << f.path }
+      end
       replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
@@ -342,7 +372,7 @@ module LavinMQ
       begin
         if Config.instance.sync?
           if paths
-            syncfs = fsync_paths(batch.files, batch.paths, dirs)
+            syncfs = fsync_paths(batch.files, batch.paths, dirs, batch.ack_files)
           else
             syncfs_data_dir
           end
@@ -385,7 +415,7 @@ module LavinMQ
     end
 
     # Returns whether it fell back to syncing the whole filesystem
-    private def fsync_paths(files, paths, dirs) : Bool
+    private def fsync_paths(files, paths, dirs, ack_files) : Bool
       files.each &.fsync
       paths.each do |path|
         File.open(path, &.fsync)
@@ -394,6 +424,15 @@ module LavinMQ
       dirs.each do |dir|
         File.open(dir, &.fsync)
       rescue File::NotFoundError
+      end
+      # Last, so no ack is durable before the copy of the message it acks
+      unless ack_files.empty?
+        if sync_late_copies
+          ack_files.each &.fsync
+        else
+          # Messages are still being moved: the acks wait for the next drain
+          ack_files.each { |file| mark_moved_ack(file) }
+        end
       end
       false
     rescue ex : IO::Error | RuntimeError
@@ -406,6 +445,43 @@ module LavinMQ
       syncfs_data_dir
       true
     end
+
+    # The msync of an ack file writes out every ack in its pages, also those
+    # of the messages moved while this drain was syncing, whose copies are in
+    # segments marked for the next drain. Those are synced here first, as
+    # their acks would otherwise be durable a whole drain before them, and
+    # the messages lost in a power loss in between. They stay marked: the
+    # next drain requests the followers to sync them. Moves can keep coming,
+    # so the rounds are bounded. Returns whether the last look found none,
+    # only then are the ack files synced after it: an ack that stays unsynced
+    # is at worst a message in both queues, while one synced before its copy
+    # is a lost message. A move can still slip in between that look and the
+    # msync of the ack files.
+    private def sync_late_copies : Bool
+      synced = 0
+      LATE_COPY_ROUNDS.times do
+        late = @pending.lock do |batch|
+          batch.files[synced..] if batch.files.size > synced
+        end
+        return true unless late
+        synced += late.size
+        late.each do |file|
+          # A write after this marks the file again, for the next round
+          file.clear_needs_msync!
+          file.fsync
+          next unless file.take_created!
+          dir = File.dirname(file.path)
+          begin
+            File.open(dir, &.fsync)
+          rescue File::NotFoundError
+          end
+          mark_dirty(dir) # for the followers
+        end
+      end
+      false
+    end
+
+    LATE_COPY_ROUNDS = 4
 
     private def syncfs_data_dir : Nil
       FileSystem.syncfs(@data_dir_fd)
