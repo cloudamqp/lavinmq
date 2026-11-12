@@ -21,3 +21,6 @@ package-lock.json
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+/packaging/libgc/bdwgc/
+/packaging/libgc/gc-*.tar.gz
+/ext/
