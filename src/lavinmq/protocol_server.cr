@@ -235,16 +235,17 @@ module LavinMQ
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
 
+      # A follower's header is trusted even if the follower isn't listed in
+      # proxy_protocol_trusted_sources, else the client address would be lost
+      if parsed_proxy = follower_proxy_conn_info(client)
+        return parsed_proxy
+      end
       if @config.tcp_proxy_protocol?
         parsed_proxy = ProxyProtocol.parse(client)
-        if trusted_proxy_source?(remote_address.address)
+        if @config.trusted_proxy_source?(remote_address.address)
           return parsed_proxy if parsed_proxy
         else
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
-        end
-      else
-        if parsed_proxy = follower_proxy_conn_info(client)
-          return parsed_proxy
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)
@@ -256,12 +257,6 @@ module LavinMQ
       remote_address = client.remote_address
       return unless @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
       ProxyProtocol.parse(client)
-    end
-
-    private def trusted_proxy_source?(address : String) : Bool
-      # If no trusted sources are configured, accept from all sources for backward compatibility
-      return true if @config.proxy_protocol_trusted_sources.empty?
-      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 
     private def set_socket_options(socket)
