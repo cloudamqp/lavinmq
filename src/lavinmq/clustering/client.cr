@@ -319,7 +319,7 @@ module LavinMQ
         # Clean up any local empty directory
         # Sort and reverse to cleanup longer paths first
         Log.info { "Deleting #{dirs_to_delete.size} directories not on leader" } unless dirs_to_delete.empty?
-        dirs_to_delete.sort!.reverse_each do |path|
+        dirs_to_delete.to_a.sort!.reverse_each do |path|
           if Dir.empty? path
             Log.debug { "Dir empty or missing on leader: #{path}" }
             Dir.delete? path
@@ -388,9 +388,9 @@ module LavinMQ
         path.lchop(@data_dir).lchop('/')
       end
 
-      private def ls_r(dir) : {Array(String), Array(String)}
-        files = Array(String).new
-        dirs = Array(String).new
+      private def ls_r(dir) : {Set(String), Set(String)}
+        files = Set(String).new
+        dirs = Set(String).new
         ls_r(dir) do |filename|
           if File.file?(filename)
             files << filename

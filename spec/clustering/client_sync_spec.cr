@@ -626,6 +626,29 @@ module ClientSyncSpec
           Dir.exists?(File.join(data_dir, "queue2")).should be_false
         end
       end
+
+      # Removing each leader file from arrays of local files and dirs made the
+      # comparison quadratic, and with cached checksums it doesn't yield, so
+      # 20k files blocked the follower for seconds.
+      it "compares a large data dir in linear time" do
+        with_datadir do |data_dir|
+          leader_files = Hash(String, String).new
+          100.times do |d|
+            dir = File.join(data_dir, "q#{d}")
+            Dir.mkdir dir
+            200.times do |f|
+              name = "q#{d}/msgs.#{f.to_s.rjust(10, '0')}"
+              File.write File.join(data_dir, name), name
+              leader_files[name] = name
+            end
+          end
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          elapsed = Time.measure { sync_with_leader(client, leader_files) }
+          elapsed.should be < 1.second
+          Dir.children(data_dir).count(&.starts_with?("q")).should eq 100
+        end
+      end
     end
 
     describe "checksum persistence during sync" do
