@@ -83,3 +83,22 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             MAKEFLAGS=-j1
+
+      # A release candidate's image is out: start Barry's RC run on it
+      # (84codes/barry, .github/workflows/hunt.yml). The GitHub App may only
+      # start workflows in 84codes/barry.
+      - name: Get a token for Barry
+        id: barry
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-rc.')
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BARRY_APP_ID }}
+          private-key: ${{ secrets.BARRY_APP_PRIVATE_KEY }}
+          owner: 84codes
+          repositories: barry
+
+      - name: Start Barry's RC run
+        if: steps.barry.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.barry.outputs.token }}
+        run: gh workflow run hunt.yml --repo 84codes/barry --ref main -f profile=rc -f build="${GITHUB_REF_NAME#v}"
