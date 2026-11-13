@@ -8,11 +8,26 @@ module LavinMQ
   module Shovel
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
-      @signature_secrets : Array(String)
+      @signature_keys : Array(Bytes)
+
+      BASE64 = /\A(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?\z/
 
       # Multiple space separated secrets let receivers rotate keys without downtime
       def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, signature_secret : String? = nil)
-        @signature_secrets = (signature_secret || "").split(' ', remove_empty: true)
+        @signature_keys = self.class.decode_secrets(signature_secret || "")
+      end
+
+      # Standard Webhooks secrets are base64 of 24 to 64 random bytes, usually prefixed with whsec_
+      def self.decode_secrets(value : String) : Array(Bytes)
+        value.split(' ', remove_empty: true).map do |secret|
+          encoded = secret.lchop("whsec_")
+          key = Base64.decode(encoded) if BASE64.matches?(encoded)
+          unless key && key.size.in?(24..64)
+            raise ConfigError.new(
+              "dest-signature-secret must be base64 of 24 to 64 bytes, optionally prefixed with whsec_")
+          end
+          key
+        end
       end
 
       def start
@@ -51,11 +66,11 @@ module LavinMQ
                else
                  "/"
                end
-        response = if @signature_secrets.empty?
+        response = if @signature_keys.empty?
                      c.post(path, headers: headers, body: msg.body_io)
                    else
                      body = msg.body_io.to_slice
-                     add_signature_headers(headers, body)
+                     add_signature_headers(headers, body, msg.properties.message_id)
                      c.post(path, headers: headers, body: body)
                    end
         case @ack_mode
@@ -67,21 +82,22 @@ module LavinMQ
       end
 
       # https://www.standardwebhooks.com/
-      private def add_signature_headers(headers, body : Bytes)
-        webhook_id = "msg_#{UUID.random.hexstring}"
+      # A message-id keeps webhook-id stable across redeliveries, so receivers can dedupe
+      private def add_signature_headers(headers, body : Bytes, message_id : String?)
+        webhook_id = message_id || "msg_#{UUID.random.hexstring}"
         timestamp = (RoughTime.unix_ms // 1000).to_s
         headers["webhook-id"] = webhook_id
         headers["webhook-timestamp"] = timestamp
-        headers["webhook-signature"] = @signature_secrets.join(' ') do |secret|
-          signature(webhook_id, timestamp, body, secret)
+        headers["webhook-signature"] = @signature_keys.join(' ') do |key|
+          self.class.signature(webhook_id, timestamp, body, key)
         end
       end
 
-      private def signature(webhook_id : String, timestamp : String, body : Bytes, secret : String) : String
+      def self.signature(webhook_id : String, timestamp : String, body : Bytes, key : Bytes) : String
         signed_content = IO::Memory.new(webhook_id.bytesize + timestamp.bytesize + body.size + 2)
         signed_content << webhook_id << '.' << timestamp << '.'
         signed_content.write(body)
-        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content.to_slice)
+        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, key, signed_content.to_slice)
         String.build(3 + 44) do |str|
           str << "v1,"
           Base64.strict_encode(digest, str)

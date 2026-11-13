@@ -64,6 +64,10 @@ module LavinMQ
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
         raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
 
+        if secret = config["dest-signature-secret"]?
+          HTTPDestination.decode_secrets(secret.as_s? || raise ConfigError.new("dest-signature-secret must be a string"))
+        end
+
         return unless user
 
         dest_uris.select!(&.scheme.try &.starts_with?("amqp"))
@@ -155,7 +159,7 @@ module LavinMQ
           case uri.scheme
           when "http", "https"
             Shovel::HTTPDestination.new(name, uri,
-              signature_secret: config["dest-signature-secret"]?.try &.as_s?)
+              signature_secret: config["dest-signature-secret"]?.try &.as_s)
           else
             Shovel::AMQPDestination.new(name, uri,
               config["dest-queue"]?.try &.as_s?,

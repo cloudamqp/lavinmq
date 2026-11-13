@@ -23,7 +23,7 @@ module LavinMQ
       private def mask_secrets(value : JSON::Any) : JSON::Any
         return value unless h = value.as_h?
         masked = h.transform_values do |v, k|
-          if (k.ends_with?("-secret") || k.ends_with?("-password")) && v.as_s?
+          if (k.ends_with?("-secret") || k.ends_with?("-password")) && !v.raw.nil?
             JSON::Any.new("********")
           else
             v

@@ -173,7 +173,7 @@ describe LavinMQ::HTTP::ShovelsController do
             "src-uri":               s.amqp_server.url,
             "dest-uri":              "https://example.com/webhook",
             "src-queue":             "test-q",
-            "dest-signature-secret": "my-secret-key",
+            "dest-signature-secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
           },
         }
         response = http.put("/api/parameters/shovel/%2F/secret-shovel", body: body.to_json)
@@ -186,6 +186,21 @@ describe LavinMQ::HTTP::ShovelsController do
       end
     end
 
+    it "should refuse the masked value as a secret" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":               s.amqp_server.url,
+            "dest-uri":              "https://example.com/webhook",
+            "src-queue":             "test-q",
+            "dest-signature-secret": "********",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/masked-shovel", body: body.to_json)
+        response.status_code.should eq 400
+      end
+    end
+
     it "should clear dest-signature-secret when updating without providing it" do
       with_http_server do |http, s|
         body = {
@@ -193,7 +208,7 @@ describe LavinMQ::HTTP::ShovelsController do
             "src-uri":               s.amqp_server.url,
             "dest-uri":              "https://example.com/webhook",
             "src-queue":             "test-q",
-            "dest-signature-secret": "my-secret-key",
+            "dest-signature-secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
           },
         }
         response = http.put("/api/parameters/shovel/%2F/clear-secret-shovel", body: body.to_json)

@@ -69,15 +69,19 @@ Set `dest-signature-secret` and every request is signed with HMAC-SHA256 followi
 
 | Header | Value |
 |--------|-------|
-| `webhook-id` | Unique per delivery, `msg_` followed by 32 hex characters |
+| `webhook-id` | The message's `message-id` property, or `msg_` followed by 32 random hex characters if the message has none |
 | `webhook-timestamp` | Unix timestamp in seconds when the request was signed |
-| `webhook-signature` | `v1,` followed by the base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the secret |
+| `webhook-signature` | `v1,` followed by the base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64-decoded secret |
 
 ```
 webhook-id: msg_2f5c8e7a1b3d4f6e8a9c0b2d4e6f8a0c
 webhook-timestamp: 1702345678
 webhook-signature: v1,K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
 ```
+
+The secret is the base64 encoding of 24 to 64 random bytes, optionally prefixed with `whsec_`, the same format the Standard Webhooks libraries expect. Generate one with `echo "whsec_$(openssl rand -base64 32)"`.
+
+Set a `message-id` on the messages you publish if the receiver must deduplicate. A delivery that is retried after a connection failure then keeps the same `webhook-id`.
 
 To rotate a secret without dropping deliveries, set several secrets separated by spaces. Each request is then signed with all of them and `webhook-signature` holds one space separated signature per secret, so a receiver that still only knows the old secret keeps validating while you roll out the new one.
 
@@ -86,7 +90,7 @@ To rotate a secret without dropping deliveries, set several secrets separated by
   "src-uri": "amqp://localhost",
   "src-queue": "events",
   "dest-uri": "https://example.com/webhook",
-  "dest-signature-secret": "whsec_new_key whsec_old_key"
+  "dest-signature-secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 }
 ```
 

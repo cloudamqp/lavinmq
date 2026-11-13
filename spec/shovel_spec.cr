@@ -92,7 +92,11 @@ module ShovelSpecHelpers
     end
   end
 
-  def self.shovel_to_webhook(s, prefix, signature_secret : String? = nil) : WebhookRequest
+  SECRET     = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+  OLD_SECRET = "whsec_#{Base64.strict_encode("0123456789abcdef0123456789abcdef")}"
+
+  def self.shovel_to_webhook(s, prefix, signature_secret : String? = nil,
+                             message_id : String? = nil) : WebhookRequest
     webhook_request do |addr|
       source = LavinMQ::Shovel::AMQPSource.new("spec", [URI.parse(s.amqp_server.url)], "#{prefix}_q1",
         delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
@@ -102,14 +106,16 @@ module ShovelSpecHelpers
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "#{prefix}_shovel", s.vhosts["/"])
       with_channel(s) do |ch|
         x, _ = setup_qs ch, "#{prefix}_"
-        x.publish_confirm "shovel me", "#{prefix}_q1"
+        x.publish_confirm "shovel me", "#{prefix}_q1",
+          props: AMQP::Client::Properties.new(message_id: message_id)
         shovel.run
       end
     end
   end
 
   def self.webhook_signature(webhook_id, timestamp, body, secret) : String
-    digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, "#{webhook_id}.#{timestamp}.#{body}")
+    key = Base64.decode(secret.lchop("whsec_"))
+    digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, key, "#{webhook_id}.#{timestamp}.#{body}")
     "v1,#{Base64.strict_encode(digest)}"
   end
 end
@@ -961,21 +967,37 @@ describe LavinMQ::Shovel do
     describe "Standard Webhooks signatures" do
       it "signs the request with the configured secret" do
         with_amqp_server do |s|
-          req = ShovelSpecHelpers.shovel_to_webhook(s, "sig", signature_secret: "my-secret-key")
+          req = ShovelSpecHelpers.shovel_to_webhook(s, "sig", signature_secret: ShovelSpecHelpers::SECRET)
 
           req.headers["webhook-id"].should match(/\Amsg_[0-9a-f]{32}\z/)
           req.headers["webhook-timestamp"].to_i64.should be_close(RoughTime.utc.to_unix, 10)
           req.headers["webhook-signature"].should eq ShovelSpecHelpers.webhook_signature(
-            req.headers["webhook-id"], req.headers["webhook-timestamp"], req.body, "my-secret-key")
+            req.headers["webhook-id"], req.headers["webhook-timestamp"], req.body, ShovelSpecHelpers::SECRET)
           req.body.should eq "shovel me"
+        end
+      end
+
+      it "matches the Standard Webhooks test vector" do
+        key = Base64.decode("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw")
+        signature = LavinMQ::Shovel::HTTPDestination.signature("msg_p5jXN8AQM9LWM0D4loKWxJek",
+          "1614265330", %q({"test": 2432232314}).to_slice, key)
+        signature.should eq "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      end
+
+      it "uses the message-id as webhook-id so redeliveries keep the same id" do
+        with_amqp_server do |s|
+          req = ShovelSpecHelpers.shovel_to_webhook(s, "msgid", signature_secret: ShovelSpecHelpers::SECRET,
+            message_id: "order-42")
+
+          req.headers["webhook-id"].should eq "order-42"
         end
       end
 
       it "signs with every secret so keys can be rotated" do
         with_amqp_server do |s|
-          req = ShovelSpecHelpers.shovel_to_webhook(s, "rot", signature_secret: "new-secret old-secret")
+          req = ShovelSpecHelpers.shovel_to_webhook(s, "rot", signature_secret: "#{ShovelSpecHelpers::SECRET} #{ShovelSpecHelpers::OLD_SECRET}")
 
-          expected = ["new-secret", "old-secret"].map do |secret|
+          expected = [ShovelSpecHelpers::SECRET, ShovelSpecHelpers::OLD_SECRET].map do |secret|
             ShovelSpecHelpers.webhook_signature(
               req.headers["webhook-id"], req.headers["webhook-timestamp"], req.body, secret)
           end
@@ -1014,14 +1036,14 @@ describe LavinMQ::Shovel do
               "src-uri":               s.amqp_server.url,
               "src-queue":             "param_q1",
               "dest-uri":              "http://#{addr}/webhook",
-              "dest-signature-secret": "param-secret",
+              "dest-signature-secret": ShovelSpecHelpers::SECRET,
               "src-delete-after":      "queue-length",
             }
             vhost.shovels.create("param_shovel", JSON.parse(config.to_json))
           end
 
           req.headers["webhook-signature"].should eq ShovelSpecHelpers.webhook_signature(
-            req.headers["webhook-id"], req.headers["webhook-timestamp"], req.body, "param-secret")
+            req.headers["webhook-id"], req.headers["webhook-timestamp"], req.body, ShovelSpecHelpers::SECRET)
         end
       end
     end
@@ -1098,6 +1120,20 @@ describe LavinMQ::Shovel do
         }.to_json)
         expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
           LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+
+    {"********", "whsec_tooshort", "not base64 at all", 42}.each do |secret|
+      it "raises for an invalid dest-signature-secret #{secret.inspect}" do
+        config = JSON.parse({
+          "src-uri":               "amqp:///",
+          "dest-uri":              "https://example.com/webhook",
+          "src-queue":             "q1",
+          "dest-signature-secret": secret,
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, /dest-signature-secret/) do
+          LavinMQ::Shovel::Store.validate_config!(config, nil)
         end
       end
     end
