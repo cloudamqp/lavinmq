@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
+- Messages read from a stream through the HTTP API count as `get_no_ack` in the stream's message stats [#2621](https://github.com/cloudamqp/lavinmq/pull/2621)
 - Stats rates span the time since the previous stats tick, not a `stats_interval` a reload set meanwhile [#2616](https://github.com/cloudamqp/lavinmq/pull/2616)
 - `stats_log_size` must be at least 1; with 0 every stats collection failed. The config now refuses 0 and negative values, also at startup [#2615](https://github.com/cloudamqp/lavinmq/pull/2615)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
