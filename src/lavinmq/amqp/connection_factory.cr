@@ -7,6 +7,7 @@ require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
 require "./connection_reply_code"
+require "../amqp10"
 
 module LavinMQ
   module AMQP
@@ -14,13 +15,15 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
+        @amqp10 = LavinMQ::AMQP10::ConnectionFactory.new(@authenticator, @vhosts)
       end
 
-      def create(socket, connection_info) : Client?
+      def create(socket, connection_info) : LavinMQ::Client?
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
-        if confirm_header(socket, logger)
+        case confirm_header(socket, logger)
+        when :amqp091
           stream = AMQ::Protocol::Stream.new(socket)
           if start_ok = start(stream, logger)
             if user = authenticate(stream, connection_info, start_ok, logger)
@@ -32,6 +35,10 @@ module LavinMQ
               end
             end
           end
+        when :amqp10
+          @amqp10.start(socket, connection_info, logger)
+        when :amqp10_without_sasl
+          @amqp10.start(socket, connection_info, logger, sasl: false)
         end
       rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error
         Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
@@ -47,19 +54,38 @@ module LavinMQ
         end
       end
 
-      def confirm_header(socket, log : Logger) : Bool
+      HEADERS = {
+        AMQP::PROTOCOL_START_0_9_1.to_slice => :amqp091,
+        AMQP::PROTOCOL_START_0_9.to_slice   => :amqp091,
+        LavinMQ::AMQP10::SASL_HEADER        => :amqp10,
+        LavinMQ::AMQP10::PROTOCOL_HEADER    => :amqp10_without_sasl,
+      }
+
+      # Reads the protocol header and returns which protocol it starts, or nil
+      # (after answering with the 0-9-1 header) if it is none of ours.
+      def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
-        count = socket.read(proto.to_slice)
-        if count.zero? # EOF, socket closed by peer
-          false
-        elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
+        slice = proto.to_slice
+        pos = 0
+        while pos < slice.size
+          read = socket.read(slice + pos)
+          if read.zero?
+            log.warn { "Incomplete protocol header (#{pos} bytes) before disconnect, closing socket" }
+            return
+          end
+          pos += read
+          received = slice[0, pos]
+          next if HEADERS.each_key.any? { |header| header[0, pos] == received }
+
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
-          false
-        else
-          true
+          log.warn { "Unexpected protocol #{String.new(received).inspect}, closing socket" }
+          return
         end
+        HEADERS[slice]
+      rescue IO::EOFError
+        log.warn { "Client closed connection during protocol header, closing socket" }
+        nil
       end
 
       SERVER_PROPERTIES = AMQP::Table.new({
