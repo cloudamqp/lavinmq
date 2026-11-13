@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Idle queues release the segment they write to from memory: when a consumer's deliver loop has been idle for `deliver_loop_idle_timeout` on the empty queue, or when the last consumer leaves. The written part of that segment otherwise stayed mapped until the segment filled up, up to `segment_size` per queue, which with many idle queues added up to gigabytes of resident memory [#2702](https://github.com/cloudamqp/lavinmq/pull/2702)
-- Idle queues whose write segment is fully consumed replace it with a new, empty segment, so the consumed messages are deleted from disk instead of being kept until the segment fills up, and aren't read at the next start [#TBD](https://github.com/cloudamqp/lavinmq/pull/TBD)
+- Idle queues whose write segment is fully consumed replace it with a new, empty segment, so the consumed messages are deleted from disk instead of being kept until the segment fills up, and aren't read at the next start [#2748](https://github.com/cloudamqp/lavinmq/pull/2748)
 
 ### Fixed
 
