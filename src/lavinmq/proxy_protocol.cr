@@ -36,6 +36,20 @@ module LavinMQ
       io.read_timeout = nil
     end
 
+    # Like `parse`, but a v2 header is also returned as its raw bytes, so that
+    # it can be forwarded unchanged, TLVs included
+    def self.read(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : Tuple(ConnectionInfo, Bytes?)?
+      io.read_timeout = timeout
+      peeked = io.peek
+      if header_prefix?(peeked, "PROXY".to_slice)
+        {ProxyProtocol::V1.parse(io), nil}
+      elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
+        ProxyProtocol::V2.read(io)
+      end
+    ensure
+      io.read_timeout = nil
+    end
+
     # True if the bytes seen so far match the start of *signature* (comparing
     # only the bytes we have, since a segment split may give us a partial peek).
     private def self.header_prefix?(peeked : Bytes, signature : Bytes) : Bool
@@ -125,6 +139,26 @@ module LavinMQ
 
       def self.parse(io)
         io.read_timeout = HANDSHAKE_TIMEOUT
+        decode(io)
+      ensure
+        io.read_timeout = nil
+      end
+
+      # Reads a header, and returns it parsed and as its raw bytes
+      def self.read(io) : Tuple(ConnectionInfo, Bytes)
+        io.read_timeout = HANDSHAKE_TIMEOUT
+        fixed = uninitialized UInt8[16]
+        io.read_fully(fixed.to_slice)
+        length = IO::ByteFormat::NetworkEndian.decode(UInt16, fixed.to_slice[14, 2])
+        raw = Bytes.new(16 + length)
+        raw.copy_from(fixed.to_slice)
+        io.read_fully(raw + 16)
+        {decode(IO::Memory.new(raw, writeable: false)), raw}
+      ensure
+        io.read_timeout = nil
+      end
+
+      private def self.decode(io) : ConnectionInfo
         buffer = uninitialized UInt8[16]
         # read_fully so a 16-byte header split across TCP segments isn't short-read (issue 2082)
         io.read_fully(buffer.to_slice)
@@ -151,8 +185,6 @@ module LavinMQ
         bytes = bytes + pos
         header = extract_tlv(header, bytes)
         header
-      ensure
-        io.read_timeout = nil
       end
 
       private def self.extract_tlv(header : ConnectionInfo, bytes)

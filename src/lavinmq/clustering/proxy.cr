@@ -45,7 +45,7 @@ module LavinMQ
         end
         target = TCPSocket.new(target_host, target_port)
         set_socket_opts(target)
-        target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian if proxy_header
+        target.write proxy_header if proxy_header
         spawn(name: "Proxy client copy loop") do
           IO.copy(target, client)
         rescue IO::Error
@@ -64,21 +64,26 @@ module LavinMQ
 
       # The leader reads a single PROXY header, so a header the client sent
       # (e.g. from a load balancer) can't be forwarded in front of ours. With
-      # tcp_proxy_protocol it's consumed here, and the client address in it is
-      # passed on if the source is trusted, like the leader would have done.
-      private def proxy_header_for(client : TCPSocket) : ProxyProtocol::V1
+      # tcp_proxy_protocol it's consumed here, and passed on instead of ours if
+      # the source is trusted, like the leader would have done. A v2 header is
+      # forwarded unchanged, so that its TLVs (e.g. TLS details) are kept.
+      private def proxy_header_for(client : TCPSocket) : Bytes
         config = Config.instance
         remote = client.remote_address
         local = client.local_address
-        if config.tcp_proxy_protocol? && (conn_info = ProxyProtocol.parse(client))
+        if config.tcp_proxy_protocol? && (header = ProxyProtocol.read(client))
+          conn_info, raw = header
           if config.trusted_proxy_source?(remote.address)
+            return raw if raw
             remote = Socket::IPAddress.new(conn_info.remote_address.address, conn_info.remote_address.port.to_i)
             local = Socket::IPAddress.new(conn_info.local_address.address, conn_info.local_address.port.to_i)
           else
             Log.warn { "PROXY protocol from untrusted source #{remote}, ignoring header" }
           end
         end
-        ProxyProtocol::V1.new(remote, local)
+        io = IO::Memory.new(108) # max size of a v1 header
+        io.write_bytes ProxyProtocol::V1.new(remote, local)
+        io.to_slice
       end
 
       private def set_socket_opts(socket : TCPSocket)
