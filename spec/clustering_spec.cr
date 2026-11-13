@@ -632,6 +632,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       when timeout(1.seconds)
         fail("election campaign did not finish in time, leadership not released on launcher stop?")
       end
+    ensure
+      lease.try &.release
     end
   end
 

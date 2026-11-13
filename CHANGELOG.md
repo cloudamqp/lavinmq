@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- RPM packages are built for Enterprise Linux 10 (AlmaLinux 10, RHEL 10, Rocky Linux 10 etc) [#2741](https://github.com/cloudamqp/lavinmq/pull/2741)
+
 ### Fixed
 
 - A message that was being written to a queue when the broker was killed could be delivered after the restart with part of its body missing (zero bytes), instead of being dropped like any other publish that was never confirmed. A message's timestamp is now written last, after its body, and a message without a timestamp is dropped at start. The segment format is unchanged [#2735](https://github.com/cloudamqp/lavinmq/pull/2735)
+- A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
+- The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)
+- The Bindings counter and footer on the overview sat lower than the others whenever the other cards' links wrapped, e.g. with a long uptime [#2573](https://github.com/cloudamqp/lavinmq/pull/2573)
 
 ## [2.11.0] - 2026-11-12
 
