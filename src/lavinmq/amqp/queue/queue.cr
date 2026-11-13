@@ -209,7 +209,7 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break if @closed || !settings.expires
+        break if closed? || !settings.expires
         select
         when @consumers_empty.when_true.receive
         when @queue_expiration_ttl_change.receive
@@ -308,8 +308,20 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     # The connection that declared this exclusive queue, told when the queue is deleted
     property exclusive_owner : AMQP::Client?
-    getter? closed = false
-    getter state = QueueState::Running
+    # Changed under @state_lock, together with its side effects (the paused
+    # channel and file), as pause/resume/close/delete can be called from
+    # different threads at once, but atomic so that it's read without the lock
+    @state = Atomic(QueueState).new(QueueState::Running)
+
+    def closed? : Bool
+      s = state
+      s.closed? || s.deleted?
+    end
+
+    def state : QueueState
+      @state.get(:acquire)
+    end
+
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -360,7 +372,7 @@ module LavinMQ::AMQP
         FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
       end
       if File.exists?(File.join(@data_dir, "paused"))
-        @state = QueueState::Paused
+        @state.set(QueueState::Paused, :release)
         @paused.set(true)
       end
     end
@@ -372,7 +384,7 @@ module LavinMQ::AMQP
     end
 
     private def ensure_queue_expire_fiber
-      return if @closed || !settings.expires
+      return if closed? || !settings.expires
       return if @queue_expire_fiber_active.swap(true)
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         queue_expire_loop
@@ -390,16 +402,16 @@ module LavinMQ::AMQP
     end
 
     private def ensure_policy_limits_fiber
-      return if @closed || !@policy_limits_pending.get(:acquire)
+      return if closed? || !@policy_limits_pending.get(:acquire)
       return if @policy_limits_fiber_active.swap(true)
       spawn apply_policy_limits, name: "Queue#apply_policy_limits #{@vhost.name}/#{@name}"
     end
 
     private def apply_policy_limits
       @vhost.closed.when_false.receive?
-      while !@closed && @policy_limits_pending.swap(false)
+      while !closed? && @policy_limits_pending.swap(false)
         @msg_store_lock.synchronize do
-          break if @closed
+          break if closed?
           # Read the current limits after acquiring the lock. Policy churn while
           # this pass yields requests another pass, without spawning more fibers.
           # A failed operation must not skip the other limit check or discard
@@ -424,7 +436,7 @@ module LavinMQ::AMQP
 
     # Ensure the expire fiber is running if there are messages that need expiring
     private def ensure_expire_fiber
-      if !@closed && !@message_expire_fiber_active.get(:acquire)
+      if !closed? && !@message_expire_fiber_active.get(:acquire)
         start_message_expire_loop if should_start_expire_fiber?
       end
     end
@@ -671,7 +683,7 @@ module LavinMQ::AMQP
       # The definitions lock first, as a delete through the definitions takes them
       @vhost.synchronize_definitions do
         @retry_queue_lock.synchronize do
-          return if @deleted || @closed
+          return if closed?
           return if @delayed_retry_queue
           queue = DelayedRetryQueue.create(@vhost, self)
           @delayed_retry_queue = queue
@@ -785,7 +797,7 @@ module LavinMQ::AMQP
     end
 
     def state_match?(states : Array(QueueState)) : Bool
-      states.includes?(@state)
+      states.includes?(state)
     end
 
     # Paused by an operator, which is kept over a restart of the broker
@@ -796,13 +808,14 @@ module LavinMQ::AMQP
     # Returns true if the queue was running
     private def pause(persist : Bool, store_failed = false) : Bool
       @state_lock.synchronize do
-        return false unless @state.running? || @state.paused?
+        s = state
+        return false unless s.running? || s.paused?
         # Under the lock, so that a resume can't clear it and leave the queue
         # paused without it
         @store_failed.set(true, :relaxed) if store_failed
         File.touch(File.join(@data_dir, "paused")) if persist
-        return false unless @state.running?
-        @state = QueueState::Paused
+        return false unless s.running?
+        @state.set(QueueState::Paused, :release)
         @paused.set(true)
       end
       @log.debug { "Paused" }
@@ -815,7 +828,7 @@ module LavinMQ::AMQP
     # tries it again, and pauses the queue again if it still fails. This pause
     # isn't kept over a restart of the broker, which also reads the data again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
-      return if @closed
+      return if closed?
       if pause(persist: false, store_failed: true)
         @log.error(ex) do
           "Paused due to a message store error. Resume the queue to try again, " \
@@ -835,8 +848,8 @@ module LavinMQ::AMQP
       # Paused on its own if it was its store that failed
       @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume_after_store_error
       @state_lock.synchronize do
-        return unless @state.paused?
-        @state = QueueState::Running
+        return unless state.paused?
+        @state.set(QueueState::Running, :release)
         @store_failed.set(false, :relaxed)
         File.delete?(File.join(@data_dir, "paused"))
         @paused.set(false)
@@ -850,9 +863,16 @@ module LavinMQ::AMQP
     end
 
     def close : Bool
-      return false if @closed
-      @closed = true
-      @state_lock.synchronize { @state = QueueState::Closed }
+      # Under @state_lock so that a pause!/resume! in progress finishes its
+      # side effects before the queue is torn down
+      @state_lock.synchronize do
+        return false if closed?
+        @state.set(QueueState::Closed, :release)
+      end
+      tear_down
+    end
+
+    private def tear_down : Bool
       # Before yielding or deleting, so a redeclared queue can't get this link
       @vhost.upstreams.try &.stop_link(self)
       @queue_expiration_ttl_change.close
@@ -883,16 +903,19 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted
-      @deleted = true
+      was_closed = @state_lock.synchronize do
+        s = state
+        return false if s.deleted?
+        @state.set(QueueState::Deleted, :release)
+        s.closed?
+      end
       # Outside @retry_queue_lock: the delete takes the definitions lock, which
       # #init_retry_queue holds while it takes @retry_queue_lock
       retry_queue = @retry_queue_lock.synchronize do
         @delayed_retry_queue.tap { @delayed_retry_queue = nil }
       end
       retry_queue.try &.delete
-      close
-      @state_lock.synchronize { @state = QueueState::Deleted }
+      tear_down unless was_closed
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
@@ -935,7 +958,7 @@ module LavinMQ::AMQP
         policy:                       policy.try &.name,
         exclusive_consumer_tag:       exclusive_consumer_tag,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
-        state:                        @state,
+        state:                        state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
         effective_arguments:          settings.effective_args,
@@ -977,7 +1000,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
-      return PublishResult::Closed if @closed
+      return PublishResult::Closed if closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -1225,7 +1248,8 @@ module LavinMQ::AMQP
     end
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
+      state = self.state
+      return false if !state.running? && (state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
@@ -1233,7 +1257,7 @@ module LavinMQ::AMQP
         yield env
       end.tap { ensure_expire_fiber }
     rescue ClosedError | MessageStore::ClosedError
-      # The queue was closed/deleted concurrently with the get (its @closed flag
+      # The queue was closed/deleted concurrently with the get (its state
       # or the message store). Report no message available (Basic.GetEmpty)
       # rather than letting the error escape into the connection's read loop.
       false
@@ -1256,7 +1280,7 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # A message that can't be read pauses the queue, and isn't delivered
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       settings = self.settings
       loop do # retry if msg expired or deliver limit hit
         # The message can be acked or purged, and its segment deleted, while
@@ -1331,7 +1355,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @closed
+      return if closed?
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -1356,7 +1380,7 @@ module LavinMQ::AMQP
 
     # Consumer-initiated reject (basic.reject and basic.nack): delays via the retry queue if configured
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @closed
+      return if closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -1389,7 +1413,7 @@ module LavinMQ::AMQP
 
     # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
     def requeue(sp : SegmentPosition)
-      return if @deleted || @closed
+      return if closed?
       @log.debug { "Requeuing #{sp}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -1440,9 +1464,11 @@ module LavinMQ::AMQP
     # with the add. Returns false if the consumer was refused for that reason,
     # raises ClosedError if the queue is closed or about to be deleted.
     def add_consumer(consumer : Client::Channel::Consumer) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       consumers_size = @consumers_lock.synchronize do
-        raise ClosedError.new if @consumers_closed
+        # close and delete set the state before tear_down clears the consumers
+        # under this lock
+        raise ClosedError.new if @consumers_closed || closed?
         return false if in_exclusive_use?(consumer.exclusive?)
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -1464,7 +1490,7 @@ module LavinMQ::AMQP
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       now_empty = delete_queue = false
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
@@ -1507,7 +1533,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      return 0_u32 if @closed
+      return 0_u32 if closed?
       delete_count = @msg_store_lock.synchronize do
         # A close that took the lock first closed the store after the check above
         next 0_u32 if @msg_store.closed

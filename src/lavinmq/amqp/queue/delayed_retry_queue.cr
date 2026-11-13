@@ -25,7 +25,7 @@ module LavinMQ::AMQP
     # a reject never closes or deletes it, which would take the definitions
     # lock while the rejecting channel holds its own lock.
     def delay(msg : Message) : Bool
-      return false if @closed
+      return false if closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
