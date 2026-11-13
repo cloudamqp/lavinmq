@@ -64,6 +64,27 @@ describe LavinMQ::Server do
     end
   end
 
+  {% if flag?(:linux) && OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+    # Client#close_socket shuts the socket down before closing it, so the
+    # close_notify that kTLS sends as a control record fails with EPIPE.
+    it "closes kTLS connections" do
+      pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
+      with_amqp_server(tls: true, ktls: true) do |s|
+        uri = URI.parse(s.amqp_server.url)
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!("URI has no host"), port: uri.port.not_nil!("URI has no port"), tls: client_ctx).connect
+        wait_for { s.connections.size == 1 }
+        ssl = s.connections.first.as(LavinMQ::AMQP::Client).@socket.as(OpenSSL::SSL::Socket)
+        pending!("kTLS send offload not active") unless ssl.ktls_send?
+        tcp = ssl.@bio.to_reference.io.as(TCPSocket)
+
+        conn.close
+        wait_for { tcp.closed? }
+      end
+    end
+  {% end %}
+
   it "doesn't hold the TCP read buffer of idle TLS connections" do
     with_amqp_server(tls: true) do |s|
       with_channel(s, tls: true, verify_mode: OpenSSL::SSL::VerifyMode::NONE) do |ch|
