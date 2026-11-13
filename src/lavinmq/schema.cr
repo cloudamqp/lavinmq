@@ -1,4 +1,5 @@
 require "../stdlib/copy_file_range"
+require "./clustering"
 require "./filesystem"
 
 module LavinMQ
@@ -32,7 +33,7 @@ module LavinMQ
     end
 
     private def self.backup(data_dir) : String?
-      children = Dir.children(data_dir).reject!(&.in?("backups", ".lock"))
+      children = Dir.children(data_dir).reject! { |c| Clustering.node_local?(data_dir, c) }
       return if children.empty?
 
       backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
@@ -50,7 +51,7 @@ module LavinMQ
       Log.info { "Restoring backup #{backup_dir}" }
       # delete everything in data dir except backups
       Dir.each_child(data_dir) do |child|
-        next if child.in?("backups", ".lock")
+        next if Clustering.node_local?(data_dir, child)
         FileUtils.rm_r File.join(data_dir, child)
       end
       # move the backup files to data dir

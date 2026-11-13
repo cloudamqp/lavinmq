@@ -13,9 +13,8 @@ describe BoolChannel do
     2_000.times do
       break if Time.instant >= deadline
       bc = BoolChannel.new(false)
-      wg = WaitGroup.new
+      wg = WaitGroup.new(4)
       4.times do |i|
-        wg.add(1)
         ctx.spawn do
           500.times { i.even? ? bc.set(true) : bc.swap(false) }
         ensure

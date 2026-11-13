@@ -24,6 +24,7 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 
 ## Docs
 - Add a short CHANGELOG.md entry linking the PR; describe user-facing features in docs/.
+- Keep each CHANGELOG.md section (Added, Changed, Fixed) ordered by user impact, most impactful first: insert a new entry where it ranks, not at the end. New features, behaviour changes users must act on, and fixes for data loss, crashes or a stopped broker go before performance tweaks, metrics, management UI polish and build or packaging changes.
 
 ## Git
 - Branch names describe the change in kebab-case, e.g. `fix-queue-ttl-overflow`; rename a generated branch name with `git branch -m` before the first push.
