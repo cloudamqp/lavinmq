@@ -1,4 +1,4 @@
-ARG build_image=84codes/crystal:latest-ubuntu-22.04
+ARG build_image=84codes/crystal:1.22.2-ubuntu-22.04
 
 FROM $build_image AS builder
 RUN apt-get update && apt-get install -y devscripts help2man lintian debhelper liblz4-dev libssl-dev
