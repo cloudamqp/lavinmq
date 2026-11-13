@@ -36,6 +36,7 @@ module LavinMQ
                 "too many connections to vhost \"#{broker.vhost.name}\"")
             end
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+            @vhosts.mqtt_client_connected!
             connack io, session_present, Protocol::Connack::ReturnCode::Accepted
             broker.run_client(io, connection_info, user, packet)
           end

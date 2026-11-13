@@ -142,6 +142,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.11.0-rc.4> for changes
 ### Added
 
 - `/metrics` exposes stop-the-world GC pause durations as the `lavinmq_gc_pause_seconds` histogram, so GC-induced latency can be confirmed from metrics [#2565](https://github.com/cloudamqp/lavinmq/pull/2565)
+- Prometheus metrics `mqtt_connections` (MQTT connections currently open) and `global_mqtt_messages_published_total` with a `qos` label (`0`, `1` or `2`), exported once an MQTT client has connected since startup [#2507](https://github.com/cloudamqp/lavinmq/pull/2507)
 
 ### Fixed
 
