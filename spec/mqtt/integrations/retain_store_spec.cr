@@ -20,30 +20,30 @@ module MqttSpecs
   extend MqttHelpers
   alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
-  context "retain_store" do
-    after_each do
-      # Clear out the retain_store directory
-      FileUtils.rm_rf("tmp/retain_store")
-    end
+  # In the example's own data dir, as spec processes may run in parallel
+  def self.retain_dir : String
+    File.join(LavinMQ::Config.instance.data_dir, "retain_store")
+  end
 
+  context "retain_store" do
     describe "retain" do
       it "adds to index and writes msg file" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
 
         index.size.should eq(1)
         index.@leafs.has_key?("a").should be_true
 
         entry = index["a"]?.should be_a String
-        File.exists?(File.join("tmp/retain_store", entry)).should be_true
+        File.exists?(File.join(retain_dir, entry)).should be_true
       ensure
         store.try &.close
       end
 
       it "empty body deletes" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
 
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         index.size.should eq(1)
@@ -51,7 +51,7 @@ module MqttSpecs
 
         store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true))
         index.size.should eq(0)
-        File.exists?(File.join("tmp/retain_store", entry)).should be_false
+        File.exists?(File.join(retain_dir, entry)).should be_false
       ensure
         store.try &.close
       end
@@ -60,7 +60,7 @@ module MqttSpecs
     describe "each" do
       it "can be called multiple times" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         10.times do
           store.each("a") do |_topic, body_io, body_bytesize|
@@ -75,7 +75,7 @@ module MqttSpecs
 
       it "calls block with correct arguments" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
 
@@ -95,7 +95,7 @@ module MqttSpecs
 
       it "'a/#' matches the retained message on the parent topic 'a'" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "sport", payload: "body".to_slice, retain: true))
         store.retain(publish_packet(topic: "sport/tennis", payload: "body".to_slice, retain: true))
 
@@ -109,7 +109,7 @@ module MqttSpecs
 
       it "'#' and '+/y' do not match retained messages on '$' topics" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "$x/y", payload: "body".to_slice, retain: true))
 
         topics = Array(String).new
@@ -126,7 +126,7 @@ module MqttSpecs
 
       it "does not mix up non-ASCII topics" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "é/1", payload: "one".to_slice, retain: true))
         store.retain(publish_packet(topic: "é/2", payload: "two".to_slice, retain: true))
         store.retain(publish_packet(topic: "é/3", payload: "three".to_slice, retain: true))
@@ -149,7 +149,7 @@ module MqttSpecs
 
       it "handles multiple subscriptions" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
 
@@ -178,7 +178,7 @@ module MqttSpecs
     describe "file descriptors" do
       it "does not keep an open file per retained topic" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
         50.times do |i|
           store.retain(publish_packet(topic: "t/#{i}", payload: "body".to_slice, retain: true))
         end
@@ -187,7 +187,7 @@ module MqttSpecs
           read += 1
         end
         read.should eq 50
-        open_msg_fds("tmp/retain_store").should eq 0
+        open_msg_fds(retain_dir).should eq 0
       ensure
         store.try &.close
       end
@@ -196,20 +196,20 @@ module MqttSpecs
     describe "restore_index" do
       it "restores the index from a file" do
         index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
 
         store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
         store.close
 
         new_index = IndexTree.new
-        LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, new_index)
+        LavinMQ::MQTT::RetainStore.new(retain_dir, nil, new_index)
 
         new_index.size.should eq(1)
         new_index.@leafs.has_key?("a").should be_true
       end
 
       it "drops topics longer than 255 bytes and their msg files on restore" do
-        dir = "tmp/retain_store"
+        dir = retain_dir
         Dir.mkdir_p dir
         long_topic = "a/" + "b" * 300
         long_file = Digest::MD5.hexdigest(long_topic) + ".msg"
@@ -232,14 +232,14 @@ module MqttSpecs
 
     it "survives a restart" do
       index = IndexTree.new
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
 
       store.retain(publish_packet(topic: "topic", payload: "body".to_slice, retain: true))
       store.close
 
       # Reopen
       index = IndexTree.new
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil, index)
       store.each("topic") do |topic, body_io, body_bytesize|
         body = Bytes.new(body_bytesize)
         body_io.read(body)
@@ -249,28 +249,28 @@ module MqttSpecs
     end
 
     it "does not rewrite a compact index on start or close" do
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil)
       store.retain(publish_packet(topic: "topic", payload: "body".to_slice, retain: true))
-      index_path = "tmp/retain_store/index"
+      index_path = File.join(retain_dir, "index")
       before = File.info(index_path)
       sleep 10.milliseconds # so a rewrite would move the mtime
       # An added topic was appended, so the index is compact
       store.close
-      LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil).close
+      LavinMQ::MQTT::RetainStore.new(retain_dir, nil).close
       File.info(index_path).modification_time.should eq before.modification_time
       File.read(index_path).should eq "topic\n"
     end
 
     it "compacts an index whose last line a crash left without its newline" do
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil)
       store.retain(publish_packet(topic: "topic1", payload: "body".to_slice, retain: true))
       store.close
-      index_path = "tmp/retain_store/index"
+      index_path = File.join(retain_dir, "index")
       File.write(index_path, "topic1") # a torn append
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil)
       store.retain(publish_packet(topic: "topic2", payload: "body".to_slice, retain: true))
       store.@index_file.close # a crash, no compaction on close
-      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store = LavinMQ::MQTT::RetainStore.new(retain_dir, nil)
       File.read(index_path).should eq "topic1\ntopic2\n"
       store.close
     end
