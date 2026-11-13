@@ -20,6 +20,10 @@ module LavinMQ
       # tiny) file costs more than it gives back.
       HASH_YIELD_INTERVAL = 32
 
+      # Files #compare_files compares between Fiber.yields when their checksums
+      # are cached, which makes each comparison only a stat and a few lookups.
+      COMPARE_YIELD_INTERVAL = 1024
+
       # Capacity of the channel buffering acks from the stream-reading fiber to
       # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
       # drains and coalesces it continuously), so a fixed size is fine; the
@@ -268,40 +272,7 @@ module LavinMQ
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
-        requested_files = Array(String).new
-        file_count = 0
-        files_total = remote_files.size
-        Log.info { "Comparing files" }
-        log_limiter = RateLimiter.new(2.seconds)
-        remote_files.each do |filename, remote_hash|
-          path = File.join(@data_dir, filename)
-          files_to_delete.delete(path)
-          # Walk up the path to remove all ancestors from dirs_to_delete
-          dir = File.dirname(path)
-          while dirs_to_delete.delete(dir)
-            dir = File.dirname(dir)
-          end
-          if File.exists? path
-            # Pre-computed by #hash_local_files, except for files that appeared
-            # after that pass.
-            unless local_hash = @checksums[filename]?.try &.hash
-              local_hash = hash_file(filename, path)
-              Fiber.yield # CPU bound, so allow other fibers to run
-            end
-            if local_hash != remote_hash
-              Log.info { "Mismatching hash: #{path}" }
-              File.delete path
-              requested_files << filename
-            else
-              Log.debug { "Matching hash: #{path}" }
-            end
-          else
-            requested_files << filename
-          end
-          file_count &+= 1
-          log_limiter.do { Log.info { "Compared #{file_count}/#{files_total} files…" } }
-        end
-        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
+        requested_files = compare_files(remote_files, files_to_delete, dirs_to_delete)
         requested_files.each do |filename|
           request_file(filename, socket)
         end
@@ -337,6 +308,49 @@ module LavinMQ
           log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
+      end
+
+      # Compares the leader's files with the local ones, deleting local files
+      # whose hash differs, and returns the files to request. Removes every file
+      # and directory the leader has from files_to_delete and dirs_to_delete.
+      private def compare_files(remote_files : Array({String, Bytes}), files_to_delete : Set(String),
+                                dirs_to_delete : Set(String)) : Array(String)
+        requested_files = Array(String).new
+        file_count = 0
+        files_total = remote_files.size
+        Log.info { "Comparing files" }
+        log_limiter = RateLimiter.new(2.seconds)
+        remote_files.each do |filename, remote_hash|
+          path = File.join(@data_dir, filename)
+          files_to_delete.delete(path)
+          # Walk up the path to remove all ancestors from dirs_to_delete
+          dir = File.dirname(path)
+          while dirs_to_delete.delete(dir)
+            dir = File.dirname(dir)
+          end
+          if File.exists? path
+            # Pre-computed by #hash_local_files, except for files that appeared
+            # after that pass.
+            unless local_hash = @checksums[filename]?.try &.hash
+              local_hash = hash_file(filename, path)
+              Fiber.yield # CPU bound, so allow other fibers to run
+            end
+            if local_hash != remote_hash
+              Log.info { "Mismatching hash: #{path}" }
+              File.delete path
+              requested_files << filename
+            else
+              Log.debug { "Matching hash: #{path}" }
+            end
+          else
+            requested_files << filename
+          end
+          file_count &+= 1
+          Fiber.yield if file_count % COMPARE_YIELD_INTERVAL == 0
+          log_limiter.do { Log.info { "Compared #{file_count}/#{files_total} files…" } }
+        end
+        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
+        requested_files
       end
 
       # Hash every local file before connecting, because hashing while connected
