@@ -36,7 +36,35 @@ module LavinMQ
     STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
                   "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
-    rate_stats(STATS_KEYS)
+    rate_stats(STATS_KEYS, {"messages_ready", "messages_unacknowledged"}, UInt64)
+
+    # Ready and unacked messages in all queues and sessions, as of the last stats tick
+    @messages_ready = 0_u64
+    @messages_unacknowledged = 0_u64
+    private getter messages_ready, messages_unacknowledged
+
+    # Updates every object's rates, then the vhost's own and the message totals they summed
+    def update_rates(interval : Float64 = Config.instance.stats_interval / 1000.0) : Nil
+      ready = unacked = 0_u64
+      each_queue do |q|
+        q.update_rates(interval)
+        ready += q.message_count
+        unacked += q.unacked_count
+      end
+      each_exchange(&.update_rates(interval))
+      each_session do |s|
+        s.update_rates(interval)
+        ready += s.message_count
+        unacked += s.unacked_count
+      end
+      each_connection do |c|
+        c.update_rates(interval)
+        c.each_channel(&.update_rates(interval))
+      end
+      @messages_ready = ready
+      @messages_unacknowledged = unacked
+      previous_def
+    end
 
     DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
@@ -361,7 +389,8 @@ module LavinMQ
       }
     end
 
-    def message_details
+    # Ready and unacked messages in all queues and sessions right now
+    def count_messages : {UInt64, UInt64}
       ready = unacked = 0_u64
       each_queue do |q|
         ready += q.message_count
@@ -371,7 +400,11 @@ module LavinMQ
         ready += s.message_count
         unacked += s.unacked_count
       end
+      {ready, unacked}
+    end
 
+    def message_details
+      ready, unacked = count_messages
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,

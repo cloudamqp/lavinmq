@@ -1,6 +1,7 @@
 module LavinMQ
   module Stats
-    macro rate_stats(stats_keys, log_keys = %w[])
+    # log_keys are gauges sampled as log_type; the vhost totals need UInt64
+    macro rate_stats(stats_keys, log_keys = %w[], log_type = UInt32)
       {% stats_keys = stats_keys.resolve if stats_keys.is_a?(Path) %}
       {% for name in stats_keys %}
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
@@ -12,7 +13,7 @@ module LavinMQ
         end
       {% end %}
       {% for name in log_keys %}
-        @{{ name.id }}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+        @{{ name.id }}_log = Deque({{ log_type }}).new(Config.instance.stats_log_size)
         getter {{ name.id }}_log
       {% end %}
 

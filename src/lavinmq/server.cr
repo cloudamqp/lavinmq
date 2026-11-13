@@ -153,16 +153,7 @@ module LavinMQ
     end
 
     def update_stats_rates(interval : Float64 = @config.stats_interval / 1000.0)
-      @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates(interval))
-        vhost.each_exchange(&.update_rates(interval))
-        vhost.each_session(&.update_rates(interval))
-        vhost.each_connection do |connection|
-          connection.update_rates(interval)
-          connection.each_channel(&.update_rates(interval))
-        end
-        vhost.update_rates(interval)
-      end
+      @vhosts.each_value &.update_rates(interval)
     end
 
     def update_system_metrics(statm, interval : Float64 = @config.stats_interval / 1000.0)
@@ -246,7 +237,10 @@ module LavinMQ
 
         control_flow!
         @stats_ticks += 1
-        sleep @config.stats_interval.milliseconds
+        select
+        when @closed.when_true.receive
+        when timeout(@config.stats_interval.milliseconds)
+        end
       end
     ensure
       statm.try &.close
