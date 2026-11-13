@@ -1105,8 +1105,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         wait_for { s.vhosts["/"].shovels["paused_before_upgrade"]?.try &.state.paused? }
 
         spawn(replicator.listen(tcp_server), name: "repli server spec")
-        client = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
-        follower = client.not_nil!
+        client = follower = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
         spawn(name: "follow spec") { follower.follow("localhost", tcp_server.local_address.port) }
         wait_for { replicator.followers.first?.try &.synced? }
 
