@@ -219,6 +219,40 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "replicates a rotated write segment, and a follower loads it" do
+    with_clustering do |cluster|
+      big = "x" * (LavinMQ::Config.instance.segment_size // 10)
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("repli-rotate", durable: true)
+          2.times { q.publish_confirm big, props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+          2.times { q.get(no_ack: true).should_not be_nil }
+          queue = s.vhosts["/"].queue("repli-rotate")
+          queue.release_idle_memory
+          queue.@msg_store.@wfile_id.should eq 2
+          q.publish_confirm "kept", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        end
+        s.persister.sync_marked # the deferred unlink of segment 1
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        cluster.stop
+      end
+
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        q = server.vhosts["/"].queue("repli-rotate").as(LavinMQ::AMQP::DurableQueue)
+        dir = q.@msg_store.@msg_dir
+        Dir.children(dir).select(&.starts_with?("msgs.")).should eq ["msgs.0000000002"]
+        q.message_count.should eq 1
+        q.basic_get(true) do |env|
+          String.new(env.message.body).should eq "kept"
+          env.segment_position.segment.should eq 2
+        end.should be_true
+      ensure
+        server.close
+      end
+    end
+  end
+
   it "confirms publishes once synced locally and replicated to followers" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|

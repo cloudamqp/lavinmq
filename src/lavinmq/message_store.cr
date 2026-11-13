@@ -400,7 +400,24 @@ module LavinMQ
     # ones too, so a later read or msync still finds them.
     def release_idle_pages : Nil
       return if @closed || @wfile.closed?
-      @wfile.dontneed
+      if write_segment_consumed?
+        # The old segment is then unlinked like any fully acked one
+        open_new_segment
+      else
+        @wfile.dontneed
+      end
+    end
+
+    # Every msg in the write segment is acked, so it can be replaced by an
+    # empty one. Under an eighth of a segment it's kept: a queue with msgs
+    # just slower than the idle timeout would create and unlink a file per msg.
+    private def write_segment_consumed? : Bool
+      return false unless @size.zero? && @requeued.size.zero?
+      return false if @wfile.size < Config.instance.segment_size // 8
+      count = @segment_msg_count[@wfile_id]? || return false
+      return false if count.zero?
+      acks = @acks[@wfile_id]? || return false
+      acks.size // sizeof(UInt32) >= count
     end
 
     def empty?
