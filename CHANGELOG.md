@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The queue and stream pages chart queued messages above the rates, from the new `messages_ready_details.log` and `messages_unacknowledged_details.log` on `GET /api/queues/{vhost}/{name}` [#2581](https://github.com/cloudamqp/lavinmq/pull/2581)
+
 ### Fixed
 
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)

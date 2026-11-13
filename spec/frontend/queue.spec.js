@@ -25,7 +25,7 @@ test.describe('queue', _ => {
   ]
 
   const queueResponse = {
-    "name":queueName,"durable":true,"exclusive":false,"auto_delete":false,"arguments":{},"consumers":0,"vhost":queueVhost,"messages":0,"total_bytes":0,"messages_persistent":0,"ready":0,"messages_ready":0,"ready_bytes":0,"message_bytes_ready":0,"ready_avg_bytes":0,"unacked":0,"messages_unacknowledged":0,"unacked_bytes":0,"message_bytes_unacknowledged":0,"unacked_avg_bytes":0,"state":"running","effective_policy_definition":{},"message_stats":{"ack":0,"ack_details":{"rate":0.0},"deliver":0,"deliver_details":{"rate":0.0},"deliver_get":0,"deliver_get_details":{"rate":0.0},"confirm":0,"confirm_details":{"rate":0.0},"get":0,"get_details":{"rate":0.0},"get_no_ack":0,"get_no_ack_details":{"rate":0.0},"publish":0,"publish_details":{"rate":0.0},"redeliver":0,"redeliver_details":{"rate":0.0},"reject":0,"reject_details":{"rate":0.0},"return_unroutable":0,"return_unroutable_details":{"rate":0.0},"dedup":0,"dedup_details":{"rate":0.0}},"effective_arguments":["x-expires","x-max-length","x-max-length-bytes","x-message-ttl","x-delivery-limit","x-consumer-timeout"],"message_stats":{"ack":0,"ack_details":{"rate":0.0,"log":[]},"deliver":0,"deliver_details":{"rate":0.0,"log":[]},"deliver_get":0,"deliver_get_details":{"rate":0.0,"log":[]},"confirm":0,"confirm_details":{"rate":0.0,"log":[]},"get":0,"get_details":{"rate":0.0,"log":[]},"get_no_ack":0,"get_no_ack_details":{"rate":0.0,"log":[]},"publish":0,"publish_details":{"rate":0.0,"log":[]},"redeliver":0,"redeliver_details":{"rate":0.0,"log":[]},"reject":0,"reject_details":{"rate":0.0,"log":[]},"return_unroutable":0,"return_unroutable_details":{"rate":0.0,"log":[]},"dedup":0,"dedup_details":{"rate":0.0,"log":[]}},"consumer_details":consumers
+    "name":queueName,"durable":true,"exclusive":false,"auto_delete":false,"arguments":{},"consumers":0,"vhost":queueVhost,"messages":0,"total_bytes":0,"messages_persistent":0,"ready":0,"messages_ready":4,"messages_ready_details":{"log":[2,3,4]},"ready_bytes":0,"message_bytes_ready":0,"ready_avg_bytes":0,"unacked":0,"messages_unacknowledged":1,"messages_unacknowledged_details":{"log":[0,1,1]},"unacked_bytes":0,"message_bytes_unacknowledged":0,"unacked_avg_bytes":0,"state":"running","effective_policy_definition":{},"message_stats":{"ack":0,"ack_details":{"rate":0.0},"deliver":0,"deliver_details":{"rate":0.0},"deliver_get":0,"deliver_get_details":{"rate":0.0},"confirm":0,"confirm_details":{"rate":0.0},"get":0,"get_details":{"rate":0.0},"get_no_ack":0,"get_no_ack_details":{"rate":0.0},"publish":0,"publish_details":{"rate":0.0},"redeliver":0,"redeliver_details":{"rate":0.0},"reject":0,"reject_details":{"rate":0.0},"return_unroutable":0,"return_unroutable_details":{"rate":0.0},"dedup":0,"dedup_details":{"rate":0.0}},"effective_arguments":["x-expires","x-max-length","x-max-length-bytes","x-message-ttl","x-delivery-limit","x-consumer-timeout"],"message_stats":{"ack":0,"ack_details":{"rate":0.0,"log":[]},"deliver":0,"deliver_details":{"rate":0.0,"log":[]},"deliver_get":0,"deliver_get_details":{"rate":0.0,"log":[]},"confirm":0,"confirm_details":{"rate":0.0,"log":[]},"get":0,"get_details":{"rate":0.0,"log":[]},"get_no_ack":0,"get_no_ack_details":{"rate":0.0,"log":[]},"publish":0,"publish_details":{"rate":0.0,"log":[]},"redeliver":0,"redeliver_details":{"rate":0.0,"log":[]},"reject":0,"reject_details":{"rate":0.0,"log":[]},"return_unroutable":0,"return_unroutable_details":{"rate":0.0,"log":[]},"dedup":0,"dedup_details":{"rate":0.0,"log":[]}},"consumer_details":consumers
   }
 
   // Content is split across tabs (Overview/Consumers/Bindings/Messages); the
@@ -51,6 +51,15 @@ test.describe('queue', _ => {
     test('queue is loaded', async ({ page }) => {
       await expect(page.locator('#pagename-label')).toHaveText(new RegExp(`${queueName} .* ${queueVhost}`))
       await expect(page.locator('#consumer-count')).toHaveText(queueResponse.consumers.toString())
+    })
+
+    test('queued messages chart shows current counts', async ({ page }) => {
+      const legend = page.locator('#msgChart .u-legend-item')
+      await expect(legend).toHaveCount(2)
+      await expect(legend.nth(0)).toContainText('Ready')
+      await expect(legend.nth(0)).toContainText('4 msgs')
+      await expect(legend.nth(1)).toContainText('Unacknowledged')
+      await expect(legend.nth(1)).toContainText('1 msgs')
     })
   })
 
