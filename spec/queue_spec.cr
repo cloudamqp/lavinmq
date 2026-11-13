@@ -50,14 +50,6 @@ def in_parallel(ctx, n, &blk : Int32 -> Nil)
   wg.wait
 end
 
-# Overwrites a value in a segment file, also seen by a store that has it mapped
-private def write_at(path : String, pos : Int, value) : Nil
-  File.open(path, "r+") do |f|
-    f.seek(pos)
-    f.write_bytes(value)
-  end
-end
-
 # Where the property flags are of a message at *pos*, published to the default
 # exchange. Flags with bits that aren't defined can't be decoded.
 private def unreadable_flags_pos(pos : Int, routing_key : String) : Int64
@@ -483,6 +475,33 @@ describe LavinMQ::AMQP::Queue do
           q = ch.queue(q_name, durable: true)
           q.publish_confirm "after"
           q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+        end
+      end
+    end
+
+    it "stores publishes past a limit while paused, and enforces the limit once resumed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-max-length" => 2}))
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          segment = queue.@msg_store.@segments.first_value
+          flags_pos = unreadable_flags_pos(4, q_name)
+          write_at(segment.path, flags_pos, 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          queue.state.paused?.should be_true
+
+          # The head can't be dropped, and it isn't read for every publish
+          4.times { |i| q.publish_confirm("msg#{i}").should be_true }
+          queue.message_count.should eq 5
+          queue.state.paused?.should be_true
+
+          write_at(segment.path, flags_pos, 0x0000u16)
+          queue.resume!
+          q.publish_confirm("last").should be_true
+          queue.message_count.should eq 2
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "msg3"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "last"
         end
       end
     end

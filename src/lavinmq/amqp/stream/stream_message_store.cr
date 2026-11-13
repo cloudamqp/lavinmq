@@ -270,7 +270,23 @@ module LavinMQ::AMQP
         return unless consumer.filter_match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        raise unreadable(consumer.segment, rfile, ex)
+        error = unreadable(consumer.segment, rfile, ex)
+        skip_unreadable_segment(consumer, error)
+        shift?(consumer)
+      end
+    end
+
+    # A consumer that can't read its segment continues with the next one.
+    # Each consumer has its own position, so the others aren't held back, and
+    # the segment is kept, until retention removes it, for a version or a
+    # node that can read it.
+    private def skip_unreadable_segment(consumer, error : Error) : Nil
+      seg = consumer.segment
+      pos = consumer.pos
+      next_segment(consumer) || raise error
+      consumer.offset = @segment_first_offset[consumer.segment]
+      @log.error(exception: error) do
+        "Segment #{seg} can't be read from pos #{pos}, consumer #{consumer.tag} continues with segment #{consumer.segment}"
       end
     end
 
@@ -286,7 +302,9 @@ module LavinMQ::AMQP
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
-            raise Error.new(segment, cause: ex)
+            # Not redelivered, like one whose segment has expired
+            consumer.requeued.shift?
+            @log.error(exception: ex) { "Requeued message #{sp} can't be read, consumer #{consumer.tag} continues without it" }
           end
         else
           consumer.requeued.shift?

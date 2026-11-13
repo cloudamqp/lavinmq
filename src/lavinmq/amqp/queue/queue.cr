@@ -108,6 +108,9 @@ module LavinMQ::AMQP
     # Guards @state, the paused flag and the "paused" file. Taken last: a store
     # error pauses the queue under @msg_store_lock.
     @state_lock = Mutex.new
+    # Set while the queue is paused by a message store error, until it's
+    # resumed: what read the store on every publish then leaves it alone
+    @store_failed = Atomic(Bool).new(false)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -431,6 +434,7 @@ module LavinMQ::AMQP
       return false if @msg_store.size == 0 # No messages to expire
       return false unless consumers_empty? # Expire loop can't run with consumers present; rm_consumer will restart it
       return true if settings.message_ttl  # Queue-level TTL means all messages need expiring
+      return false if @store_failed.get(:relaxed)
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
@@ -693,8 +697,19 @@ module LavinMQ::AMQP
       props.headers = h
       retry_msg = Message.moved_copy(msg, properties: props)
       return false unless retry_queue.delay(retry_msg)
-      delete_message(sp)
+      delete_moved(sp)
       true
+    end
+
+    # Deletes a message that is stored where it was moved to: the retry queue
+    # or the queues it was dead-lettered to. If the delete fails the message
+    # isn't put back, which would deliver it from both. It's still in its
+    # segment, so it can come back after a restart.
+    private def delete_moved(sp : SegmentPosition) : Nil
+      delete_message(sp)
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Failed to delete #{sp} after it was moved" }
+      pause_on_store_error(ex)
     end
 
     # The delay never extends past the message's TTL, so a message whose TTL
@@ -798,6 +813,7 @@ module LavinMQ::AMQP
     # isn't kept over a restart of the broker, which also reads the data again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if @closed
+      @store_failed.set(true, :relaxed)
       if pause(persist: false)
         @log.error(ex) do
           "Paused due to a message store error. Resume the queue to try again, " \
@@ -815,14 +831,20 @@ module LavinMQ::AMQP
 
     def resume! : Nil
       # Paused on its own if it was its store that failed
-      @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume!
+      @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume_after_store_error
       @state_lock.synchronize do
         return unless @state.paused?
         @state = QueueState::Running
+        @store_failed.set(false, :relaxed)
         File.delete?(File.join(@data_dir, "paused"))
         @paused.set(false)
       end
       @log.debug { "Resumed" }
+    end
+
+    # Not if an operator paused it
+    protected def resume_after_store_error : Nil
+      resume! if @store_failed.get(:relaxed)
     end
 
     def close : Bool
@@ -1025,6 +1047,8 @@ module LavinMQ::AMQP
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb
+      # The head can't be read, the limit is enforced once the queue is resumed
+      return if @store_failed.get(:relaxed)
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
       return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
@@ -1066,6 +1090,7 @@ module LavinMQ::AMQP
 
     private def drop_redelivered : Nil
       counter = 0
+      return if @store_failed.get(:relaxed)
       if limit = settings.delivery_limit
         @msg_store_lock.synchronize do
           loop do
@@ -1172,7 +1197,7 @@ module LavinMQ::AMQP
           @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
             routed = true
             begin
-              delete_message sp if stored
+              delete_moved sp if stored
             ensure
               env.release
             end
@@ -1339,7 +1364,7 @@ module LavinMQ::AMQP
       else
         expire_msg(sp, :rejected)
       end
-    rescue KeyError
+    rescue MessageStore::MissingSegment
       segment_gone(sp)
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
@@ -1368,7 +1393,7 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       redeliver_message(sp, route_to_retry: false)
-    rescue KeyError
+    rescue MessageStore::MissingSegment
       segment_gone(sp)
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
@@ -1572,7 +1597,7 @@ module LavinMQ::AMQP
     # removed it with its segment
     def read(sp : SegmentPosition) : Envelope?
       @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
-    rescue KeyError
+    rescue MessageStore::MissingSegment
       nil
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)

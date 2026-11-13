@@ -109,7 +109,12 @@ A queue whose message store fails, for example on a segment with corrupt data or
 
 Editing segment files by hand isn't supported.
 
-The same applies to streams and to the internal queues of delayed exchanges and [automatic retries](automatic-retries.md). An MQTT session can't be paused: the client is disconnected when a message can't be read, and the session is kept until it's purged or deleted.
+While a queue is paused this way its `max-length`, `max-length-bytes` and `delivery-limit` aren't enforced, as the message at its head can't be read. They are again once the queue is resumed.
+
+The same applies to the internal queues of delayed exchanges and [automatic retries](automatic-retries.md). Resuming a queue resumes its retry queue, unless that was paused through the API.
+
+- **Streams** aren't paused. A consumer that reaches a segment it can't read continues with the next segment, which is logged, and other consumers aren't held back. The segment is kept until retention removes it, so a restart or a failover delivers it to consumers that start before it.
+- **MQTT sessions** can't be paused through the API. A session with a message that can't be read delivers nothing, its client stays connected, until the session is purged or deleted, or the broker is restarted.
 
 ## Reserved Queue Name Prefixes
 

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A queue is paused, not closed, when its message store fails, for example on a segment with corrupt data or one written by a newer version. Nothing is delivered past the data, consumers stay connected and publishes are still stored. Resuming the queue reads the data again, and so does a restart of the broker or a failover, as this pause isn't kept. A purge gives the data up, with the whole segment it's in. A segment that can't be read no longer closes the queue at start either. Applies to streams, retry queues and the queues of delayed exchanges too; an MQTT session disconnects its client and is kept [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
+- A queue is paused, not closed, when its message store fails, for example on a segment with corrupt data or one written by a newer version. Nothing is delivered past the data, consumers stay connected and publishes are still stored. Resuming the queue reads the data again, and so does a restart of the broker or a failover, as this pause isn't kept. A purge gives the data up, with the whole segment it's in. A segment that can't be read no longer closes the queue at start either. Applies to retry queues and the queues of delayed exchanges too. A stream isn't paused, its consumers continue with the next segment, and an MQTT session delivers nothing until it's purged [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
 
 ### Removed
 

@@ -1076,7 +1076,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "starts with a stream queue whose segment is corrupt, and pauses it when that's read" do
+    it "starts with a stream queue whose segment is corrupt, which its consumers skip" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
@@ -1090,17 +1090,24 @@ describe LavinMQ::AMQP::Stream do
         with_channel(s) do |ch|
           ch.prefetch 1
           q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
-          q.publish_confirm("y").should be_true
-          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
-          should_eventually(be_true) { stream.state.paused? }
-          stream.consumers.size.should eq 1
+          q.publish_confirm("y").should be_true # in a new segment
+          bodies = ::Channel(String).new(2)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msg.ack
+            bodies.send msg.body_io.to_s
+          end
+          # The stream isn't paused, each consumer has its own position
+          bodies.receive.should eq "y"
+          q.publish_confirm("z").should be_true
+          bodies.receive.should eq "z"
+          stream.state.running?.should be_true
+          File.exists?(segment).should be_true
         end
         s.stop
 
-        # The pause isn't kept: once the segment can be read, so is the stream
+        # The segment is kept: once it can be read, it's delivered
         File.open(segment, "r+", &.write_bytes(LavinMQ::Schema::VERSION))
         restart_server(s)
-        s.vhosts["/"].queue("corrupt-stream").state.running?.should be_true
         with_channel(s) do |ch|
           ch.prefetch 1
           q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
@@ -1111,6 +1118,7 @@ describe LavinMQ::AMQP::Stream do
           end
           bodies.receive.should eq "x"
           bodies.receive.should eq "y"
+          bodies.receive.should eq "z"
         end
       end
     end

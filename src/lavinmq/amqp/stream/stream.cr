@@ -201,7 +201,8 @@ module LavinMQ::AMQP
 
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
-    # A message that can't be read pauses the stream, and isn't delivered
+    # A consumer skips a segment it can't read, see StreamMessageStore#shift?.
+    # Any other store error pauses the stream.
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       # Retention can drop the segment while the delivery is suspended in a

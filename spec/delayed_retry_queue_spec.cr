@@ -55,6 +55,18 @@ class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
   end
 end
 
+class LavinMQ::MessageStore
+  class_property? fail_next_delete = false
+
+  def delete(sp) : Nil
+    if LavinMQ::MessageStore.fail_next_delete?
+      LavinMQ::MessageStore.fail_next_delete = false
+      raise Error.new(@wfile)
+    end
+    previous_def
+  end
+end
+
 class LavinMQ::AMQP::DelayedRetryQueue
   class_property? fail_next_expire = false
 
@@ -380,6 +392,47 @@ describe "Retry Queue" do
         end
       ensure
         LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = false
+      end
+    end
+
+    it "doesn't requeue a message that is in the retry queue when deleting it from its queue fails" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-delete-error", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          retry_q = vhost.queue("amq.retry-retry-delete-error")
+          primary = vhost.queue("retry-delete-error")
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          LavinMQ::MessageStore.fail_next_delete = true
+          msg.reject(requeue: true)
+          wait_for { retry_q.message_count == 1 }
+          wait_for { primary.state.paused? }
+          primary.message_count.should eq 0 # not delivered from both queues
+          primary.unacked_count.should eq 0
+          ch.closed?.should be_false
+        end
+      ensure
+        LavinMQ::MessageStore.fail_next_delete = false
+      end
+    end
+
+    it "keeps the retry queue paused by an operator when its queue is resumed" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.queue("retry-manual-pause", durable: true, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+        end
+        retry_q = vhost.queue("amq.retry-retry-manual-pause")
+        primary = vhost.queue("retry-manual-pause")
+        retry_q.pause!
+        primary.pause!
+        primary.resume!
+        primary.state.running?.should be_true
+        retry_q.state.paused?.should be_true
+        File.exists?(File.join(retry_q.@data_dir, "paused")).should be_true
+        retry_q.resume!
+        retry_q.state.running?.should be_true
       end
     end
 

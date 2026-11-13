@@ -51,6 +51,8 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
+      # False while the next message can't be read, until a purge gives it up
+      @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
@@ -112,6 +114,7 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
+        @store_readable.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -142,6 +145,7 @@ module LavinMQ
           client = @client
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
+          next @store_readable.when_true.receive? unless @store_readable.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
             delivered_bytes &+= bytesize
@@ -150,6 +154,11 @@ module LavinMQ
             delivered_bytes = 0
             Fiber.yield
           end
+        rescue ex : MessageStore::Error
+          # The client stays connected: disconnecting it would only make it
+          # reconnect to the same message. A restart of the broker reads it again.
+          @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+          @store_readable.set(false) unless closed?
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           @client.try &.close("Server force closed client")
@@ -473,6 +482,7 @@ module LavinMQ
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
+        @store_readable.set(true) unless closed?
         count
       end
 

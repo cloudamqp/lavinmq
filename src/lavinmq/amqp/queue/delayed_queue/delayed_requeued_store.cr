@@ -50,6 +50,14 @@ module LavinMQ::AMQP
         def clear : Nil
           @segment_positions.clear
         end
+
+        def each(& : SegmentPosition -> Nil) : Nil
+          @segment_positions.each { |dsp| yield dsp.sp }
+        end
+
+        def reject!(& : SegmentPosition -> Bool) : Nil
+          @segment_positions.reject! { |dsp| yield dsp.sp }
+        end
       end
     end
   end

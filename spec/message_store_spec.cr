@@ -182,14 +182,6 @@ end
   end
 {% end %}
 
-# Overwrites a value in a segment file, also seen by a store that has it mapped
-private def write_at(path : String, pos : Int, value) : Nil
-  File.open(path, "r+") do |f|
-    f.seek(pos)
-    f.write_bytes(value)
-  end
-end
-
 private def shift_body(store) : String
   env = store.shift?.should_not be_nil
   String.new(env.message.body)
@@ -404,6 +396,56 @@ describe LavinMQ::MessageStore do
         shift_body(store).should eq "new"
         store.purge_all
         store.size.should eq 0
+      end
+    end
+
+    it "counts what's left right after a purge with a count gave it up" do
+      with_store do |store|
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        unacked = store.shift?.should_not be_nil
+        store.requeue(unacked.segment_position)
+        write_at(store.@segments.first_value.path, 0, 0x64636261) # schema version
+        store.@segments.first_value.pos = 4
+        store.shift?.should_not be_nil # the requeued one, read before
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        3.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "new#{i}")) }
+        store.requeue(unacked.segment_position)
+        store.size.should eq 5 # one requeued and one unread in the segment, and 3 new
+
+        # The requeued one, which can be read, and after the segment the first new one
+        store.purge(2).should eq 2
+        store.size.should eq 2
+        store.bytesize.should eq 2 * LavinMQ::Message.new("ex", "rk", "new0").bytesize
+        shift_body(store).should eq "new1"
+        shift_body(store).should eq "new2"
+        store.shift?.should be_nil
+        store.empty.value.should be_true
+      end
+    end
+
+    it "stays given up when the purge's unlink of its segment is lost" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        segment = File.join(dir, "msgs.0000000001")
+        write_at(segment, 0, 0x64636261) # schema version
+        begin
+          # As a crash before the files of the segment are unlinked
+          File.fail_delete_of = segment
+          expect_raises(File::Error) { store.purge }
+        ensure
+          File.fail_delete_of = nil
+          store.close
+        end
+        File.exists?(segment).should be_true
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.size.should eq 0
+        store.shift?.should be_nil
+        File.exists?(segment).should be_false
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        shift_body(store).should eq "new"
+        store.close
       end
     end
 

@@ -80,6 +80,10 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
+      # Every message is in the index, none is read from where the reader is
+      private def count_unread : Nil
+      end
+
       # The rest of the segment from *pos* can't be decoded. It's indexed as
       # one message that's due at once, so that the release loop reads it,
       # fails and pauses the queue. Returns its bytesize.

@@ -246,7 +246,7 @@ module LavinMQ
 
     def [](sp : SegmentPosition) : BytesMessage
       raise ClosedError.new if @closed
-      segment = @segments[sp.segment]
+      segment = @segments[sp.segment]? || raise MissingSegment.new(sp)
       begin
         BytesMessage.from_bytes(segment.to_slice + sp.position)
       rescue ex
@@ -257,7 +257,7 @@ module LavinMQ
     # Like `#[]`, as an envelope, with the segment position made from the message
     def envelope(sp : SegmentPosition, redelivered = false) : Envelope
       raise ClosedError.new if @closed
-      segment = @segments[sp.segment]
+      segment = @segments[sp.segment]? || raise MissingSegment.new(sp)
       begin
         msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
         Envelope.new(SegmentPosition.make(sp.segment, sp.position, msg), msg, redelivered: redelivered, segment: segment)
@@ -322,21 +322,82 @@ module LavinMQ
     # as where the record after one that can't be decoded starts is unknown,
     # and an ack of it wouldn't let a load skip it either. That includes the
     # segment's unacked messages, whose acks are ignored later (see #delete),
-    # and its requeued ones, which are dropped when they're read. Its
-    # messages stay counted until the store has been read to its end, where
-    # it's recounted.
+    # and its requeued ones.
     private def give_up_unreadable(ex : Error) : Nil
       seg = @requeued.first?.try(&.segment) || @rfile_id
       @log.warn(exception: ex) { "Purging segment #{seg}, which has data that can't be read" }
       drop_segment(seg)
+      recount_ready
     end
 
+    # Written to a segment's ack file when the segment is given up. Its files
+    # are unlinked later (see #unlink_segment), and if that doesn't happen, a
+    # crash for example, the next load removes the segment instead of
+    # finding the data that can't be read again.
+    GIVEN_UP = UInt32::MAX
+
     private def drop_segment(seg : UInt32) : Nil
+      return unless @segments.has_key?(seg)
+      mark_given_up(seg)
       open_new_segment if seg == @wfile_id
       select_next_read_segment if seg == @rfile_id
       unlink_segment(seg)
       @segment_msg_count.delete(seg)
       @deleted.delete(seg)
+      @requeued.reject! { |sp| sp.segment == seg }
+    end
+
+    private def mark_given_up(seg : UInt32) : Nil
+      return unless @durable
+      afile = @acks[seg]
+      ack_offset = afile.size.to_i64
+      afile.write_bytes GIVEN_UP
+      @replicator.try &.append_value(afile.path, GIVEN_UP, ack_offset)
+    end
+
+    private def given_up?(seg : UInt32) : Bool
+      @deleted[seg]?.try(&.last?) == GIVEN_UP
+    end
+
+    # Counts the messages that are ready again, after a segment was removed
+    # with an unknown number of them: the requeued ones and those not yet read
+    private def recount_ready : Nil
+      @size = 0u32
+      @bytesize = 0u64
+      @requeued.each do |sp|
+        @size += 1
+        @bytesize += sp.bytesize
+      end
+      count_unread
+      @empty.set @size.zero?
+    end
+
+    # Counts what's left to read from where the reader is, like a load does
+    private def count_unread : Nil
+      @segments.each do |seg, mfile|
+        next if seg < @rfile_id
+        read_pos = mfile.pos
+        begin
+          mfile.pos = 4 unless seg == @rfile_id
+          loop do
+            pos = mfile.pos
+            break if pos >= mfile.size
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+            break if ts.zero?
+            bytesize = BytesMessage.skip(mfile)
+            next if deleted?(seg, pos)
+            @size += 1
+            @bytesize += bytesize
+          end
+        rescue IO::EOFError
+        rescue OverflowError | AMQ::Protocol::Error::FrameDecode
+          # Data that can't be read, counted as at load, see #count_unreadable
+          @size += 1
+          @bytesize += mfile.size - mfile.pos
+        ensure
+          mfile.pos = read_pos
+        end
+      end
     end
 
     def purge_all
@@ -774,7 +835,13 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
-        if !schema_ok?(mfile)
+        if given_up?(seg)
+          # A purge gave the segment up, but it wasn't unlinked. Without msgs
+          # it's deleted as unused, the one written to once it's sealed.
+          @log.info { "Removing segment #{seg}, which a purge gave up" }
+          @segment_msg_count[seg] = 0u32
+          @wfile_unreadable = true if seg == @wfile_id
+        elsif !schema_ok?(mfile)
           count_unreadable(seg, mfile, 4)
         elsif File.exists?(meta_file_name(mfile))
           begin
@@ -897,7 +964,7 @@ module LavinMQ
 
     private def prune_orphaned_acks_for_segment(seg : UInt32, mfile : MFile, positions : Array(UInt32)) : Nil
       data_end = mfile.size.to_u32
-      valid = positions.select { |p| p < data_end }
+      valid = positions.select { |p| p < data_end || p == GIVEN_UP }
       orphan_count = positions.size - valid.size
       return if orphan_count.zero?
 
@@ -1027,6 +1094,14 @@ module LavinMQ
     class ClosedError < ::Channel::ClosedError; end
 
     class MetadataError < Exception; end
+
+    # The segment of a message is gone, and the message with it: a purge
+    # removed it, see #give_up_unreadable
+    class MissingSegment < KeyError
+      def initialize(sp : SegmentPosition)
+        super("Segment #{sp.segment} of #{sp} is gone")
+      end
+    end
 
     class Error < Exception
       def initialize(mfile : MFile, cause = nil)
