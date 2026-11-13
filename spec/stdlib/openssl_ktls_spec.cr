@@ -73,6 +73,35 @@ ensure
   tcp_server.try &.close
 end
 
+# Completes the handshake, then the peer resets the connection
+private def ktls_reset_peer_handshake(server_ctx : OpenSSL::SSL::Context::Server, &)
+  tcp_server = TCPServer.new("127.0.0.1", 0)
+  port = tcp_server.local_address.port
+  accepted = Channel(Nil).new
+  reset = Channel(Nil).new
+
+  spawn do
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    tcp = TCPSocket.new("127.0.0.1", port)
+    OpenSSL::SSL::Socket::Client.new(tcp, client_ctx)
+    accepted.receive
+    tcp.linger = 0
+    tcp.close
+    reset.send nil
+  end
+
+  tcp_client = tcp_server.accept
+  ssl_client = OpenSSL::SSL::Socket::Server.new(tcp_client, server_ctx, sync_close: true)
+  accepted.send nil
+  reset.receive
+
+  yield ssl_client
+ensure
+  ssl_client.try &.close
+  tcp_server.try &.close
+end
+
 private def ktls_server_context
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = "spec/resources/server_certificate.pem"
@@ -129,6 +158,19 @@ describe OpenSSL::SSL::Socket do
           ssl.puts "ping"
           ssl.flush
           ssl.gets.should eq "pong"
+        end
+      end
+    {% end %}
+  end
+
+  describe "kTLS peer reset" do
+    {% if flag?(:linux) && OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+      it "raises IO::Error on read instead of returning EOF" do
+        pending!("kernel tls module not loaded (run: modprobe tls)") unless File.exists?("/sys/module/tls")
+
+        ktls_reset_peer_handshake(ktls_server_context) do |ssl|
+          pending!("kTLS receive offload not active") unless ssl.ktls_recv?
+          expect_raises(IO::Error) { ssl.gets }
         end
       end
     {% end %}
