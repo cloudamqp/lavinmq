@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A queue closed, deleted or paused from several threads at once could run its teardown twice, end up paused or closed after being deleted, or accept a consumer after it was closed [#2395](https://github.com/cloudamqp/lavinmq/pull/2395)
 - A paused stream was running again after a restart of the broker, and pausing or resuming a queue from several requests at once could leave its state and its consumers disagreeing [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
