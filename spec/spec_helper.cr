@@ -615,3 +615,23 @@ Spec.around_each do |example|
     FileUtils.rm_rf data_dir
   end
 end
+
+# Own PRNG so the sequences in specs are identical across Crystal versions
+class Xorshift
+  def initialize(seed : UInt32)
+    @s = seed.zero? ? 0x9e3779b9_u32 : seed
+  end
+
+  def u32 : UInt32
+    x = @s
+    x ^= x << 13
+    x ^= x >> 17
+    x ^= x << 5
+    @s = x
+    x
+  end
+
+  def below(n : Int32) : Int32
+    (u32 % n.to_u32).to_i
+  end
+end
