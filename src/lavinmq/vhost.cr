@@ -698,16 +698,12 @@ module LavinMQ
       in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
       in EventType::ClientGet
         @get_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientGetNoAck
         @get_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliver
         @deliver_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliverNoAck
         @deliver_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       end
     end
 
