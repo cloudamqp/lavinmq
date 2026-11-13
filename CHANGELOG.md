@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2556](https://github.com/cloudamqp/lavinmq/pull/2556)
+- An MQTT session with every packet ID but one in flight no longer hangs the server. That ID was never tried, so delivery retried in a loop that never yielded [#2556](https://github.com/cloudamqp/lavinmq/pull/2556)
+- An MQTT QoS 1 PUBLISH, SUBSCRIBE or UNSUBSCRIBE with packet ID 0, which MQTT 3.1.1 forbids, now closes the connection instead of being acknowledged and acted on [#2556](https://github.com/cloudamqp/lavinmq/pull/2556)
 - A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
