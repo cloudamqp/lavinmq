@@ -1083,6 +1083,44 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  # An in-place upgrade: the queue and the shovel were paused by a version that
+  # didn't replicate the paused files, and left the queue's one empty
+  it "replicates paused files that exist when the leader starts" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+    follower_config = LavinMQ::Config.instance.dup.tap &.data_dir = File.tempname
+    tcp_server = TCPServer.new("localhost", 0)
+    client = nil
+    begin
+      with_amqp_server(replicator: replicator) do |s|
+        with_channel(s) { |ch| ch.queue("paused_before_upgrade", durable: true) }
+        queue = s.vhosts["/"].queue("paused_before_upgrade").as(LavinMQ::AMQP::Queue)
+        queue_paused = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
+        File.touch(File.join(s.data_dir, queue_paused))
+        shovel_paused = "shovels.#{Digest::SHA1.hexdigest "paused_before_upgrade"}.paused"
+        File.write(File.join(s.data_dir, shovel_paused), "paused_before_upgrade")
+        shovel_config = %({"src-uri": "amqp://localhost", "src-queue": "q", "dest-uri": "amqp://localhost", "dest-queue": "q2"})
+        s.vhosts["/"].add_parameter(LavinMQ::Parameter.new("shovel", "paused_before_upgrade", JSON.parse(shovel_config)))
+        restart_server(s)
+        s.vhosts["/"].queue("paused_before_upgrade").state.paused?.should be_true
+        wait_for { s.vhosts["/"].shovels["paused_before_upgrade"]?.try &.state.paused? }
+
+        spawn(replicator.listen(tcp_server), name: "repli server spec")
+        client = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
+        follower = client.not_nil!
+        spawn(name: "follow spec") { follower.follow("localhost", tcp_server.local_address.port) }
+        wait_for { replicator.followers.first?.try &.synced? }
+
+        File.exists?(File.join(follower_config.data_dir, queue_paused)).should be_true
+        File.exists?(File.join(follower_config.data_dir, shovel_paused)).should be_true
+      end
+    ensure
+      client.try &.close
+      replicator.close
+      tcp_server.close
+      FileUtils.rm_rf follower_config.data_dir
+    end
+  end
+
   it "replicates a shovel's paused state" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
