@@ -31,6 +31,14 @@ The server-wide default applies when a consumer does not call `basic.qos`:
 |-----------|---------|---------|-------------|
 | `default_consumer_prefetch` | `[main]` | `65535` | Default per-consumer prefetch |
 
+### Global Prefetch
+
+With `global` set to `true`, the limit counts unacknowledged deliveries across all consumers on the channel. It applies on top of each consumer's own prefetch, so a delivery needs room under both limits. Messages fetched with `basic.get` don't count towards it, and a `prefetch_count` of `0` removes the channel limit.
+
+When the channel is at its limit, its consumers wait in line. Each delivery that is acknowledged or rejected frees a slot for the consumer that has waited longest, so deliveries are spread across the queues on the channel instead of one queue being drained first. This keeps a consumer from being starved; it isn't a guarantee of an even split.
+
+Lowering the limit below the current number of unacknowledged deliveries stops new deliveries until enough of them have been acknowledged.
+
 ## Channel Errors
 
 When a channel error occurs (e.g., accessing a non-existent queue, argument mismatch), the server closes the channel with an error code and message. The connection remains open and other channels are unaffected.
