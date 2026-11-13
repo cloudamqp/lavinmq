@@ -34,23 +34,18 @@ end
 # A PROXY v2 header with an SSL TLV, which the proxy's own v1 header can't carry
 private def proxy_v2_header_with_tlv : Bytes
   version = "TLSv1.3"
-  ssl_tlv = IO::Memory.new
-  ssl_tlv.write_byte 0x01u8                               # client: SSL
-  ssl_tlv.write_bytes 0u32, IO::ByteFormat::NetworkEndian # verified
-  ssl_tlv.write_byte 0x21u8                               # sub type: VERSION
-  ssl_tlv.write_bytes version.bytesize.to_u16, IO::ByteFormat::NetworkEndian
-  ssl_tlv.write version.to_slice
+  ssl = IO::Memory.new
+  ssl.write_byte 0x01u8                               # client: SSL
+  ssl.write_bytes 0u32, IO::ByteFormat::NetworkEndian # verified
+  ssl.write_byte 0x21u8                               # sub type: VERSION
+  ssl.write_bytes version.bytesize.to_u16, IO::ByteFormat::NetworkEndian
+  ssl.write version.to_slice
+  header = LavinMQ::ProxyProtocol::V2.new(
+    Socket::IPAddress.new("203.0.113.7", 40000),
+    Socket::IPAddress.new("10.0.0.1", 5672),
+    [LavinMQ::ProxyProtocol::V2::TLV.new(0x20u8, ssl.to_slice)])
   io = IO::Memory.new
-  io.write LavinMQ::ProxyProtocol::V2::Signature.to_slice
-  io.write_byte 0x21u8 # v2, PROXY
-  io.write_byte 0x11u8 # TCP over IPv4
-  io.write_bytes (12 + 3 + ssl_tlv.size).to_u16, IO::ByteFormat::NetworkEndian
-  io.write Bytes[203, 0, 113, 7, 10, 0, 0, 1]
-  io.write_bytes 40000u16, IO::ByteFormat::NetworkEndian
-  io.write_bytes 5672u16, IO::ByteFormat::NetworkEndian
-  io.write_byte 0x20u8 # TLV type: SSL
-  io.write_bytes ssl_tlv.size.to_u16, IO::ByteFormat::NetworkEndian
-  io.write ssl_tlv.to_slice
+  io.write_bytes header, IO::ByteFormat::NetworkEndian
   io.to_slice
 end
 
@@ -93,7 +88,7 @@ describe LavinMQ::Clustering::Proxy do
       String.new(header).should eq "PROXY TCP4 203.0.113.7 10.0.0.1 40000 5672\r\n"
     end
 
-    it "forwards the PROXY v2 header of a trusted source unchanged, TLVs included" do
+    it "forwards the PROXY v2 header of a trusted source as v2, TLVs included" do
       LavinMQ::Config.instance.tcp_proxy_protocol = true
       v2_header = proxy_v2_header_with_tlv
       header, _ = forward_through_proxy(v2_header)

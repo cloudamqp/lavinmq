@@ -19,7 +19,15 @@ module LavinMQ
     # blocks forever on a peer that completes the handshake but sends nothing.
     HANDSHAKE_TIMEOUT = 15.seconds
 
+    # Reads a PROXY header, v1 or v2, and returns the connection info in it, or
+    # nil if the connection doesn't start with a header
     def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
+      read(io, timeout).try &.to_conn_info
+    end
+
+    # Reads a PROXY header, v1 or v2, or returns nil if the connection doesn't
+    # start with one
+    def self.read(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : (V1 | V2)?
       io.read_timeout = timeout
       # A single peek can return fewer bytes than the full signature on a TCP
       # segment split (issue 2082), so we only need the bytes we have to match
@@ -28,23 +36,9 @@ module LavinMQ
       # is unambiguous; the V1/V2 parsers then read the rest of the header.
       peeked = io.peek
       if header_prefix?(peeked, "PROXY".to_slice)
-        ProxyProtocol::V1.parse(io)
-      elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
-        ProxyProtocol::V2.parse(io)
-      end
-    ensure
-      io.read_timeout = nil
-    end
-
-    # Like `parse`, but a v2 header is also returned as its raw bytes, so that
-    # it can be forwarded unchanged, TLVs included
-    def self.read(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : Tuple(ConnectionInfo, Bytes?)?
-      io.read_timeout = timeout
-      peeked = io.peek
-      if header_prefix?(peeked, "PROXY".to_slice)
-        {ProxyProtocol::V1.parse(io), nil}
-      elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
-        ProxyProtocol::V2.read(io)
+        V1.from_io(io)
+      elsif header_prefix?(peeked, V2::Signature.to_slice)
+        V2.from_io(io)
       end
     ensure
       io.read_timeout = nil
@@ -59,12 +53,24 @@ module LavinMQ
     end
 
     struct V1
+      getter src : Socket::IPAddress
+      getter dst : Socket::IPAddress
+
+      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      end
+
+      def self.parse(io) : ConnectionInfo
+        io.read_timeout = HANDSHAKE_TIMEOUT
+        from_io(io).to_conn_info
+      ensure
+        io.read_timeout = nil
+      end
+
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
-      def self.parse(io)
-        io.read_timeout = HANDSHAKE_TIMEOUT
+      def self.from_io(io : IO, format = nil) : self
         header = io.gets('\n', 107, chomp: true) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
@@ -85,14 +91,11 @@ module LavinMQ
           end
           i += 1
         end
-        src = Socket::IPAddress.new(src_addr, src_port)
-        dst = Socket::IPAddress.new(dst_addr, dst_port)
-        ConnectionInfo.new(src, dst, proxied: true)
-      ensure
-        io.read_timeout = nil
+        new(Socket::IPAddress.new(src_addr, src_port), Socket::IPAddress.new(dst_addr, dst_port))
       end
 
-      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      def to_conn_info : ConnectionInfo
+        ConnectionInfo.new(@src, @dst, proxied: true)
       end
 
       def to_io(io : IO, format = nil)
@@ -108,57 +111,37 @@ module LavinMQ
     end
 
     struct V2
-      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      enum Command : UInt8
+        Local = 0x20
+        Proxy = 0x21
       end
 
-      def to_io(io : IO, format = IO::ByteFormat::NetworkEndian)
-        io.write(Signature.to_slice)
-        io.write_byte 33u8 # PROXY
-        case @src.family
-        when Socket::Family::INET
-          io.write_byte Family::TCPv4.value
-          length = 4 + 4 + 2 + 2
-          io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
-          {@src, @dst}.each do |addr|
-            s_addr = addr.@addr.as(LibC::InAddr).s_addr
-            io.write_byte (s_addr & 0xFF).to_u8
-            io.write_byte (s_addr >> 8 & 0xFF).to_u8
-            io.write_byte (s_addr >> 16 & 0xFF).to_u8
-            io.write_byte (s_addr >> 24).to_u8
-          end
-          io.write_bytes @src.port.to_u16, format
-          io.write_bytes @dst.port.to_u16, format
-        when Socket::Family::INET6
-          raise NotImplementedError.new("IPv6")
-        when Socket::Family::UNIX
-          raise NotImplementedError.new("Unix")
-        else raise "unsupported address family: #{@src.family}"
+      # A type-length-value field, kept as read so that it's written back unchanged
+      record TLV, type : UInt8, value : Bytes
+
+      getter command : Command
+      # Nil when the address family is UNSPEC
+      getter src : Socket::IPAddress?
+      getter dst : Socket::IPAddress?
+      getter tlvs : Array(TLV)
+
+      def initialize(@src : Socket::IPAddress?, @dst : Socket::IPAddress?,
+                     @tlvs = Array(TLV).new, @command = Command::Proxy)
+        if (src = @src) && (dst = @dst)
+          raise ArgumentError.new("Mixed address families") unless src.family == dst.family
+        elsif @src || @dst
+          raise ArgumentError.new("Both or neither of src and dst must be given")
         end
-        io.flush
       end
 
-      def self.parse(io)
+      def self.parse(io) : ConnectionInfo
         io.read_timeout = HANDSHAKE_TIMEOUT
-        decode(io)
+        from_io(io).to_conn_info
       ensure
         io.read_timeout = nil
       end
 
-      # Reads a header, and returns it parsed and as its raw bytes
-      def self.read(io) : Tuple(ConnectionInfo, Bytes)
-        io.read_timeout = HANDSHAKE_TIMEOUT
-        fixed = uninitialized UInt8[16]
-        io.read_fully(fixed.to_slice)
-        length = IO::ByteFormat::NetworkEndian.decode(UInt16, fixed.to_slice[14, 2])
-        raw = Bytes.new(16 + length)
-        raw.copy_from(fixed.to_slice)
-        io.read_fully(raw + 16)
-        {decode(IO::Memory.new(raw, writeable: false)), raw}
-      ensure
-        io.read_timeout = nil
-      end
-
-      private def self.decode(io) : ConnectionInfo
+      def self.from_io(io : IO, format = IO::ByteFormat::NetworkEndian) : self
         buffer = uninitialized UInt8[16]
         # read_fully so a 16-byte header split across TCP segments isn't short-read (issue 2082)
         io.read_fully(buffer.to_slice)
@@ -166,113 +149,146 @@ module LavinMQ
         unless signature == Signature.to_slice
           raise InvalidSignature.new(signature.to_s)
         end
-        ver_cmd = buffer[12]
-        case ver_cmd
-        when 32
-          # LOCAL
-        when 33
-          # PROXY
-        else
-          raise InvalidVersionCmd.new ver_cmd.to_s
-        end
-        family = Family.from_value(buffer[13])
+        command = Command.from_value?(buffer[12]) || raise InvalidVersionCmd.new(buffer[12].to_s)
+        family = Family.from_value?(buffer[13]) || raise InvalidFamily.new(buffer[13].to_s)
         length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[14, 2])
 
         bytes = Bytes.new(length)
         io.read_fully(bytes)
 
-        header, pos = extract_address(family, bytes)
-        bytes = bytes + pos
-        header = extract_tlv(header, bytes)
-        header
+        src, dst, pos = decode_addresses(family, bytes)
+        new(src, dst, decode_tlvs(bytes + pos), command)
       end
 
-      private def self.extract_tlv(header : ConnectionInfo, bytes)
-        pos = 0
-        while pos < bytes.size
-          type = TLVType.from_value(bytes[pos]); pos += 1
-          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
-          value = bytes[pos, length]; pos += length
-          case type
-          when TLVType::SSL
-            header = extract_tlv_ssl(header, value)
-          else raise UnsupportedTLVType.new
-          end
-        end
-        header
-      end
-
-      private def self.extract_tlv_ssl(header, bytes)
-        pos = 0
-        _client = SSLCLIENT.from_value(bytes[pos]); pos += 1
-        verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
-        header.ssl = true
-        header.ssl_verify = verify.zero?
-
-        value = bytes + pos
-        extract_tlv_sub_ssl(header, value)
-      end
-
-      private def self.extract_tlv_sub_ssl(header, bytes)
-        pos = 0
-        while pos < bytes.size
-          ssl_type = SSLSubType.from_value(bytes[pos]); pos += 1
-          ssl_len = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
-          ssl_value = String.new(bytes[pos, ssl_len]); pos += ssl_len
-          case ssl_type
-          when SSLSubType::VERSION then header.ssl_version = ssl_value
-          when SSLSubType::CIPHER  then header.ssl_cipher = ssl_value
-          when SSLSubType::KEY_ALG then header.ssl_key_alg = ssl_value
-          when SSLSubType::SIG_ALG then header.ssl_sig_alg = ssl_value
-          when SSLSubType::CN      then header.ssl_cn = ssl_value
-          end
-        end
-        header
-      end
-
-      private def self.extract_address(family, bytes) : Tuple(ConnectionInfo, Int32)
+      private def self.decode_addresses(family, bytes) : Tuple(Socket::IPAddress?, Socket::IPAddress?, Int32)
         case family
+        when Family::UNSPEC
+          {nil, nil, 0}
         when Family::TCPv4
-          src_addr = bytes[0, 4].map(&.to_u8).join(".")
-          dst_addr = bytes[4, 4].map(&.to_u8).join(".")
-          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[8, 2])
-          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[10, 2])
-
-          src = Socket::IPAddress.new(src_addr, src_port.to_i32)
-          dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst, proxied: true), 12}
+          raise Error.new("Address block too short for TCPv4") if bytes.size < 12
+          src = Socket::IPAddress.v4(v4_fields(bytes[0, 4]), port: decode_port(bytes[8, 2]))
+          dst = Socket::IPAddress.v4(v4_fields(bytes[4, 4]), port: decode_port(bytes[10, 2]))
+          {src, dst, 12}
         when Family::TCPv6
-          # TODO: should be optmizied, now converted from binary to string to binary
-          src_addr = String.build(39) do |str|
-            8.times do |i|
-              str << ":" unless i.zero?
-              str << bytes[i * 2, 2].hexstring
-            end
-          end
-          dst_addr = String.build(39) do |str|
-            8.times do |i|
-              str << ":" unless i.zero?
-              str << bytes[16 + i * 2, 2].hexstring
-            end
-          end
-          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[32, 2])
-          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[34, 2])
-
-          src = Socket::IPAddress.new(src_addr, src_port.to_i32)
-          dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst, proxied: true), 36}
+          raise Error.new("Address block too short for TCPv6") if bytes.size < 36
+          src = Socket::IPAddress.v6(v6_fields(bytes[0, 16]), port: decode_port(bytes[32, 2]))
+          dst = Socket::IPAddress.v6(v6_fields(bytes[16, 16]), port: decode_port(bytes[34, 2]))
+          {src, dst, 36}
         else
           raise InvalidFamily.new family.to_s
         end
       end
 
-      Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
-
-      private enum SSLCLIENT : UInt8
-        SSL       = 0x01
-        CERT_CONN = 0x02
-        CERT_SESS = 0x04
+      private def self.decode_tlvs(bytes) : Array(TLV)
+        tlvs = Array(TLV).new
+        pos = 0
+        while pos < bytes.size
+          raise Error.new("Truncated TLV") if bytes.size - pos < 3
+          type = bytes[pos]
+          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos + 1, 2]).to_i
+          pos += 3
+          raise Error.new("Truncated TLV") if bytes.size - pos < length
+          tlvs << TLV.new(type, bytes[pos, length])
+          pos += length
+        end
+        tlvs
       end
+
+      private def self.v4_fields(bytes) : UInt8[4]
+        UInt8.static_array(bytes[0], bytes[1], bytes[2], bytes[3])
+      end
+
+      private def self.v6_fields(bytes) : UInt16[8]
+        StaticArray(UInt16, 8).new { |i| IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[i * 2, 2]) }
+      end
+
+      private def self.decode_port(bytes) : UInt16
+        IO::ByteFormat::NetworkEndian.decode(UInt16, bytes)
+      end
+
+      def to_conn_info : ConnectionInfo
+        src, dst = @src, @dst
+        raise InvalidFamily.new("UNSPEC") unless src && dst
+        conn_info = ConnectionInfo.new(src, dst, proxied: true)
+        @tlvs.each do |tlv|
+          case tlv.type
+          when TLVType::SSL.value then apply_ssl(conn_info, tlv.value)
+          else                         raise UnsupportedTLVType.new(tlv.type.to_s)
+          end
+        end
+        conn_info
+      end
+
+      private def apply_ssl(conn_info, bytes)
+        raise Error.new("Truncated SSL TLV") if bytes.size < 5
+        # bytes[0] is the client field, which flags how the client connected
+        verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[1, 4])
+        conn_info.ssl = true
+        conn_info.ssl_verify = verify.zero?
+        pos = 5
+        while pos < bytes.size
+          raise Error.new("Truncated SSL sub-TLV") if bytes.size - pos < 3
+          ssl_type = SSLSubType.from_value?(bytes[pos])
+          ssl_len = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos + 1, 2]).to_i
+          pos += 3
+          raise Error.new("Truncated SSL sub-TLV") if bytes.size - pos < ssl_len
+          ssl_value = String.new(bytes[pos, ssl_len])
+          pos += ssl_len
+          case ssl_type
+          when SSLSubType::VERSION then conn_info.ssl_version = ssl_value
+          when SSLSubType::CIPHER  then conn_info.ssl_cipher = ssl_value
+          when SSLSubType::KEY_ALG then conn_info.ssl_key_alg = ssl_value
+          when SSLSubType::SIG_ALG then conn_info.ssl_sig_alg = ssl_value
+          when SSLSubType::CN      then conn_info.ssl_cn = ssl_value
+          end
+        end
+      end
+
+      # The header is always in network byte order, *format* is ignored
+      def to_io(io : IO, format = IO::ByteFormat::NetworkEndian)
+        src, dst = @src, @dst
+        family, address_length =
+          if src && dst
+            case src.family
+            when .inet?  then {Family::TCPv4, 12}
+            when .inet6? then {Family::TCPv6, 36}
+            else              raise InvalidFamily.new(src.family.to_s)
+            end
+          else
+            {Family::UNSPEC, 0}
+          end
+        length = address_length + @tlvs.sum { |tlv| 3 + tlv.value.size }
+        raise Error.new("Header too long") if length > UInt16::MAX
+
+        io.write(Signature.to_slice)
+        io.write_byte @command.value
+        io.write_byte family.value
+        io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
+        if src && dst
+          write_address(io, src)
+          write_address(io, dst)
+          io.write_bytes src.port.to_u16, IO::ByteFormat::NetworkEndian
+          io.write_bytes dst.port.to_u16, IO::ByteFormat::NetworkEndian
+        end
+        @tlvs.each do |tlv|
+          io.write_byte tlv.type
+          io.write_bytes tlv.value.size.to_u16, IO::ByteFormat::NetworkEndian
+          io.write tlv.value
+        end
+        io.flush
+      end
+
+      private def write_address(io, addr : Socket::IPAddress)
+        if addr.family.inet?
+          fields = Socket::IPAddress.parse_v4_fields?(addr.address) || raise InvalidFamily.new(addr.address)
+          io.write fields.to_slice
+        else
+          fields = Socket::IPAddress.parse_v6_fields?(addr.address) || raise InvalidFamily.new(addr.address)
+          fields.each { |f| io.write_bytes f, IO::ByteFormat::NetworkEndian }
+        end
+      end
+
+      Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
 
       private enum TLVType : UInt8
         ALPN      = 0x01

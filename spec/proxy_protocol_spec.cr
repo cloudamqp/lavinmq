@@ -106,6 +106,61 @@ describe "ProxyProtocol" do
         0x92, 0x30, 0x16, 0x27
       ).to_slice
     end
+
+    it "writes a parsed header back unchanged, TLVs included" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x1e,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27, 0x20, 0x00, 0x0f, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x21, 0x00, 0x07, 0x54,
+        0x4c, 0x53, 0x76, 0x31, 0x2e, 0x33,
+      ).to_slice
+      header = LavinMQ::ProxyProtocol::V2.from_io(IO::Memory.new(pp_bytes))
+      header.tlvs.size.should eq 1
+      header.to_conn_info.ssl_version.should eq "TLSv1.3"
+      io = IO::Memory.new
+      io.write_bytes header, IO::ByteFormat::NetworkEndian
+      io.to_slice.should eq pp_bytes
+    end
+
+    it "writes and parses TCPv6 addresses" do
+      src = Socket::IPAddress.new("2001:db8::1", 37424)
+      dst = Socket::IPAddress.new("fe80::a:b", 5671)
+      io = IO::Memory.new
+      io.write_bytes LavinMQ::ProxyProtocol::V2.new(src, dst), IO::ByteFormat::NetworkEndian
+      io.to_slice[12, 4].should eq Bytes[0x21, 0x21, 0x00, 0x24]
+      io.rewind
+      conn_info = LavinMQ::ProxyProtocol::V2.from_io(io).to_conn_info
+      conn_info.remote_address.address.should eq "2001:db8::1"
+      conn_info.remote_address.port.should eq 37424
+      conn_info.local_address.address.should eq "fe80::a:b"
+      conn_info.local_address.port.should eq 5671
+    end
+
+    it "writes and parses a LOCAL header without addresses" do
+      io = IO::Memory.new
+      local = LavinMQ::ProxyProtocol::V2.new(nil, nil, command: LavinMQ::ProxyProtocol::V2::Command::Local)
+      io.write_bytes local, IO::ByteFormat::NetworkEndian
+      io.to_slice[12, 4].should eq Bytes[0x20, 0x00, 0x00, 0x00]
+      io.rewind
+      header = LavinMQ::ProxyProtocol::V2.from_io(io)
+      header.command.should eq LavinMQ::ProxyProtocol::V2::Command::Local
+      header.src.should be_nil
+      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) { header.to_conn_info }
+    end
+
+    it "refuses a TLV that is longer than the header" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x10,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27, 0x20, 0x00, 0x0e, 0x01,
+      ).to_slice
+      expect_raises(LavinMQ::ProxyProtocol::Error, "Truncated TLV") do
+        LavinMQ::ProxyProtocol::V2.from_io(IO::Memory.new(pp_bytes))
+      end
+    end
   end
 
   describe "auto-detection" do
