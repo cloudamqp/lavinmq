@@ -193,10 +193,17 @@ module LavinMQ::AMQP
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
+        purge(max_count) { }
+      end
+
+      # Yields the position of each purged message
+      def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
         while count < max_count && (env = shift?)
-          delete(env.segment_position)
+          sp = env.segment_position
+          delete(sp)
+          yield sp
           count += 1
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -204,8 +211,8 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def purge_all(&on_requeued : SegmentPosition ->)
+        @stores.each(&.purge_all(&on_requeued))
         @empty.set true
       end
 

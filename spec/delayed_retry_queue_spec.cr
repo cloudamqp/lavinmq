@@ -38,12 +38,12 @@ class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
   class_property? fail_next_push = false
   class_property? fail_next_purge = false
 
-  def purge_all
+  def purge_all(&on_requeued : LavinMQ::SegmentPosition ->)
     if self.class.fail_next_purge?
       self.class.fail_next_purge = false
       raise LavinMQ::MessageStore::Error.new(@wfile)
     end
-    previous_def
+    previous_def(&on_requeued)
   end
 
   def push(msg) : SegmentPosition
