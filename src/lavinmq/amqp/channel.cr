@@ -64,7 +64,8 @@ module LavinMQ
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
       @tx = false
-      @next_msg_body_tmp = IO::Memory.new
+      @publish_body = PublishBody.new
+      @body_buffer = Atomic(BodyBuffer?).new(nil)
 
       rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_no_ack", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
@@ -186,7 +187,7 @@ module LavinMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(@next_msg_body_tmp) if frame.body_size.zero?
+        finish_publish(@publish_body.reset(Bytes.empty)) if frame.body_size.zero?
       end
 
       @next_msg_body_file_pos = 0
@@ -208,16 +209,7 @@ module LavinMQ
             @next_msg_body_file_pos = 0
           end
         elsif frame.body_size == @next_msg_size
-          copied = IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
-          if copied != frame.body_size
-            raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
-          end
-          @next_msg_body_tmp.rewind
-          begin
-            finish_publish(@next_msg_body_tmp)
-          ensure
-            @next_msg_body_tmp.clear
-          end
+          publish_single_frame(frame)
         else
           copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)
           if copied != frame.body_size
@@ -231,6 +223,65 @@ module LavinMQ
               next_msg_body_file.rewind
             end
           end
+        end
+      end
+
+      # The body is read from the socket straight into the channel's body buffer.
+      # The read loop takes the buffer out of the slot for the publish and puts it
+      # back after. `release_idle_buffers` frees it once a whole pass went by
+      # without a publish, so an idle channel keeps no body buffer and an active
+      # one never allocates.
+      private def publish_single_frame(frame) : Nil
+        size = frame.body_size.to_i32
+        buffer = @body_buffer.swap(nil)
+        if buffer.nil? || buffer.bytes.size < size
+          buffer = BodyBuffer.new(Math.pw2ceil(Math.max(size, 4096)))
+        end
+        buffer.used = true
+        begin
+          body = buffer.bytes[0, size]
+          frame.body.read_fully(body)
+          finish_publish(@publish_body.reset(body))
+        ensure
+          @publish_body.reset(Bytes.empty) # so a released buffer can be collected
+          @body_buffer.set(buffer)
+        end
+      end
+
+      # Second chance: a buffer used since the previous pass is kept and marked
+      # unused, one still unused is freed. A publish never waits for this: the
+      # slot is empty for a moment, so a publish right then allocates its own
+      # buffer, and the put back below then fails and drops this one.
+      def release_idle_buffers : Nil
+        buffer = @body_buffer.swap(nil) || return
+        return unless buffer.used?
+        buffer.used = false
+        @body_buffer.compare_and_set(nil, buffer)
+      end
+
+      # The read loop sets `used` while it holds the buffer, before putting it
+      # back in the slot, so the swap that takes it out again sees the write.
+      private class BodyBuffer
+        getter bytes : Bytes
+        property? used = false
+
+        def initialize(capacity : Int32)
+          @bytes = Bytes.new(GC.malloc_atomic(capacity.to_u32).as(UInt8*), capacity)
+        end
+      end
+
+      # An IO::Memory over a borrowed buffer, so the same instance serves every
+      # publish without allocating. Message#to_io's IO::Memory fast path applies.
+      class PublishBody < ::IO::Memory
+        def initialize
+          super(Bytes.empty, writable: false)
+        end
+
+        def reset(slice : Bytes) : self
+          @buffer = slice.to_unsafe
+          @bytesize = @capacity = slice.size
+          @pos = 0
+          self
         end
       end
 
