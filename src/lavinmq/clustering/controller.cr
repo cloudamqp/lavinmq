@@ -3,6 +3,7 @@ require "../etcd"
 require "../filesystem"
 require "./client"
 require "./etcd_coordinator"
+require "wait_group"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
@@ -34,23 +35,17 @@ class LavinMQ::Clustering::Controller
 
   def run(&)
     lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
+    lease_released = WaitGroup.new
+    lease_released.spawn(name: "Lease watcher") { watch_lease(lease) }
     spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync(lease)
+    wait_to_be_insync
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     yield
-    loop do
-      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
-    end
-  rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopped
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
-    end
+    lease_released.wait # until #stop releases the lease
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
     exit 3
@@ -59,10 +54,34 @@ class LavinMQ::Clustering::Controller
     exit 3
   end
 
-  @stopped = false
+  # Exits when the lease expires, whether this node follows, campaigns, starts
+  # or serves: etcd answers a campaign on an expired lease as won
+  private def watch_lease(lease : Etcd::Lease) : Nil
+    loop do
+      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
+    end
+  rescue ex : Etcd::Lease::Expired
+    stopping = @stopping.get
+    return if stopping.stepping_down? # never led, so no leader_lost hook
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost") if @elected_leader.value
+    if stopping.none?
+      Log.fatal { "Lease expired: #{ex.cause.try(&.message) || ex.message}" }
+      exit 3
+    end
+  end
+
+  # Why this node releases its lease, set before it does so the lease watcher
+  # can tell a release from a lost lease
+  enum Stopping
+    None
+    Stop         # #stop
+    SteppingDown # #ensure_in_isr!
+  end
+
+  @stopping = Atomic(Stopping).new(Stopping::None)
 
   def stop
-    @stopped = true
+    @stopping.set(Stopping::Stop)
     @repli_client.try &.close
     @lease.try &.release
   end
@@ -149,6 +168,7 @@ class LavinMQ::Clustering::Controller
     # Release the lease explicitly: the election key is bound to it, so this
     # revokes the just-won leadership at once instead of leaving the cluster
     # leaderless until the lease TTL expires.
+    @stopping.set(Stopping::SteppingDown)
     begin
       @lease.try &.release
     rescue ex
@@ -157,7 +177,7 @@ class LavinMQ::Clustering::Controller
     exit 3
   end
 
-  def wait_to_be_insync(lease)
+  def wait_to_be_insync
     if isr = @coordinator.isr
       unless isr.includes?(@id)
         Log.info { "ISR: #{isr.to_a}" }
@@ -171,17 +191,8 @@ class LavinMQ::Clustering::Controller
             end
           end
         end
-        select
-        when err = lease.expired.receive?
-          if err
-            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
-          else
-            Log.fatal { "Lease expired while waiting to be in sync" }
-          end
-          exit 3
-        when in_sync.receive?
-          Log.info { "In sync with leader" }
-        end
+        in_sync.receive?
+        Log.info { "In sync with leader" }
       end
     end
   end

@@ -107,23 +107,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "signals expired channel with the underlying error", tags: "slow" do
-    cluster = EtcdCluster.new
-    cluster.run do |etcds|
-      etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 1)
-      etcds.first(2).each &.terminate(graceful: false)
-
-      select
-      when err = lease.expired.receive?
-        err.should be_a(LavinMQ::Etcd::Error)
-      when timeout(20.seconds)
-        fail "lease.expired channel never signaled"
-      end
-    end
-  end
-
   it "signals expired channel when all lease is revoked", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
@@ -283,6 +266,37 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
+
+  # "no leader" during an etcd leader election, EOF while the etcd member
+  # restarts (the gateway's error, raised as IO::EOFError)
+  {LavinMQ::Etcd::NoLeader.new("etcdserver: no leader"), IO::EOFError.new("error reading from server: EOF")}.each do |error|
+    it "keeps the lease through a transient #{error.class}" do
+      failed = Atomic(Bool).new(false)
+      etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) do
+        raise error unless failed.swap(true)
+        3
+      end)
+      lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+      lease.wait(4.seconds) # keepalives every second, the first one fails
+    ensure
+      lease.try &.release
+    end
+  end
+
+  it "expires locally when no keepalive succeeds within the TTL" do
+    # Like a keepalive stuck in Etcd#with_tcp's retry loop while etcd has no quorum
+    etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) { sleep 1.hour; 3 })
+    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(6.seconds) }
+  end
+
+  it "expires when etcd reports the lease gone" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    # Within the TTL, so the local deadline can't be what ends it
+    ex = expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(2.seconds) }
+    ex.cause.should be_a(LavinMQ::Etcd::LeaseNotFound)
+  end
 end
 
 class EtcdCluster
@@ -362,12 +376,13 @@ class EtcdCluster
 end
 
 # Etcd stand-in that never connects and records whether the lease had already
-# signaled expiry when the revoke was sent
+# signaled expiry when the revoke was sent. Keepalives report the lease gone,
+# unless a *keepalive* is given.
 private class RecordingEtcd < LavinMQ::Etcd
   property lease : LavinMQ::Etcd::Lease?
   getter expired_before_revoke : Bool?
 
-  def initialize(endpoints, @revoke_error : Exception? = nil)
+  def initialize(endpoints, @revoke_error : Exception? = nil, @keepalive : Proc(Int64, Int32)? = nil)
     super(endpoints)
   end
 
@@ -377,6 +392,9 @@ private class RecordingEtcd < LavinMQ::Etcd
   end
 
   def lease_keepalive(id) : Int32
+    if keepalive = @keepalive
+      return keepalive.call(id.to_i64)
+    end
     raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
   end
 end
