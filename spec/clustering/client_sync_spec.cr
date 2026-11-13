@@ -58,6 +58,21 @@ module ClientSyncSpec
     client_io.try &.close
   end
 
+  # Writes `dirs` x `files_per_dir` small segment-like files and returns them as
+  # the leader's file list, with the same content so their checksums match.
+  def self.write_cached_files(data_dir : String, dirs : Int32, files_per_dir : Int32) : Hash(String, String)
+    leader_files = Hash(String, String).new
+    dirs.times do |d|
+      Dir.mkdir File.join(data_dir, "q#{d}")
+      files_per_dir.times do |f|
+        name = "q#{d}/msgs.#{f.to_s.rjust(10, '0')}"
+        File.write File.join(data_dir, name), name
+        leader_files[name] = name
+      end
+    end
+    leader_files
+  end
+
   # One replication record: a negative length appends, a positive one replaces.
   def self.write_record(lz4 : Compress::LZ4::Writer, filename : String, len : Int64, bytes : Bytes)
     lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
@@ -624,6 +639,49 @@ module ClientSyncSpec
 
           Dir.exists?(File.join(data_dir, "queue1")).should be_true
           Dir.exists?(File.join(data_dir, "queue2")).should be_false
+        end
+      end
+
+      # Removing each leader file from arrays of local files and dirs made the
+      # comparison quadratic: 30k files took about 6 s, now about 0.3 s. The
+      # bound is loose because the measured block also includes the simulated
+      # leader and a non-release build on a busy runner.
+      it "compares a large data dir in linear time" do
+        with_datadir do |data_dir|
+          leader_files = write_cached_files(data_dir, dirs: 100, files_per_dir: 300)
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          elapsed = Time.measure { sync_with_leader(client, leader_files) }
+          elapsed.should be < 2.seconds
+          Dir.children(data_dir).count(&.starts_with?("q")).should eq 100
+        end
+      end
+
+      # With cached checksums nothing in the comparison yields on its own, so
+      # without periodic yields it blocks client proxies, the HTTP API and acks.
+      it "lets other fibers run while comparing a large data dir" do
+        with_datadir do |data_dir|
+          leader_files = write_cached_files(data_dir, dirs: 4, files_per_dir: 1000)
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          logs = ::Log::MemoryBackend.new
+          ::Log.builder.bind("lmq.clustering.client", :info, logs)
+          ran_while_comparing = false
+          stop = false
+          spawn do
+            until stop
+              last = logs.entries.last?.try(&.message) || ""
+              # "Comparing files" or "Compared 1/4000 files…" while the loop
+              # runs; "Compared 4000 files, 0 to sync" once it's done.
+              ran_while_comparing = true if last == "Comparing files" || last.matches?(/\ACompared \d+\/\d+ files/)
+              Fiber.yield
+            end
+          end
+          sync_with_leader(client, leader_files)
+          stop = true
+          ran_while_comparing.should be_true
+        ensure
+          ::Log.builder.unbind("lmq.clustering.client", :info, logs) if logs
         end
       end
     end
