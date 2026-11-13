@@ -147,7 +147,7 @@
   delete:
     tags:
     - queues
-    description: Remove a specific queue by name and vhost.
+    description: Remove a specific queue by name and vhost. Internal queues, such as a queue's `amq.retry-` queue, are deleted with the queue they belong to and are refused with 403.
     summary: Delete queue
     operationId: DeleteQueue
     responses:

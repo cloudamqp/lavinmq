@@ -45,19 +45,36 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
-      load_segments_from_disk
-      load_acks_from_disk
+      # Another instance can have emptied segments in the same directory,
+      # e.g. the store of a queue that is restarted
+      @persister.try &.flush_unlinks(@msg_dir)
+      close_on_error do
+        load_segments_from_disk
+        load_acks_from_disk
+      end
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
-      unless @closed
-        load_stats_from_segments
-        prune_orphaned_acks
-        delete_unused_segments
+      close_on_error do
+        unless @closed
+          load_stats_from_segments
+          prune_orphaned_acks
+          delete_unused_segments
+        end
+        readahead_for_writes(@wfile) unless @closed
+        @empty.set empty? unless @closed
       end
-      readahead_for_writes(@wfile) unless @closed
-      @empty.set empty? unless @closed
+    end
+
+    # Unmaps the segments and ack files opened before a failure while
+    # loading, the caller gets no store to close. Doesn't call #close, which
+    # subclasses override to close what they set up after super.
+    private def close_on_error(&)
+      yield
+    rescue ex
+      close_store
+      raise ex
     end
 
     def push(msg) : SegmentPosition
@@ -98,7 +115,8 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
@@ -164,7 +182,8 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
@@ -229,12 +248,7 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
-          if seg = @segments.delete(sp.segment)
-            delete_file(seg, including_meta: true)
-          end
+          unlink_segment(sp.segment)
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
         end
@@ -268,7 +282,6 @@ module LavinMQ
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
-        delete_file(file, including_meta: true)
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
@@ -282,9 +295,7 @@ module LavinMQ
           ready = acked < msg_count ? msg_count - acked : 0u32
           @size -= Math.min(ready, @size)
         end
-        if afile = @acks.delete(seg_id)
-          delete_file(afile)
-        end
+        unlink_files(file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
         true
       end
@@ -300,17 +311,76 @@ module LavinMQ
         @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
       end
 
+      # The msgs are gone, so their counts in the meta files are too
+      delete_meta_files
+
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
     end
 
+    private def delete_meta_files : Nil
+      @segments.each_value do |file|
+        meta = meta_file_name(file)
+        next unless File.exists?(meta)
+        @replicator.try &.delete_file(meta)
+        File.delete?(meta)
+      end
+    end
+
     def delete
       @closed = true
       @empty.close
+      # Not left to the persister like an emptied segment: a queue's delete
+      # is durable in the definitions before its store is deleted, so its
+      # files have nothing left to recover. The messages moved out of them
+      # are only in their destinations now, so those are synced soon.
+      @persister.try &.drain_soon
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
+    end
+
+    # Messages moved out of a segment (dead-lettered, delayed, retried) can be
+    # unsynced in their destinations, and the unlink must not become durable
+    # first, so the persister unlinks the files, after its next sync. A
+    # non-durable store has none, and no copy to wait for.
+    private def unlink_segment(seg_id : UInt32) : Nil
+      if segment = @segments.delete(seg_id)
+        unlink_files(segment, @acks.delete(seg_id))
+      elsif acks = @acks.delete(seg_id)
+        delete_file(acks)
+      end
+    end
+
+    private def unlink_files(segment : MFile, acks : MFile?) : Nil
+      if persister = @persister
+        persister.unlink_after_sync(segment, meta_file_name(segment), acks)
+      else
+        # The segment first, see Persister#perform
+        delete_file(segment, including_meta: true)
+        acks.try { |file| delete_file(file) }
+      end
+    end
+
+    # Segment files are the source of truth: count their msgs and rewrite the
+    # meta files, as a load does without them
+    private def recount_from_segments : Nil
+      @log.warn { "#{@size} msgs counted but none left to read, recounting from the segment files" }
+      @segments.each do |seg, mfile|
+        read_pos = mfile.pos
+        count_messages(seg, mfile)
+        raise Error.new(mfile) if @closed # a corrupt segment closed the store
+        mfile.pos = read_pos
+      end
+      readahead_for_writes(@wfile) # count_messages left it advised for random access
+      # count_messages adds the msgs that aren't acked to the counters, as at
+      # load, but all of them have been read
+      @size = 0u32
+      @bytesize = 0u64
+      @empty.set true
+      # Segments whose msgs turned out to all be acked
+      delete_unused_segments
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -329,6 +399,10 @@ module LavinMQ
     end
 
     def close : Nil
+      close_store
+    end
+
+    private def close_store : Nil
       return if @closed
       @closed = true
       @empty.close
@@ -405,7 +479,7 @@ module LavinMQ
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
-      if msg.needs_sync? && (persister = @persister)
+      if (msg.needs_sync? || msg.moved?) && (persister = @persister)
         persister.mark_dirty(wfile)
       end
       random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
@@ -625,7 +699,7 @@ module LavinMQ
                 replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
               end
             end
-            close
+            close_store
             break
           end
         end
@@ -718,6 +792,12 @@ module LavinMQ
           @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
           raise ex
         end
+      end
+      # Every msg is at least MIN_BYTESIZE, so the msgs left in the segment have
+      # to fit in the bytes the acked msgs don't take up. If they don't, the
+      # meta file counts msgs that the segment doesn't hold.
+      if count.to_u64 * BytesMessage::MIN_BYTESIZE > bytesize
+        raise MetadataError.new("Metadata file #{metafile} counts #{count} msgs left in #{bytesize} bytes")
       end
       mfile.pos = 4
       mfile.dontneed
@@ -817,7 +897,7 @@ module LavinMQ
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close
+        close_store
         return count
       end
       mfile.pos = 4
@@ -837,10 +917,7 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          if ack = @acks.delete(seg)
-            delete_file(ack)
-          end
-          delete_file(mfile, including_meta: true)
+          unlink_files(mfile, @acks.delete(seg))
           true
         else
           false

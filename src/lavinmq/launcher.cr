@@ -67,6 +67,7 @@ module LavinMQ
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
+      GCPauseRecorder.install
     end
 
     private def start : self
@@ -130,6 +131,9 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       Log.info { "Parallelism: #{Fiber::ExecutionContext.default.capacity}" }
+      {% if flag?(:patched_libgc) %}
+        Log.info { "libgc #{GC::LIBGC_VERSION}, mark stack growth: #{LibGC.get_grow_mark_stack == 1 ? "on" : "off"}" }
+      {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
       Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?

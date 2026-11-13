@@ -13,6 +13,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+      - packaging/libgc/**
       - packaging/rpm/**
   workflow_dispatch:
 concurrency:
@@ -27,7 +28,7 @@ jobs:
       # several ran at once
       max-parallel: 1
       matrix:
-        os: ['fedora-44', 'fedora-43', 'el-9']
+        os: ['fedora-45', 'fedora-44', 'fedora-43', 'el-9', 'el-10']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:

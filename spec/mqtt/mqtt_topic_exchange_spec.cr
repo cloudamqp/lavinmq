@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 # In the AMQP namespace because AMQP::Exchange#bind refuses any destination
 # whose class lives outside it.
@@ -412,6 +413,144 @@ module MqttSpecs
       end
     end
 
+    # The exchange only routes MQTT publishes, which can't carry an x-delay,
+    # so a delayed x-mqtt-topic exchange would only look delayed
+    it "refuses to declare a delayed exchange over AMQP" do
+      with_server do |server|
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => true}))
+          end
+        end
+        with_channel(server) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+            ch.exchange_declare("xmqtt", "x-delayed-message", args: AMQP::Client::Arguments.new({"x-delayed-type" => "x-mqtt-topic"}))
+          end
+        end
+        server.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    it "refuses to declare an exchange with any x-delayed-exchange value but false" do
+      with_server do |server|
+        ["true", 1].each do |value|
+          with_channel(server) do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*can't be delayed/) do
+              ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => value}))
+            end
+          end
+        end
+        with_channel(server) do |ch|
+          ch.exchange_declare("xmqtt", "x-mqtt-topic", args: AMQP::Client::Arguments.new({"x-delayed-exchange" => false}))
+        end
+        server.vhosts["/"].exchange?("xmqtt").should_not be_nil
+      end
+    end
+
+    it "refuses to declare a delayed exchange over the HTTP API" do
+      with_http_server do |http, s|
+        body = %({"type": "x-mqtt-topic", "durable": true, "arguments": {"x-delayed-exchange": true}})
+        response = http.put("/api/exchanges/%2f/xmqtt", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+      end
+    end
+
+    delayed_definitions = <<-JSON
+      {
+        "queues": [{"name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}}],
+        "exchanges": [{"name": "xmqtt", "vhost": "/", "type": "x-delayed-exchange", "durable": true,
+                       "auto_delete": false, "internal": true, "arguments": {"x-delayed-type": "x-mqtt-topic"}}]
+      }
+      JSON
+
+    it "refuses to import a delayed exchange from definitions and imports nothing" do
+      with_http_server do |http, s|
+        response = http.post("/api/definitions", body: delayed_definitions)
+        response.status_code.should eq 400
+        response.body.should contain "can't be delayed"
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
+      end
+    end
+
+    it "refuses to import a delayed exchange into a vhost and imports nothing" do
+      with_http_server do |http, s|
+        response = http.post("/api/definitions/%2f", body: delayed_definitions)
+        response.status_code.should eq 400
+        s.vhosts["/"].exchange?("xmqtt").should be_nil
+        s.vhosts["/"].queue_exists?("q1").should be_false
+      end
+    end
+
+    it "refuses to load a delayed exchange from a definitions file" do
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, delayed_definitions)
+      begin
+        with_amqp_server do |s|
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be delayed/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+          s.vhosts["/"].exchange?("xmqtt").should be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    # The exchange only routes MQTT publishes, so dead-letters into it are
+    # dropped. That's logged once, as a burst would flood the log.
+    {% for dlx in ["xmqtt", "mqtt.default"] %}
+    it "drops messages dead-lettered into {{ dlx.id }} and logs a warning once" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        with_channel(server) do |ch|
+          ch.queue_declare("dst")
+          ch.queue_bind("dst", "xmqtt", "#")
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({
+            "x-message-ttl"             => 1,
+            "x-dead-letter-exchange"    => {{ dlx }},
+            "x-dead-letter-routing-key" => "a/b",
+          }))
+          Log.capture("lmq.queue", :warn) do |logs|
+            3.times { src.publish_confirm "x" }
+            wait_for { vhost.queue("src").message_count.zero? }
+            logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange '{{ dlx.id }}'")).should eq 1
+          end
+          vhost.queue("dst").message_count.should eq 0
+        end
+      end
+    end
+    {% end %}
+
+    it "warns again when the dead-letter exchange changes away and back" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        set_dlx = ->(dlx : String) do
+          vhost.add_policy("dlx", "^src$", "queues", {"dead-letter-exchange" => JSON::Any.new(dlx)}, 0_i8)
+          wait_for { vhost.queue("src").@dead_letter.dlx == dlx }
+        end
+        with_channel(server) do |ch|
+          src = ch.queue("src", args: AMQP::Client::Arguments.new({"x-message-ttl" => 1}))
+          Log.capture("lmq.queue", :warn) do |logs|
+            warnings = -> { logs.@entries.count(&.message.includes?("Dropping dead-lettered messages: exchange 'xmqtt'")) }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            warnings.call.should eq 1
+            set_dlx.call("amq.topic")
+            src.publish_confirm "x"
+            wait_for { vhost.queue("src").message_count.zero? }
+            set_dlx.call("xmqtt")
+            src.publish_confirm "x"
+            wait_for { warnings.call == 2 }
+          end
+        end
+      end
+    end
+
     it "allows exchange.bind with the exchange as source" do
       with_server do |server|
         vhost = server.vhosts["/"]
@@ -527,7 +666,8 @@ module MqttSpecs
         vhost = server.vhosts["/"]
         with_client_io(server) do |io|
           connect(io)
-          publish(io, topic: "a/b/c", payload: "retained".to_slice, qos: 0u8, retain: true)
+          # QoS 1 waits for the PUBACK, so the message is routed before the bind
+          publish(io, topic: "a/b/c", payload: "retained".to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
 
@@ -575,6 +715,59 @@ module MqttSpecs
         queue.basic_get(no_ack: true) do |env|
           env.message.routing_key.should eq "a/b"
         end.should be_true
+      end
+    end
+
+    # The exchange carries the vhost's MQTT traffic: without this, a user that
+    # may only configure its own names could read every MQTT topic
+    describe "declare permissions" do
+      lim_perms = ->(server : LavinMQ::Server, read : Regex) do
+        server.users.create("lim", "pw", [LavinMQ::Tag::Management])
+        server.users.add_permission("lim", "/", /^lim\./, read, /^lim\./)
+      end
+      lim_headers = ::HTTP::Headers{"Authorization" => "Basic bGltOnB3", "Content-Type" => "application/json"} # lim:pw
+
+      it "refuses exchange.declare without read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^lim\./)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED.*mqtt\.default/) do
+              ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            end
+          end
+          server.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows exchange.declare and binding with read permission on mqtt.default" do
+        with_server do |server|
+          lim_perms.call(server, /^(lim\.|mqtt\.default$)/)
+          with_channel(server, user: "lim", password: "pw") do |ch|
+            ch.exchange_declare("lim.mq", "x-mqtt-topic")
+            ch.queue_declare("lim.q")
+            ch.queue_bind("lim.q", "lim.mq", "#")
+          end
+          server.vhosts["/"].exchange("lim.mq").binding_count.should eq 1
+        end
+      end
+
+      it "refuses declaring over the HTTP API without read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^lim\./)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 403
+          response.body.should contain "mqtt.default"
+          s.vhosts["/"].exchange?("lim.mq").should be_nil
+        end
+      end
+
+      it "allows declaring over the HTTP API with read permission on mqtt.default" do
+        with_http_server do |http, s|
+          lim_perms.call(s, /^(lim\.|mqtt\.default$)/)
+          response = http.put("/api/exchanges/%2f/lim.mq", headers: lim_headers, body: %({"type": "x-mqtt-topic"}))
+          response.status_code.should eq 201
+          s.vhosts["/"].exchange?("lim.mq").should be_a(LavinMQ::AMQP::MqttTopicExchange)
+        end
       end
     end
   end

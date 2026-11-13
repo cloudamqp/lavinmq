@@ -12,6 +12,16 @@ class LavinMQ::Launcher
   end
 end
 
+# Counts the data dir syncs a reload does, see Config#sync_data_dir_after_enabled
+class LavinMQ::Config
+  getter spec_data_dir_syncs = Atomic(Int32).new(0)
+
+  private def sync_data_dir : Nil
+    previous_def
+    @spec_data_dir_syncs.add(1)
+  end
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -708,6 +718,30 @@ describe LavinMQ::Config do
   end
 
   describe "reload" do
+    it "syncs the data dir once when sync is enabled again" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      data_dir = File.tempname("lavinmq-data")
+      Dir.mkdir_p(data_dir)
+      begin
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = false\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.sync?.should be_false
+
+        config.reload # still disabled
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = true\n")
+        config.reload
+        config.sync?.should be_true
+        config.spec_data_dir_syncs.get.should eq 1 # before the reload returns
+        config.reload                              # already enabled
+        config.spec_data_dir_syncs.get.should eq 1
+      ensure
+        File.delete?(config_file.path)
+        FileUtils.rm_rf(data_dir)
+        Log.setup(:fatal)
+      end
+    end
+
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin

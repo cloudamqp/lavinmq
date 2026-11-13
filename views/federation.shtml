@@ -65,7 +65,7 @@
           <span class="when-edit">Edit upstream</span>
         </h3>
         <fieldset>
-          <legend>General paramenters</legend>
+          <legend>General parameters</legend>
           <label class="when-create">
             <span>Virtual host</span>
             <select class="dropdown" name="vhost" required></select>
