@@ -36,6 +36,29 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 
 PRs are reviewed by AI in CI. To run the same review locally, install [local-review](https://github.com/84codes/local-review) and run `local-review install` in the repo. This adds an optional pre-push hook and a CLI (`local-review`, `local-review 42`).
 
+#### Performance regressions
+
+A performance regression is treated as a breaking change. On every PR that touches the broker, the `Performance` workflow runs a performance review in two steps:
+
+1. Claude reads the diff and decides whether the change can affect performance: message throughput, memory use, how much the broker writes, or HTTP API speed. If it can, Claude picks scenarios from `extras/perf_scenarios.json`, or designs new ones, that exercise the changed code, covering only the protocols the change touches. A change that can't affect any of these, such as docs, the UI or logging, skips the comparison. If planning fails, the check fails. PRs from forks have no API key, so a maintainer has to run the check for them.
+1. The workflow builds the PR's base and head in release mode and runs `extras/perf_compare.sh` with those scenarios. It benchmarks both brokers with `lavinmqperf` in interleaved rounds on the same machine.
+   - Besides message throughput, a scenario can gate the broker's peak memory, the bytes it writes per published message, and HTTP API requests/s.
+   - A scenario can run background `lavinmqperf` processes next to the measured one. For example, unconfirmed publishes next to confirmed ones show whether a change adds syncs, and many idle queues or connections show memory use.
+   - The check fails if a gated metric's median gets worse by more than 5% for throughput, or 10% for memory and writes.
+   - The scenario format is documented at the top of `extras/perf_compare.sh`.
+
+Claude's reasoning, the scenarios and the results are posted as one PR comment, updated on every push.
+
+To reproduce locally, build the base into a separate worktree and compare:
+
+1. `git worktree add ../lavinmq-base main && make -C ../lavinmq-base bin/lavinmq bin/lavinmqperf CRYSTAL_FLAGS=--release`
+1. `make bin/lavinmq CRYSTAL_FLAGS=--release`
+1. `PERF=../lavinmq-base/bin/lavinmqperf extras/perf_compare.sh ../lavinmq-base/bin/lavinmq bin/lavinmq`
+
+This runs every scenario in `extras/perf_scenarios.json`. To run your own set, write a list in the same format and pass it with `SCENARIOS_FILE=my-scenarios.json`. Check a file without running it with `extras/perf_compare.sh --validate my-scenarios.json`.
+
+If a regression is an intentional trade-off, explain it in the PR, add the `perf-regression-accepted` label and re-run the job.
+
 #### Frontend development
 
 Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system:
