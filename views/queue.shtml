@@ -156,6 +156,9 @@
               Bindings
               <small class="tiny-badge counter-pill" id="bindings-count"></small>
             </h2>
+            <div class="btn-holder">
+              <button type="button" class="btn btn-green" command="show-modal" commandfor="add-binding-dialog">+ Add binding</button>
+            </div>
           </div>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
@@ -172,8 +175,12 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6">
-          <h3>Add a binding to this queue</h3>
+        <dialog id="add-binding-dialog" class="dialog" closedby="any">
+          <div class="dialog-header">
+            <h3>Add a binding to this queue</h3>
+            <button type="button" class="dialog-close" command="close" commandfor="add-binding-dialog" aria-label="Close">&#x2715;</button>
+          </div>
+          <form method="post" id="addBinding" class="form">
           <label>
             <span>From exchange</span>
             <input name="source" type="text" required list="exchange-list">
@@ -187,8 +194,11 @@
             <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
-          <button type="submit" class="btn btn-outlined">Bind</button>
-        </form>
+          <div class="dialog-footer">
+            <button type="submit" class="btn btn-outlined btn-inline">Bind</button>
+          </div>
+          </form>
+        </dialog>
       </div>
       <div data-tab-bar="tab" data-tab-content="messages">
         <form method="post" id="publishMessage" class="form card cols-6">

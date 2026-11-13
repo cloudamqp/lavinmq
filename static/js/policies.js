@@ -48,6 +48,7 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
       Form.editItem('#createPolicy', item, {
         definition: item => Helpers.formatJSONargument(item.definition || {})
       })
+      document.getElementById('add-policy-dialog').showModal()
     }
   })
   buttons.append(editBtn, deleteBtn)
@@ -70,6 +71,7 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
     .then(() => {
       policiesTable.reload()
       evt.target.reset()
+      document.getElementById('add-policy-dialog').close()
     })
     .catch(() => {})
 })
