@@ -105,6 +105,24 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "doesn't restore a deleted exchange's bindings on an exchange redeclared with its name" do
+    with_amqp_server do |s|
+      s.vhosts.create("test")
+      v = s.vhosts["test"]
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_exchange("e2", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "rk")
+      v.bind_exchange("e2", "e", "rk")
+      v.delete_exchange("e")
+      v.declare_exchange("e", "direct", true, false)
+      v.bind_queue("q", "e", "new")
+      restart_server(s)
+      bindings = s.vhosts["test"].exchange("e").bindings_details
+      bindings.map { |b| {b.destination.name, b.routing_key} }.should eq [{"q", "new"}]
+    end
+  end
+
   it "should not write bind frame to definition file for existing binding" do
     with_amqp_server do |s|
       s.vhosts.create("test")
