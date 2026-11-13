@@ -595,12 +595,11 @@ describe LavinMQ::Federation::Upstream do
 
     it "should continue after upstream restart", tags: "slow" do
       with_amqp_server do |s|
-        # Use reconnect delay so we have time to see state being stopped
-        # and that we can publish a message before it's reconnected
+        # A long reconnect delay, cut short once the stopped state and the publish are seen
         upstream, upstream_vhost, _downstream_vhost = \
            UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart",
             "upstream_ex",
-            reconnect_delay: 1.second)
+            reconnect_delay: 5.seconds)
         UpstreamSpecHelpers.start_link(upstream)
         s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
         s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -646,10 +645,9 @@ describe LavinMQ::Federation::Upstream do
             # publish before reconnect
             upstream_ex.publish_confirm "msg2", "rk2"
 
-            # we can make it connect instantly (to speed up specs)
-            # this is because we know the internals of the link and that
-            # a timeout in a select is used together with the event channel
-            link.@state_changed.try_send nil
+            # Shorten the delay and wake the link's select, which only takes a send while it waits there
+            upstream.reconnect_delay = 1.millisecond
+            wait_for { link.@state_changed.try_send?(nil) || !link.state.stopped? }
 
             upstream_ex.publish_confirm "msg3", "rk3"
             msgs.should be_receiving "msg2"

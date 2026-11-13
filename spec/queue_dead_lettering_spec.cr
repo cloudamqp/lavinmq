@@ -218,21 +218,19 @@ module DeadLetteringSpec
 
       it "should dead letter when ttl expires while unacked and reject(requeue=true)", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, ch, _|
-          # Generous TTL so the message is still alive when we get it: the gap
-          # between publish_confirm and q.get is two AMQP round-trips, which can
-          # exceed a tight TTL on a loaded runner and expire the message in the
-          # queue before we receive it (q.get would then return nil). The sleep
-          # below still outlasts the TTL, so it expires while unacked.
-          props = AMQP::Client::Properties.new(expiration: "1000")
-          ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
+          # With the clock paused, the message expires only when moved past its TTL, while unacked
+          RoughTime.paused do |t|
+            props = AMQP::Client::Properties.new(expiration: "1000")
+            ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
 
-          msg = q.get(no_ack: false).should_not be_nil
-          sleep 1020.milliseconds
-          msg.reject(requeue: true)
+            msg = q.get(no_ack: false).should_not be_nil
+            t.travel 1020.milliseconds
+            msg.reject(requeue: true)
 
-          dlq_msg = wait_for { dlq.get }.should_not be_nil
-          dlq_msg.body_io.to_s.should eq "ttl-msg"
-          q.message_count.should eq 0
+            dlq_msg = wait_for { dlq.get }.should_not be_nil
+            dlq_msg.body_io.to_s.should eq "ttl-msg"
+            q.message_count.should eq 0
+          end
         end
       end
 
@@ -1291,12 +1289,15 @@ module DeadLetteringSpec
         src = vhost.queue("dl-src").as(LavinMQ::AMQP::Queue)
         dead_letter = src.@dead_letter
         stop = Atomic(Bool).new(false)
+        # Bounded by publish progress; the deadline only caps a slow runner
+        published = Atomic(Int32).new(0)
+        publish_target = 10_000
         deadline = Time.instant + 2.seconds
         ctx = Fiber::ExecutionContext::Parallel.new("dlx-dlrk-race", 4)
         wg = WaitGroup.new
         wg.add(1)
         ctx.spawn do
-          until Time.instant >= deadline
+          until stop.get || Time.instant >= deadline
             dead_letter.set_target("dlx-a", "rk-a")
             dead_letter.set_target("dlx-b", "rk-b")
             Fiber.yield
@@ -1312,6 +1313,7 @@ module DeadLetteringSpec
             # isn't starved on a runner with fewer cores than threads
             until stop.get || Time.instant >= deadline
               src.publish(LavinMQ::Message.new("", src.name, "body"))
+              stop.set(true) if published.add(1) + 1 >= publish_target
               Fiber.yield
             end
           ensure

@@ -188,7 +188,8 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  args = {port: amqp_port(s), name: name}.merge(args)
+  # Nagle would hold a request sent after an unanswered frame until the server's delayed ACK
+  args = {port: amqp_port(s), name: name, tcp: AMQP::Client::TCPConfig.new(nodelay: true)}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
   yield ch
@@ -208,6 +209,8 @@ end
 def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
+  # Frames are written in pieces, which Nagle would hold until the server's delayed ACK
+  io.tcp_nodelay = true
 
   io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
   io.flush
@@ -555,10 +558,31 @@ end
 
 private SPEC_TIMEOUT = 15.seconds
 
+# A timed out example's fiber keeps running and would report its result a second time
+module TimedOutExamples
+  @@fibers = Set(Fiber).new
+  @@lock = Mutex.new
+
+  def self.add(fiber : Fiber) : Nil
+    @@lock.synchronize { @@fibers << fiber }
+  end
+
+  def self.includes?(fiber : Fiber) : Bool
+    @@lock.synchronize { @@fibers.includes?(fiber) }
+  end
+end
+
+class Spec::RootContext
+  def report(status : Status, full_description, file, line, elapsed = nil, ex = nil)
+    return if TimedOutExamples.includes?(Fiber.current)
+    previous_def
+  end
+end
+
 Spec.around_each do |example|
   done = Channel(Exception?).new
 
-  spawn(name: "Spec: #{example.example.description}") do
+  fiber = spawn(name: "Spec: #{example.example.description}") do
     example.run
   rescue e
     done.send(e)
@@ -575,6 +599,8 @@ Spec.around_each do |example|
   when res = done.receive
     raise res if res
   when timeout(timeout)
+    TimedOutExamples.add(fiber)
+    RoughTime.resume
     _it = example.example
     ex = Spec::AssertionFailed.new("spec timed out after #{timeout}", _it.file, _it.line)
     _it.parent.report(:fail, _it.description, _it.file, _it.line, timeout, ex)

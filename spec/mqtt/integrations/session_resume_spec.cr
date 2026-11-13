@@ -13,6 +13,14 @@ module SessionResumeHelpers
     end
   end
 
+  # Owed messages are requeued once a ping is answered, so a new message first means none were owed
+  def expect_nothing_owed(server, io, topic = "a/b")
+    ping(io)
+    read_packet(io).should be_a(MQTT::Protocol::PingResp)
+    publish_from(server, topic, ["new"])
+    String.new(read_publish(io).payload).should eq "new"
+  end
+
   def read_publishes(io, count : Int) : Array(MQTT::Protocol::Publish)
     Array(MQTT::Protocol::Publish).new(count) { read_publish(io) }
   end
@@ -121,7 +129,9 @@ module MqttSpecs
           resent = read_publish(io)
           resent.packet_id.should eq second.try &.packet_id
           String.new(resent.payload).should eq "1"
-          read_packet(io).should be_nil
+          # Anything else owed was requeued with it, so before a new message
+          publish_from(server, "a/b", ["new"])
+          String.new(read_publish(io).payload).should eq "new"
 
           disconnect(io)
         end
@@ -141,7 +151,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end
@@ -190,7 +200,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end
@@ -235,7 +245,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          read_packet(io).should be_nil
+          expect_nothing_owed(server, io)
           disconnect(io)
         end
       end
@@ -368,7 +378,7 @@ module MqttSpecs
           publish_from(server, "a/b", ["0", "1", "2", "3"])
 
           sent = read_publishes(io, 3).map &.packet_id
-          read_packet(io).should be_nil
+          expect_no_packet(io)
           disconnect(io)
         end
 
@@ -379,7 +389,7 @@ module MqttSpecs
           resent.each &.dup?.should be_true
           resent.map(&.packet_id).should eq sent
           # The window is still full, so the fourth message stays in the store.
-          read_packet(io).should be_nil
+          expect_no_packet(io)
 
           # Acking one frees a slot, and the fourth is delivered with a fresh id.
           puback(io, resent.first.packet_id)

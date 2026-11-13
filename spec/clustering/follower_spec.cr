@@ -531,9 +531,8 @@ module FollowerSpec
         # flush must now write to the socket.
         follower.append("#{data_dir}/file", Bytes.new(1024))
 
-        # Fill the socket buffers (the client side never reads), then stop at
-        # the first blocked write, so a later flush of the pending LZ4 data
-        # must block on the event loop.
+        # Fill the socket buffers until a write times out, so a later flush of the pending LZ4 data blocks
+        follower_socket.write_timeout = 200.milliseconds
         filled = Channel(Nil).new(1)
         spawn(name: "socket filler") do
           junk = Bytes.new(65536)
@@ -549,8 +548,8 @@ module FollowerSpec
           fail "socket buffers never filled"
         end
 
-        # ack_loop on the default context keeps a read pending on the fd.
-        spawn { follower.ack_loop }
+        # ack_loop on the default context keeps a read pending on the fd, and its ack timeout bounds its writes
+        spawn { follower.ack_loop(200.milliseconds) }
         sleep 20.milliseconds
 
         result = Channel(Bool | Exception).new(1)
@@ -560,11 +559,7 @@ module FollowerSpec
           result.send ex
         end
 
-        # The follower never acks; eventually ack_loop gives up (its own
-        # blocked flush times out) and unblocks the waiter with false. The
-        # old direct flush instead raised RuntimeError here: the blocked
-        # write tried to move the fd to the isolated context's event loop
-        # while ack_loop's read was pending on the default one.
+        # ack_loop gives up and unblocks the waiter with false, where the old direct flush raised RuntimeError
         select
         when r = result.receive
           r.should be_false # never acked — and no cross-context IO error raised
@@ -623,7 +618,8 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        spawn { follower.ack_loop }
+        # A fallback flush far out, so bytes arriving at all prove flush_loop sent them
+        spawn { follower.ack_loop(fallback_flush_interval: 1.minute) }
 
         # A small append stays in the LZ4 writer's buffer (auto_flush is
         # off); only a flush moves it to the socket.
@@ -642,11 +638,10 @@ module FollowerSpec
         end
 
         follower.request_flush
-        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
         select
         when payload = received.receive
           payload.should eq "hello world"
-        when timeout(50.milliseconds)
+        when timeout(10.seconds)
           fail "request_flush did not flush buffered bytes to the follower"
         end
       ensure

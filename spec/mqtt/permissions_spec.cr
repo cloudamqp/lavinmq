@@ -93,7 +93,8 @@ module MqttSpecs
             topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 0u8)
             subscribe(io, topic_filters: [topic_filter])
 
-            # Connection should still be alive
+            # Connection should still be alive, so the ping is answered
+            ping(io)
             io.should_not be_closed
           end
         end

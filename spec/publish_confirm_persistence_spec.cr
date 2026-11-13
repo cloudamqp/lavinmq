@@ -16,10 +16,13 @@ describe "Publish Confirm Persistence" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("single_publish_test")
-        start = Time.instant
-        q.publish_confirm "message 1"
-        duration = Time.instant - start
-        duration.should be < 100.milliseconds
+        # A batching delay slows every confirm, a loaded runner only some
+        fastest = Array.new(5) do |i|
+          start = Time.instant
+          q.publish_confirm "message #{i}"
+          Time.instant - start
+        end.min
+        fastest.should be < 100.milliseconds
       end
     end
   end

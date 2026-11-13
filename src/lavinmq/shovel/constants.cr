@@ -5,6 +5,7 @@ module LavinMQ
     DEFAULT_PREFETCH          = 1000_u16
     DEFAULT_RECONNECT_DELAY   = 5.seconds
     DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
+    DEFAULT_DELIVERY_BACKOFF  = 0.5.seconds
 
     enum State
       Starting

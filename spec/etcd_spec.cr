@@ -77,7 +77,8 @@ describe LavinMQ::Etcd, tags: "etcd" do
       rescue SpecExit
         # expect this when etcd nodes are terminated
       end
-      lease = etcd.elect(key, "bar", 1)
+      # 2s, what etcd rounded shorter TTLs up to with its default election timeout
+      lease = etcd.elect(key, "bar", 2)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
         etcd.elect(key, "bar2", 1)
@@ -129,7 +130,8 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 10)
+      # The keepalive after ttl/3 finds the lease revoked before it could expire
+      lease = etcd.elect(key, "bar", ttl: 3)
 
       etcd.lease_revoke(lease.id)
 
@@ -147,7 +149,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 1)
+      lease = etcd.elect(key, "bar", ttl: 2) # see "can elect leader"
       etcds.sample.terminate(graceful: false)
 
       lease.wait(6.seconds) # should not lose the leadership
@@ -308,15 +310,31 @@ class EtcdCluster
 
   def start : Array(Process)
     ensure_etcd_in_path!
+    # One member at a time, as a peer that isn't serving yet stalls a starting member's bootstrap check for 1s
     @ports.map_with_index do |p, i|
-      start_process(p, i)
+      start_process(p, i).tap { wait_until_serving_peers(p) }
     end
+  end
+
+  # The peer port serves once the member has started, the client port only with a quorum
+  private def wait_until_serving_peers(port)
+    client = HTTP::Client.new("127.0.0.1", 24000 + port)
+    client.read_timeout = 1.second
+    100.times do
+      sleep 20.milliseconds
+      client.get("/version")
+      break
+    rescue IO::Error
+      client.close
+    end
+  ensure
+    client.try &.close
   end
 
   def start_process(port, node_number)
     initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
     FileUtils.rm_rf "/tmp/l#{node_number}.etcd"
-    Process.new("etcd", {
+    args = [
       "--name=l#{node_number}",
       "--data-dir=/tmp/l#{node_number}.etcd",
       "--listen-peer-urls=http://127.0.0.1:24#{port}",
@@ -327,7 +345,9 @@ class EtcdCluster
       "--logger=zap",
       "--log-level=error",
       "--unsafe-no-fsync=true",
-    }, output: STDOUT, error: STDERR)
+    ]
+    args.concat(ETCD_SPEC_TIMING_FLAGS) if @ports.size == 1
+    Process.new("etcd", args, output: STDOUT, error: STDERR)
   end
 
   def stop(etcds)
