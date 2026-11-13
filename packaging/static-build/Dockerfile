@@ -1,7 +1,7 @@
 # Build with:
 #   docker buildx build -f packaging/static-build/Dockerfile --output=bin .
 
-FROM 84codes/crystal:latest-alpine AS builder
+FROM 84codes/crystal:1.22.2-alpine AS builder
 RUN apk add curl openssl lz4-dev lz4-static
 WORKDIR /tmp
 COPY shard.yml shard.lock .

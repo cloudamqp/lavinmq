@@ -34,7 +34,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: crystal tool format --check
@@ -43,7 +43,7 @@ jobs:
     name: Lint check
     runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -85,10 +85,10 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-26.04
-            container: 84codes/crystal:latest-ubuntu-26.04
+            container: 84codes/crystal:1.22.2-ubuntu-26.04
           - arch: arm64
             runner: ubuntu-26.04-arm
-            container: 84codes/crystal:latest-ubuntu-26.04
+            container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Print Crystal version
         run: crystal -v
@@ -128,7 +128,7 @@ jobs:
   compile-changed-files:
     name: Compile changed *.cr files independently
     runs-on: ubuntu-26.04
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Install dependencies
         run: apt-get update && apt-get install -y liblz4-dev git
@@ -177,7 +177,7 @@ jobs:
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-26.04
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
 
     steps:
       - name: Install dependencies
