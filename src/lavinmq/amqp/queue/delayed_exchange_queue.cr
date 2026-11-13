@@ -1,4 +1,5 @@
 require "./delayed_queue"
+require "../../evp_digest"
 
 module LavinMQ::AMQP
   # This class is only used by delayed exchanges. It can't niehter should be
@@ -29,7 +30,7 @@ module LavinMQ::AMQP
     end
 
     private def self.use_legacy_name?(vhost_data_dir, legacy_q_name)
-      q_dir_name = Digest::SHA1.hexdigest(legacy_q_name)
+      q_dir_name = EVPDigest.sha1_hexdigest(legacy_q_name)
       Dir.exists?(Path[vhost_data_dir] / q_dir_name)
     end
 

@@ -1,5 +1,6 @@
 require "openssl"
 require "crypto/bcrypt/password"
+require "../evp_digest"
 
 module LavinMQ
   module Auth
@@ -37,23 +38,8 @@ module LavinMQ
           new(salt, digest(salt, password.to_slice))
         end
 
-        # Bare EVP context freed right away: an OpenSSL::Digest per login registers a GC
-        # finalizer, and dead finalizable objects make Boehm force collections
         protected def self.digest(salt : Bytes, password : Bytes) : Bytes
-          md = evp_md
-          ctx = LibCrypto.evp_md_ctx_new
-          raise OpenSSL::Digest::Error.new("EVP_MD_CTX_new") unless ctx
-          begin
-            hash = Bytes.new(LibCrypto.evp_md_size(md))
-            ok = LibCrypto.evp_digestinit_ex(ctx, md, nil) == 1 &&
-                 LibCrypto.evp_digestupdate(ctx, salt, salt.bytesize) == 1 &&
-                 LibCrypto.evp_digestupdate(ctx, password, password.bytesize) == 1 &&
-                 LibCrypto.evp_digestfinal_ex(ctx, hash, nil) == 1
-            raise OpenSSL::Digest::Error.new("EVP_Digest") unless ok
-            hash
-          ensure
-            LibCrypto.evp_md_ctx_free(ctx)
-          end
+          EVPDigest.digest(evp_md, salt, password)
         end
 
         def initialize(@salt : Bytes, @hash : Bytes)

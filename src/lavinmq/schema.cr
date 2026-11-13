@@ -1,5 +1,6 @@
 require "../stdlib/copy_file_range"
 require "./filesystem"
+require "./evp_digest"
 
 module LavinMQ
   module Schema
@@ -100,7 +101,7 @@ module LavinMQ
         def migrate
           vhost_segments = Hash(UInt32, MFile).new { |h, k| h[k] = MFile.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}") }
           queues.each do |queue|
-            queue_dir = File.join(@vhost_dir, Digest::SHA1.hexdigest queue)
+            queue_dir = File.join(@vhost_dir, EVPDigest.sha1_hexdigest(queue))
             QueueMigrator.new(queue_dir, vhost_segments).migrate
           end
           vhost_segments.each_value &.delete

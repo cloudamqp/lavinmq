@@ -1,5 +1,5 @@
 require "../../filesystem"
-require "digest/sha1"
+require "../../evp_digest"
 require "sync/exclusive"
 require "../../logger"
 require "../../segment_position"
@@ -480,9 +480,9 @@ module LavinMQ::AMQP
     # Where a queue, or an MQTT session, named *name* keeps its files
     def self.data_dir(vhost : VHost, name : String, durable : Bool) : String
       if durable
-        File.join(vhost.data_dir, Digest::SHA1.hexdigest name)
+        File.join(vhost.data_dir, EVPDigest.sha1_hexdigest(name))
       else
-        File.join(vhost.data_dir, "transient", Digest::SHA1.hexdigest name)
+        File.join(vhost.data_dir, "transient", EVPDigest.sha1_hexdigest(name))
       end
     end
 

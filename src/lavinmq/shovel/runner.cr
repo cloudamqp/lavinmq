@@ -3,6 +3,7 @@ require "../rough_time"
 require "./constants"
 require "./destination"
 require "./source"
+require "../evp_digest"
 
 module LavinMQ
   module Shovel
@@ -34,7 +35,7 @@ module LavinMQ
 
       def initialize(@source : Source, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
-        filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
+        filename = "shovels.#{EVPDigest.sha1_hexdigest(@name)}.paused"
         @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
