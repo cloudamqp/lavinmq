@@ -170,6 +170,7 @@ module LavinMQ
           upstream_uri = named_uri(@upstream.uri)
           params = upstream_uri.query_params
           params["product"] = "LavinMQ"
+          params["tcp_nodelay"] = "true" if Config.instance.tcp_nodelay?
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
@@ -398,6 +399,7 @@ module LavinMQ
           params = upstream_uri.query_params
           params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
           params["product"] = "LavinMQ"
+          params["tcp_nodelay"] = "true" if Config.instance.tcp_nodelay?
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
