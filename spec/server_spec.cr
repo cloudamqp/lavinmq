@@ -1111,6 +1111,38 @@ describe LavinMQ::Server do
     end
   end
 
+  it "nacks but doesn't return a mandatory publish that a full queue rejects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish_confirm("m1", "", q.name, mandatory: true).should be_false
+        ch.basic_publish_confirm("m2", "", "unroutable", mandatory: true).should be_true
+        returned.receive.should eq "unroutable"
+      end
+    end
+  end
+
+  it "doesn't return a mandatory publish that a full queue rejects without confirms" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish("m1", "", q.name, mandatory: true)
+        ch.basic_publish("m2", "", "unroutable", mandatory: true)
+        returned.receive.should eq "unroutable"
+      end
+    end
+  end
+
   it "binding to empty queue name binds last queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1421,5 +1453,111 @@ describe LavinMQ::Server do
       t.read(buf)
       buf.should eq Bytes['A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord, 0, 0, 9, 1]
     end
+  end
+end
+
+# Fails to accept with *errno* *failures* times, then returns *client* once
+private class FailingListener
+  include Socket::Server
+  getter? closed = false
+
+  def initialize(@failures : Int32, @client : IO, @errno = Errno::EMFILE)
+  end
+
+  def accept? : IO?
+    return if @closed
+    if @failures > 0
+      @failures -= 1
+      raise Socket::Error.from_os_error("accept", @errno)
+    end
+    client, @client = @client, nil
+    client
+  end
+
+  def accept : IO
+    accept? || raise IO::Error.new("Closed")
+  end
+
+  def close
+    @closed = true
+  end
+end
+
+describe LavinMQ::AcceptLoop do
+  it "accepts the next connection when the one being accepted failed" do
+    # Network errors that accept(2) passes on from the connection
+    errors = [Errno::ECONNABORTED]
+    {% if flag?(:linux) %}
+      errors << Errno.new(112) << Errno.new(64) # EHOSTDOWN, ENONET
+    {% end %}
+    errors.each do |errno|
+      client, server_side = UNIXSocket.pair
+      listener = FailingListener.new(failures: 1, client: server_side, errno: errno)
+      accepted = nil
+      LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+        accepted = socket
+        listener.close
+      end
+      accepted.should be server_side
+    ensure
+      client.try &.close
+      server_side.try &.close
+    end
+  end
+
+  it "keeps accepting after an error that isn't listed" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 2, client: server_side, errno: Errno::ECONNRESET)
+    accepted = nil
+    started = Time.instant
+    LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+      accepted = socket
+      listener.close
+    end
+    accepted.should be server_side
+    # 10 and 20ms, as it's not known to pass right away
+    (Time.instant - started).should be >= 30.milliseconds
+  ensure
+    client.try &.close
+    server_side.try &.close
+  end
+end
+
+describe "Running out of file descriptors" do
+  it "keeps accepting AMQP connections" do
+    with_amqp_server do |s|
+      address = s.amqp_server.@listeners.select(TCPServer).first.local_address
+      rejected = Socket.tcp(address.family)
+      without_free_file_descriptors do
+        rejected.connect(address)
+        sleep 100.milliseconds # the listener fails to accept it
+      end
+      # Linux accepts this one later, macOS drops it when accept fails
+      rejected.close
+      client = TCPSocket.new(address.address, address.port)
+      client.read_timeout = 5.seconds
+      client.write "AMQP\u0000\u0000\u0009\u0001".to_slice
+      client.read_byte.should eq 1 # the method frame with the server's Connection.Start
+    ensure
+      rejected.try &.close
+      client.try &.close
+    end
+  end
+
+  it "pauses the HTTP listener before accepting again" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 4, client: server_side)
+    http = HTTP::Server.new(&.response.print("ok"))
+    http.bind(listener)
+    started = Time.instant
+    spawn { http.listen }
+    client << "GET / HTTP/1.1\r\nHost: spec\r\n\r\n"
+    client.flush
+    HTTP::Client::Response.from_io(client).body.should eq "ok"
+    # 10, 20, 40 and 80ms, instead of trying again right away
+    (Time.instant - started).should be >= 140.milliseconds
+  ensure
+    http.try &.close
+    client.try &.close
   end
 end

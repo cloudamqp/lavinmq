@@ -1,3 +1,5 @@
+require "./filesystem"
+
 module LavinMQ
   module Schema
     VERSION = 4
@@ -12,7 +14,10 @@ module LavinMQ
         if File.exists?(File.join(data_dir, "vhosts.json"))
           raise UnsupportedSchemaVersion.new(path)
         end
-        File.write(path, VERSION)
+        # Written durably: a confirm doesn't sync the whole data dir, so
+        # nothing else makes this file durable, and a power loss could
+        # leave it empty, which stops every later start
+        FileSystem.replace(path, &.print(VERSION))
       else
         raise UnsupportedSchemaVersion.new(v, path)
       end

@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 # AMQP::Client is too good at handling errors, so we need to make it unsafe
 class AMQP::Client::UnsafeConnection < AMQP::Client::Connection
@@ -199,6 +200,54 @@ describe LavinMQ::Server do
   end
 
   describe "unexpected frames" do
+    it "doesn't time out a client whose frames never start at a socket read" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          frame = IO::Memory.new
+          frame.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+          bytes = frame.to_slice
+          # Every write ends in the middle of a frame, for longer than the
+          # heartbeat timeout (1 s + 5 s), then the client goes quiet
+          straddling = IO::Memory.new
+          straddling.write bytes[4, 4]
+          straddling.write bytes[0, 4]
+          io.write bytes[0, 4]
+          io.flush
+          deadline = Time.instant + 7.seconds
+          while Time.instant < deadline
+            io.write straddling.to_slice
+            io.flush
+            sleep 100.milliseconds
+          end
+          io.write bytes[4, 4]
+          io.flush
+          sleep 1.5.seconds
+          client.closed?.should be_false
+        end
+      end
+    end
+
+    it "doesn't time out a client that sends heartbeats when socket_buffer_size is 0" do
+      config = LavinMQ::Config.new
+      config.socket_buffer_size = 0
+      with_amqp_server(config: config) do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          # Longer than the heartbeat timeout (1 s + 5 s), with a pause
+          # between heartbeats that lets the server's read time out
+          8.times do
+            io.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+            io.flush
+            sleep 1.second
+          end
+          client.closed?.should be_false
+        end
+      end
+    end
+
     it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
       with_amqp_server do |s|
         with_raw_amqp_connection(s) do |io, stream|
@@ -412,6 +461,63 @@ describe LavinMQ::Server do
             fail "force_close didn't complete"
           end
           client.closed?.should be_true
+        end
+      end
+    end
+
+    it "closes a connection within force_close_timeout while a delivery to it is blocked" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_close") do |client|
+          Log.capture("lmq.amqp.client", :info) do |logs|
+            closed = Channel(Nil).new
+            spawn do
+              client.close("Closed via management plugin", force_close_timeout: 1.second)
+              closed.send nil
+            end
+            select
+            when closed.receive
+            when timeout(5.seconds)
+              fail "close didn't complete within force_close_timeout"
+            end
+            client.closed?.should be_true
+            logs.check(:info, /Sending the Close frame didn't complete within 1.0s/)
+          end
+        end
+      end
+    end
+
+    it "closes a connection through the HTTP API while a delivery to it is blocked" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_http_server do |http, s|
+        with_stuck_consumer(s, "tcp_send_timeout_api_close") do |client|
+          name = URI.encode_path(client.name)
+          deleted = Channel(Int32).new
+          spawn { deleted.send http.delete("/api/connections/#{name}").status_code }
+          select
+          when status = deleted.receive
+            status.should eq 204
+          when timeout(7.seconds)
+            fail "DELETE /api/connections didn't complete within force_close_timeout"
+          end
+          client.closed?.should be_true
+        end
+      end
+    end
+
+    it "gets the Close frame to a client that resumes reading when closed without force_close_timeout" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_close_resumed_reader") do |client, io|
+          # Like ConnectionStore#close_all, without force_close_timeout
+          spawn { client.close("Server shutdown", timeout: 500.milliseconds) }
+          # The delivery holds the write lock past the close timeout
+          sleep 1.second
+          io.read_timeout = 10.seconds
+          stream = AMQ::Protocol::Stream.new(io, frame_max: LavinMQ::Config.instance.frame_max)
+          loop do
+            break if stream.next_frame.is_a?(AMQ::Protocol::Frame::Connection::Close)
+          end
         end
       end
     end

@@ -6,12 +6,23 @@ module PrioSpec
       super(*args, **kwargs)
     end
   end
+
+  # Fails the migration from a single store on its first message
+  class FailingPushStore < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+
+    def push(msg) : LavinMQ::SegmentPosition
+      raise "Spec push failure"
+    end
+  end
 end
 
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, durable: true, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store
@@ -90,6 +101,21 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
 
     describe "migration" do
+      it "unmaps the old store when the migration fails" do
+        data_dir = File.tempname
+        Dir.mkdir data_dir
+        old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
+        old_store.push LavinMQ::Message.new("ex", "rk", "body")
+        old_store.close
+        count_before = MFile.mmap_count
+        expect_raises(Exception, "Spec push failure") do
+          PrioSpec::FailingPushStore.new(5u8, data_dir, nil, durable: true)
+        end
+        MFile.mmap_count.should eq count_before
+      ensure
+        FileUtils.rm_rf data_dir if data_dir
+      end
+
       it "should migrate old store" do
         data_dir = File.tempname
         Dir.mkdir data_dir

@@ -143,6 +143,24 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose gc pause time as a histogram" do
+      with_metrics_server do |http, _|
+        GC.collect
+        lines = http.get("/metrics").body.lines
+        lines.should contain "# TYPE lavinmq_gc_pause_seconds histogram"
+        value = ->(prefix : String) do
+          lines.find!(&.starts_with?(prefix)).split(' ').last.to_f
+        end
+        count = value.call("lavinmq_gc_pause_seconds_count ")
+        count.should be > 0
+        value.call("lavinmq_gc_pause_seconds_sum ").should be > 0
+        value.call(%(lavinmq_gc_pause_seconds_bucket{le="+Inf"} )).should eq count
+        buckets = lines.select(&.starts_with?("lavinmq_gc_pause_seconds_bucket"))
+          .map(&.split(' ').last.to_f)
+        buckets.should eq buckets.sort
+      end
+    end
+
     it "should expose socket buffer pool stats" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -221,6 +239,19 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 
   describe "GET /metrics/detailed" do
+    it "writes a body larger than the writer buffer completely" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("chunked")
+        200.times { |i| vhost.declare_queue("q-#{i}", false, false) }
+        body = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        body.bytesize.should be > LavinMQ::HTTP::PrometheusWriter::BUFFER_SIZE
+        lines = body.lines
+        ready = lines.select(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+        ready.count(&.includes?(%(vhost="chunked"))).should eq 200
+        lines.last.should start_with "telemetry_scrape_mem"
+      end
+    end
+
     it "should support specifying families" do
       with_metrics_server do |http, _|
         response = http.get("/metrics/detailed?family=connection_churn_metrics")
@@ -611,6 +642,7 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.status_code.should eq 200
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_pause_seconds_count").should be_true
     end
   end
 
@@ -723,5 +755,19 @@ class PrometheusSpecHelper
       s.scan(/\s/)
     end
     attrs
+  end
+end
+
+describe LavinMQ::GCPauseRecorder do
+  it "adds recorded nanoseconds to the sum in seconds" do
+    GC.disable # no real pauses may land between the snapshots
+    begin
+      sum_before = LavinMQ::GCPauseRecorder.sum
+      1000.times { LavinMQ::GCPauseRecorder.record(1_u64) }
+      LavinMQ::GCPauseRecorder.record(1_500_000_u64)
+      (LavinMQ::GCPauseRecorder.sum - sum_before).should be_close(0.001501, 1e-12)
+    ensure
+      GC.enable
+    end
   end
 end

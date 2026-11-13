@@ -10,6 +10,14 @@ module LavinMQ
       false
     end
 
+    def synced_by_commit? : Bool
+      false
+    end
+
+    def moved? : Bool
+      false
+    end
+
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
@@ -36,6 +44,18 @@ module LavinMQ
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
+      write_after_timestamp(io, format)
+    end
+
+    # To a segment the timestamp is written last, see Message#to_io
+    def to_io(io : MFile, format = IO::ByteFormat::SystemEndian)
+      pos = io.size
+      io.write_bytes 0i64, format
+      write_after_timestamp(io, format)
+      io.write_at(pos, @timestamp, format)
+    end
+
+    private def write_after_timestamp(io : IO, format) : Nil
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
@@ -71,6 +91,13 @@ module LavinMQ
     # Set for publishes that are confirmed (AMQP confirm mode, MQTT QoS 1), so
     # the segments they're written to are synced before the confirm
     property? needs_sync = false
+    # Set for transactional publishes, the commit syncs the data dir
+    property? synced_by_commit = false
+    # Set for the copies the broker makes of another queue's messages, see
+    # .moved_copy, so the segments they're written to are synced before the
+    # segment they were moved out of is unlinked, see
+    # Persister#unlink_after_sync
+    property? moved = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,
@@ -84,6 +111,17 @@ module LavinMQ
       @body_io = IO::Memory.new(body)
     end
 
+    # A copy of a stored message that the broker moves to another queue
+    # (dead-lettered, delayed, retried). Build every such copy with this, so
+    # it's marked moved.
+    def self.moved_copy(msg : BytesMessage, *, timestamp = msg.timestamp,
+                        exchange_name = msg.exchange_name, routing_key = msg.routing_key,
+                        properties = msg.properties) : self
+      copy = new(timestamp, exchange_name, routing_key, properties, msg.bodysize, IO::Memory.new(msg.body))
+      copy.moved = true
+      copy
+    end
+
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
         @properties.bytesize + sizeof(UInt64) + @bodysize
@@ -91,6 +129,21 @@ module LavinMQ
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
+      write_after_timestamp(io, format)
+    end
+
+    # To a segment the timestamp is written last, after the body. Nothing
+    # else marks a message as complete, and a zero timestamp ends a segment's
+    # messages at load (see MessageStore#end_of_messages), so a message that a
+    # crash cut off isn't loaded with part of its body missing.
+    def to_io(io : MFile, format = IO::ByteFormat::SystemEndian)
+      pos = io.size
+      io.write_bytes 0i64, format
+      write_after_timestamp(io, format)
+      io.write_at(pos, @timestamp, format)
+    end
+
+    private def write_after_timestamp(io : IO, format) : Nil
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
       io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
@@ -127,6 +180,12 @@ module LavinMQ
 
     protected def release : Nil
       @segment.release_lease
+    end
+
+    # The same message flagged as redelivered, for a message that left the
+    # queue and came back through another store, like the retry queue
+    def as_redelivered : self
+      Envelope.new(@segment_position, @message, segment: @segment, redelivered: true)
     end
   end
 end

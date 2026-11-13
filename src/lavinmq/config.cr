@@ -8,6 +8,7 @@ require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
+require "./filesystem"
 
 module LavinMQ
   class Config
@@ -97,6 +98,28 @@ module LavinMQ
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
       end
+      unless @clustering_etcd_lease_ttl.positive?
+        raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
+      end
+      validate_sni_tls!
+    end
+
+    # Builds every SNI host's TLS contexts, so an unreadable certificate or
+    # key fails startup with a clear error, and is refused on reload with the
+    # running configuration kept, instead of failing that host's handshakes
+    # later. This is the only place that builds them, so the servername
+    # callback always reads contexts that carry the listener's ciphers.
+    # Without a TLS listener no SNI host is used, so a bad one only warns.
+    private def validate_sni_tls!
+      @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
+      @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
+    end
+
+    private def validate_sni_host!(host : SNIHost) : Nil
+      host.build_tls_contexts(@tls_ciphers, @tls_ciphersuites)
+    rescue ex
+      raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}") if tls_configured?
+      @io.puts "WARNING: Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}"
     end
 
     private def parse_config_from_cli(argv)
@@ -221,45 +244,36 @@ module LavinMQ
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"                  then host.tls_cert = v
-        when "tls_key"                   then host.tls_key = v
-        when "tls_min_version"           then host.tls_min_version = v
-        when "tls_ciphers"               then host.tls_ciphers = v
-        when "tls_ciphersuites"          then host.tls_ciphersuites = v
-        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
-        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"               then host.tls_ca_cert = v
-        when "tls_keylog_file"           then host.tls_keylog_file = v
+        when "tls_cert"        then host.tls_cert = v
+        when "tls_key"         then host.tls_key = v
+        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"     then host.tls_ca_cert = v
+        when "tls_keylog_file" then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
-        when "amqp_tls_key"                   then host.amqp_tls_key = v
-        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
-        when "amqp_tls_ciphersuites"          then host.amqp_tls_ciphersuites = v
-        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
-        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"        then host.amqp_tls_cert = v
+        when "amqp_tls_key"         then host.amqp_tls_key = v
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_ciphersuites"          then host.mqtt_tls_ciphersuites = v
-        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
-        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"         then host.mqtt_tls_key = v
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"                  then host.http_tls_cert = v
-        when "http_tls_key"                   then host.http_tls_key = v
-        when "http_tls_min_version"           then host.http_tls_min_version = v
-        when "http_tls_ciphers"               then host.http_tls_ciphers = v
-        when "http_tls_ciphersuites"          then host.http_tls_ciphersuites = v
-        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
-        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
+        when "http_tls_cert"        then host.http_tls_cert = v
+        when "http_tls_key"         then host.http_tls_key = v
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
+             .ends_with?("tls_ciphersuites"), .ends_with?("tls_prefer_server_ciphers")
+          # Removed in 2.11: a per-host tls_min_version never took effect,
+          # but TLS 1.2 picks its cipher from the swapped-in context, so
+          # per-host cipher settings did apply to TLS 1.2 until 2.10.x
+          @io.puts "WARNING: 'sni:#{hostname}/#{config}' is not supported, " \
+                   "the listener's TLS version and cipher settings apply to all SNI hosts"
         else
           @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
@@ -363,8 +377,25 @@ module LavinMQ
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
+      sync_was = sync?
       apply(new_config)
       setup_logger
+      sync_data_dir_after_enabled if sync? && !sync_was
+    end
+
+    # What was written while sync was disabled is in the page cache only, and
+    # the syncs that follow cover only newer writes, so the data dir is synced
+    # once. It can take seconds under load, and until it's done a follower can
+    # ack that older data as durable.
+    private def sync_data_dir_after_enabled : Nil
+      sync_data_dir
+      Log.info { "Synced the data dir after sync was enabled" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
+    end
+
+    private def sync_data_dir : Nil
+      File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
     end
 
     # Try to open and immediately close the configured log file so an unopenable
@@ -437,6 +468,16 @@ module LavinMQ
 
     def tls_configured?
       !@tls_cert_path.empty?
+    end
+
+    # The configured TCP keepalive, if any, on a connection
+    def apply_tcp_keepalive(socket : TCPSocket) : Nil
+      if keepalive = tcp_keepalive
+        socket.keepalive = true
+        socket.tcp_keepalive_idle = keepalive[0]
+        socket.tcp_keepalive_interval = keepalive[1]
+        socket.tcp_keepalive_count = keepalive[2]
+      end
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?

@@ -1,5 +1,6 @@
 require "socket"
 require "../config"
+require "../accept_loop"
 require "../proxy_protocol"
 
 module LavinMQ
@@ -23,7 +24,7 @@ module LavinMQ
 
       def forward_to(target_host, target_port, @proxy_header = false)
         Log.info { "Proxying from #{@local_address} to #{target_host}:#{target_port}" }
-        while socket = @server.accept?
+        AcceptLoop.each(@server, "Proxy listener") do |socket|
           spawn handle_client(socket, target_host, target_port), name: "Handle proxy client"
         end
       end
@@ -35,6 +36,10 @@ module LavinMQ
       private def handle_client(client, target_host, target_port)
         target = TCPSocket.new(target_host, target_port)
         set_socket_opts(target)
+        # A client that stops reading must not keep the connection open: the
+        # copy loop would block in its write forever, and never see that the
+        # leader closed the connection after its own tcp_send_timeout
+        client.write_timeout = Config.instance.tcp_send_timeout.seconds
         if client.is_a? TCPSocket
           set_socket_opts(client)
           if @proxy_header
@@ -62,12 +67,7 @@ module LavinMQ
         socket.tcp_nodelay = true
         return if socket.remote_address.loopback?
 
-        if keepalive = Config.instance.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        Config.instance.apply_tcp_keepalive(socket)
       end
     end
   end

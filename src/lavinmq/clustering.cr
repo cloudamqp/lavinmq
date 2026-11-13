@@ -11,6 +11,10 @@ module LavinMQ
     StartV2      = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
     FSYNC_PREFIX = '$'
 
+    # This node's own files in the data dir, never replicated nor restored:
+    # the data dir lock and the clustering identity
+    NODE_LOCAL_FILES = {".lock", ".clustering_id"}
+
     class Error < Exception; end
 
     class InvalidStartHeaderError < Error

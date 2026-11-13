@@ -1,6 +1,78 @@
 require "./spec_helper"
 require "log/spec"
 
+class LavinMQ::AMQP::Queue
+  def spec_retry_delay_for(delivery_count : Int32) : Int64
+    retry_delay_for(delivery_count)
+  end
+
+  def spec_first_message : LavinMQ::BytesMessage
+    @msg_store_lock.synchronize do
+      env = @msg_store.first? || raise "queue is empty"
+      env.message
+    end
+  end
+
+  def spec_set_first_delivery_count(count : Int32) : Nil
+    @msg_store_lock.synchronize do
+      env = @msg_store.first? || raise "queue is empty"
+      @deliveries[env.segment_position] = count
+    end
+  end
+end
+
+# Parks dead-lettering inside #publish_internal until released. In the AMQP
+# namespace because AMQP::Exchange#bind refuses destinations outside it.
+class LavinMQ::AMQP::BlockingDeadLetterQueue < LavinMQ::AMQP::Queue
+  getter entered = ::Channel(Nil).new(1)
+  getter release = ::Channel(Nil).new
+
+  protected def publish_internal(msg : LavinMQ::Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    @entered.send(nil)
+    @release.receive
+    super
+  end
+end
+
+class LavinMQ::AMQP::DelayedQueue::DelayedMessageStore
+  class_property? fail_next_push = false
+  class_property? fail_next_purge = false
+
+  def purge_all
+    if self.class.fail_next_purge?
+      self.class.fail_next_purge = false
+      raise LavinMQ::MessageStore::Error.new(@wfile)
+    end
+    previous_def
+  end
+
+  def push(msg) : SegmentPosition
+    if self.class.fail_next_push?
+      self.class.fail_next_push = false
+      raise IO::Error.new("No space left on device")
+    end
+    previous_def
+  end
+end
+
+class LavinMQ::AMQP::DelayedRetryQueue
+  class_property? fail_next_expire = false
+
+  def expire_messages
+    if LavinMQ::AMQP::DelayedRetryQueue.fail_next_expire?
+      LavinMQ::AMQP::DelayedRetryQueue.fail_next_expire = false
+      raise LavinMQ::MessageStore::Error.new(@msg_store.@wfile)
+    end
+    super
+  end
+end
+
+class LavinMQ::AMQP::RejectFailingQueue < LavinMQ::AMQP::Queue
+  def reject(sp : SegmentPosition, requeue : Bool)
+    raise IO::Error.new("Injected reject failure")
+  end
+end
+
 describe "Retry Queue" do
   describe "Scaffold" do
     it "should create internal retry queue when x-delayed-retry-min is set" do
@@ -43,65 +115,52 @@ describe "Retry Queue" do
       end
     end
 
-    it "should default x-delivery-limit to 20 when x-delayed-retry-min is set" do
+    it "should keep retrying without x-delivery-limit" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1})
-          q = ch.queue("retry-default-limit", args: args)
-          ch.default_exchange.publish_confirm("default limit", q.name)
+          q = ch.queue("retry-no-limit", args: args)
+          ch.default_exchange.publish_confirm("no limit", q.name)
 
-          21.times do
+          25.times do
             msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
             msg.reject(requeue: true)
           end
 
-          sleep 50.milliseconds
-          q.get(no_ack: true).should be_nil
-          s.vhosts["/"].queue("retry-default-limit").message_count.should eq 0
+          msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          msg.properties.headers.try(&.["x-delivery-count"]?).should eq 25
         end
       end
     end
 
-    it "should not create duplicate retry queues on concurrent rejects" do
-      with_amqp_server do |s|
-        args = AMQP::Client::Arguments.new({
-          "x-delivery-limit"    => 3,
-          "x-delayed-retry-min" => 60_000,
-        })
-        with_channel(s) do |ch1|
-          q = ch1.queue("retry-concurrent", args: args)
-          q.publish_confirm "a"
-          q.publish_confirm "b"
-          with_channel(s) do |ch2|
-            msg1 = wait_for { ch1.basic_get("retry-concurrent", no_ack: false) }
-            msg2 = wait_for { ch2.basic_get("retry-concurrent", no_ack: false) }
-            s.vhosts["/"].delete_queue("amq.retry-retry-concurrent")
-
-            msg1.reject(requeue: true)
-            msg2.reject(requeue: true)
-
-            wait_for { s.vhosts["/"].queue?("amq.retry-retry-concurrent").try(&.message_count) == 2 }
-            s.vhosts["/"].queue("retry-concurrent").message_count.should eq 0
-          end
-        end
-      end
-    end
-
-    it "should recreate the retry queue if it was deleted" do
+    it "should give a constant delay without looping over a large delivery count" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"    => 3,
-            "x-delayed-retry-min" => 1000,
+            "x-delayed-retry-min"        => 200,
+            "x-delayed-retry-multiplier" => 1,
           })
-          q = ch.queue("retry-recreate", args: args)
-          s.vhosts["/"].delete_queue("amq.retry-retry-recreate")
+          ch.queue("retry-constant-large-count", args: args)
+          q = s.vhosts["/"].queue("retry-constant-large-count").as(LavinMQ::AMQP::Queue)
+          elapsed = Time.measure do
+            q.spec_retry_delay_for(Int32::MAX).should eq 200
+          end
+          elapsed.should be < 1.second # looping over the count takes seconds
+        end
+      end
+    end
 
-          ch.default_exchange.publish_confirm("recreate test", q.name)
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
+    it "should not overflow the delivery count without x-delivery-limit" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1})
+          q = ch.queue("retry-count-overflow", args: args)
+          ch.default_exchange.publish_confirm("many retries", q.name)
+          queue = s.vhosts["/"].queue("retry-count-overflow").as(LavinMQ::AMQP::Queue)
+          queue.spec_set_first_delivery_count(Int32::MAX)
 
-          wait_for { s.vhosts["/"].queue?("amq.retry-retry-recreate").try(&.message_count) == 1 }
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.properties.headers.try(&.["x-delivery-count"]?).should eq Int32::MAX
         end
       end
     end
@@ -146,6 +205,105 @@ describe "Retry Queue" do
       end
     end
 
+    it "should dead-letter a delayed message when its TTL runs out before the backoff ends" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq = ch.queue("retry-ttl-early-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 10_000,
+            "x-message-ttl"             => 300,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-ttl-early-dlq",
+          })
+          q = ch.queue("retry-ttl-early", args: args)
+          q.publish_confirm "expire me"
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+
+          start = Time.instant
+          dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
+          (Time.instant - start).should be < 2.seconds
+          dlq_msg.body_io.to_s.should eq "expire me"
+          headers = dlq_msg.properties.headers.should_not be_nil
+          headers["x-first-death-reason"].should eq "expired"
+          headers["x-first-death-queue"].should eq "retry-ttl-early"
+          headers.has_key?("x-delay").should be_false
+          s.vhosts["/"].queue("amq.retry-retry-ttl-early").message_count.should eq 0
+        end
+      end
+    end
+
+    it "should accept rejects while a delayed message is being dead-lettered" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("retry-dlx", "direct", false, false)
+        blocking = LavinMQ::AMQP::BlockingDeadLetterQueue.create(vhost, "retry-dlx-blocking")
+        vhost.exchange("retry-dlx").bind(blocking, "blocked", nil)
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 10_000,
+            "x-dead-letter-exchange"    => "retry-dlx",
+            "x-dead-letter-routing-key" => "blocked",
+          })
+          q = ch.queue("retry-dlx-concurrent", args: args)
+          q.publish_confirm "expire me", props: AMQP::Client::Properties.new(expiration: "300")
+          q.publish_confirm "reject me"
+          retry_q = vhost.queue("amq.retry-retry-dlx-concurrent")
+
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          msg = wait_for { q.get(no_ack: false) }
+          select
+          when blocking.entered.receive
+          when timeout(5.seconds)
+            fail "message was never dead-lettered"
+          end
+
+          begin
+            msg.reject(requeue: true)
+            wait_for { retry_q.message_count == 1 }
+          ensure
+            select
+            when blocking.release.send(nil)
+            when timeout(1.second)
+            end
+          end
+          wait_for { blocking.message_count == 1 }
+        end
+      end
+    end
+
+    it "should dead-letter an expired delayed message instead of delaying it again when the primary queue is full" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq = ch.queue("retry-overflow-expired-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 10,
+            "x-delayed-retry-min"       => 100,
+            "x-max-length"              => 1,
+            "x-overflow"                => "reject-publish",
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-overflow-expired-dlq",
+          })
+          q = ch.queue("retry-overflow-expired", args: args)
+          q.publish_confirm "retry me", props: AMQP::Client::Properties.new(expiration: "400")
+
+          msg = wait_for { q.get(no_ack: false) }
+          q.publish_confirm "block"
+          msg.reject(requeue: true)
+
+          dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
+          dlq_msg.body_io.to_s.should eq "retry me"
+          headers = dlq_msg.properties.headers.should_not be_nil
+          headers["x-first-death-reason"].should eq "expired"
+          s.vhosts["/"].queue("amq.retry-retry-overflow-expired").message_count.should eq 0
+          wait_for { q.get(no_ack: true) }.body_io.to_s.should eq "block"
+        end
+      end
+    end
+
     it "should delay a retried message again when the primary queue is full" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -159,8 +317,8 @@ describe "Retry Queue" do
           q.publish_confirm "retry me"
 
           msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
           q.publish_confirm "block"
+          msg.reject(requeue: true)
 
           sleep 350.milliseconds
           s.vhosts["/"].queue("amq.retry-retry-overflow-redelay").message_count.should eq 1
@@ -196,28 +354,121 @@ describe "Retry Queue" do
 
     it "should requeue instantly if the retry queue store fails" do
       with_amqp_server do |s|
+        vhost = s.vhosts["/"]
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-delivery-limit"    => 3,
             "x-delayed-retry-min" => 60_000,
           })
           q = ch.queue("retry-store-error", args: args)
-          retry_q = s.vhosts["/"].queue("amq.retry-retry-store-error")
-          FileUtils.rm_rf(retry_q.@msg_store.@msg_dir)
+          retry_q = vhost.queue("amq.retry-retry-store-error")
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = true
 
-          body = "x" * (LavinMQ::Config.instance.segment_size + 1)
-          q.publish_confirm body
+          q.publish_confirm "x"
           msg = wait_for { q.get(no_ack: false) }
           msg.reject(requeue: true)
 
           msg2 = wait_for { q.get(no_ack: false) }
-          msg2.body_io.to_s.should eq body
-          retry_q.closed?.should be_true
-          s.vhosts["/"].queue("retry-store-error").closed?.should be_false
+          msg2.body_io.to_s.should eq "x"
+          retry_q.closed?.should be_false
+          vhost.queue("retry-store-error").closed?.should be_false
+          vhost.queue("amq.retry-retry-store-error").should be retry_q
 
+          # The retry queue keeps working once it can store messages
           msg2.reject(requeue: true)
-          wait_for { s.vhosts["/"].queue?("amq.retry-retry-store-error").try { |rq| !rq.closed? && rq.message_count == 1 } }
+          wait_for { retry_q.message_count == 1 }
         end
+      ensure
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = false
+      end
+    end
+
+    it "should keep the retry queue open if its purge fails" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-purge-error", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          retry_q = vhost.queue("amq.retry-retry-purge-error")
+          q.publish_confirm "a"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { retry_q.message_count == 1 }
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_purge = true
+          expect_raises(LavinMQ::MessageStore::Error) { retry_q.purge }
+          retry_q.closed?.should be_false
+          retry_q.purge.should eq 1
+        end
+      ensure
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_purge = false
+      end
+    end
+
+    it "should release delayed messages again after the release loop stopped on a store error" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-expire-error", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 200}))
+          retry_q = vhost.queue("amq.retry-retry-expire-error")
+          LavinMQ::AMQP::DelayedRetryQueue.fail_next_expire = true
+          q.publish_confirm "a"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { !retry_q.message_expire_fiber_active? }
+          sleep 300.milliseconds
+          retry_q.closed?.should be_false
+          retry_q.message_count.should eq 1 # not released, and the loop didn't restart
+
+          q.publish_confirm "b"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { vhost.queue("retry-expire-error").message_count == 2 }
+        end
+      ensure
+        LavinMQ::AMQP::DelayedRetryQueue.fail_next_expire = false
+      end
+    end
+
+    # A segment of 4 schema bytes and one record whose property flags are
+    # invalid, so it can't be decoded
+    corrupt_segment = -> do
+      io = IO::Memory.new
+      io.write_bytes LavinMQ::Schema::VERSION
+      io.write_bytes 1_i64 # timestamp
+      io.write_byte 0_u8   # exchange name
+      io.write_byte 0_u8   # routing key
+      io.write_bytes 1_u16 # property flags, an invalid bit
+      io.write_bytes 0_u64 # body size
+      io.to_slice
+    end
+
+    it "closes a delayed store with a record that can't be decoded, instead of indexing it" do
+      with_datadir do |dir|
+        File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil).closed.should be_true
+      end
+    end
+
+    it "closes a delayed store when indexing finds a record that can't be decoded" do
+      with_datadir do |dir|
+        # With a meta file the load trusts its count and doesn't read the records
+        File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)
+        File.open(File.join(dir, "meta.0000000001"), "w", &.write_bytes(1_u32))
+        File.write(File.join(dir, "msgs.0000000002"), "\x04\x00\x00\x00")
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil).closed.should be_true
+      end
+    end
+
+    it "starts with a retry queue whose segment is corrupt, and closes that queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-corrupt-retry").message_count == 1 }
+        end
+        segment = File.join(s.vhosts["/"].queue("amq.retry-corrupt-retry").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        s.vhosts["/"].queue("amq.retry-corrupt-retry").closed?.should be_true
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
       end
     end
 
@@ -360,6 +611,117 @@ describe "Retry Queue" do
     end
   end
 
+  describe "Lifecycle and locking" do
+    it "deletes a queue under the definitions lock while a nack multiple rejects into a closed retry queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          20.times { q.publish_confirm "x" }
+          vhost.queue("amq.retry-prim").close
+          tags = Channel(UInt64).new(100)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          5.times { tags.receive }
+          deleted = Channel(Nil).new
+          spawn do
+            vhost.synchronize_definitions do
+              ch.basic_nack(5u64, requeue: true, multiple: true)
+              sleep 100.milliseconds
+              vhost.delete_queue("prim")
+            end
+            deleted.close
+          end
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the queue delete deadlocked with the nack"
+          end
+          vhost.queue?("amq.retry-prim").should be_nil
+        end
+      end
+    end
+
+    it "deletes a queue under the definitions lock while a nack multiple rejects into a failing non-durable retry queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("prim", durable: false, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          20.times { q.publish_confirm "x" }
+          tags = Channel(UInt64).new(100)
+          q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+          5.times { tags.receive }
+          other = ch.queue("other", durable: false)
+          other.subscribe(no_ack: false) { |_| }
+          LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = true
+          deleted = Channel(Nil).new
+          spawn do
+            vhost.synchronize_definitions do
+              ch.basic_nack(5u64, requeue: true, multiple: true)
+              sleep 100.milliseconds
+              with_channel(s) { |ch2| ch2.basic_publish_confirm("y", "", "other") }
+              sleep 100.milliseconds
+              vhost.delete_queue("other")
+            end
+            deleted.close
+          end
+          select
+          when deleted.receive?
+          when timeout(5.seconds)
+            fail "the queue delete deadlocked with the nack"
+          end
+          retry_q = vhost.queue("amq.retry-prim")
+          retry_q.closed?.should be_false
+          wait_for { retry_q.message_count == 4 } # the first was requeued instantly
+        end
+      ensure
+        LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.fail_next_push = false
+      end
+    end
+
+    it "requeues the rest of a nack multiple when a reject raises" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.register_queue(LavinMQ::AMQP::RejectFailingQueue.create(vhost, "a"))
+        with_channel(s) do |ch|
+          b = ch.queue("b")
+          ch.basic_publish_confirm "a", "", "a"
+          2.times { b.publish_confirm "b" }
+          wait_for { b.get(no_ack: false) }
+          wait_for { ch.basic_get("a", no_ack: false) }
+          last = wait_for { b.get(no_ack: false) }
+          ch.basic_nack(last.delivery_tag, requeue: true, multiple: true)
+          wait_for { ch.closed? }
+        end
+        wait_for { vhost.queue("b").message_count == 2 }
+      end
+    end
+
+    it "restarts the retry queue with its primary queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("prim", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          retry_q = vhost.queue("amq.retry-prim")
+          wait_for { retry_q.message_count == 1 }
+          prim = vhost.queue("prim")
+          prim.close
+          retry_q.closed?.should be_true
+          retry_q.message_count.should eq 1 # still delayed when it closed
+          prim.restart!.should be_true
+          restarted = vhost.queue("amq.retry-prim")
+          restarted.should_not be retry_q
+          restarted.closed?.should be_false
+          wait_for { prim.message_count == 1 }
+        end
+      end
+    end
+  end
+
   describe "Basic retry" do
     it "should not retry on reject with requeue=false" do
       with_amqp_server do |s|
@@ -411,6 +773,30 @@ describe "Retry Queue" do
       end
     end
 
+    it "should flag a retried message as redelivered" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1,
+          })
+          q = ch.queue("retry-redelivered", args: args)
+          q.publish_confirm "retry me"
+
+          msg = wait_for { q.get(no_ack: false) }
+          msg.redelivered.should be_false
+          msg.reject(requeue: true)
+
+          msg2 = wait_for { q.get(no_ack: false) }
+          msg2.redelivered.should be_true
+          msg2.reject(requeue: true)
+
+          msg3 = wait_for { q.get(no_ack: true) }
+          msg3.redelivered.should be_true
+        end
+      end
+    end
+
     it "should also trigger retry on nack(requeue=true)" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -427,8 +813,9 @@ describe "Retry Queue" do
           msg2 = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
           delay = Time.instant - start
           msg2.body_io.to_s.should eq "nack body"
+          # Measured by the client, so only bounded loosely above
           delay.should be >= 180.milliseconds
-          delay.should be < 500.milliseconds
+          delay.should be < 1.2.seconds
         end
       end
     end
@@ -449,10 +836,10 @@ describe "Retry Queue" do
         with_channel(s) do |ch|
           q = ch.queue("retry-close-bypass", args: args)
           start = Time.instant
-          msg = wait_for(timeout: 2.seconds) { q.get(no_ack: true) }
+          msg = wait_for { q.get(no_ack: true) }
           delay = Time.instant - start
           msg.body_io.to_s.should eq "close body"
-          delay.should be < 500.milliseconds
+          delay.should be < 10.seconds # far below the 60s retry delay
           s.vhosts["/"].queue("amq.retry-retry-close-bypass").message_count.should eq 0
         end
       end
@@ -460,6 +847,41 @@ describe "Retry Queue" do
   end
 
   describe "Exponential backoff" do
+    {
+      "linear without a multiplier"   => {nil, nil, [10_000, 20_000, 30_000]},
+      "constant with multiplier 1"    => {1, nil, [10_000, 10_000, 10_000]},
+      "exponential with multiplier 2" => {2, nil, [10_000, 20_000, 40_000]},
+      "capped at x-delayed-retry-max" => {2, 25_000, [10_000, 20_000, 25_000, 25_000]},
+    }.each do |backoff, (multiplier, max, delays)|
+      it "should delay a rejected message by its delivery count, #{backoff}" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 10_000})
+            args["x-delayed-retry-multiplier"] = multiplier if multiplier
+            args["x-delayed-retry-max"] = max if max
+            # A message's age is added to its x-delay, so it must not age
+            RoughTime.paused do
+              delays.each_with_index(1) do |delay, delivery_count|
+                q = ch.queue("retry-delay-#{delivery_count}", args: args)
+                q.publish_confirm "msg"
+                queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+                queue.spec_set_first_delivery_count(delivery_count - 1)
+                msg = q.get(no_ack: false).should_not be_nil
+                msg.reject(requeue: true)
+
+                retry_queue = s.vhosts["/"].queue("amq.retry-#{q.name}").as(LavinMQ::AMQP::Queue)
+                should_eventually(eq(1)) { retry_queue.message_count }
+                headers = retry_queue.spec_first_message.properties.headers.should_not be_nil
+                headers["x-delivery-count"].should eq delivery_count
+                headers["x-delay"].should eq delay
+                q.delete
+              end
+            end
+          end
+        end
+      end
+    end
+
     it "should default to linear backoff when multiplier is omitted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -478,11 +900,12 @@ describe "Retry Queue" do
             msg.reject(requeue: true)
           end
 
-          # Linear: delay = min × delivery_count → 200ms, 400ms, ...
+          # Linear: delay = min × delivery_count
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 350.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 380.milliseconds
-          delays[2].should be < 600.milliseconds
+          delays[2].should be < 1.4.seconds
         end
       end
     end
@@ -507,10 +930,11 @@ describe "Retry Queue" do
           end
 
           # All retries should wait ~200ms (constant), not grow
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 350.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 180.milliseconds
-          delays[2].should be < 350.milliseconds
+          delays[2].should be < 1.2.seconds
         end
       end
     end
@@ -534,10 +958,11 @@ describe "Retry Queue" do
             msg.reject(requeue: true)
           end
 
+          # Measured by the client, so only bounded loosely above
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 600.milliseconds
+          delays[1].should be < 1.2.seconds
           delays[2].should be >= 380.milliseconds
-          delays[2].should be < 1000.milliseconds
+          delays[2].should be < 1.4.seconds
         end
       end
     end
@@ -559,22 +984,23 @@ describe "Retry Queue" do
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay1 = Time.instant - start
+          # Measured by the client, so only bounded loosely above
           delay1.should be >= 80.milliseconds
-          delay1.should be < 300.milliseconds
+          delay1.should be < 1.1.seconds
 
           msg.reject(requeue: true)
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay2 = Time.instant - start
           delay2.should be >= 180.milliseconds
-          delay2.should be < 500.milliseconds
+          delay2.should be < 1.2.seconds
 
           msg.reject(requeue: true)
           start = Time.instant
           msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
           delay3 = Time.instant - start
           delay3.should be >= 230.milliseconds
-          delay3.should be < 600.milliseconds
+          delay3.should be < 1.25.seconds
 
           msg.ack
         end

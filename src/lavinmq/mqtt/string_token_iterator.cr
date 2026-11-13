@@ -22,7 +22,8 @@ module LavinMQ
       end
 
       def next : String?
-        return if @reader.pos >= @str.size
+        # Char::Reader#pos is a byte index, so compare and slice in bytes
+        return if @reader.pos >= @str.bytesize
         # This is to make sure we return an empty string first iteration if @str starts with @delimiter
         @reader.next_char unless @iteration.zero?
         @iteration += 1
@@ -31,11 +32,11 @@ module LavinMQ
           @reader.next_char
         end
         tail = @reader.pos
-        @str[head, tail - head]
+        @str.byte_slice(head, tail - head)
       end
 
       def next?
-        @reader.pos < @str.size
+        @reader.pos < @str.bytesize
       end
 
       def to_s

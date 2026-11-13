@@ -1,4 +1,3 @@
-require "../../filesystem"
 require "./durable_queue"
 
 module LavinMQ::AMQP
@@ -30,7 +29,7 @@ module LavinMQ::AMQP
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata, persister: @vhost.persister)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     class PriorityMessageStore < MessageStore
@@ -45,28 +44,39 @@ module LavinMQ::AMQP
         @max_priority : UInt8,
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
-        @durable : Bool = true,
+        @durable : Bool,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
         @persister : Persister? = nil,
       )
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
-        init_sub_stores(@stores)
-        migrate_from_single_store
+        begin
+          init_sub_stores(@stores)
+          migrate_from_single_store
+        rescue ex
+          @stores.each &.close
+          raise ex
+        end
 
         @empty = BoolChannel.new(empty?)
       end
 
       private def init_sub_stores(stores)
         Dir.mkdir_p @msg_dir
+        created = false
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          Dir.mkdir(sub_msg_dir) unless Dir.exists?(sub_msg_dir)
+          unless Dir.exists?(sub_msg_dir)
+            Dir.mkdir(sub_msg_dir)
+            created = true
+          end
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}), persister: @persister)
           stores << store
         end
-        FileSystem.fsync_dir(@msg_dir) if @durable
+        # Like the queue's own directory, the sub store directories only have
+        # to be durable for the next confirm
+        @persister.try &.mark_dirty(@msg_dir) if @durable && created
       end
 
       private def migrate_from_single_store
@@ -76,18 +86,21 @@ module LavinMQ::AMQP
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
-        msg_count = old_store.size
-        @log.info { "Migrating #{msg_count} message" }
-        i = 0u32
-        while env = old_store.shift?
-          push env.message
-          Fiber.yield if ((i &+= 1) % 8096).zero?
+        begin
+          msg_count = old_store.size
+          @log.info { "Migrating #{msg_count} message" }
+          i = 0u32
+          while env = old_store.shift?
+            push env.message
+            Fiber.yield if ((i &+= 1) % 8096).zero?
+          end
+          if size != msg_count
+            raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
+          end
+          @log.info { "Migration complete" }
+        ensure
+          old_store.close # also when the migration fails, before its files are deleted otherwise
         end
-        if size != msg_count
-          raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
-        end
-        @log.info { "Migration complete" }
-        old_store.close
         i = 0u32
         pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|

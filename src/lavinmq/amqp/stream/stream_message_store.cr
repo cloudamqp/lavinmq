@@ -20,7 +20,9 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      @last_offset = get_last_offset
+      # A segment that failed to load closed the store and unmapped its
+      # segments, so they can't be read for the last offset
+      @last_offset = @closed ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow
     end
@@ -322,7 +324,9 @@ module LavinMQ::AMQP
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      finished = @wfile
       super.tap do
+        @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
@@ -458,8 +462,10 @@ module LavinMQ::AMQP
       rescue IO::EOFError
         # Old metadata format without last_ts, scan segment to find it
         @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
-        @segment_last_ts[seg] = scan_last_ts(@segments[seg])
-        write_metadata_file(seg, @segments[seg])
+        mfile = @segments[seg]
+        # Read through, without readahead it would fault a page at a time
+        @segment_last_ts[seg] = with_advice(mfile, MFile::Advice::Sequential) { scan_last_ts(mfile) }
+        write_metadata_file(seg, mfile)
       end
 
       # Validate and fix (possibly) incorrect offsets from existing metadata

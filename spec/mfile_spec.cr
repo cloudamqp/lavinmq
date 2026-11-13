@@ -73,6 +73,54 @@ describe MFile do
     end
   end
 
+  describe "#write_at" do
+    it "overwrites written bytes and integers of any size without moving the size" do
+      path = File.tempname("mfile_spec")
+      begin
+        MFile.open(path, 4096) do |mfile|
+          mfile.write Bytes.new(16, 0xff_u8)
+          mfile.write_at(0, 0x0102030405060708_i64, IO::ByteFormat::BigEndian)
+          mfile.write_at(8, 0x0a0b_u16, IO::ByteFormat::BigEndian)
+          mfile.write_at(12, Bytes[1, 2])
+          mfile.size.should eq 16
+          mfile.to_slice.should eq Bytes[1, 2, 3, 4, 5, 6, 7, 8, 0x0a, 0x0b, 0xff, 0xff, 1, 2, 0xff, 0xff]
+        end
+      ensure
+        File.delete?(path)
+      end
+    end
+
+    it "raises instead of writing past the size" do
+      path = File.tempname("mfile_spec")
+      begin
+        MFile.open(path, 4096) do |mfile|
+          mfile.write Bytes.new(8)
+          expect_raises(IO::EOFError) { mfile.write_at(4, 1_i64) }
+          expect_raises(IO::EOFError) { mfile.write_at(7, Bytes[1, 2]) }
+        end
+      ensure
+        File.delete?(path)
+      end
+    end
+  end
+
+  it "reads one byte at a time" do
+    file = File.tempfile "mfile_spec"
+    file.print "ab"
+    file.flush
+    begin
+      MFile.open(file.path) do |mfile|
+        mfile.read_byte.should eq 'a'.ord
+        mfile.pos.should eq 1
+        mfile.read_byte.should eq 'b'.ord
+        mfile.read_byte.should be_nil
+        mfile.pos.should eq 2
+      end
+    ensure
+      file.delete
+    end
+  end
+
   describe "madvise chunking" do
     # madvise(MADV_DONTNEED) over PMD_SIZE or more lets the kernel reclaim the
     # page table and flush at the wrong address on Linux 7.0.0-rc1 through
@@ -177,6 +225,25 @@ describe MFile do
       mfile.delete
       mfile.close
       mfile.fsync
+    end
+  end
+end
+
+describe MFile do
+  describe "#allocated_size" do
+    it "is what a sparse file occupies, not its size" do
+      path = File.tempname("mfile_spec")
+      begin
+        File.write(path, "hello")
+        File.open(path, "r+", &.truncate(1 << 20))
+        mfile = MFile.new(path)
+        mfile.size.should eq 1 << 20
+        mfile.allocated_size.should be >= 5
+        mfile.allocated_size.should be < 1 << 20
+        mfile.close
+      ensure
+        File.delete?(path)
+      end
     end
   end
 end

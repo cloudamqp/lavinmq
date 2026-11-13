@@ -18,6 +18,10 @@ module LavinMQ::AMQP
     # Simplified expire loop: no consumers and no per-message TTL to consider,
     # only the delays ordered by the delayed store.
     private def message_expire_loop
+      stopped_on_error = false
+      # Messages restored from disk can be overdue already, but must not be
+      # released before the vhost has loaded the bindings they route through
+      @vhost.closed.when_false.receive?
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -39,14 +43,21 @@ module LavinMQ::AMQP
         end
       end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+      stopped_on_error = true
+      expire_loop_failed(ex)
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
-      ensure_expire_fiber # restart if a message arrived during teardown
+      # Restart if a message arrived during teardown, but not after an error,
+      # so that a lasting one can't make the loop spin
+      ensure_expire_fiber unless stopped_on_error
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    private def expire_loop_failed(ex : MessageStore::Error) : Nil
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     end
 
     # The expire fiber must always run, otherwise delayed messages are never released
@@ -54,16 +65,24 @@ module LavinMQ::AMQP
       true
     end
 
+    # Routing a released message can fan out to many queues, so it runs
+    # outside the lock, on a lease that keeps the message's segment mapped
     def expire_messages
+      while env = next_expired_message
+        begin
+          expire_msg(env, :expired)
+        ensure
+          env.release
+        end
+      end
+    end
+
+    # Shifts the next message whose delay has passed, leased before the lock
+    # is released
+    private def next_expired_message : Envelope?
       @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
-          end
+        if (env = delayed_msg_store.first_delayed?) && has_expired?(env)
+          delayed_msg_store.shift_delayed?.try &.lease
         end
       end
     end

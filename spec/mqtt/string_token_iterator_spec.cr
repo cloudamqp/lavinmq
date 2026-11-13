@@ -13,6 +13,10 @@ def strings
     {"a//b/c/aa", ["a", "", "b", "c", "aa"]},
     {"long name here/and another long here",
      ["long name here", "and another long here"]},
+    {"é/1", ["é", "1"]},
+    {"é/2", ["é", "2"]},
+    {"a/é", ["a", "é"]},
+    {"日本/語/x", ["日本", "語", "x"]},
   ]
 end
 

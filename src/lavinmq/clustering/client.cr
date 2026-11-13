@@ -27,9 +27,13 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @closed = false
+      @close_done = Channel(Nil).new
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
+      @amqps_proxy : Proxy?
+      @https_proxy : Proxy?
+      @mqtts_proxy : Proxy?
       @unix_amqp_proxy : Proxy?
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
@@ -55,13 +59,16 @@ module LavinMQ
       # Files this client created whose directory entry isn't fsynced yet,
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
+      # Parents of directories this client created, whose new entries aren't
+      # fsynced yet, fsynced with the next fsync request (see #make_dirs)
+      @created_dirs = Set(String).new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
-          FileSystem.mkdir_p File.dirname(path)
+          make_dirs File.dirname(path)
           @created_files << k unless File.exists?(path)
           h[k] = File.open(path, "a").tap &.sync = true
         end
@@ -77,6 +84,12 @@ module LavinMQ
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
           @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
+          # TLS is passed through unterminated, the leader terminates it
+          if @config.tls_configured?
+            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
+            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
+            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
+          end
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
@@ -98,24 +111,7 @@ module LavinMQ
         @host = host
         @port = port
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
+        start_proxies(host)
         loop do
           hash_local_files
           return if @closed
@@ -135,6 +131,36 @@ module LavinMQ
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def start_proxies(host)
+        if amqp_proxy = @amqp_proxy
+          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+        end
+        if http_proxy = @http_proxy
+          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if mqtt_proxy = @mqtt_proxy
+          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
+        end
+        if amqps_proxy = @amqps_proxy
+          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
+        end
+        if https_proxy = @https_proxy
+          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
+        end
+        if mqtts_proxy = @mqtts_proxy
+          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
+        end
+        if unix_amqp_proxy = @unix_amqp_proxy
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+        end
+        if unix_http_proxy = @unix_http_proxy
+          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if unix_mqtt_proxy = @unix_mqtt_proxy
+          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -183,6 +209,7 @@ module LavinMQ
           # Fsync requests only cover what's streamed after this, so make
           # everything received so far durable before acking anything
           sync_to_disk
+          @created_dirs.clear
         end
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
       end
@@ -196,6 +223,7 @@ module LavinMQ
         @files.each_value &.close
         @files.clear
         @created_files.clear
+        @created_dirs.clear
       end
 
       # Adopt the running digests as the files' checksums and stop tracking them.
@@ -215,12 +243,7 @@ module LavinMQ
       end
 
       private def set_socket_opts(socket)
-        if keepalive = @config.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        @config.apply_tcp_keepalive(socket)
       end
 
       private def sync_files(socket, lz4)
@@ -385,10 +408,9 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them
+            next if child.in?(NODE_LOCAL_FILES) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -407,7 +429,7 @@ module LavinMQ
       private def file_from_socket(filename, lz4)
         Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
-        FileSystem.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
@@ -507,6 +529,17 @@ module LavinMQ
         path = File.join(@data_dir, filename)
         @acks.send path
         @acks.send File.dirname(path) if @created_files.delete(filename)
+        # Whatever the request covers may sit in a directory created since the
+        # last one, so their entries are made durable before the ack too
+        @created_dirs.each { |dir| @acks.send dir }
+        @created_dirs.clear
+      end
+
+      # The parent of each directory this creates is fsynced with the next
+      # fsync request, before the ack that makes anything in it durable, not
+      # inline on the replication stream
+      private def make_dirs(dir : String) : Nil
+        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent }
       end
 
       private def delete(filename)
@@ -561,13 +594,17 @@ module LavinMQ
         sha1 = Digest::SHA1.new
 
         path = File.join(@data_dir, "#{filename}.tmp")
-        FileSystem.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
         @created_files.delete(filename)
         File.open(path, "w") do |f|
           f.sync = true
           # The record's final ack tells the leader the replace is durable, so
           # it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
+          # The ack doesn't cover a directory created for the file here: that's
+          # fsynced with the next fsync request (see #make_dirs). The only such
+          # replace is a new queue's .queue file, which the leader doesn't fsync
+          # either, and its directory is recreated from the definitions if lost.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           # Fsync the content before the rename, so that a crash can't leave
           # a partially written file under the final name
@@ -632,6 +669,9 @@ module LavinMQ
             item = acks.try_receive? || break
           end
           if syncfs || fsync_paths.size > @config.syncfs_threshold
+            # The syncfs covers them. Cleared before it, as #make_dirs can run
+            # while it blocks.
+            @created_dirs.clear
             sync_to_disk
           else
             fsync_to_disk(fsync_paths)
@@ -661,7 +701,15 @@ module LavinMQ
 
       private def fsync_to_disk(paths : Set(String)) : Nil
         return unless @config.sync?
-        paths.each { |path| fsync_path(path) }
+        begin
+          paths.each { |path| fsync_path(path) }
+        rescue ex : IO::Error | RuntimeError
+          raise ex unless FileSystem.out_of_file_descriptors?(ex)
+          # Opening a path to fsync it needs a free descriptor, the already
+          # open data dir fd doesn't, so sync everything through it instead
+          Log.warn { "Out of file descriptors, syncing the whole data dir instead: #{ex.message}" }
+          sync_data_dir
+        end
       rescue ex
         Log.fatal(exception: ex) { "Failed to fsync: #{ex.message}" }
         exit 1
@@ -713,13 +761,22 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # On promotion both the leader watcher and the controller close the
+      # client, and the controller binds the listeners as soon as its call
+      # returns, so a call made while another is closing waits for it to finish.
       def close
-        return if @closed
+        if @closed
+          @close_done.receive?
+          return
+        end
         @closed = true
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
+        @amqps_proxy.try &.close
+        @https_proxy.try &.close
+        @mqtts_proxy.try &.close
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
@@ -743,6 +800,8 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+      ensure
+        @close_done.close
       end
 
       class Error < Exception; end
