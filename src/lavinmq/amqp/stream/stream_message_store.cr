@@ -20,11 +20,22 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      # A segment that failed to load closed the store and unmapped its
-      # segments, so they can't be read for the last offset
-      @last_offset = @closed ? 0i64 : get_last_offset
+      @last_offset = get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      seal_write_segment if @wfile_unreadable
+      @wfile_unreadable = false
       drop_overflow
+    end
+
+    # Done in #initialize, as a new segment needs the last offset
+    private def seal_unreadable_write_segment : Nil
+    end
+
+    # #open_new_segment takes the last offset as the segment's first, which
+    # it is when a push opens it, as that has counted its message already
+    private def seal_write_segment : Nil
+      super
+      @segment_first_offset[@segments.last_key] = @last_offset + 1
     end
 
     def close : Nil
@@ -257,6 +268,7 @@ module LavinMQ::AMQP
         rfile = next_segment(consumer) || return
       end
       begin
+        verify_schema(rfile) if consumer.pos == 4
         msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
         sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
         msg.properties.headers = add_offset_header(msg.properties.headers, consumer.offset)
@@ -265,22 +277,44 @@ module LavinMQ::AMQP
         return unless consumer.filter_match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        error = unreadable(consumer.segment, rfile, ex)
+        skip_unreadable_segment(consumer, error)
+        shift?(consumer)
+      end
+    end
+
+    # A consumer that can't read its segment continues with the next one.
+    # Each consumer has its own position, so the others aren't held back, and
+    # the segment is kept, until retention removes it, for a version or a
+    # node that can read it.
+    private def skip_unreadable_segment(consumer, error : Error) : Nil
+      seg = consumer.segment
+      pos = consumer.pos
+      next_segment(consumer) || raise error
+      consumer.offset = @segment_first_offset[consumer.segment]
+      @log.error(exception: error) do
+        "Segment #{seg} can't be read from pos #{pos}, consumer #{consumer.tag} continues with segment #{consumer.segment}"
       end
     end
 
     private def shift_requeued(consumer) : Envelope?
-      while sp = consumer.requeued.shift?
+      while sp = consumer.requeued.first?
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
+            # Only removed once it's read, so that a failed read can be tried again
+            consumer.requeued.shift?
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
-            raise Error.new(segment, cause: ex)
+            # Not redelivered, like one whose segment has expired
+            consumer.requeued.shift?
+            @log.error(exception: ex) { "Requeued message #{sp} can't be read, consumer #{consumer.tag} continues without it" }
           end
+        else
+          consumer.requeued.shift?
         end
       end
     end
@@ -430,8 +464,19 @@ module LavinMQ::AMQP
       end
     end
 
-    private def produce_metadata(seg, mfile)
+    # A segment with data that can't be read has no first message to take its
+    # offset and timestamps from
+    private def count_unreadable(seg : UInt32, mfile : MFile, pos : Int, readable_unacked : UInt32 = 0u32) : Nil
       super
+      previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+      previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
+      @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+      @segment_first_ts[seg] = RoughTime.unix_ms
+      @segment_last_ts[seg] = RoughTime.unix_ms
+    end
+
+    private def produce_metadata(seg, mfile) : Bool
+      return false unless super
       if empty? || @segment_msg_count[seg].zero?
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
@@ -451,6 +496,7 @@ module LavinMQ::AMQP
         # This path only runs when metadata files are missing, so the cost is acceptable.
         @segment_last_ts[seg] = scan_last_ts(mfile)
       end
+      true
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
@@ -482,7 +528,6 @@ module LavinMQ::AMQP
 
     # Streams never ack individual messages, so any ack files are leftovers
     private def load_acks_from_disk : Nil
-      return if @closed
       Dir.each_child(@msg_dir) do |f|
         next unless f.starts_with?("acks.") || f.starts_with?("tmp.acks.")
         path = File.join(@msg_dir, f)

@@ -764,9 +764,14 @@ module LavinMQ
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                if env = unack.queue.read(unack.sp)
+                  consumer.deliver(env.message, env.segment_position, true, recover: true)
+                  false
+                else # it can't be read, which paused the queue
+                  consumer.reject(unack.sp, requeue: true)
+                  unack.queue.requeue(unack.sp)
+                  true
+                end
               else
                 unack.queue.requeue(unack.sp)
                 true

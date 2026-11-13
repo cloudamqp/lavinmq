@@ -51,6 +51,8 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
+      # False while the next message can't be read, until a purge gives it up
+      @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
@@ -112,6 +114,7 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
+        @store_readable.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -142,6 +145,7 @@ module LavinMQ
           client = @client
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
+          next @store_readable.when_true.receive? unless @store_readable.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
             delivered_bytes &+= bytesize
@@ -150,10 +154,35 @@ module LavinMQ
             delivered_bytes = 0
             Fiber.yield
           end
+        rescue ex : MessageStore::Error
+          # The client stays connected: disconnecting it would only make it
+          # reconnect to the same message. A restart of the broker reads it again.
+          if still_unreadable?
+            @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+          else # another store error, or a purge removed the message meanwhile
+            @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
+            @client.try &.close("Server force closed client")
+            self.client = nil
+          end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           @client.try &.close("Server force closed client")
           self.client = nil
+        end
+      end
+
+      # Stops the deliveries if the next message can't be read. Checked again
+      # under the lock a purge holds, which may have removed it since the
+      # delivery failed.
+      private def still_unreadable? : Bool
+        @msg_store_lock.synchronize do
+          @msg_store.first?
+          false
+        rescue MessageStore::Error
+          @store_readable.set(false) unless closed?
+          true
+        rescue MessageStore::ClosedError
+          false
         end
       end
 
@@ -354,10 +383,6 @@ module LavinMQ
           end || break
         end
         false
-      rescue ex : MessageStore::Error
-        @log.error(ex) { "Queue closed due to error" }
-        close
-        raise ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -466,10 +491,6 @@ module LavinMQ
 
       def resume!; end
 
-      def restart! : Bool
-        false
-      end
-
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
       end
@@ -479,7 +500,9 @@ module LavinMQ
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
-        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        count = @msg_store_lock.synchronize do
+          @msg_store.purge(max_count).tap { @store_readable.set(true) unless closed? }
+        end
         @log.info { "Purged #{count} messages" }
         count
       end

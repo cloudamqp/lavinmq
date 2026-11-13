@@ -18,7 +18,7 @@ end
 
 # Nacks the first five deliveries of a queue with 20 messages, while the
 # consumer's deliver loop waits for the channel's unacked lock, and fails the
-# first requeue. The queue closes, which waits for its deliver loops.
+# first requeue. The queue is paused, and the message stays in it.
 private def nack_multiple_on_store_error(s, tx = false)
   with_channel(s) do |ch|
     ch.prefetch(5)
@@ -30,14 +30,16 @@ private def nack_multiple_on_store_error(s, tx = false)
     ch.tx_select if tx
     LavinMQ::MessageStore.fail_next_requeue = true
     ch.basic_nack(5u64, requeue: true, multiple: true)
-    spawn { ch.tx_commit rescue nil } if tx
-    # The reject raises once the queue has closed, which closes the connection
-    wait_for(5.seconds) { ch.closed? }
+    ch.tx_commit if tx
+    queue = s.vhosts["/"].queue("nack-store-error")
+    should_eventually(be_true) { queue.state.paused? }
+    queue.closed?.should be_false
+    ch.closed?.should be_false
+    # A deliver loop can have taken a message before the pause
+    should_eventually(eq 20) { queue.message_count + queue.unacked_count }
+    queue.resume!
+    5.times { tags.receive } # the prefetch is filled again
   end
-  queue = s.vhosts["/"].queue("nack-store-error")
-  queue.closed?.should be_true
-  queue.restart!.should be_true
-  queue.message_count.should eq 20
 ensure
   LavinMQ::MessageStore.fail_next_requeue = false
 end
@@ -99,11 +101,11 @@ describe LavinMQ::AMQP::Channel do
     end
   end
 
-  it "closes a queue on a store error during a nack multiple without deadlocking" do
+  it "pauses a queue on a store error during a nack multiple without deadlocking" do
     with_amqp_server { |s| nack_multiple_on_store_error(s) }
   end
 
-  it "closes a queue on a store error during a tx.commit without deadlocking" do
+  it "pauses a queue on a store error during a tx.commit without deadlocking" do
     with_amqp_server { |s| nack_multiple_on_store_error(s, tx: true) }
   end
 end

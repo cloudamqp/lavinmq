@@ -20,6 +20,19 @@ describe LavinMQ::MinHeap do
     heap.size.should eq 2
   end
 
+  it "is still a heap after elements are rejected" do
+    heap = LavinMQ::MinHeap(Int32).new
+    [5, 1, 4, 1, 9, 2, 6, 3, 5, 0].each { |i| heap.push i }
+    heap.reject!(&.odd?)
+    heap.size.should eq 4
+    heap.push 3
+    shifted = Array(Int32).new
+    while i = heap.shift?
+      shifted << i
+    end
+    shifted.should eq [0, 2, 3, 4, 6]
+  end
+
   it "shifts in ascending order" do
     heap = LavinMQ::MinHeap(Int32).new
     [5, 1, 4, 1, 9, 2, 6, 3, 5, 0].each { |i| heap.push i }

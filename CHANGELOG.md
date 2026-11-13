@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A queue is paused, not closed, when its message store fails, for example on a segment with corrupt data or one written by a newer version. Nothing is delivered past the data, consumers stay connected and publishes are still stored. Resuming the queue reads the data again, and so does a restart of the broker or a failover, as this pause isn't kept. A purge gives the data up, with the whole segment it's in. A segment that can't be read no longer closes the queue at start either. Applies to retry queues and the queues of delayed exchanges too. A stream isn't paused, its consumers continue with the next segment, and an MQTT session delivers nothing until it's purged [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
+
+### Removed
+
+- Restarting a closed queue: `PUT /api/queues/:vhost/:name/restart`, `lavinmqctl restart_queue` and the "Restart queue" button. Queues no longer close on errors, and the restart replaced the queue's message store while it was in use [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
+
 ### Fixed
 
+- A paused stream was running again after a restart of the broker, and pausing or resuming a queue from several requests at once could leave its state and its consumers disagreeing [#2746](https://github.com/cloudamqp/lavinmq/pull/2746)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
 - The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)

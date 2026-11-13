@@ -13,6 +13,8 @@ module LavinMQ::AMQP
     class DelayedMessageStore < MessageStore
       # Redefine @requeued (defined in MessageStore)
       @requeued : RequeuedStore = DelayedRequeuedStore.new
+      # Segments with data that couldn't be indexed, see #index_unreadable
+      @unreadable_segments = Array(UInt32).new
 
       private def requeued : DelayedRequeuedStore
         @requeued.as(DelayedRequeuedStore)
@@ -25,9 +27,7 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        # A segment that failed to load closed the store and unmapped its
-        # segments, so they can't be indexed
-        close_on_error { build_index } unless @closed
+        close_on_error { build_index }
       end
 
       def build_index
@@ -38,6 +38,11 @@ module LavinMQ::AMQP
         bytesize = 0u64
         @segments.each do |seg_id, mfile|
           mfile.pos = 4
+          unless schema_ok?(mfile)
+            count += 1
+            bytesize += index_unreadable(requeued, seg_id, mfile, 4u32)
+            next
+          end
           loop do
             pos = mfile.pos.to_u32
             break if pos == mfile.size
@@ -59,9 +64,11 @@ module LavinMQ::AMQP
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             # Like a record the load can't decode, see MessageStore#produce_metadata.
             # A segment with a meta file isn't read record by record at load.
-            @log.error { "Could not index segment #{seg_id} at pos #{pos}, closing message store: #{ex}" }
-            close_store
-            return
+            pos ||= mfile.pos.to_u32
+            @log.error { "Segment #{seg_id} can't be read from pos #{pos}: #{ex}" }
+            count += 1
+            bytesize += index_unreadable(requeued, seg_id, mfile, pos)
+            break
           end
         end
         @requeued = requeued
@@ -73,31 +80,42 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
+      # Every message is in the index, none is read from where the reader is
+      private def count_unread : Nil
+      end
+
+      # The rest of the segment from *pos* can't be decoded. It's indexed as
+      # one message that's due at once, so that the release loop reads it,
+      # fails and pauses the queue. Returns its bytesize.
+      private def index_unreadable(requeued, seg_id, mfile, pos : UInt32) : UInt32
+        @unreadable_segments << seg_id
+        sp = SegmentPosition.new(seg_id, pos, (mfile.size - pos).to_u32)
+        requeued.insert(sp, 0i64)
+        sp.bytesize
+      end
+
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
         begin
+          verify_schema(seg) if sp.position == 4
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
           Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
-          raise MessageStore::Error.new(seg, cause: ex)
+          raise unreadable(sp.segment, seg, ex)
         end
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
-        raise ClosedError.new if @closed
-        sp = @requeued.shift? || return
-        segment = @segments[sp.segment]
-        begin
-          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-          @bytesize -= sp.bytesize
-          @size -= 1
-          @empty.set true if @size.zero?
-          Envelope.new(sp, msg, redelivered: true, segment: segment)
-        rescue ex
-          raise MessageStore::Error.new(segment, cause: ex)
-        end
+        # A message that can't be read stays in the index, so that the read
+        # can be tried again
+        env = first_delayed? || return
+        @requeued.shift?
+        @bytesize -= env.segment_position.bytesize
+        @size -= 1
+        @empty.set true if @size.zero?
+        env
       end
 
       # Overload to add the segment position to our "index"
@@ -118,6 +136,10 @@ module LavinMQ::AMQP
           @bytesize -= sp.bytesize
           delete(sp) if @segments.has_key?(sp.segment)
         end
+        # An ack of data that can't be decoded doesn't let a load skip it, so
+        # its segment is removed
+        @unreadable_segments.each { |seg| drop_segment(seg) if @segments.has_key?(seg) }
+        @unreadable_segments.clear
         @empty.set true
       end
 

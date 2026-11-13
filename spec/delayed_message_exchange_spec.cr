@@ -315,7 +315,7 @@ describe "Delayed Message Exchange" do
     end
   end
 
-  it "closes cleanly without hanging the publisher when the expire loop hits a store error" do
+  it "pauses without hanging the publisher when the expire loop hits a store error" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
@@ -339,22 +339,26 @@ describe "Delayed Message Exchange" do
       # Wake the expire loop so it processes the (now-expired) bogus entry
       queue.@message_ttl_change.send(nil)
 
-      # The store error must close the queue rather than silently killing the only
-      # release fiber and stranding all delayed messages forever.
-      wait_for { queue.closed? }
-      queue.closed?.should be_true
+      # The store error pauses the queue: the release fiber waits for a resume,
+      # where it reads the entry again
+      wait_for { queue.state.paused? }
+      queue.closed?.should be_false
+      queue.message_expire_fiber_active?.should be_true
 
-      # After the store error closes the queue, delay() must refuse promptly
-      # instead of blocking the publisher.
+      # Delayed publishes are still stored, without blocking the publisher
       msg = LavinMQ::Message.new("", queue.name, "after-error")
       done = Channel(Bool).new
       spawn { done.send(queue.delay(msg)) }
       select
       when result = done.receive
-        result.should be_false # closed queue refuses the message instead of blocking
+        result.should be_true
       when timeout 2.seconds
-        fail "delay() blocked the publisher after the expire fiber died"
+        fail "delay() blocked the publisher of a paused queue"
       end
+      queue.message_count.should eq 2
+
+      queue.resume!
+      wait_for { queue.state.paused? } # the entry still can't be read
     end
   end
 

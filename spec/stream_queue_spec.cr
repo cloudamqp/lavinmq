@@ -879,12 +879,9 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
           q.message_count.should eq 3
-
-          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          stream.close
-          stream.restart!
-          stream.message_count.should eq 3
         end
+        restart_server(s)
+        s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).message_count.should eq 3
       end
     end
   end
@@ -1052,16 +1049,18 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    # Closing the store runs StreamMessageStore#close, which closes state
-    # that is only set up after loading, and crashed the process
-    it "closes instead of crashing when a segment has an unsupported schema version" do
+    it "loads a segment that has an unsupported schema version, and writes to a new one" do
       with_datadir do |data_dir|
         File.write(File.join(data_dir, "msgs.0000000001"), "\x09\x00\x00\x00")
-        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.closed.should be_false
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        store.@segments.keys.should eq [1u32, 2u32]
+        store.close
       end
     end
 
-    it "closes instead of crashing when a record in a segment can't be decoded" do
+    it "loads a segment with a record that can't be decoded" do
       with_datadir do |data_dir|
         io = IO::Memory.new
         io.write_bytes LavinMQ::Schema::VERSION
@@ -1071,11 +1070,13 @@ describe LavinMQ::AMQP::Stream do
         io.write_bytes 0_u16       # property flags
         io.write_bytes UInt64::MAX # body size, overflows when skipped
         File.write(File.join(data_dir, "msgs.0000000001"), io.to_slice)
-        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.closed.should be_false
+        store.close
       end
     end
 
-    it "starts with a stream queue whose segment is corrupt, and closes that queue" do
+    it "starts with a stream queue whose segment is corrupt, which its consumers skip" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
@@ -1084,8 +1085,56 @@ describe LavinMQ::AMQP::Stream do
         segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
         File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
         restart_server(s)
-        s.vhosts["/"].queue("corrupt-stream").closed?.should be_true
-        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
+        stream = s.vhosts["/"].queue("corrupt-stream")
+        stream.closed?.should be_false
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm("y").should be_true # in a new segment
+          bodies = ::Channel({String, Int64}).new(2)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msg.ack
+            bodies.send({msg.body_io.to_s, StreamSpecHelpers.offset_from_headers(msg.properties.headers)})
+          end
+          # The stream isn't paused, each consumer has its own position. The
+          # segment that can't be read counts as one message, with offset 1.
+          bodies.receive.should eq({"y", 2i64})
+          q.publish_confirm("z").should be_true
+          bodies.receive.should eq({"z", 3i64})
+          stream.state.running?.should be_true
+          File.exists?(segment).should be_true
+        end
+        s.stop
+
+        # The segment is kept: once it can be read, it's delivered
+        File.open(segment, "r+", &.write_bytes(LavinMQ::Schema::VERSION))
+        restart_server(s)
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          bodies = ::Channel(String).new(2)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msg.ack
+            bodies.send msg.body_io.to_s
+          end
+          bodies.receive.should eq "x"
+          bodies.receive.should eq "y"
+          bodies.receive.should eq "z"
+        end
+      end
+    end
+
+    it "keeps a stream paused over a restart of the broker" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("paused-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        end
+        s.vhosts["/"].queue("paused-stream").pause!
+        restart_server(s)
+        stream = s.vhosts["/"].queue("paused-stream")
+        stream.state.paused?.should be_true
+        stream.resume!
+        stream.state.running?.should be_true
       end
     end
 
@@ -1464,25 +1513,20 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "Restarting stream" do
+  describe "Restarting the broker" do
     queue_name = Random::Secure.hex
-    it "should restart a closed stream" do
+    it "should load a stream" do
       with_amqp_server do |s|
+        args = {"x-queue-type": "stream"}
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          q.publish_confirm "test message"
+        end
+        restart_server(s)
         with_channel(s) do |ch|
           ch.prefetch 1
-          args = {"x-queue-type": "stream"}
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
           stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          q.publish_confirm "test message"
-          stream.message_count.should eq 1
-
-          # Close the stream
-          stream.close
-          stream.closed?.should be_true
-
-          # Restart the stream & verify
-          stream.restart!
-          stream.closed?.should be_false
           stream.message_count.should eq 1
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
@@ -1493,7 +1537,7 @@ describe LavinMQ::AMQP::Stream do
           if msg = msgs.receive
             msg.body_io.to_s.should eq "test message"
           else
-            fail("Did not receive message after stream restart")
+            fail("Did not receive message after the restart")
           end
         end
       end
@@ -1511,11 +1555,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.close
-        stream.closed?.should be_true
-        stream.restart!
-        stream.closed?.should be_false
+        restart_server(s)
 
         # should continue from tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)

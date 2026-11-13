@@ -459,6 +459,15 @@ def serve_metrics(amqp_server, &)
   end
 end
 
+# Overwrites a value in a file, also seen by a store that has it mapped. Used
+# to make message data unreadable, and readable again.
+def write_at(path : String, pos : Int, value) : Nil
+  File.open(path, "r+") do |f|
+    f.seek(pos)
+    f.write_bytes(value)
+  end
+end
+
 def with_metrics_server(file = __FILE__, line = __LINE__, &)
   with_amqp_server(file: file, line: line) do |s|
     serve_metrics(s) do |http|
