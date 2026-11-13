@@ -1050,4 +1050,99 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       end
     end
   end
+
+  it "replicates a durable queue's paused state" do
+    with_clustering do |cluster|
+      follower_paused = ""
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) { |ch| ch.queue("paused_q", durable: true) }
+        queue = s.vhosts["/"].queue("paused_q").as(LavinMQ::AMQP::Queue)
+        relative = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
+        follower_paused = File.join(cluster.follower_config.data_dir, relative)
+
+        queue.pause!
+        wait_for { File.exists?(follower_paused) }
+        queue.resume!
+        wait_for { !File.exists?(follower_paused) }
+
+        queue.pause!
+        wait_for { File.exists?(follower_paused) }
+        # A leader that starts with a paused queue has to offer the file in a full sync
+        restart_server(s)
+        cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
+        cluster.stop
+      end
+
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        server.vhosts["/"].queue("paused_q").state.paused?.should be_true
+      ensure
+        server.close
+      end
+    end
+  end
+
+  # An in-place upgrade: the queue and the shovel were paused by a version that
+  # didn't replicate the paused files, and left the queue's one empty
+  it "replicates paused files that exist when the leader starts" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+    follower_config = LavinMQ::Config.instance.dup.tap &.data_dir = File.tempname
+    tcp_server = TCPServer.new("localhost", 0)
+    client = nil
+    begin
+      with_amqp_server(replicator: replicator) do |s|
+        with_channel(s) { |ch| ch.queue("paused_before_upgrade", durable: true) }
+        queue = s.vhosts["/"].queue("paused_before_upgrade").as(LavinMQ::AMQP::Queue)
+        queue_paused = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
+        File.touch(File.join(s.data_dir, queue_paused))
+        shovel_paused = "shovels.#{Digest::SHA1.hexdigest "paused_before_upgrade"}.paused"
+        File.write(File.join(s.data_dir, shovel_paused), "paused_before_upgrade")
+        shovel_config = %({"src-uri": "amqp://localhost", "src-queue": "q", "dest-uri": "amqp://localhost", "dest-queue": "q2"})
+        s.vhosts["/"].add_parameter(LavinMQ::Parameter.new("shovel", "paused_before_upgrade", JSON.parse(shovel_config)))
+        restart_server(s)
+        s.vhosts["/"].queue("paused_before_upgrade").state.paused?.should be_true
+        wait_for { s.vhosts["/"].shovels["paused_before_upgrade"]?.try &.state.paused? }
+
+        spawn(replicator.listen(tcp_server), name: "repli server spec")
+        client = follower = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
+        spawn(name: "follow spec") { follower.follow("localhost", tcp_server.local_address.port) }
+        wait_for { replicator.followers.first?.try &.synced? }
+
+        File.exists?(File.join(follower_config.data_dir, queue_paused)).should be_true
+        File.exists?(File.join(follower_config.data_dir, shovel_paused)).should be_true
+      end
+    ensure
+      client.try &.close
+      replicator.close
+      tcp_server.close
+      FileUtils.rm_rf follower_config.data_dir
+    end
+  end
+
+  it "replicates a shovel's paused state" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new("paused-shovel", [URI.parse("amqp://localhost")], "paused_shovel_q",
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new("paused-shovel", URI.parse("amqp://localhost"), "paused_shovel_q2",
+          direct_user: s.users.direct_user)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost)
+        relative = shovel.@paused_file_path[(s.data_dir.size + 1)..]
+        follower_paused = File.join(cluster.follower_config.data_dir, relative)
+
+        shovel.pause
+        wait_for { File.exists?(follower_paused) }
+        # A shovel that starts paused has to offer the file in a full sync
+        LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost).state.paused?.should be_true
+        cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
+
+        shovel.resume
+        wait_for { !File.exists?(follower_paused) }
+        shovel.delete
+      end
+    end
+  end
 end

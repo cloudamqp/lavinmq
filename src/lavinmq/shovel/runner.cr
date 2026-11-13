@@ -14,6 +14,9 @@ module LavinMQ
       @message_count : UInt64 = 0
       @retries : Int64 = 0
       @stop_generation = Atomic(UInt64).new(0_u64)
+      # Keeps the state, the paused file and its replication in step when
+      # #pause, #resume and #delete race
+      @pause_lock = Mutex.new
       # Consecutive failing rounds of transient (Retry) deliveries (see
       # extend_backoff), written by the outcome handler (confirm fiber) and
       # read by the consuming loop for backoff.
@@ -38,6 +41,7 @@ module LavinMQ
         @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
+          @vhost.replicator.try &.register_file(@paused_file_path)
         end
       end
 
@@ -256,24 +260,31 @@ module LavinMQ
 
       # Start a new run for a paused or aborted shovel.
       def resume
-        return unless paused? || aborted?
-        delete_paused_file
-        @state = State::Starting
+        @pause_lock.synchronize do
+          return unless paused? || aborted?
+          delete_paused_file
+          @state = State::Starting
+        end
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
-        return if terminated?
-        File.write(@paused_file_path, @name)
-        Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
-        halt(State::Paused)
+        @pause_lock.synchronize do
+          return if terminated?
+          File.write(@paused_file_path, @name)
+          @vhost.replicator.try &.replace_file(@paused_file_path)
+          Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
+          halt(State::Paused)
+        end
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
       def delete
-        terminate
-        delete_paused_file
+        @pause_lock.synchronize do
+          terminate
+          delete_paused_file
+        end
       end
 
       # Does not trigger reconnect, but a graceful close
@@ -293,8 +304,10 @@ module LavinMQ
         @destination.stop
       end
 
-      def delete_paused_file
-        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
+      private def delete_paused_file
+        return unless File.exists?(@paused_file_path)
+        FileUtils.rm(@paused_file_path)
+        @vhost.replicator.try &.delete_file(@paused_file_path)
       end
 
       def should_stop_loop?(run_generation)
