@@ -125,15 +125,22 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will not lose leadership when only one etcd node is lost", tags: "slow" do
-    cluster = EtcdCluster.new
-    cluster.run do |etcds|
-      etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", ttl: 1)
-      etcds.sample.terminate(graceful: false)
+  # Losing the etcd leader means keepalives fail until the other two members
+  # have elected a new one. Losing a follower can break the connection a
+  # keepalive uses, without an election. The lease must survive both.
+  {"leader", "follower"}.each do |role|
+    it "will not lose leadership when only one etcd node is lost (the etcd #{role})", tags: "slow" do
+      cluster = EtcdCluster.new
+      cluster.run do |etcds|
+        etcd = LavinMQ::Etcd.new(cluster.endpoints)
+        key = "foo/#{rand}"
+        lease = etcd.elect(key, "bar", ttl: 5)
+        victim = cluster.leader_index
+        victim = (victim + 1) % etcds.size if role == "follower"
+        etcds[victim].terminate(graceful: false)
 
-      lease.wait(6.seconds) # should not lose the leadership
+        lease.wait(8.seconds) # longer than the 5 s TTL, so the lease must have been renewed
+      end
     end
   end
 
@@ -308,6 +315,15 @@ class EtcdCluster
 
   def endpoints
     @ports.map { |p| "127.0.0.1:23#{p}" }.join(",")
+  end
+
+  # The current etcd leader, as an index into the processes that #run yields
+  def leader_index : Int32
+    @ports.each_with_index do |p, i|
+      json = JSON.parse(HTTP::Client.post("http://127.0.0.1:23#{p}/v3/maintenance/status", body: "{}").body)
+      return i if json.dig?("header", "member_id") == json["leader"]?
+    end
+    raise "No etcd leader"
   end
 
   def run(&)
