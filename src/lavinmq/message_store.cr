@@ -230,6 +230,17 @@ module LavinMQ
       end
     end
 
+    # Like `#envelope`, taken under `lock`, and yielded outside the lock with
+    # its segment kept mapped until the block returns, see #shift_with_lease?
+    def envelope_with_lease(lock : Mutex, sp : SegmentPosition, redelivered = false, & : Envelope -> _) : Nil
+      env = lock.synchronize { envelope(sp, redelivered).lease }
+      begin
+        yield env
+      ensure
+        env.release
+      end
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       # A message routed outside the lock can have its segment purged meanwhile,

@@ -1028,6 +1028,44 @@ describe LavinMQ::Server do
     end
   end
 
+  it "recover(requeue=false) redelivers to the original consumer" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        q.publish "m1"
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        first = msgs.receive
+        ch.basic_recover(requeue: false)
+        m = msgs.receive
+        m.body_io.to_s.should eq "m1"
+        m.redelivered.should be_true
+        m.delivery_tag.should_not eq first.delivery_tag
+        m.ack
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 0
+      end
+    end
+  end
+
+  {true, false}.each do |requeue|
+    it "basic_recover releases basic.get messages (requeue #{requeue})" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue("recover-get")
+          3.times { q.publish "m1" }
+          q.get(no_ack: false).should_not be_nil
+          ch.basic_recover(requeue: requeue)
+          s.vhosts["/"].queue(q.name).basic_get_unacked_size.should eq 0
+          delivered = 0
+          q.subscribe(no_ack: false) { |_m| delivered += 1 }
+          sleep 50.milliseconds
+          delivered.should eq 1
+        end
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
