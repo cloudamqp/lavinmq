@@ -139,17 +139,17 @@ module LavinMQ
     # value is forwarded only if the (getter-less) deprecated property defines a
     # setter. An option with no replacement defines no setter, so its value is
     # dropped after the warning. Shared by `parse_cli` and `parse_section`.
-    private macro assign_option(var_name, value, transform, deprecation_message)
+    private macro assign_option(var_name, value, transform, deprecation_message, label)
       {% if deprecation_message %}
         @io.puts "WARNING: {{ deprecation_message.id }}"
         # Since deprecation_message is set, the variable is deprecated. It may
         # be forwarded to another variable using a setter, but it may also be
         # completley removed, therefore we need to check for a setter.
         {% if @type.has_method?("#{var_name.id}=") %}
-          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }}, {{ label }})
         {% end %}
       {% else %}
-        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }}, {{ label }})
       {% end %}
     end
 
@@ -158,7 +158,7 @@ module LavinMQ
         {% for ann in ivar.annotations(EnvOpt) %}
           {% env_name, transform = ann.args %}
           if v = ENV.fetch({{ env_name }}, nil)
-            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }})
+            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }}, "'{{ env_name.id }}'")
           end
         {% end %}
       {% end %}
@@ -191,7 +191,7 @@ module LavinMQ
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
           sections[:{{ section_id }}][:options] << Option.new({{ parser_arg.splat }}) do |value|
-            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }})
+            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }}, "'{{ parser_arg[1].split("=")[0].id }}'")
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -246,25 +246,25 @@ module LavinMQ
         # Default TLS settings
         when "tls_cert"        then host.tls_cert = v
         when "tls_key"         then host.tls_key = v
-        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_verify_peer" then host.tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "tls_ca_cert"     then host.tls_ca_cert = v
         when "tls_keylog_file" then host.tls_keylog_file = v
           # AMQP-specific overrides
         when "amqp_tls_cert"        then host.amqp_tls_cert = v
         when "amqp_tls_key"         then host.amqp_tls_key = v
-        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
         when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
         when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
         when "mqtt_tls_key"         then host.mqtt_tls_key = v
-        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
         when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
         when "http_tls_cert"        then host.http_tls_cert = v
         when "http_tls_key"         then host.http_tls_key = v
-        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
@@ -311,7 +311,7 @@ module LavinMQ
       case name
         {% for var in ivars_in_section %}
           when "{{ var[:ini_name] }}"
-            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }})
+            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }}, "'{{ var[:ini_name] }}' in section [{{ section.id }}]")
         {% end %}
      else
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{ section.id }}]"
@@ -338,8 +338,13 @@ module LavinMQ
       value
     end
 
-    private def parse_value(value, type : Bool.class)
-      true?(value)
+    # *label* identifies the setting in warnings, e.g. "'sync' in section [main]"
+    private def parse_value(value, type, label : String)
+      parse_value(value, type)
+    end
+
+    private def parse_value(value, type : Bool.class, label : String)
+      parse_bool(value, label)
     end
 
     private def parse_value(value, type : Proc)
@@ -493,12 +498,28 @@ module LavinMQ
 
     # Folded here, not at the call sites: the [sni:] branch passes raw ini
     # values, so a capitalised TRUE read as false there but true in [main].
+    private TRUE_VALUES  = {"1", "true", "yes", "on", "y"}
+    private FALSE_VALUES = {"0", "false", "no", "off", "n"}
+
     private def false?(str : String?)
-      {"0", "false", "no", "off", "n"}.includes? str.try &.downcase
+      FALSE_VALUES.includes? str.try &.downcase
     end
 
     private def true?(str : String?)
-      {"1", "true", "yes", "on", "y"}.includes? str.try &.downcase
+      TRUE_VALUES.includes? str.try &.downcase
+    end
+
+    private def parse_bool(value : String, label : String) : Bool
+      return true if true?(value)
+      unless false?(value)
+        @io.puts "WARNING: Invalid boolean value '#{value}' for #{label}, treating it as false. " \
+                 "Accepted values are #{TRUE_VALUES.join('/')} and #{FALSE_VALUES.join('/')}"
+      end
+      false
+    end
+
+    private def parse_sni_bool(value : String, hostname : String, setting : String) : Bool
+      parse_bool(value, "'#{setting}' in section [sni:#{hostname}]")
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.
