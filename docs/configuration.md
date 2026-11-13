@@ -182,6 +182,16 @@ tls_ca_cert = /path/to/ca.pem
 | `--build-info` | Print build information and exit |
 | `--raise-gc-warn` | Raise on GC warnings |
 
+## Garbage Collector
+
+The packages and Docker images link libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows the GC mark stack when thousands of connections and queues overflow it and lets the parallel markers share the fiber stacks. The startup log shows the libgc release and whether growth is on:
+
+```
+libgc 8.2.12-lavinmq.1, mark stack growth: on
+```
+
+Set the environment variable `GC_DISABLE_GROW_MARK_STACK=1` to switch growth off. libgc reads it at startup, like its other [environment variables](https://github.com/cloudamqp/bdwgc/blob/lavinmq/doc/README.environment) such as `GC_MARKERS`. To link the system libgc instead, build from source with `make LIBGC=`.
+
 ## Deprecated Options
 
 | Deprecated | Replacement |
