@@ -1548,6 +1548,76 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  {% if flag?(:linux) %}
+    describe "Idle segment pages" do
+      body = "x" * 1024
+
+      it "unmaps the write segment when a consumer's deliver loop idles out on the empty queue" do
+        config = LavinMQ::Config.new
+        config.deliver_loop_idle_timeout = 500.milliseconds
+        with_amqp_server(config: config) do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages")
+            path = s.vhosts["/"].queue("idle-pages").@msg_store.@wfile.path
+            msgs = Channel(Nil).new(100)
+            q.subscribe(no_ack: true) { msgs.send nil }
+            100.times { q.publish body }
+            100.times { msgs.receive }
+            mapped_rss_kb(path).should be > 0
+            should_eventually(eq 0) { mapped_rss_kb(path) }
+            q.publish body
+            msgs.receive
+          end
+        end
+      end
+
+      it "unmaps the write segment when the last consumer leaves" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages-left")
+            queue = s.vhosts["/"].queue("idle-pages-left")
+            path = queue.@msg_store.@wfile.path
+            100.times { |i| q.publish_confirm "#{i} #{body}" }
+            ch.prefetch(count: 1)
+            acked = Atomic(Int32).new(0)
+            tag = q.subscribe(no_ack: false) do |msg|
+              next if acked.get >= 50 # leaves the 51st unacked, so no more are delivered
+              msg.ack
+              acked.add(1)
+            end
+            wait_for { acked.get == 50 }
+            mapped_rss_kb(path).should be > 0
+            q.unsubscribe(tag)
+            should_eventually(eq 0) { mapped_rss_kb(path) }
+            # The backlog is still readable, from the page cache
+            (51...100).each do |i|
+              msg = q.get(no_ack: true).should_not be_nil
+              msg.body_io.to_s.should eq "#{i} #{body}"
+            end
+          end
+        end
+      end
+
+      it "unmaps every sub store's write segment of a priority queue" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages-prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
+            store = s.vhosts["/"].queue("idle-pages-prio").@msg_store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+            paths = store.@stores.map { |sub| sub.@wfile.path }
+            3.times do |prio|
+              10.times { q.publish_confirm body, props: AMQP::Client::Properties.new(priority: prio.to_u8) }
+            end
+            tag = q.subscribe(no_ack: true) { }
+            should_eventually(eq 0) { s.vhosts["/"].queue("idle-pages-prio").message_count }
+            paths.each { |path| mapped_rss_kb(path).should be > 0 }
+            q.unsubscribe(tag)
+            should_eventually(eq 0) { paths.sum { |path| mapped_rss_kb(path) } }
+          end
+        end
+      end
+    end
+  {% end %}
+
   describe "Idle fiber management" do
     it "should not start message_expire_loop for empty queue" do
       with_amqp_server do |s|

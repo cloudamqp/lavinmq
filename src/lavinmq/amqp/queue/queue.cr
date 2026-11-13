@@ -1451,7 +1451,19 @@ module LavinMQ::AMQP
       elsif now_empty
         # Check if fiber needs to restart for message expiration
         ensure_expire_fiber
+        release_idle_memory
       end
+    end
+
+    # Called when nothing is expected to read the queue soon: a consumer's
+    # deliver loop idled out on the empty queue, or the last consumer left.
+    # Not per message: a caught-up consumer empties the queue on every take.
+    def release_idle_memory : Nil
+      @msg_store_lock.synchronize do
+        @msg_store.release_idle_pages unless @closed
+      end
+    rescue ex : IO::Error
+      @log.warn(exception: ex) { "Releasing idle pages failed" }
     end
 
     private def notify_consumers_empty(is_empty)

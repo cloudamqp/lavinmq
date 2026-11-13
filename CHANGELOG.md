@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - RPM packages are built for Enterprise Linux 10 (AlmaLinux 10, RHEL 10, Rocky Linux 10 etc) [#2741](https://github.com/cloudamqp/lavinmq/pull/2741)
 
+### Changed
+
+- Idle queues release the segment they write to from memory: when a consumer's deliver loop has been idle for `deliver_loop_idle_timeout` on the empty queue, or when the last consumer leaves. The written part of that segment otherwise stayed mapped until the segment filled up, up to `segment_size` per queue, which with many idle queues added up to gigabytes of resident memory [#2702](https://github.com/cloudamqp/lavinmq/pull/2702)
+
 ### Fixed
 
 - A schema migration no longer backs up or restores sockets in the data dir, such as the lavinmqctl socket when `control_unix_path` points there, nor the node's `.clustering_id`. Copying a socket failed the migration [#2609](https://github.com/cloudamqp/lavinmq/pull/2609)
