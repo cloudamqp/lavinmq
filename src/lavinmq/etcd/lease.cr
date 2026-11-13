@@ -1,4 +1,5 @@
 require "../../stdlib/isolated_wait_for"
+require "sync/exclusive"
 
 module LavinMQ
   class Etcd
@@ -9,6 +10,9 @@ module LavinMQ
 
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @expired = Channel(Exception?).new
+        # When etcd expires the lease at the earliest, its TTL counts from
+        # when it got the last keepalive
+        @deadline = Sync::Exclusive(Time::Instant).new(Time.instant + ttl.seconds)
         Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
           keepalive_loop(ttl)
         end
@@ -24,12 +28,21 @@ module LavinMQ
       end
 
       # Wait until lease expires (if leader, leadership is lost)
-      # Raises `Expired` if lease expired, otherwise returns after `timeout`
+      # Raises `Expired` if lease expired, otherwise returns after `timeout`.
+      # Also raises once no keepalive has succeeded within the TTL, as a
+      # keepalive can block for long in Etcd#with_tcp's retries.
       def wait(timeout : Time::Span) : Nil
-        select
-        when err = @expired.receive?
-          raise Expired.new(cause: err)
-        when timeout(timeout)
+        wait_until = Time.instant + timeout
+        loop do
+          now = Time.instant
+          deadline = @deadline.get
+          raise Expired.new("No keepalive succeeded within the lease TTL") if now >= deadline
+          return if now >= wait_until
+          select
+          when err = @expired.receive?
+            raise Expired.new(cause: err)
+          when timeout({wait_until, deadline}.min - now)
+          end
         end
       end
 
@@ -40,15 +53,26 @@ module LavinMQ
             return
           when timeout((ttl / 3).seconds)
           end
-          ttl = @etcd.lease_keepalive(@id)
+          sent = Time.instant
+          begin
+            ttl = @etcd.lease_keepalive(@id)
+            @deadline.set(sent + ttl.seconds)
+          rescue ex
+            # Only etcd's word that the lease is gone ends it before the
+            # deadline, any other error (e.g. "no leader" during an etcd
+            # leader election, or EOF while a member restarts) is retried
+            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired) || Time.instant > @deadline.get
+            Log.warn { "Lease #{@id} keepalive failed, retrying: #{ex.message}" }
+            ttl = 1
+          end
         end
-      rescue ex : Etcd::Error # only rescue etcd errors
+      rescue ex
         unless @expired.closed?
+          Log.error { "Lease #{@id} expired: #{ex.message}" }
           error = ex
           while @expired.try_send?(error)
           end
         end
-        Log.debug(exception: ex) { "Lease expired: '#{ex.message}'" }
       ensure
         @expired.close
       end
