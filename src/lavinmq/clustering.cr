@@ -11,6 +11,22 @@ module LavinMQ
     StartV2      = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
     FSYNC_PREFIX = '$'
 
+    # This node's own files in the data dir, never replicated nor restored:
+    # the data dir lock and the clustering identity
+    NODE_LOCAL_FILES = {".lock", ".clustering_id"}
+
+    # Entries of the data dir that aren't the broker's: the schema migration
+    # backups, this node's own files (NODE_LOCAL_FILES), and sockets, like the
+    # lavinmqctl one when it's configured in the data dir (a crashed process
+    # leaves it behind, copying it fails and a live one mustn't be deleted).
+    # Also an entry that's gone. Schema.migrate neither backs these up nor
+    # restores them.
+    def self.node_local?(data_dir : String, child : String) : Bool
+      return true if child == "backups" || child.in?(NODE_LOCAL_FILES)
+      type = File.info?(File.join(data_dir, child), follow_symlinks: false).try(&.type)
+      type.nil? || type.socket? || type.pipe?
+    end
+
     class Error < Exception; end
 
     class InvalidStartHeaderError < Error
