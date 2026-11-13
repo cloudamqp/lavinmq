@@ -323,6 +323,11 @@ module LavinMQ::AMQP
       mfile.dontneed unless @segment_readers.has_key?(seg)
     end
 
+    # Consumers address a stream's msgs by offset, its segments are kept
+    private def write_segment_consumed? : Bool
+      false
+    end
+
     private def open_new_segment(next_msg_size = 0) : MFile
       finished = @wfile
       super.tap do
