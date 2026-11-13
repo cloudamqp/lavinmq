@@ -794,9 +794,12 @@ module LavinMQ::AMQP
     end
 
     # Returns true if the queue was running
-    private def pause(persist : Bool) : Bool
+    private def pause(persist : Bool, store_failed = false) : Bool
       @state_lock.synchronize do
         return false unless @state.running? || @state.paused?
+        # Under the lock, so that a resume can't clear it and leave the queue
+        # paused without it
+        @store_failed.set(true, :relaxed) if store_failed
         File.touch(File.join(@data_dir, "paused")) if persist
         return false unless @state.running?
         @state = QueueState::Paused
@@ -813,8 +816,7 @@ module LavinMQ::AMQP
     # isn't kept over a restart of the broker, which also reads the data again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if @closed
-      @store_failed.set(true, :relaxed)
-      if pause(persist: false)
+      if pause(persist: false, store_failed: true)
         @log.error(ex) do
           "Paused due to a message store error. Resume the queue to try again, " \
           "or purge or delete it to give up the data that can't be read"

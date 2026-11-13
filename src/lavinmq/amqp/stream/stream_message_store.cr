@@ -22,13 +22,20 @@ module LavinMQ::AMQP
       super
       @last_offset = get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
-      open_new_segment if @wfile_unreadable
+      seal_write_segment if @wfile_unreadable
       @wfile_unreadable = false
       drop_overflow
     end
 
     # Done in #initialize, as a new segment needs the last offset
     private def seal_unreadable_write_segment : Nil
+    end
+
+    # #open_new_segment takes the last offset as the segment's first, which
+    # it is when a push opens it, as that has counted its message already
+    private def seal_write_segment : Nil
+      super
+      @segment_first_offset[@segments.last_key] = @last_offset + 1
     end
 
     def close : Nil

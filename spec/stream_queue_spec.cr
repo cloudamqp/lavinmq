@@ -1091,15 +1091,16 @@ describe LavinMQ::AMQP::Stream do
           ch.prefetch 1
           q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
           q.publish_confirm("y").should be_true # in a new segment
-          bodies = ::Channel(String).new(2)
+          bodies = ::Channel({String, Int64}).new(2)
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
             msg.ack
-            bodies.send msg.body_io.to_s
+            bodies.send({msg.body_io.to_s, StreamSpecHelpers.offset_from_headers(msg.properties.headers)})
           end
-          # The stream isn't paused, each consumer has its own position
-          bodies.receive.should eq "y"
+          # The stream isn't paused, each consumer has its own position. The
+          # segment that can't be read counts as one message, with offset 1.
+          bodies.receive.should eq({"y", 2i64})
           q.publish_confirm("z").should be_true
-          bodies.receive.should eq "z"
+          bodies.receive.should eq({"z", 3i64})
           stream.state.running?.should be_true
           File.exists?(segment).should be_true
         end

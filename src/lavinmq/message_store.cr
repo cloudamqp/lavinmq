@@ -72,8 +72,13 @@ module LavinMQ
     # couldn't be read either, and would be removed with the segment when a
     # purge gives the data up
     private def seal_unreadable_write_segment : Nil
-      open_new_segment if @wfile_unreadable
+      seal_write_segment if @wfile_unreadable
       @wfile_unreadable = false
+    end
+
+    # Opens a new segment to write to, when it isn't a push that needs one
+    private def seal_write_segment : Nil
+      open_new_segment
     end
 
     # Unmaps the segments and ack files opened before a failure while
@@ -216,7 +221,7 @@ module LavinMQ
     # #seal_unreadable_write_segment.
     private def unreadable(seg : UInt32, mfile : MFile, cause : Exception) : Error
       error = Error.new(mfile, cause: cause)
-      open_new_segment if seg == @wfile_id && !@closed
+      seal_write_segment if seg == @wfile_id && !@closed
       error
     end
 
@@ -339,7 +344,7 @@ module LavinMQ
     private def drop_segment(seg : UInt32) : Nil
       return unless @segments.has_key?(seg)
       mark_given_up(seg)
-      open_new_segment if seg == @wfile_id
+      seal_write_segment if seg == @wfile_id
       select_next_read_segment if seg == @rfile_id
       unlink_segment(seg)
       @segment_msg_count.delete(seg)
