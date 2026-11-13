@@ -1552,6 +1552,75 @@ describe LavinMQ::AMQP::Queue do
     describe "Idle segment pages" do
       body = "x" * 1024
 
+      describe "rotation of a fully consumed write segment" do
+        # Two of them are over an eighth of a segment, the rotation threshold
+        big = "x" * (LavinMQ::Config.instance.segment_size // 10)
+
+        it "rotates every fully consumed sub store of a priority queue" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("rotate-prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
+              queue = s.vhosts["/"].queue("rotate-prio")
+              store = queue.@msg_store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+              [0u8, 2u8].each do |prio|
+                2.times { q.publish_confirm big, props: AMQP::Client::Properties.new(priority: prio) }
+              end
+              4.times { q.get(no_ack: true).should_not be_nil }
+              queue.release_idle_memory
+              store.@stores[0].@wfile_id.should eq 2
+              store.@stores[1].@wfile_id.should eq 1 # never written to
+              store.@stores[2].@wfile_id.should eq 2
+              q.publish_confirm "after", props: AMQP::Client::Properties.new(priority: 2u8)
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+            end
+          end
+        end
+
+        it "rotates a write segment emptied by message TTL" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("rotate-ttl", args: AMQP::Client::Arguments.new({"x-message-ttl" => 100}))
+              queue = s.vhosts["/"].queue("rotate-ttl")
+              2.times { q.publish_confirm big }
+              should_eventually(eq 0) { queue.message_count }
+              queue.release_idle_memory
+              queue.@msg_store.@wfile_id.should eq 2
+              q.publish_confirm "after"
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
+            end
+          end
+        end
+
+        it "rotates a write segment emptied by max-length overflow" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("rotate-maxlen", args: AMQP::Client::Arguments.new({"x-max-length" => 1}))
+              queue = s.vhosts["/"].queue("rotate-maxlen")
+              3.times { q.publish_confirm big }
+              queue.message_count.should eq 1
+              q.get(no_ack: true).should_not be_nil
+              queue.release_idle_memory
+              queue.@msg_store.@wfile_id.should eq 2
+            end
+          end
+        end
+
+        it "keeps a write segment with a basic.get delivery that isn't acked" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("rotate-get-unacked")
+              queue = s.vhosts["/"].queue("rotate-get-unacked")
+              2.times { q.publish_confirm big }
+              q.get(no_ack: true).should_not be_nil
+              msg = q.get(no_ack: false).should_not be_nil
+              queue.release_idle_memory
+              queue.@msg_store.@wfile_id.should eq 1
+              msg.ack
+            end
+          end
+        end
+      end
+
       it "unmaps the write segment when a consumer's deliver loop idles out on the empty queue" do
         config = LavinMQ::Config.new
         config.deliver_loop_idle_timeout = 500.milliseconds

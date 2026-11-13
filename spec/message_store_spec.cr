@@ -198,6 +198,19 @@ class File
   end
 end
 
+# Fails to open the next segment once, as a full disk or fd limit would
+class FailingRotateStore < LavinMQ::MessageStore
+  property? fail_open = false
+
+  private def open_segment(path : String, capacity : Int? = nil) : MFile
+    if fail_open?
+      @fail_open = false
+      raise File::Error.new("Spec open failure", file: path)
+    end
+    super
+  end
+end
+
 describe LavinMQ::MessageStore do
   # Regression: avg_bytesize is read without the queue's lock (HTTP API,
   # stats), so the store can become empty between its zero check and the
@@ -1195,6 +1208,237 @@ describe LavinMQ::MessageStore do
 
         store.purge_all
         store.empty?.should be_true
+      end
+    end
+  end
+
+  describe "#release_idle_pages rotation" do
+    # Two of them are over an eighth of a segment, the rotation threshold,
+    # and under a segment
+    big = "x" * (LavinMQ::Config.instance.segment_size // 10)
+
+    seg_files = ->(dir : String) do
+      Dir.children(dir).select { |f| f.starts_with?("msgs.") || f.starts_with?("acks.") || f.starts_with?("meta.") }.sort!
+    end
+
+    drain = ->(store : LavinMQ::MessageStore) do
+      while env = store.shift?
+        store.delete(env.segment_position)
+      end
+    end
+
+    it "replaces a fully consumed write segment with a new one" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        seg_files.call(dir).should eq ["msgs.0000000002"]
+        store.push(LavinMQ::Message.new("", "rk", "after"))
+        env = store.shift?.should_not be_nil
+        env.segment_position.segment.should eq 2
+        String.new(env.message.body).should eq "after"
+        store.close
+      end
+    end
+
+    it "does nothing more on the next idle event" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        store.release_idle_pages
+        store.@wfile_id.should eq 2
+        store.close
+      end
+    end
+
+    it "keeps a write segment under the size threshold" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.push(LavinMQ::Message.new("", "rk", "small"))
+        drain.call(store)
+        store.release_idle_pages
+        store.@wfile_id.should eq 1
+        store.close
+      end
+    end
+
+    it "keeps a write segment with a ready msg" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position)
+        store.release_idle_pages
+        store.@wfile_id.should eq 1
+        store.close
+      end
+    end
+
+    it "keeps a write segment with an unacked msg" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        store.shift?.should_not be_nil
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position)
+        store.empty?.should be_true
+        store.release_idle_pages
+        store.@wfile_id.should eq 1
+        store.close
+      end
+    end
+
+    it "keeps a write segment with a requeued msg, which is still delivered" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        store.push(LavinMQ::Message.new("", "rk", "requeued"))
+        2.times do
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position)
+        end
+        env = store.shift?.should_not be_nil
+        store.requeue(env.segment_position)
+        store.release_idle_pages
+        store.@wfile_id.should eq 1
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "requeued"
+        store.close
+      end
+    end
+
+    it "continues the segment ids after a restart" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        store.close
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 0
+        store.push(LavinMQ::Message.new("", "rk", "kept"))
+        store.close
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 1
+        env = store.shift?.should_not be_nil
+        env.segment_position.segment.should eq 2
+        String.new(env.message.body).should eq "kept"
+        store.close
+      end
+    end
+
+    it "keeps a leased delivery readable through a rotation" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        lock = Mutex.new
+        store.push(LavinMQ::Message.new("", "rk", big))
+        store.push(LavinMQ::Message.new("", "rk", big + "leased"))
+        lock.synchronize do
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position)
+        end
+        store.shift_with_lease?(lock) do |env|
+          lock.synchronize do
+            store.delete(env.segment_position)
+            store.release_idle_pages
+          end
+          seg_files.call(dir).should eq ["msgs.0000000002"]
+          String.new(env.message.body).ends_with?("leased").should be_true
+        end.should be_true
+        store.close
+      end
+    end
+
+    it "unlinks through the persister after its next sync" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::Persister.new(data_dir)
+        dir = File.join(data_dir, "q")
+        Dir.mkdir(dir)
+        store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        store.push(LavinMQ::Message.new("", "rk", "new"))
+        persister.sync_marked
+        seg_files.call(dir).should eq ["msgs.0000000002"]
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "new"
+        store.close
+        persister.close
+      end
+    end
+
+    it "rotates a non-durable store" do
+      with_datadir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: false)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        store.@wfile_id.should eq 2
+        store.push(LavinMQ::Message.new("", "rk", "after"))
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "after"
+        store.close
+      end
+    end
+
+    it "keeps working when opening the new segment fails, and retries on the next idle event" do
+      with_datadir do |dir|
+        store = FailingRotateStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.fail_open = true
+        expect_raises(File::Error, "Spec open failure") { store.release_idle_pages }
+        store.@wfile_id.should eq 1
+        store.release_idle_pages
+        store.@wfile_id.should eq 2
+        seg_files.call(dir).should eq ["msgs.0000000002"]
+        store.push(LavinMQ::Message.new("", "rk", "kept"))
+        store.close
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 1
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "kept"
+        store.close
+      end
+    end
+
+    it "takes the next publish when opening the new segment fails" do
+      with_datadir do |dir|
+        store = FailingRotateStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.fail_open = true
+        expect_raises(File::Error, "Spec open failure") { store.release_idle_pages }
+        store.push(LavinMQ::Message.new("", "rk", "after"))
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "after"
+        store.delete(env.segment_position)
+        store.push(LavinMQ::Message.new("", "rk", "kept"))
+        store.close
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 1
+        env = store.shift?.should_not be_nil
+        String.new(env.message.body).should eq "kept"
+        store.close
+      end
+    end
+
+    it "replicates the unlinks and the new segment" do
+      with_datadir do |dir|
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
+        drain.call(store)
+        store.release_idle_pages
+        deleted = replicator.deleted_files.map { |p| File.basename(p) }
+        deleted.should contain "msgs.0000000001"
+        deleted.should contain "acks.0000000001"
+        replicator.registered_files.keys.map { |p| File.basename(p) }.should contain "msgs.0000000002"
+        store.close
       end
     end
   end
