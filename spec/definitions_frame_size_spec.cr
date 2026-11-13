@@ -4,6 +4,7 @@ require "file_utils"
 describe LavinMQ::VHost do
   it "should handle definitions files from v2.4.3 with frame size errors" do
     Dir.mkdir_p File.join(LavinMQ::Config.instance.data_dir, "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3")
+    File.write(File.join(LavinMQ::Config.instance.data_dir, "schema_version"), LavinMQ::Schema::VERSION)
     File.open(File.join(LavinMQ::Config.instance.data_dir, "vhosts.json"), "w") do |f|
       [{"name": "test", "dir": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"}].to_json(f)
     end
