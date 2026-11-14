@@ -156,6 +156,49 @@ describe LavinMQ::Clustering::Controller do
   ensure
     blocker.try &.close
   end
+
+  describe ".advertised_uri" do
+    it "advertises the client ports the node listens on" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.amqp_port = 5682
+      config.mqtt_port = 1884
+      config.http_port = 15682
+      uri = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config))
+      uri.host.should eq "leader"
+      uri.port.should eq 5679
+      uri.query_params.to_h.should eq({"amqp" => "5682", "mqtt" => "1884", "http" => "15682"})
+    end
+
+    it "advertises TLS ports only when TLS is configured" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.tls_cert_path = "spec/resources/server_certificate.pem"
+      config.amqps_port = 5681
+      config.mqtts_port = 0 # disabled
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params["amqps"].should eq "5681"
+      params["https"].should eq config.https_port.to_s
+      params.has_key?("mqtts").should be_false
+    end
+
+    it "keeps ports given in the configured advertised_uri" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679?amqp=30672"
+      config.amqp_port = 5672
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.fetch_all("amqp").should eq ["30672"]
+      params["http"].should eq config.http_port.to_s
+    end
+
+    it "skips disabled ports" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.mqtt_port = -1
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.has_key?("mqtt").should be_false
+    end
+  end
 end
 
 describe LavinMQ::Clustering::Client do
@@ -188,6 +231,41 @@ describe LavinMQ::Clustering::Client do
       end
       wg.wait
       bind_errors.should be_empty
+    end
+  end
+
+  describe "Leader" do
+    it "reads the client ports a leader advertises" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader:5680?amqp=5682&https=15681&foo=1&mqtt=x&http=0"))
+      leader.host.should eq "leader"
+      leader.port.should eq 5680
+      leader.forward_port("amqp", 5672).should eq 5682
+      leader.forward_port("https", 15671).should eq 15681
+      leader.forward_port("mqtt", 1883).should eq 1883   # invalid, the follower's own port
+      leader.forward_port("http", 15672).should eq 15672 # out of range, the follower's own port
+      leader.ports.has_key?("foo").should be_false
+    end
+
+    it "forwards to the follower's own ports for a leader that doesn't advertise them" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader"))
+      leader.port.should eq 5679
+      leader.forward_port("amqp", 5672).should eq 5672
+    end
+  end
+
+  it "stops following a leader that advertises other ports" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
+      spawn client.follow("tcp://127.0.0.1:1?amqp=5682") # no leader there, keeps retrying
+      Fiber.yield
+      client.follows?("tcp://127.0.0.1:1?amqp=5682").should be_true
+      client.follows?("tcp://127.0.0.1:1?amqp=5683").should be_false
+      client.follows?("tcp://127.0.0.1:1").should be_false
+      client.follows?("127.0.0.1", 1).should be_true
+    ensure
+      client.try &.close
     end
   end
 end
@@ -482,7 +560,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     leader1 = Channel(Nil).new
     spawn(name: "elect listen spec") do
       etcd.elect_listen("lavinmq/leader") do |value|
-        leader1.send nil if value == config1.clustering_advertised_uri
+        # The leader appends its client ports to its advertised URI
+        leader1.send nil if value.try &.starts_with?("#{config1.clustering_advertised_uri}?")
       end
     rescue SpecExit
     end
@@ -574,7 +653,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       elected = Channel(Nil).new
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
       spawn do
-        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value.try &.starts_with?("#{config.clustering_advertised_uri}?") }
       rescue SpecExit
       end
       spawn do

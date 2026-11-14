@@ -26,8 +26,44 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
+      # Client protocols whose port a leader advertises in its URI's query, e.g.
+      # tcp://leader:5679?amqp=5672&http=15672
+      ADVERTISED_PORTS = {"amqp", "amqps", "mqtt", "mqtts", "http", "https"}
+
+      # The leader being followed: where to replicate from, and the client
+      # ports it advertises (none from leaders that don't advertise them)
+      class Leader
+        getter host : String
+        getter port : Int32
+        getter ports : Hash(String, Int32)
+
+        def initialize(@host, @port, @ports = Hash(String, Int32).new)
+        end
+
+        def self.parse(uri : URI) : self
+          host = uri.hostname.not_nil!("Host missing in follow URI")
+          ports = Hash(String, Int32).new
+          uri.query_params.each do |name, value|
+            next unless ADVERTISED_PORTS.includes?(name)
+            port = value.to_i? || next
+            ports[name] = port if 0 < port <= 65535
+          end
+          new(host, uri.port || 5679, ports)
+        end
+
+        def_equals @host, @port, @ports
+
+        # The port to forward a protocol to: the one the leader advertises, or
+        # the follower's own when the leader doesn't advertise it
+        def forward_port(protocol : String, own_port : Int32) : Int32
+          @ports[protocol]? || own_port
+        end
+      end
+
       @closed = false
       @close_done = Channel(Nil).new
+      # Read by #follows? from the controller's fiber while #follow sets it
+      @leader = Atomic(Leader?).new(nil)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -101,17 +137,20 @@ module LavinMQ
       end
 
       def follow(uri : URI)
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follow(host, port)
+        follow(Leader.parse(uri))
       end
 
       def follow(host : String, port : Int32)
+        follow(Leader.new(host, port))
+      end
+
+      def follow(leader : Leader)
+        host = leader.host
+        port = leader.port
         Log.info { "Following #{host}:#{port}" }
-        @host = host
-        @port = port
+        @leader.set(leader)
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        start_proxies(host)
+        start_proxies(leader)
         loop do
           hash_local_files
           return if @closed
@@ -133,33 +172,34 @@ module LavinMQ
         @follower_done.send(nil)
       end
 
-      private def start_proxies(host)
+      private def start_proxies(leader : Leader)
+        host = leader.host
         if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+          spawn amqp_proxy.forward_to(host, leader.forward_port("amqp", @config.amqp_port), true), name: "AMQP proxy"
         end
         if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+          spawn http_proxy.forward_to(host, leader.forward_port("http", @config.http_port)), name: "HTTP proxy"
         end
         if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
+          spawn mqtt_proxy.forward_to(host, leader.forward_port("mqtt", @config.mqtt_port), true), name: "MQTT proxy"
         end
         if amqps_proxy = @amqps_proxy
-          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
+          spawn amqps_proxy.forward_to(host, leader.forward_port("amqps", @config.amqps_port), true), name: "AMQPS proxy"
         end
         if https_proxy = @https_proxy
-          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
+          spawn https_proxy.forward_to(host, leader.forward_port("https", @config.https_port)), name: "HTTPS proxy"
         end
         if mqtts_proxy = @mqtts_proxy
-          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
+          spawn mqtts_proxy.forward_to(host, leader.forward_port("mqtts", @config.mqtts_port), true), name: "MQTTS proxy"
         end
         if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+          spawn unix_amqp_proxy.forward_to(host, leader.forward_port("amqp", @config.amqp_port)), name: "AMQP proxy"
         end
         if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+          spawn unix_http_proxy.forward_to(host, leader.forward_port("http", @config.http_port)), name: "HTTP proxy"
         end
         if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+          spawn unix_mqtt_proxy.forward_to(host, leader.forward_port("mqtt", @config.mqtt_port)), name: "MQTT proxy"
         end
       end
 
@@ -171,14 +211,15 @@ module LavinMQ
         follows? URI.parse(uri)
       end
 
+      # A leader that advertises other ports, e.g. after a restart with a new
+      # configuration, isn't followed: the proxies forward to the old ports
       def follows?(uri : URI) : Bool
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follows?(host, port)
+        @leader.get == Leader.parse(uri)
       end
 
       def follows?(host : String, port : Int32) : Bool
-        @host == host && @port == port
+        return false unless leader = @leader.get
+        leader.host == host && leader.port == port
       end
 
       private def local_leader_host?(host : String) : Bool
