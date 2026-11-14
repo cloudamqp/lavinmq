@@ -98,6 +98,8 @@ TLS is passed through unterminated: the follower forwards the encrypted bytes to
 
 For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 
+A load balancer in front of every node can send its own PROXY header (e.g. HAProxy's `send-proxy`) when `tcp_proxy_protocol` is enabled. A follower then reads that header and forwards a single header to the leader. If the load balancer is one of the `proxy_protocol_trusted_sources`, its header is forwarded as is: a v1 header with the same addresses, a v2 header byte for byte, TLVs included. Otherwise the follower's own header is forwarded, with the load balancer's address. The leader always accepts the header from a follower, whether or not the follower is listed in `proxy_protocol_trusted_sources`.
+
 ## Security
 
 Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.

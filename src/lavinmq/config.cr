@@ -470,6 +470,13 @@ module LavinMQ
       !@tls_cert_path.empty?
     end
 
+    # Whether a PROXY header from *address* is trusted. With no trusted sources
+    # configured all sources are trusted, for backward compatibility
+    def trusted_proxy_source?(address : String) : Bool
+      return true if proxy_protocol_trusted_sources.empty?
+      proxy_protocol_trusted_sources.any?(&.matches?(address))
+    end
+
     # The configured TCP keepalive, if any, on a connection
     def apply_tcp_keepalive(socket : TCPSocket) : Nil
       if keepalive = tcp_keepalive
