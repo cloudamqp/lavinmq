@@ -717,6 +717,65 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering forward ports" do
+    it "forward to the follower's own listener ports by default" do
+      config = LavinMQ::Config.new
+      config.amqp_forward_port.should eq config.amqp_port
+      config.amqps_forward_port.should eq config.amqps_port
+      config.mqtt_forward_port.should eq config.mqtt_port
+      config.mqtts_forward_port.should eq config.mqtts_port
+      config.http_forward_port.should eq config.http_port
+      config.https_forward_port.should eq config.https_port
+    end
+
+    it "are read from the clustering section" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [amqp]
+          port = 5682
+          [clustering]
+          amqp_forward_port = 5672
+          amqps_forward_port = 5671
+          mqtt_forward_port = 1883
+          mqtts_forward_port = 8883
+          http_forward_port = 15672
+          https_forward_port = 15671
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.amqp_port.should eq 5682
+      config.amqp_forward_port.should eq 5672
+      config.amqps_forward_port.should eq 5671
+      config.mqtt_forward_port.should eq 1883
+      config.mqtts_forward_port.should eq 8883
+      config.http_forward_port.should eq 15672
+      config.https_forward_port.should eq 15671
+    end
+
+    it "can be set on the command line" do
+      config = LavinMQ::Config.new
+      config.parse(["--clustering-amqp-forward-port=5673", "--clustering-https-forward-port=15675"])
+      config.amqp_forward_port.should eq 5673
+      config.https_forward_port.should eq 15675
+    end
+
+    it "rejects ports out of range" do
+      [-1, 65536].each do |port|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            mqtt_forward_port = #{port}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /mqtt_forward_port/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "syncs the data dir once when sync is enabled again" do
       config_file = File.tempfile("lavinmq-config", ".ini")
