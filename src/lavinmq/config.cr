@@ -101,49 +101,7 @@ module LavinMQ
       unless @clustering_etcd_lease_ttl.positive?
         raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
       end
-      validate_forward_ports!
       validate_sni_tls!
-    end
-
-    private def validate_forward_ports!
-      {
-        "amqp_forward_port"  => @clustering_amqp_forward_port,
-        "amqps_forward_port" => @clustering_amqps_forward_port,
-        "mqtt_forward_port"  => @clustering_mqtt_forward_port,
-        "mqtts_forward_port" => @clustering_mqtts_forward_port,
-        "http_forward_port"  => @clustering_http_forward_port,
-        "https_forward_port" => @clustering_https_forward_port,
-      }.each do |name, port|
-        unless 0 <= port <= 65535
-          raise Error.new("clustering #{name} must be between 0 and 65535 (got #{port})")
-        end
-      end
-    end
-
-    # The port on the leader that a follower forwards each protocol to: the
-    # configured forward port, or the follower's own listener port when unset (0)
-    def amqp_forward_port : Int32
-      @clustering_amqp_forward_port.zero? ? @amqp_port : @clustering_amqp_forward_port
-    end
-
-    def amqps_forward_port : Int32
-      @clustering_amqps_forward_port.zero? ? @amqps_port : @clustering_amqps_forward_port
-    end
-
-    def mqtt_forward_port : Int32
-      @clustering_mqtt_forward_port.zero? ? @mqtt_port : @clustering_mqtt_forward_port
-    end
-
-    def mqtts_forward_port : Int32
-      @clustering_mqtts_forward_port.zero? ? @mqtts_port : @clustering_mqtts_forward_port
-    end
-
-    def http_forward_port : Int32
-      @clustering_http_forward_port.zero? ? @http_port : @clustering_http_forward_port
-    end
-
-    def https_forward_port : Int32
-      @clustering_https_forward_port.zero? ? @https_port : @clustering_https_forward_port
     end
 
     # Builds every SNI host's TLS contexts, so an unreadable certificate or

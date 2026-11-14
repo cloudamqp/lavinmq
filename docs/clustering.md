@@ -94,21 +94,7 @@ The proxy is transparent and runs on every follower for:
 
 The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
 
-TLS is passed through unterminated: the follower forwards the encrypted bytes to the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
-
-By default a follower forwards each connection to the same port on the leader as the one the client connected to. When the leader listens on other ports, for example when several nodes run on one host or the leader's ports are remapped, set the port to forward to per protocol:
-
-```ini
-[clustering]
-amqp_forward_port = 5672
-amqps_forward_port = 5671
-mqtt_forward_port = 1883
-mqtts_forward_port = 8883
-http_forward_port = 15672
-https_forward_port = 15671
-```
-
-`0` (the default) means the follower's own port for that protocol. The Unix-socket proxies forward to the AMQP, MQTT and HTTP forward ports as well. Every node reads these options only while it is a follower, so they can be set the same on all nodes.
+TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
 
 For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 

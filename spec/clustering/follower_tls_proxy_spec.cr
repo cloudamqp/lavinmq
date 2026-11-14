@@ -29,9 +29,10 @@ describe LavinMQ::Clustering::Client do
         follower_config.https_port = follower_config.mqtts_port = 0
         follower_config.amqps_port = follower_amqps_port
         follower_config.tls_cert_path = "spec/resources/server_certificate.pem"
-        # The follower and the leader can't both bind the same port on one host
-        follower_config.clustering_amqps_forward_port = leader_tls.port
         repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password)
+        # The follower forwards to the same port on the leader, which can't be bound twice
+        # on one host, so point it at the leader's port now that its listener is bound
+        follower_config.amqps_port = leader_tls.port
         follower_stopped = WaitGroup.new(1)
         spawn(name: "follow spec") do
           repli.follow(host, repli_server.local_address.port)
@@ -63,60 +64,6 @@ describe LavinMQ::Clustering::Client do
           follower_stopped.wait
         end
         expect_raises(Socket::ConnectError) { TCPSocket.new(host, follower_amqps_port) }
-      ensure
-        replicator.close
-      end
-    ensure
-      config.clustering = false
-      FileUtils.rm_rf follower_data_dir
-    end
-  end
-
-  it "forwards AMQP to the configured forward port on the leader" do
-    config = LavinMQ::Config.instance
-    config.clustering = true
-    replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
-    follower_data_dir = File.tempname
-    Dir.mkdir follower_data_dir
-    begin
-      with_amqp_server(replicator: replicator) do |s|
-        leader_amqp = s.amqp_server.@listeners.compact_map(&.as?(TCPServer)).first.local_address
-        host = leader_amqp.address
-        repli_server = TCPServer.new(host, 0)
-        spawn(replicator.listen(repli_server), name: "repli server spec")
-
-        reserved = TCPServer.new(host, 0)
-        follower_amqp_port = reserved.local_address.port
-        reserved.close
-
-        follower_config = config.dup
-        follower_config.data_dir = follower_data_dir
-        follower_config.amqp_bind = follower_config.http_bind = follower_config.mqtt_bind = host
-        follower_config.amqp_port = follower_amqp_port
-        follower_config.http_port = follower_config.mqtt_port = 0
-        follower_config.tls_cert_path = ""
-        # The follower listens on another port than the leader, so without a
-        # forward port it would forward to a port nothing listens on
-        follower_config.clustering_amqp_forward_port = leader_amqp.port
-        repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password)
-        follower_stopped = WaitGroup.new(1)
-        spawn(name: "follow spec") do
-          repli.follow(host, repli_server.local_address.port)
-          follower_stopped.done
-        end
-        begin
-          wait_for { replicator.followers.size == 1 }
-          socket = TCPSocket.new(host, follower_amqp_port)
-          socket.write LavinMQ::AMQP::PROTOCOL_START_0_9_1.to_slice
-          socket.read_timeout = 5.seconds
-          frame = Bytes.new(7)
-          socket.read_fully(frame)
-          frame[0].should eq 1u8 # Connection.Start method frame
-          socket.close
-        ensure
-          repli.close
-          follower_stopped.wait
-        end
       ensure
         replicator.close
       end

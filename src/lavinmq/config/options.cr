@@ -454,36 +454,6 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
-      @[CliOpt("", "--clustering-amqp-forward-port=PORT", "Port on the leader that a follower forwards AMQP connections to (default: same as its own amqp port)", section: "clustering")]
-      @[IniOpt(ini_name: amqp_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_AMQP_FORWARD_PORT")]
-      property clustering_amqp_forward_port = 0
-
-      @[CliOpt("", "--clustering-amqps-forward-port=PORT", "Port on the leader that a follower forwards AMQPS connections to (default: same as its own amqps port)", section: "clustering")]
-      @[IniOpt(ini_name: amqps_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_AMQPS_FORWARD_PORT")]
-      property clustering_amqps_forward_port = 0
-
-      @[CliOpt("", "--clustering-mqtt-forward-port=PORT", "Port on the leader that a follower forwards MQTT connections to (default: same as its own mqtt port)", section: "clustering")]
-      @[IniOpt(ini_name: mqtt_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_MQTT_FORWARD_PORT")]
-      property clustering_mqtt_forward_port = 0
-
-      @[CliOpt("", "--clustering-mqtts-forward-port=PORT", "Port on the leader that a follower forwards MQTTS connections to (default: same as its own mqtts port)", section: "clustering")]
-      @[IniOpt(ini_name: mqtts_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_MQTTS_FORWARD_PORT")]
-      property clustering_mqtts_forward_port = 0
-
-      @[CliOpt("", "--clustering-http-forward-port=PORT", "Port on the leader that a follower forwards HTTP connections to (default: same as its own http port)", section: "clustering")]
-      @[IniOpt(ini_name: http_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_HTTP_FORWARD_PORT")]
-      property clustering_http_forward_port = 0
-
-      @[CliOpt("", "--clustering-https-forward-port=PORT", "Port on the leader that a follower forwards HTTPS connections to (default: same as its own https port)", section: "clustering")]
-      @[IniOpt(ini_name: https_forward_port, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_HTTPS_FORWARD_PORT")]
-      property clustering_https_forward_port = 0
-
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

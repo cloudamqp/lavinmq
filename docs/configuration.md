@@ -117,12 +117,6 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `amqp_forward_port` | `--clustering-amqp-forward-port` | `LAVINMQ_CLUSTERING_AMQP_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards AMQP connections to. `0` uses the follower's own `amqp` port |
-| `amqps_forward_port` | `--clustering-amqps-forward-port` | `LAVINMQ_CLUSTERING_AMQPS_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards AMQPS connections to. `0` uses the follower's own `amqps` port |
-| `mqtt_forward_port` | `--clustering-mqtt-forward-port` | `LAVINMQ_CLUSTERING_MQTT_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards MQTT connections to. `0` uses the follower's own `mqtt` port |
-| `mqtts_forward_port` | `--clustering-mqtts-forward-port` | `LAVINMQ_CLUSTERING_MQTTS_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards MQTTS connections to. `0` uses the follower's own `mqtts` port |
-| `http_forward_port` | `--clustering-http-forward-port` | `LAVINMQ_CLUSTERING_HTTP_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards HTTP connections to. `0` uses the follower's own `http` port |
-| `https_forward_port` | `--clustering-https-forward-port` | `LAVINMQ_CLUSTERING_HTTPS_FORWARD_PORT` | Int | `0` | Port on the leader that a follower forwards HTTPS connections to. `0` uses the follower's own `https` port |
 | `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |

@@ -135,31 +135,31 @@ module LavinMQ
 
       private def start_proxies(host)
         if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_forward_port, true), name: "AMQP proxy"
+          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
         if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_forward_port), name: "HTTP proxy"
+          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
         if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_forward_port, true), name: "MQTT proxy"
+          spawn mqtt_proxy.forward_to(host, @config.mqtt_port, true), name: "MQTT proxy"
         end
         if amqps_proxy = @amqps_proxy
-          spawn amqps_proxy.forward_to(host, @config.amqps_forward_port, true), name: "AMQPS proxy"
+          spawn amqps_proxy.forward_to(host, @config.amqps_port, true), name: "AMQPS proxy"
         end
         if https_proxy = @https_proxy
-          spawn https_proxy.forward_to(host, @config.https_forward_port), name: "HTTPS proxy"
+          spawn https_proxy.forward_to(host, @config.https_port), name: "HTTPS proxy"
         end
         if mqtts_proxy = @mqtts_proxy
-          spawn mqtts_proxy.forward_to(host, @config.mqtts_forward_port, true), name: "MQTTS proxy"
+          spawn mqtts_proxy.forward_to(host, @config.mqtts_port, true), name: "MQTTS proxy"
         end
         if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_forward_port), name: "AMQP proxy"
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
         end
         if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_forward_port), name: "HTTP proxy"
+          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
         if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_forward_port), name: "MQTT proxy"
+          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
       end
 
