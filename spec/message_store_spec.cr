@@ -508,6 +508,34 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "replicates a message written to a segment that was recreated at load" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+    begin
+      # A zero-filled only segment, and a zero-filled last segment after one that kept its meta file
+      {1, LavinMQ::Config.instance.segment_size * 5 // 2 // 1000}.each do |msgs|
+        mktmpdir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          msgs.times { store.push(LavinMQ::Message.new("ex", "rk", "x" * 1000)) }
+          store.close
+          last = File.join(dir, Dir.children(dir).select(&.starts_with?("msgs.")).max)
+          File.delete(last)
+          File.open(last, "w", &.truncate(LavinMQ::Config.instance.segment_size))
+
+          store = LavinMQ::MessageStore.new(dir, replicator)
+          begin
+            store.@wfile.path.should eq last
+            sp = store.push(LavinMQ::Message.new("ex", "rk", "after restart"))
+            String.new(store[sp].body).should eq "after restart"
+          ensure
+            store.close
+          end
+        end
+      end
+    ensure
+      replicator.close
+    end
+  end
+
   it "keeps a stream's offsets after a zero-filled last segment is dropped when the first segment is gone" do
     mktmpdir do |dir|
       store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)

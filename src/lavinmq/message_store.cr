@@ -694,6 +694,7 @@ module LavinMQ
             if recreate_empty_segment?(idx, last_idx)
               file = open_segment(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
+              @replicator.try &.register_file file
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
               @segments.delete seg
