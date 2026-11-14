@@ -1089,6 +1089,23 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "starts with a stream queue that has an empty segment before its last one, and closes that queue" do
+      with_amqp_server do |s|
+        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+        with_channel(s) do |ch|
+          q = ch.queue("empty-segment-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          3.times { q.publish_confirm body }
+        end
+        restart_server(s) # a loaded segment is mapped read-only, so the next close keeps the file empty
+        segment = File.join(s.vhosts["/"].queue("empty-segment-stream").@data_dir, "msgs.0000000002")
+        File.write(segment, "") # a crash can leave a segment created but not yet truncated to its size
+        restart_server(s)
+        s.vhosts["/"].queue("empty-segment-stream").closed?.should be_true
+        File.size(segment).should eq 0
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
+      end
+    end
+
     it "compacts consumer tag file when full" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]

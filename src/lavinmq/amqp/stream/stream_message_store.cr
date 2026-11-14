@@ -38,8 +38,8 @@ module LavinMQ::AMQP
       @consumer_offsets.delete
     end
 
-    # Dropping a segment would shift the offsets of the segments after it
-    private def empty_segment_to_drop?(path : String) : Bool
+    # A dropped segment would leave a hole in the offsets, so the stream closes instead
+    private def drop_empty_segment? : Bool
       false
     end
 
