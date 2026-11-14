@@ -38,6 +38,11 @@ module LavinMQ::AMQP
       @consumer_offsets.delete
     end
 
+    # A dropped segment would leave a hole in the offsets, so the stream closes instead
+    private def drop_empty_segment? : Bool
+      false
+    end
+
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
