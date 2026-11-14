@@ -69,13 +69,7 @@ module LavinMQ
       end
 
       private def deliver_loop
-        unless @queue.active_consumer?(self)
-          @log.debug { "Not the single active consumer, exiting fiber" }
-          @deliver_loop_running.set(false, :release)
-          # The queue can hand over to this consumer between the check and the reset
-          ensure_deliver_loop if @queue.active_consumer?(self)
-          return
-        end
+        return if stop_standby_loop?
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -119,6 +113,16 @@ module LavinMQ
         @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
         raise ex
+      end
+
+      # A standby consumer of a single active consumer queue runs no deliver loop
+      private def stop_standby_loop? : Bool
+        return false if @queue.deliver_to?(self)
+        @log.debug { "Not the single active consumer, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        # The queue can hand over to this consumer between the check and the reset
+        ensure_deliver_loop if @queue.deliver_to?(self)
+        true
       end
 
       # Consumers wait for global capacity in line, so the one that delivered

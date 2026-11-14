@@ -135,8 +135,8 @@ module LavinMQ::AMQP
       @consumer_count.get(:relaxed)
     end
 
-    # False while another consumer is the single active consumer
-    def active_consumer?(consumer : Client::Channel::Consumer) : Bool
+    # False for a standby consumer of a single active consumer queue
+    def deliver_to?(consumer : Client::Channel::Consumer) : Bool
       return true unless @single_active_consumer_queue
       @consumers_lock.synchronize do
         sac = @single_active_consumer
@@ -1422,6 +1422,7 @@ module LavinMQ::AMQP
     # raises ClosedError if the queue is closed or about to be deleted.
     def add_consumer(consumer : Client::Channel::Consumer) : Bool
       raise ClosedError.new if @closed
+      active = false
       consumers_size = @consumers_lock.synchronize do
         raise ClosedError.new if @consumers_closed
         return false if in_exclusive_use?(consumer.exclusive?)
@@ -1434,9 +1435,11 @@ module LavinMQ::AMQP
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
         end
+        sac = @single_active_consumer
+        active = sac.nil? || sac == consumer
         @consumers.size
       end
-      consumer.ensure_deliver_loop unless @msg_store.empty?
+      consumer.ensure_deliver_loop if active && !@msg_store.empty?
       @log.debug { "Adding consumer (now #{consumers_size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
       true
