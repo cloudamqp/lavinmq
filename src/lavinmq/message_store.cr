@@ -721,15 +721,12 @@ module LavinMQ
       end
     end
 
-    # The first segment is recreated because we need at least one segment. The
-    # last one is recreated after a segment with a meta file: that segment is
-    # complete, and its meta file has its count and a stream's first offset
+    # One segment must exist, and writes can't go to a segment with a meta file, as it's complete
     private def recreate_empty_segment?(idx, last_idx) : Bool
       idx == 0 || (idx == last_idx && File.exists?(meta_file_name(@segments.last_value)))
     end
 
-    # The segment before a dropped last segment is the write segment now, but
-    # it was mapped read-only, and a write to it would segfault
+    # The segment before a dropped last segment takes the writes now, but it's mapped read-only
     private def remap_last_segment : Nil
       seg, readonly = @segments.last_key, @segments.last_value
       readonly.close
