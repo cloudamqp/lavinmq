@@ -309,7 +309,10 @@ module IO::Buffered
   # returned like on any flush, then detaches the IO from the pool. Another
   # fiber's reader may still use the read buffer, it returns it on its next read.
   def close : Nil
-    return previous_def unless pool = @buffer_pool
+    unless pool = @buffer_pool
+      release_in_buffer(@closed_buffer_pool) if @read_fiber == Fiber.current
+      return previous_def
+    end
     begin
       flush if @out_count > 0
     ensure

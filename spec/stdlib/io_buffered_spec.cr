@@ -463,6 +463,25 @@ describe IO::Buffered do
       writer.try &.close
     end
 
+    it "returns the read buffer when the reader closes the IO after another fiber closed it" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write Bytes.new(10, 1_u8)
+      reader.read_byte.should eq 1_u8
+      closed = Channel(Nil).new
+      spawn do
+        reader.close
+        closed.send nil
+      end
+      closed.receive
+      reader.close
+      pool.stats[:available].should eq 1
+    ensure
+      writer.try &.close
+    end
+
     it "releases the read buffer at end of stream of a non-socket IO" do
       pool = IO::BufferPool.new(1024)
       io = ScriptedIO.new { 0 }
