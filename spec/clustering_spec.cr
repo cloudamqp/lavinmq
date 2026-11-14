@@ -159,6 +159,25 @@ describe LavinMQ::Clustering::Controller do
 end
 
 describe LavinMQ::Clustering::Client do
+  it "doesn't proxy the plain ports that are disabled" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_port = config.http_port = config.mqtt_port = -1
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      free_port = TCPServer.open("127.0.0.1", 0, &.local_address.port)
+      spawn client.follow("127.0.0.1", free_port) # no leader there, keeps retrying
+      Fiber.yield
+      begin
+        client.@amqp_proxy.should be_nil
+        client.@http_proxy.should be_nil
+        client.@mqtt_proxy.should be_nil
+      ensure
+        client.close
+      end
+    end
+  end
+
   # On promotion both the leader watcher and the controller close the client.
   # The controller binds the listeners right after its close returns, so that
   # close must not return while the other one still holds the proxy ports.

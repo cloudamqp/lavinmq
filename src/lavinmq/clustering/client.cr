@@ -80,20 +80,24 @@ module LavinMQ
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
 
-        if proxy
-          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
-          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
-          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
-          # TLS is passed through unterminated, the leader terminates it
-          if @config.tls_configured?
-            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
-            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
-            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
-          end
-          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
-          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
-          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
+        bind_proxies if proxy
+      end
+
+      # Binds the listeners the leader is configured with, a port of -1 (or 0)
+      # disables one as it does on the leader
+      private def bind_proxies : Nil
+        @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port) if @config.amqp_port > 0
+        @http_proxy = Proxy.new(@config.http_bind, @config.http_port) if @config.http_port > 0
+        @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port) if @config.mqtt_port > 0
+        # TLS is passed through unterminated, the leader terminates it
+        if @config.tls_configured?
+          @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
+          @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
+          @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
         end
+        @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
+        @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
+        @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
       end
 
       def follow(uri : String)
