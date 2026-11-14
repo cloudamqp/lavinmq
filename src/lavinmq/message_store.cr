@@ -691,12 +691,14 @@ module LavinMQ
             # delete empty file, it will be recreated if it's needed
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
-            if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
+            if recreate_empty_segment?(idx, last_idx)
               file = open_segment(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
+              @replicator.try &.register_file file
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
               @segments.delete seg
+              remap_last_segment if idx == last_idx
               next
             end
           rescue ex
@@ -717,6 +719,21 @@ module LavinMQ
         @segments[seg] = file
         Fiber.yield
       end
+    end
+
+    # One segment must exist, and writes can't go to a segment with a meta file, as it's complete
+    private def recreate_empty_segment?(idx, last_idx) : Bool
+      idx == 0 || (idx == last_idx && File.exists?(meta_file_name(@segments.last_value)))
+    end
+
+    # The segment before a dropped last segment takes the writes now, but it's mapped read-only
+    private def remap_last_segment : Nil
+      seg, readonly = @segments.last_key, @segments.last_value
+      readonly.close
+      file = open_last_segment(readonly.path)
+      @replicator.try &.register_file file
+      file.pos = 4
+      @segments[seg] = file
     end
 
     # Populate bytesize, size and segment_msg_count
