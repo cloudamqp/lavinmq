@@ -1,4 +1,4 @@
-ARG build_image=84codes/crystal:latest-fedora-43
+ARG build_image=84codes/crystal:1.22.2-fedora-43
 
 FROM $build_image AS builder
 # Enable CRB repository for el-9 and el-10 to access help2man
