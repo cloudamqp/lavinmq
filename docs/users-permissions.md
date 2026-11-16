@@ -63,6 +63,16 @@ If a published message carries the `user_id` property, the server checks it matc
 
 Declaring an `x-mqtt-topic` exchange also needs `read` on `mqtt.default`, see [Consuming MQTT messages over AMQP](mqtt.md#consuming-mqtt-messages-over-amqp).
 
+The queue routes of the HTTP API check the same permissions, after the user's tag:
+
+| HTTP API Operation | Permission Required |
+|-------------------|-------------------|
+| `PUT /api/queues/:vhost/:name` | `configure` on the queue |
+| `DELETE /api/queues/:vhost/:name` | `configure` on the queue |
+| `PUT /api/queues/:vhost/:name/pause`, `/resume` and `/restart` | `configure` on the queue |
+| `DELETE /api/queues/:vhost/:name/contents` | `read` on the queue |
+| `POST /api/queues/:vhost/:name/get` | `read` on the queue |
+
 ### Default Permissions
 
 The default user (`guest`) is created with full permissions (`".*"` for configure, read, and write) on the default vhost (`/`).

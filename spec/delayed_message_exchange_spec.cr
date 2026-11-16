@@ -93,6 +93,51 @@ describe "Delayed Message Exchange" do
       end
     end
 
+    it "keeps a released message when the vhost closes its destination" do
+      with_amqp_server do |s|
+        RoughTime.paused do |t|
+          with_channel(s) do |ch|
+            x = ch.exchange(x_name, "topic", args: x_args)
+            ch.queue("dst").bind(x.name, "#")
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => 60_000})
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+          vhost = s.vhosts["/"]
+          vhost.queue("dst").close
+          t.travel(61.seconds)
+          vhost.@closed.@value.set(true) # closed? as in VHost#close, without waking its waiters
+          begin
+            vhost.queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue).expire_messages
+          ensure
+            vhost.@closed.@value.set(false)
+          end
+          restart_server(s)
+          wait_for(2.seconds) { s.vhosts["/"].queue("dst").message_count == 1 }
+        end
+      end
+    end
+
+    # A queue closed on an error stays bound, so keeping messages for it would fill the disk
+    it "drops a released message when its destination closes while the vhost runs" do
+      with_amqp_server do |s|
+        RoughTime.paused do |t|
+          with_channel(s) do |ch|
+            x = ch.exchange(x_name, "topic", args: x_args)
+            ch.queue("dst").bind(x.name, "#")
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => 60_000})
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+          vhost = s.vhosts["/"]
+          vhost.queue("dst").close
+          t.travel(61.seconds)
+          vhost.queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue).expire_messages
+          restart_server(s)
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
+          s.vhosts["/"].queue("dst").message_count.should eq 0
+        end
+      end
+    end
+
     it "should rebuild index on restart with truncated segment and acked messages" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

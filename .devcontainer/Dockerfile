@@ -1,4 +1,4 @@
-FROM 84codes/crystal:latest-ubuntu-24.04
+FROM 84codes/crystal:1.22.2-ubuntu-24.04
 
 # Avoid prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive

@@ -24,9 +24,10 @@ module LavinMQ
       end
     end
 
-    private def inspect_with_backtrace(ex : Exception) : Nil
+    private def inspect_with_backtrace(ex : Exception, prefix = "") : Nil
       severity
-      @io << message << " (" << ex.class << ")\n"
+      # journald reads each line as its own entry, so escape line breaks in the message
+      @io << prefix << ex.message.try(&.gsub({'\n' => "\\n", '\r' => "\\r"})) << " (" << ex.class << ")\n"
 
       ex.backtrace?.try &.each do |frame|
         severity
@@ -35,9 +36,7 @@ module LavinMQ
       end
 
       if cause = ex.cause
-        severity
-        @io << "Caused by: "
-        inspect_with_backtrace(cause)
+        inspect_with_backtrace(cause, "Caused by: ")
       end
 
       @io.flush

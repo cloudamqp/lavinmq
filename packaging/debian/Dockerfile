@@ -1,4 +1,4 @@
-ARG build_image=84codes/crystal:latest-ubuntu-22.04
+ARG build_image=84codes/crystal:1.22.2-ubuntu-22.04
 
 FROM $build_image AS builder
 RUN apt-get update && apt-get install -y devscripts help2man lintian debhelper liblz4-dev libssl-dev
@@ -11,6 +11,7 @@ COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
+COPY packaging/libgc/ packaging/libgc/
 RUN tar -czf ../lavinmq_${deb_version}.orig.tar.gz -C /usr/src lavinmq_${deb_version}
 COPY packaging/debian/ debian/
 RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${deb_version}-1\)/" debian/changelog

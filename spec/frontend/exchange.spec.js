@@ -35,6 +35,78 @@ test.describe('exchange', _ => {
     await expect(page.locator('#e-type')).toHaveText('topic')
   })
 
+  test('rates chart keeps a readable plot in its narrow card', async ({ page }) => {
+    await page.goto(pagePath)
+    const plot = page.locator('#chart .u-over')
+    await expect(plot).toBeVisible()
+    const { height } = await plot.boundingBox()
+    expect(height).toBeGreaterThanOrEqual(100)
+  })
+
+  test('rates legend labels fit in the narrow card', async ({ page }) => {
+    // Busy rates make the widest values, e.g. "123,456.7 msgs/s".
+    await page.route(`**/${apiPath}`, async route => {
+      const json = await (await route.fetch()).json()
+      for (const details of Object.values(json.message_stats)) {
+        if (details?.log) details.log = details.log.map(() => 123456.7)
+      }
+      await route.fulfill({ json })
+    })
+    await page.goto(pagePath)
+    await expect(page.locator('#chart .u-legend-value').first()).toHaveText('123,456.7 msgs/s')
+    const labels = page.locator('#chart .u-legend-label')
+    await expect(labels.first()).toBeVisible()
+    const clipped = await labels.evaluateAll(els =>
+      els.filter(el => el.scrollWidth > el.clientWidth).map(el => el.textContent))
+    expect(clipped).toEqual([])
+  })
+
+  // Only the latest sample is busy, so hovering earlier ones shows "0 msgs/s".
+  async function routeBusyLatestSample (page) {
+    await page.route(`**/${apiPath}`, async route => {
+      const json = await (await route.fetch()).json()
+      for (const details of Object.values(json.message_stats)) {
+        if (details?.log) details.log = details.log.map((_, i, log) => i === log.length - 1 ? 123456.7 : 0)
+      }
+      await route.fulfill({ json })
+    })
+  }
+
+  async function expectValueWidthHeldOnHover (page) {
+    const value = page.locator('#chart .u-legend-value').first()
+    await expect(value).toHaveText('123,456.7 msgs/s')
+    const before = (await value.boundingBox()).width
+    const plot = page.locator('#chart .u-over')
+    const box = await plot.boundingBox()
+    await plot.hover({ position: { x: box.width * 0.2, y: box.height / 2 } })
+    await expect(value).toHaveText('0 msgs/s')
+    expect((await value.boundingBox()).width).toBe(before)
+  }
+
+  test('rates legend value column keeps its width while hovering shorter values', async ({ page }) => {
+    await routeBusyLatestSample(page)
+    await page.goto(pagePath)
+    await expectValueWidthHeldOnHover(page)
+  })
+
+  test('rates legend value column keeps its width when the web font loads late', async ({ page }) => {
+    // On an uncached load the stats can arrive before Inter, so the legend
+    // is first measured in the fallback font.
+    let releaseFonts
+    const fontsHeld = new Promise(resolve => { releaseFonts = resolve })
+    await page.route('**/fonts/*.woff2', async route => {
+      await fontsHeld
+      await route.continue()
+    })
+    await routeBusyLatestSample(page)
+    // The load event waits for the held fonts.
+    await page.goto(pagePath, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('#chart .u-legend-value').first()).toHaveText('123,456.7 msgs/s')
+    releaseFonts()
+    await page.waitForFunction(() => [...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded') && document.fonts.status === 'loaded')
+    await expectValueWidthHeldOnHover(page)
+  })
+
   test('navigates to another exchange via binding link', async ({ page }) => {
     await page.goto(pagePath)
 

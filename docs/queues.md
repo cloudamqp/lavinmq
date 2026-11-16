@@ -95,7 +95,7 @@ A queue can be in one of the following states:
 | `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`. The three routes need `configure` permission on the queue, and are refused with 403 without it.
 
 The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
 
