@@ -259,6 +259,10 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
           wait_for { !session.@store_readable.value }
+          # A limit can't drop the message either, and doesn't fail the publish
+          defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+          server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
+          server.vhosts["/"].apply_policies
           publish_from(server, "a/b", ["2"])
           read_packet(io).should be_nil
           session.client.should_not be_nil

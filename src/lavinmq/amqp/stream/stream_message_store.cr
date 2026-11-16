@@ -170,7 +170,8 @@ module LavinMQ::AMQP
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
           unmap_if_unused(segment)
-          if segment = @segments.each_key.find { |sid| sid > segment }
+          if following = next_segment_id(segment)
+            segment = following
             rfile = @segments[segment]
             read_ahead(rfile)
             pos = 4u32
@@ -179,6 +180,7 @@ module LavinMQ::AMQP
             return last_offset_seg_pos
           end
         end
+        verify_schema(rfile) if pos == 4
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
 
         case offset
@@ -188,7 +190,18 @@ module LavinMQ::AMQP
         msg_offset += 1
         pos += msg.bytesize.to_u32
       rescue ex
-        raise rfile ? Error.new(rfile, cause: ex) : ex
+        raise ex unless rfile
+        unreadable = segment
+        # The rest of the segment can't be read: the search continues in the
+        # next one, where a consumer that reads this segment continues too
+        # (see #skip_unreadable_segment)
+        unmap_if_unused(unreadable)
+        next_id = next_segment_id(unreadable) || return last_offset_seg_pos
+        @log.warn(exception: ex) { "Segment #{unreadable} can't be read from pos #{pos}, looking for offset #{offset} in segment #{next_id}" }
+        segment = next_id
+        read_ahead(@segments[segment])
+        pos = 4u32
+        msg_offset = @segment_first_offset[segment]
       end
       {msg_offset, segment, pos}
     end

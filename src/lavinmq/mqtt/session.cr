@@ -461,6 +461,8 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        # The first message can't be read, the limit is enforced after a purge
+        return unless @store_readable.value
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -477,6 +479,9 @@ module LavinMQ
             end
           end
         end
+      rescue ex : MessageStore::Error
+        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+        @store_readable.set(false) unless closed?
       end
 
       private def clear_policy_arguments

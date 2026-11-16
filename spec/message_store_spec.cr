@@ -10,6 +10,7 @@ class SpyReplicator
   getter registered_files = Hash(String, Symbol).new
   getter deleted_files = Set(String).new
   getter replaced_files = Array(String).new
+  getter appended_values = Array({String, UInt32 | Int32}).new
 
   def register_file(path : String)
     @registered_files[path] = :path
@@ -35,6 +36,7 @@ class SpyReplicator
   end
 
   def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+    @appended_values << {path, value}
   end
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
@@ -481,6 +483,36 @@ describe LavinMQ::MessageStore do
         File.exists?(segment).should be_false
         store.push(LavinMQ::Message.new("ex", "rk", "new"))
         shift_body(store).should eq "new"
+        store.close
+      end
+    end
+
+    it "keeps the count of a segment with an unsupported schema version that has a meta file" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        counts = store.@segment_msg_count.dup
+        counts.size.should eq 2
+        store.close
+        write_at(File.join(dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.@segment_msg_count.should eq counts # a stream's offsets depend on it
+        store.size.should eq 5
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.close
+      end
+    end
+
+    it "replicates that a segment is given up, for a follower that is promoted before the unlink" do
+      mktmpdir do |dir|
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        write_at(File.join(dir, "msgs.0000000001"), 0, 0x64636261) # schema version
+        store.purge(1)
+        replicator.appended_values.should contain({File.join(dir, "acks.0000000001"), UInt32::MAX})
         store.close
       end
     end
@@ -1202,8 +1234,10 @@ describe LavinMQ::MessageStore do
           store.closed.should be_false
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
           (seg_files + ack_files).each { |f| registered.should contain(f) }
-          # Kept until a purge gives it up, also with all its readable msgs acked
-          File.exists?(File.join(dir, seg_files[corrupt_idx])).should be_true
+          # The last segment has no meta file with its count, so it's kept
+          # until a purge gives it up. The others have, and all their msgs
+          # are acked.
+          File.exists?(File.join(dir, seg_files[corrupt_idx])).should eq(corrupt_idx == -1)
         end
       end
     end

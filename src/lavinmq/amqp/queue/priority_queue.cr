@@ -205,9 +205,10 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def purge_all : UInt32
+        count = @stores.sum(0u32, &.purge_all)
         @empty.set true
+        count
       end
 
       def delete

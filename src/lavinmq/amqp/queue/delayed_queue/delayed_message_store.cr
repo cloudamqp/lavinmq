@@ -15,6 +15,8 @@ module LavinMQ::AMQP
       @requeued : RequeuedStore = DelayedRequeuedStore.new
       # Segments with data that couldn't be indexed, see #index_unreadable
       @unreadable_segments = Array(UInt32).new
+      # The index entries that stand in for that data
+      @unreadable_entries = Array(SegmentPosition).new
 
       private def requeued : DelayedRequeuedStore
         @requeued.as(DelayedRequeuedStore)
@@ -90,6 +92,7 @@ module LavinMQ::AMQP
       private def index_unreadable(requeued, seg_id, mfile, pos : UInt32) : UInt32
         @unreadable_segments << seg_id
         sp = SegmentPosition.new(seg_id, pos, (mfile.size - pos).to_u32)
+        @unreadable_entries << sp
         requeued.insert(sp, 0i64)
         sp.bytesize
       end
@@ -130,17 +133,22 @@ module LavinMQ::AMQP
         sp
       end
 
-      def purge_all
+      def purge_all : UInt32
+        count = 0u32
         while sp = @requeued.shift?
           @size -= 1
           @bytesize -= sp.bytesize
+          # Not what stands in for data that can't be read, see #index_unreadable
+          count += 1 unless @unreadable_entries.includes?(sp)
           delete(sp) if @segments.has_key?(sp.segment)
         end
         # An ack of data that can't be decoded doesn't let a load skip it, so
         # its segment is removed
         @unreadable_segments.each { |seg| drop_segment(seg) if @segments.has_key?(seg) }
         @unreadable_segments.clear
+        @unreadable_entries.clear
         @empty.set true
+        count
       end
 
       def requeue(sp : SegmentPosition)

@@ -714,10 +714,10 @@ module LavinMQ::AMQP
       true
     end
 
-    # Deletes a message that is stored where it was moved to: the retry queue
-    # or the queues it was dead-lettered to. If the delete fails the message
-    # isn't put back, which would deliver it from both. It's still in its
-    # segment, so it can come back after a restart.
+    # Deletes a message that is stored where it was moved to, the retry queue
+    # or the queues it was dead-lettered to, or that was dropped. If the delete
+    # fails the message isn't put back, which would deliver it again. It's
+    # still in its segment, so it can come back after a restart.
     private def delete_moved(sp : SegmentPosition) : Nil
       delete_message(sp)
     rescue ex : MessageStore::Error
@@ -1254,7 +1254,8 @@ module LavinMQ::AMQP
           raise ex
         end
       else
-        delete_message sp
+        # Not requeued if the delete fails, it was dropped on purpose
+        delete_moved sp
       end
     end
 
@@ -1562,9 +1563,7 @@ module LavinMQ::AMQP
         # delivery between the check and the purge isn't purged uncounted
         if unacked_count == 0 && max_count >= @msg_store.size
           # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-          count = @msg_store.size
           @msg_store.purge_all
-          count
         else
           @msg_store.purge(max_count)
         end

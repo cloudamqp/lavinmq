@@ -412,7 +412,8 @@ describe LavinMQ::AMQP::Queue do
           q.get(no_ack: true).should be_nil
           queue.state.paused?.should be_true
 
-          q.purge
+          # Counts the messages purged, not the data that can't be read
+          queue.purge.should eq 0
           queue.message_count.should eq 0
           queue.resume!
           q.publish_confirm "third"

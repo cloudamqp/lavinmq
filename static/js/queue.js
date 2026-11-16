@@ -89,8 +89,8 @@ function handleQueueState (state) {
       resumeQueueForm.classList.add('hide')
       break
     default:
-      pauseQueueForm.disabled = true
-      resumeQueueForm.disabled = true
+      pauseQueueForm.classList.add('hide')
+      resumeQueueForm.classList.add('hide')
   }
 }
 

@@ -1101,6 +1101,18 @@ describe LavinMQ::AMQP::Stream do
           bodies.receive.should eq({"y", 2i64})
           q.publish_confirm("z").should be_true
           bodies.receive.should eq({"z", 3i64})
+          # A consumer that starts from an offset in the segment starts after it
+          with_channel(s) do |ch2|
+            ch2.prefetch 1
+            q2 = ch2.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+            from_offset = ::Channel(String).new(2)
+            q2.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 1})) do |msg|
+              msg.ack
+              from_offset.send msg.body_io.to_s
+            end
+            from_offset.receive.should eq "y"
+            ch2.closed?.should be_false
+          end
           stream.state.running?.should be_true
           File.exists?(segment).should be_true
         end

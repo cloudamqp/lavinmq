@@ -314,11 +314,12 @@ module LavinMQ
 
     # A purge gives up data that can't be read, which is the way to get rid of
     # it: the read is tried again after what it failed on is removed
-    private def shift_or_give_up? : Envelope?
+    private def shift_or_give_up?(recount = true) : Envelope?
       loop do
         return shift?
       rescue ex : Error
         give_up_unreadable(ex)
+        recount_ready if recount
       end
     end
 
@@ -332,7 +333,6 @@ module LavinMQ
       seg = @requeued.first?.try(&.segment) || @rfile_id
       @log.warn(exception: ex) { "Purging segment #{seg}, which has data that can't be read" }
       drop_segment(seg)
-      recount_ready
     end
 
     # Written to a segment's ack file when the segment is given up. Its files
@@ -377,10 +377,17 @@ module LavinMQ
       @empty.set @size.zero?
     end
 
-    # Counts what's left to read from where the reader is, like a load does
+    # Counts what's left to read from where the reader is, like a load does.
+    # Only the segment being read, and segments with acks, are read through:
+    # the others have the count of their messages.
     private def count_unread : Nil
       @segments.each do |seg, mfile|
         next if seg < @rfile_id
+        if seg != @rfile_id && !@deleted.has_key?(seg)
+          @size += @segment_msg_count[seg]
+          @bytesize += mfile.size - 4
+          next
+        end
         read_pos = mfile.pos
         begin
           mfile.pos = 4 unless seg == @rfile_id
@@ -405,11 +412,14 @@ module LavinMQ
       end
     end
 
-    def purge_all
+    # Returns the number of messages purged, without data that can't be read
+    def purge_all : UInt32
+      count = 0u32
       # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
+        count += 1
         delete(sp) if @segments.has_key?(sp.segment)
       end
 
@@ -427,8 +437,9 @@ module LavinMQ
           # decide, and a purge must not underflow the counter here, outside
           # the rescue below.
           acked = @acks[seg_id]?.try { |f| (f.size // sizeof(UInt32)).to_u32 } || 0u32
-          ready = acked < msg_count ? msg_count - acked : 0u32
-          @size -= Math.min(ready, @size)
+          ready = Math.min(acked < msg_count ? msg_count - acked : 0u32, @size)
+          @size -= ready
+          count += ready
         end
         unlink_files(file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
@@ -439,8 +450,10 @@ module LavinMQ
       # on-disk segments — purge_all's postcondition is an empty store, so we
       # force the counters to zero below regardless of how the loop exits.
       begin
-        while env = shift_or_give_up?
+        # Not recounted when a segment is given up, the counters are zeroed below
+        while env = shift_or_give_up?(recount: false)
           delete(env.segment_position)
+          count += 1
         end
       rescue ex : IO::EOFError | Error
         @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
@@ -452,6 +465,7 @@ module LavinMQ
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
+      count
     end
 
     private def delete_meta_files : Nil
@@ -856,9 +870,9 @@ module LavinMQ
           @log.info { "Removing segment #{seg}, which a purge gave up" }
           @segment_msg_count[seg] = 0u32
           @wfile_unreadable = true if seg == @wfile_id
-        elsif !schema_ok?(mfile)
-          count_unreadable(seg, mfile, 4)
         elsif File.exists?(meta_file_name(mfile))
+          # Also for a segment with an unsupported schema version: its count
+          # is kept, which a stream's offsets depend on
           begin
             if @deleted.has_key?(seg)
               # Skipping the acked messages reads the segment in order.
@@ -869,8 +883,10 @@ module LavinMQ
               read_metadata_file(seg, mfile)
             end
           rescue MetadataError
-            count_messages(seg, mfile)
+            schema_ok?(mfile) ? count_messages(seg, mfile) : count_unreadable(seg, mfile, 4)
           end
+        elsif !schema_ok?(mfile)
+          count_unreadable(seg, mfile, 4)
         else
           count_messages(seg, mfile)
         end
