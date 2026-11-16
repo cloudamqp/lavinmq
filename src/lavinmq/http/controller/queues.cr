@@ -94,8 +94,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to pause queue '#{q.name}'")
+            end
             q.pause!
             context.response.status_code = 204
           end
@@ -103,8 +107,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to resume queue '#{q.name}'")
+            end
             q.resume!
             context.response.status_code = 204
           end
@@ -112,8 +120,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/restart" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to restart queue '#{q.name}'")
+            end
             if q.restart!
               context.response.status_code = 204
             else
