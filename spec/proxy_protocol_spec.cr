@@ -433,7 +433,7 @@ describe "ProxyProtocol" do
   it "reads a load balancer's header in front of a TLS handshake" do
     with_amqp_server(tls: true) do |s|
       s.@config.tcp_proxy_protocol = true
-      tcp_client = TCPSocket.new("127.0.0.1", amqp_tls_port(s))
+      tcp_client = TCPSocket.new("localhost", amqp_tls_port(s))
       tcp_client.read_timeout = 5.seconds
       tcp_client.write "PROXY TCP4 203.0.113.7 127.0.0.1 40000 5671\r\n".to_slice
       client_ctx = OpenSSL::SSL::Context::Client.new
