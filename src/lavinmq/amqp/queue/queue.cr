@@ -111,6 +111,9 @@ module LavinMQ::AMQP
     # Set while the queue is paused by a message store error, until it's
     # resumed: what read the store on every publish then leaves it alone
     @store_failed = Atomic(Bool).new(false)
+    # Paused by an operator, which resuming another queue doesn't undo (see
+    # #resume_after_store_error). Guarded by @state_lock.
+    @operator_paused = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -369,6 +372,7 @@ module LavinMQ::AMQP
       end
       if File.exists?(paused_file)
         @state = QueueState::Paused
+        @operator_paused = true
         @paused.set(true)
         @vhost.replicator.try &.register_file(paused_file) if durable?
       end
@@ -810,6 +814,7 @@ module LavinMQ::AMQP
         # paused without it
         @store_failed.set(true, :relaxed) if store_failed
         if persist
+          @operator_paused = true
           # Not empty: a follower applies a replaced file of zero bytes as a delete
           File.write(paused_file, @name)
           @vhost.replicator.try &.replace_file(paused_file) if durable?
@@ -847,21 +852,29 @@ module LavinMQ::AMQP
     def resume! : Nil
       # Paused on its own if it was its store that failed
       @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume_after_store_error
+      store_failed = false
       @state_lock.synchronize do
         return unless @state.paused?
         @state = QueueState::Running
-        @store_failed.set(false, :relaxed)
+        store_failed = @store_failed.swap(false, :relaxed)
+        @operator_paused = false
         if File.delete?(paused_file)
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
         @paused.set(false)
       end
       @log.debug { "Resumed" }
+      if store_failed
+        # What was left alone while the store couldn't be read
+        schedule_policy_limits
+        ensure_expire_fiber
+      end
     end
 
-    # Not if an operator paused it
+    # Not if an operator paused it, also when its store has failed as well
     protected def resume_after_store_error : Nil
-      resume! if @store_failed.get(:relaxed)
+      paused_by_error = @state_lock.synchronize { @store_failed.get(:relaxed) && !@operator_paused }
+      resume! if paused_by_error
     end
 
     private def paused_file : String

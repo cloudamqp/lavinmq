@@ -431,6 +431,11 @@ describe "Retry Queue" do
         primary.state.running?.should be_true
         retry_q.state.paused?.should be_true
         File.exists?(File.join(retry_q.@data_dir, "paused")).should be_true
+        # Also when its store fails while it's paused
+        retry_q.@store_failed.set(true)
+        primary.resume!
+        retry_q.state.paused?.should be_true
+        File.exists?(File.join(retry_q.@data_dir, "paused")).should be_true
         retry_q.resume!
         retry_q.state.running?.should be_true
       end

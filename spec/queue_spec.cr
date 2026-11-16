@@ -498,10 +498,10 @@ describe LavinMQ::AMQP::Queue do
 
           write_at(segment.path, flags_pos, 0x0000u16)
           queue.resume!
-          q.publish_confirm("last").should be_true
-          queue.message_count.should eq 2
+          # Enforced by the resume, without waiting for a publish
+          should_eventually(eq 2) { queue.message_count }
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "msg2"
           q.get(no_ack: true).try(&.body_io.to_s).should eq "msg3"
-          q.get(no_ack: true).try(&.body_io.to_s).should eq "last"
         end
       end
     end
