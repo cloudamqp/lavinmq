@@ -20,6 +20,10 @@ module LavinMQ
       # tiny) file costs more than it gives back.
       HASH_YIELD_INTERVAL = 32
 
+      # Files #compare_files compares between Fiber.yields when their checksums
+      # are cached, which makes each comparison only a stat and a few lookups.
+      COMPARE_YIELD_INTERVAL = 1024
+
       # Capacity of the channel buffering acks from the stream-reading fiber to
       # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
       # drains and coalesces it continuously), so a fixed size is fine; the
@@ -268,6 +272,49 @@ module LavinMQ
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
+        requested_files = compare_files(remote_files, files_to_delete, dirs_to_delete)
+        requested_files.each do |filename|
+          request_file(filename, socket)
+        end
+        end_of_file_list(socket)
+        Log.info { "Deleting #{files_to_delete.size} files not on leader" } unless files_to_delete.empty?
+        files_to_delete.each do |path|
+          Log.debug { "File not on leader: #{path}" }
+          File.delete path
+          # It got a checksum from #hash_local_files; drop it or the checksum map
+          # accumulates dead paths.
+          @checksums.delete(relative_path(path))
+        rescue ex : File::Error
+          Log.warn(exception: ex) { "Failed to delete #{path}" }
+        end
+        # Clean up any local empty directory
+        # Sort and reverse to cleanup longer paths first
+        Log.info { "Deleting #{dirs_to_delete.size} directories not on leader" } unless dirs_to_delete.empty?
+        dirs_to_delete.to_a.sort!.reverse_each do |path|
+          if Dir.empty? path
+            Log.debug { "Dir empty or missing on leader: #{path}" }
+            Dir.delete? path
+          else
+            Log.warn { "Dir #{path} in delete set, but not empty?" }
+          end
+        rescue ex : File::Error
+          Log.warn(exception: ex) { "Failed to delete #{path}" }
+        end
+        received_count = 0
+        log_limiter = RateLimiter.new(2.seconds)
+        requested_files.each do |filename|
+          file_from_socket(filename, lz4)
+          received_count &+= 1
+          log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
+        end
+        Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
+      end
+
+      # Compares the leader's files with the local ones, deleting local files
+      # whose hash differs, and returns the files to request. Removes every file
+      # and directory the leader has from files_to_delete and dirs_to_delete.
+      private def compare_files(remote_files : Array({String, Bytes}), files_to_delete : Set(String),
+                                dirs_to_delete : Set(String)) : Array(String)
         requested_files = Array(String).new
         file_count = 0
         files_total = remote_files.size
@@ -299,44 +346,11 @@ module LavinMQ
             requested_files << filename
           end
           file_count &+= 1
+          Fiber.yield if file_count % COMPARE_YIELD_INTERVAL == 0
           log_limiter.do { Log.info { "Compared #{file_count}/#{files_total} files…" } }
         end
         Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
-        requested_files.each do |filename|
-          request_file(filename, socket)
-        end
-        end_of_file_list(socket)
-        Log.info { "Deleting #{files_to_delete.size} files not on leader" } unless files_to_delete.empty?
-        files_to_delete.each do |path|
-          Log.debug { "File not on leader: #{path}" }
-          File.delete path
-          # It got a checksum from #hash_local_files; drop it or the checksum map
-          # accumulates dead paths.
-          @checksums.delete(relative_path(path))
-        rescue ex : File::Error
-          Log.warn(exception: ex) { "Failed to delete #{path}" }
-        end
-        # Clean up any local empty directory
-        # Sort and reverse to cleanup longer paths first
-        Log.info { "Deleting #{dirs_to_delete.size} directories not on leader" } unless dirs_to_delete.empty?
-        dirs_to_delete.sort!.reverse_each do |path|
-          if Dir.empty? path
-            Log.debug { "Dir empty or missing on leader: #{path}" }
-            Dir.delete? path
-          else
-            Log.warn { "Dir #{path} in delete set, but not empty?" }
-          end
-        rescue ex : File::Error
-          Log.warn(exception: ex) { "Failed to delete #{path}" }
-        end
-        received_count = 0
-        log_limiter = RateLimiter.new(2.seconds)
-        requested_files.each do |filename|
-          file_from_socket(filename, lz4)
-          received_count &+= 1
-          log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
-        end
-        Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
+        requested_files
       end
 
       # Hash every local file before connecting, because hashing while connected
@@ -388,9 +402,9 @@ module LavinMQ
         path.lchop(@data_dir).lchop('/')
       end
 
-      private def ls_r(dir) : {Array(String), Array(String)}
-        files = Array(String).new
-        dirs = Array(String).new
+      private def ls_r(dir) : {Set(String), Set(String)}
+        files = Set(String).new
+        dirs = Set(String).new
         ls_r(dir) do |filename|
           if File.file?(filename)
             files << filename
