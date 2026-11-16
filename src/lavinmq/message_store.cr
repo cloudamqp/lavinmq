@@ -22,6 +22,9 @@ module LavinMQ
   class MessageStore
     PURGE_YIELD_INTERVAL = 16_384
     Log                  = LavinMQ::Log.for "message_store"
+    # What @wfile and @rfile point at while a store has no segment, see
+    # #drop_write_segment. Shared: it maps nothing and is never written.
+    NO_SEGMENT = MFile.placeholder("msgs.0000000000")
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
@@ -52,15 +55,17 @@ module LavinMQ
         load_segments_from_disk
         load_acks_from_disk
       end
-      @wfile_id = @segments.last_key
-      @wfile = @segments.last_value
-      @rfile_id = @segments.first_key
-      @rfile = @segments.first_value
+      # A store without msgs has no segment, the first push opens one
+      @wfile_id = @segments.last_key? || 0u32
+      @wfile = @segments.last_value? || NO_SEGMENT
+      @rfile_id = @segments.first_key? || 0u32
+      @rfile = @segments.first_value? || NO_SEGMENT
       close_on_error do
         unless @closed
           load_stats_from_segments
           prune_orphaned_acks
           delete_unused_segments
+          drop_acked_write_segment
         end
         readahead_for_writes(@wfile) unless @closed
         @empty.set empty? unless @closed
@@ -399,18 +404,41 @@ module LavinMQ
     # which for an idle queue can be never. They stay in the page cache, dirty
     # ones too, so a later read or msync still finds them.
     def release_idle_pages : Nil
-      return if @closed || @wfile.closed?
+      return if @closed || !write_segment? || @wfile.closed?
       if write_segment_consumed?
-        # The old segment is then unlinked like any fully acked one
-        open_new_segment
+        drop_write_segment
       else
         @wfile.dontneed
       end
     end
 
-    # Every msg in the write segment is acked, so it can be replaced by an
-    # empty one. Under an eighth of a segment it's kept: a queue with msgs
-    # just slower than the idle timeout would create and unlink a file per msg.
+    # Unlinks the fully consumed write segment, like any fully acked one,
+    # without opening a new one: the next push does. The id isn't reused,
+    # the unlink of the old file waits for the persister's next sync.
+    private def drop_write_segment : Nil
+      @log.debug { "Dropping consumed write segment #{@wfile_id}: #{state_snapshot}" }
+      seg = @wfile_id
+      @rfile = NO_SEGMENT if @rfile_id == @wfile_id
+      @wfile = NO_SEGMENT
+      @segment_msg_count.delete(seg)
+      @deleted.delete(seg)
+      unlink_segment(seg)
+    end
+
+    # Every msg is acked when loading, an empty store keeps no segment
+    private def drop_acked_write_segment : Nil
+      drop_write_segment if lazy_segments? && @size.zero? && write_segment?
+    end
+
+    # False when the store has no segment to write to, see #drop_write_segment
+    private def write_segment? : Bool
+      !@wfile.same?(NO_SEGMENT)
+    end
+
+    # Every msg in the write segment is acked, so it can be dropped (see
+    # #drop_write_segment). Under an eighth of a segment it's kept: a queue
+    # with msgs just slower than the idle timeout would create and unlink a
+    # file per msg.
     private def write_segment_consumed? : Bool
       return false unless @size.zero? && @requeued.size.zero?
       return false if @wfile.size < Config.instance.segment_size // 8
@@ -480,7 +508,8 @@ module LavinMQ
         @rfile.dontneed unless @rfile.closed?
         rfile = @segments[id]
         # Not the segment being written, it's read as it's written and cached
-        if id != @wfile_id && read_fast?(@rfile, @rfile_since)
+        # Nothing was read before the first segment
+        if id != @wfile_id && !@rfile.same?(NO_SEGMENT) && read_fast?(@rfile, @rfile_since)
           rfile.advise(MFile::Advice::Sequential)
         end
         @rfile_id = id
@@ -533,6 +562,7 @@ module LavinMQ
     # message. Once a publish to the store is synced, its write segments are
     # mapped without readahead and a sync only writes the pages that changed.
     private def readahead_for_writes(wfile : MFile) : Nil
+      return if wfile.same?(NO_SEGMENT)
       wfile.advise(MFile::Advice::Normal) unless @synced_writes
     end
 
@@ -588,12 +618,12 @@ module LavinMQ
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
-      unless @wfile_id.zero?
+      if write_segment?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
         @wfile.advise(MFile::Advice::Random) unless @synced_writes
+        unmap_finished_segment(@wfile_id, @wfile)
       end
-      unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
@@ -689,7 +719,7 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
-    private def load_segments_from_disk : Nil
+    private def segment_ids_on_disk : Array(UInt32)
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
         if f.starts_with?("msgs.") && f.size == 15
@@ -697,8 +727,15 @@ module LavinMQ
         end
       end
       ids.sort!
+    end
+
+    private def load_segments_from_disk : Nil
+      ids = segment_ids_on_disk
       was_empty = ids.empty?
-      ids << 1_u32 if was_empty
+      if was_empty
+        return if lazy_segments?
+        ids << 1_u32
+      end
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
@@ -717,7 +754,7 @@ module LavinMQ
             # delete empty file, it will be recreated if it's needed
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
-            if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
+            if idx == 0 && !lazy_segments? # Recreate the file if it's the first segment because we need at least one segment to exist
               file = open_segment(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
@@ -743,6 +780,12 @@ module LavinMQ
         @segments[seg] = file
         Fiber.yield
       end
+    end
+
+    # Whether a store without msgs is left without segment files, see
+    # #drop_write_segment. Streams always have one, their offsets are kept in them.
+    private def lazy_segments? : Bool
+      true
     end
 
     # Populate bytesize, size and segment_msg_count
@@ -792,7 +835,7 @@ module LavinMQ
     private def count_messages(seg, mfile)
       with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
       return if @closed # a corrupt segment closed the store and unmapped it
-      write_metadata_file(seg, mfile) unless seg == @segments.last_key
+      write_metadata_file(seg, mfile) unless seg == @segments.last_key?
     end
 
     # Advises *mfile* for the block, then back to random access (see
@@ -973,9 +1016,8 @@ module LavinMQ
     end
 
     private def delete_unused_segments : Nil
-      current_seg = @segments.last_key
       @segments.reject! do |seg, mfile|
-        next if seg == current_seg # don't the delete the segment still being written to
+        next if mfile.same?(@wfile) # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }

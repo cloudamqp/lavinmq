@@ -90,6 +90,20 @@ class MFile < IO
     end
   end
 
+  # A closed, empty file that maps nothing and isn't on disk, for a message
+  # store that has no segment yet. Reads see EOF and it has no room to write.
+  def self.placeholder(path : String) : self
+    new(path, placeholder: true)
+  end
+
+  private def initialize(@path : String, *, placeholder : Bool)
+    @readonly = true
+    @writeonly = false
+    @buffer = Pointer(UInt8).null
+    @closed.set(true, :release)
+    @deleted.set(true, :release)
+  end
+
   def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
     mfile = new(path, capacity, writeonly)
     begin

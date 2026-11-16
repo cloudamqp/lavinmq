@@ -1573,6 +1573,68 @@ describe LavinMQ::AMQP::Queue do
     describe "Idle segment pages" do
       body = "x" * 1024
 
+      describe "lazily created segments" do
+        seg_files = ->(dir : String) { Dir.children(dir).select(&.starts_with?("msgs.")).sort! }
+
+        it "creates no segment until the first publish" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("lazy-seg")
+              queue = s.vhosts["/"].queue("lazy-seg")
+              dir = queue.@msg_store.@msg_dir
+              mmaps = MFile.mmap_count
+              seg_files.call(dir).should be_empty
+              q.get(no_ack: true).should be_nil
+              q.publish_confirm "m"
+              seg_files.call(dir).should eq ["msgs.0000000001"]
+              MFile.mmap_count.should eq mmaps + 1
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "m"
+            end
+          end
+        end
+
+        it "creates segments only for the priorities that are published to" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("lazy-seg-prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 9}))
+              store = s.vhosts["/"].queue("lazy-seg-prio").@msg_store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+              store.@stores.sum { |sub| sub.@segments.size }.should eq 0
+              q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 5u8)
+              store.@stores.map { |sub| sub.@segments.size }.should eq [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "m"
+            end
+          end
+        end
+
+        it "loads a queue whose msgs are all acked without a segment" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              q = ch.queue("lazy-seg-restart", durable: true)
+              q.publish_confirm "m1"
+              q.publish_confirm "m2"
+              q.get(no_ack: true).should_not be_nil
+            end
+            restart_server(s)
+            with_channel(s) do |ch|
+              queue = s.vhosts["/"].queue("lazy-seg-restart")
+              queue.message_count.should eq 1
+              q = ch.queue("lazy-seg-restart", durable: true)
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "m2"
+            end
+            restart_server(s)
+            with_channel(s) do |ch|
+              queue = s.vhosts["/"].queue("lazy-seg-restart")
+              queue.@msg_store.@segments.should be_empty
+              # Unlinked by the drain after the load, before any publish
+              should_eventually(be_empty) { seg_files.call(queue.@msg_store.@msg_dir) }
+              q = ch.queue("lazy-seg-restart", durable: true)
+              q.publish_confirm "m3"
+              q.get(no_ack: true).try(&.body_io.to_s).should eq "m3"
+            end
+          end
+        end
+      end
+
       describe "rotation of a fully consumed write segment" do
         # Two of them are over an eighth of a segment, the rotation threshold
         big = "x" * (LavinMQ::Config.instance.segment_size // 10)
@@ -1588,9 +1650,8 @@ describe LavinMQ::AMQP::Queue do
               end
               4.times { q.get(no_ack: true).should_not be_nil }
               queue.release_idle_memory
-              store.@stores[0].@wfile_id.should eq 2
-              store.@stores[1].@wfile_id.should eq 1 # never written to
-              store.@stores[2].@wfile_id.should eq 2
+              store.@stores.each { |sub| sub.@segments.should be_empty }
+              store.@stores[1].@wfile_id.should eq 0 # never written to
               q.publish_confirm "after", props: AMQP::Client::Properties.new(priority: 2u8)
               q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
             end
@@ -1605,7 +1666,7 @@ describe LavinMQ::AMQP::Queue do
               2.times { q.publish_confirm big }
               should_eventually(eq 0) { queue.message_count }
               queue.release_idle_memory
-              queue.@msg_store.@wfile_id.should eq 2
+              queue.@msg_store.@segments.should be_empty
               q.publish_confirm "after"
               q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
             end
@@ -1621,7 +1682,7 @@ describe LavinMQ::AMQP::Queue do
               queue.message_count.should eq 1
               q.get(no_ack: true).should_not be_nil
               queue.release_idle_memory
-              queue.@msg_store.@wfile_id.should eq 2
+              queue.@msg_store.@segments.should be_empty
             end
           end
         end
@@ -1648,11 +1709,14 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server(config: config) do |s|
           with_channel(s) do |ch|
             q = ch.queue("idle-pages")
+            q.publish_confirm body
             path = s.vhosts["/"].queue("idle-pages").@msg_store.@wfile.path
-            msgs = Channel(Nil).new(100)
+            msgs = Channel(Nil).new(31)
             q.subscribe(no_ack: true) { msgs.send nil }
-            100.times { q.publish body }
-            100.times { msgs.receive }
+            msgs.receive
+            # Under the rotation threshold, so the segment is kept
+            30.times { q.publish body }
+            30.times { msgs.receive }
             mapped_rss_kb(path).should be > 0
             should_eventually(eq 0) { mapped_rss_kb(path) }
             q.publish body
@@ -1666,8 +1730,8 @@ describe LavinMQ::AMQP::Queue do
           with_channel(s) do |ch|
             q = ch.queue("idle-pages-left")
             queue = s.vhosts["/"].queue("idle-pages-left")
-            path = queue.@msg_store.@wfile.path
             100.times { |i| q.publish_confirm "#{i} #{body}" }
+            path = queue.@msg_store.@wfile.path
             ch.prefetch(count: 1)
             acked = Atomic(Int32).new(0)
             tag = q.subscribe(no_ack: false) do |msg|
@@ -1693,10 +1757,10 @@ describe LavinMQ::AMQP::Queue do
           with_channel(s) do |ch|
             q = ch.queue("idle-pages-prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
             store = s.vhosts["/"].queue("idle-pages-prio").@msg_store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
-            paths = store.@stores.map { |sub| sub.@wfile.path }
             3.times do |prio|
               10.times { q.publish_confirm body, props: AMQP::Client::Properties.new(priority: prio.to_u8) }
             end
+            paths = store.@stores.map { |sub| sub.@wfile.path }
             tag = q.subscribe(no_ack: true) { }
             should_eventually(eq 0) { s.vhosts["/"].queue("idle-pages-prio").message_count }
             paths.each { |path| mapped_rss_kb(path).should be > 0 }

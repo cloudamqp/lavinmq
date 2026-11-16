@@ -339,6 +339,11 @@ module LavinMQ::AMQP
       mfile.dontneed unless @segment_readers.has_key?(seg)
     end
 
+    # The offsets are kept in the segments, a stream always has one
+    private def lazy_segments? : Bool
+      false
+    end
+
     # Consumers address a stream's msgs by offset, its segments are kept
     private def write_segment_consumed? : Bool
       false

@@ -218,6 +218,42 @@ module MqttSpecs
       end
     end
 
+    it "opens a persistent session's segment on its first msg, and delivers its msgs after a restart" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b", 1u8)])
+          disconnect(io)
+        end
+        store = server.vhosts["/"].session("mqtt.sub").@msg_store
+        store.@segments.should be_empty
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "pub")
+          3.times { |i| publish(io, topic: "a/b", payload: "m#{i}".to_slice, qos: 1u8) }
+          disconnect(io)
+        end
+        server.vhosts["/"].session("mqtt.sub").@msg_store.@segments.size.should eq 1
+
+        restart_server(server)
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          3.times do |i|
+            pub = read_publish(io)
+            String.new(pub.payload).should eq "m#{i}"
+            puback(io, pub.packet_id)
+          end
+          disconnect(io)
+        end
+        should_eventually(eq 0) { server.vhosts["/"].session("mqtt.sub").@msg_store.size }
+
+        # Every msg is acked, so the next load leaves the session without a segment
+        restart_server(server)
+        server.vhosts["/"].session("mqtt.sub").@msg_store.@segments.should be_empty
+      end
+    end
+
     it "does not restore an unsubscribed topic after a restart" do
       with_server do |server|
         with_client_io(server) do |io|

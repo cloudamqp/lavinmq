@@ -229,7 +229,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           2.times { q.get(no_ack: true).should_not be_nil }
           queue = s.vhosts["/"].queue("repli-rotate")
           queue.release_idle_memory
-          queue.@msg_store.@wfile_id.should eq 2
+          queue.@msg_store.@segments.should be_empty
           q.publish_confirm "kept", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
         end
         s.persister.sync_marked # the deferred unlink of segment 1

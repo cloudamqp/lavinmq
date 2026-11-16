@@ -299,7 +299,6 @@ describe LavinMQ::MessageStore do
       store = LavinMQ::MessageStore.new(dir, nil)
       store.close
 
-      File.exists?(File.join(dir, "acks.0000000001")).should be_true
       File.exists?(File.join(dir, "acks.0000000002")).should be_false
     end
   end
@@ -341,14 +340,12 @@ describe LavinMQ::MessageStore do
       store.delete(env.segment_position)
       store.close
 
-      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
       begin
-        # The rollover deletes the unused segment
+        # The load drops the unused segment
         File.fail_delete_of = File.join(dir, "msgs.0000000001")
-        expect_raises(File::Error) { store.push(msg) }
+        expect_raises(File::Error) { LavinMQ::MessageStore.new(dir, nil, durable: true) }
       ensure
         File.fail_delete_of = nil
-        store.close
       end
       File.exists?(File.join(dir, "acks.0000000001")).should be_true
 
@@ -505,7 +502,7 @@ describe LavinMQ::MessageStore do
           mktmpdir do |dir|
             File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
             store = LavinMQ::MessageStore.new(dir, nil, durable)
-            store.@segments.first_value.truncate(1000)
+            store.@segments.should be_empty
             store.first?.should be_nil
             store.close
           end
@@ -517,7 +514,7 @@ describe LavinMQ::MessageStore do
           mktmpdir do |dir|
             File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
             store = LavinMQ::MessageStore.new(dir, nil, durable)
-            store.@segments.first_value.truncate(1000)
+            store.@segments.should be_empty
             store.shift?.should be_nil
             store.close
           end
@@ -887,10 +884,12 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "registers the initial segment file" do
+    it "registers the first segment file when it's opened" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator)
+        replicator.registered_files.should be_empty
+        store.push(LavinMQ::Message.new("", "rk", "m"))
         store.close
         replicator.registered_files.keys.map { |p| File.basename(p) }.should contain("msgs.0000000001")
       end
@@ -966,6 +965,7 @@ describe LavinMQ::MessageStore do
       mktmpdir do |dir|
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator)
+        store.push(LavinMQ::Message.new("", "rk", "m"))
         store.close
         sleep 1.millisecond
         file_registrations = replicator.registered_files.select { |_, t| t == :path }
@@ -1095,8 +1095,9 @@ describe LavinMQ::MessageStore do
         # Reopen — prune_orphaned_acks should drop the 2 orphaned positions.
         store = LavinMQ::MessageStore.new(dir, nil, durable: true)
         store.@size.should eq 0
-        store.@deleted[1]?.try(&.size).should eq 5
-        store.@acks[1].size.should eq 5 * sizeof(UInt32)
+        # Every msg is acked, so the segment is dropped
+        store.@segments.should be_empty
+        File.exists?(File.join(dir, "acks.0000000001")).should be_false
 
         body = "a" * 1000
         store.push(LavinMQ::Message.new("ex", "rk", body))
@@ -1141,7 +1142,6 @@ describe LavinMQ::MessageStore do
         File.write(orphan_tmp, "garbage-bytes")
 
         store = LavinMQ::MessageStore.new(dir, nil, durable: true)
-        store.@acks.has_key?(1u32).should be_true
         File.exists?(orphan_tmp).should be_false
         store.close
       end
@@ -1317,13 +1317,16 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "replaces a fully consumed write segment with a new one" do
+    it "drops a fully consumed write segment, the next publish opens a new one" do
       with_datadir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil)
         2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
         drain.call(store)
+        mmaps = MFile.mmap_count
         store.release_idle_pages
-        seg_files.call(dir).should eq ["msgs.0000000002"]
+        seg_files.call(dir).should be_empty
+        MFile.mmap_count.should eq mmaps - 2 # the segment and its acks
+        store.shift?.should be_nil
         store.push(LavinMQ::Message.new("", "rk", "after"))
         env = store.shift?.should_not be_nil
         env.segment_position.segment.should eq 2
@@ -1339,6 +1342,8 @@ describe LavinMQ::MessageStore do
         drain.call(store)
         store.release_idle_pages
         store.release_idle_pages
+        seg_files.call(dir).should be_empty
+        store.push(LavinMQ::Message.new("", "rk", "after"))
         store.@wfile_id.should eq 2
         store.close
       end
@@ -1400,7 +1405,7 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "continues the segment ids after a restart" do
+    it "starts over at segment 1 after a restart with no segments left" do
       with_datadir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil)
         2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
@@ -1414,7 +1419,7 @@ describe LavinMQ::MessageStore do
         store = LavinMQ::MessageStore.new(dir, nil)
         store.size.should eq 1
         env = store.shift?.should_not be_nil
-        env.segment_position.segment.should eq 2
+        env.segment_position.segment.should eq 1
         String.new(env.message.body).should eq "kept"
         store.close
       end
@@ -1435,7 +1440,7 @@ describe LavinMQ::MessageStore do
             store.delete(env.segment_position)
             store.release_idle_pages
           end
-          seg_files.call(dir).should eq ["msgs.0000000002"]
+          seg_files.call(dir).should be_empty
           String.new(env.message.body).ends_with?("leased").should be_true
         end.should be_true
         store.close
@@ -1467,44 +1472,28 @@ describe LavinMQ::MessageStore do
         2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
         drain.call(store)
         store.release_idle_pages
-        store.@wfile_id.should eq 2
+        store.@segments.should be_empty
         store.push(LavinMQ::Message.new("", "rk", "after"))
+        store.@wfile_id.should eq 2
         env = store.shift?.should_not be_nil
         String.new(env.message.body).should eq "after"
         store.close
       end
     end
 
-    it "keeps working when opening the new segment fails, and retries on the next idle event" do
+    it "fails only the publish when opening the segment fails, the next one retries" do
       with_datadir do |dir|
         store = FailingRotateStore.new(dir, nil)
         2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
         drain.call(store)
-        store.fail_open = true
-        expect_raises(File::Error, "Spec open failure") { store.release_idle_pages }
-        store.@wfile_id.should eq 1
         store.release_idle_pages
-        store.@wfile_id.should eq 2
-        seg_files.call(dir).should eq ["msgs.0000000002"]
-        store.push(LavinMQ::Message.new("", "rk", "kept"))
-        store.close
-        store = LavinMQ::MessageStore.new(dir, nil)
-        store.size.should eq 1
-        env = store.shift?.should_not be_nil
-        String.new(env.message.body).should eq "kept"
-        store.close
-      end
-    end
-
-    it "takes the next publish when opening the new segment fails" do
-      with_datadir do |dir|
-        store = FailingRotateStore.new(dir, nil)
-        2.times { store.push(LavinMQ::Message.new("", "rk", big)) }
-        drain.call(store)
         store.fail_open = true
-        expect_raises(File::Error, "Spec open failure") { store.release_idle_pages }
+        expect_raises(File::Error, "Spec open failure") { store.push(LavinMQ::Message.new("", "rk", "lost")) }
+        store.size.should eq 0
+        store.shift?.should be_nil
         store.push(LavinMQ::Message.new("", "rk", "after"))
         env = store.shift?.should_not be_nil
+        env.segment_position.segment.should eq 2
         String.new(env.message.body).should eq "after"
         store.delete(env.segment_position)
         store.push(LavinMQ::Message.new("", "rk", "kept"))
@@ -1527,6 +1516,7 @@ describe LavinMQ::MessageStore do
         deleted = replicator.deleted_files.map { |p| File.basename(p) }
         deleted.should contain "msgs.0000000001"
         deleted.should contain "acks.0000000001"
+        store.push(LavinMQ::Message.new("", "rk", "after"))
         replicator.registered_files.keys.map { |p| File.basename(p) }.should contain "msgs.0000000002"
         store.close
       end
@@ -1538,6 +1528,7 @@ describe LavinMQ::MessageStore do
       it "advises every segment but the write segment random access" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
+          store.push(LavinMQ::Message.new("", "rk", "m"))
           vm_flags(store.@wfile.path).should_not contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
