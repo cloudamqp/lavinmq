@@ -101,20 +101,44 @@ The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept
 
 ### Message data that can't be read
 
-A queue whose message store fails, for example on a segment with corrupt data or one written by a newer version of LavinMQ, is paused instead of closed. The error is logged with the segment's path. Nothing is delivered past the data, consumers stay connected, and publishes are still stored.
+A queue whose message store fails is paused instead of closed. That's nearly always message data that can't be decoded, or a segment in a format this version doesn't know. Nothing is delivered past the data, consumers stay connected, and publishes are still stored.
 
-- **Resume** the queue to read the data again. If it still can't be read the queue is paused again.
-- **Restart the broker**, or in a cluster fail over to another node. This pause isn't kept, so the data is read again: by a version that can read it after an upgrade, or from the other node's copy of the files.
-- **Purge** or delete the queue to give the data up. A purge removes the whole segment that can't be read, including messages in it that are delivered but not acked yet, whose acks are then ignored.
+#### When a queue is paused
 
-Editing segment files by hand isn't supported.
+- **A delivery**: the next message for a consumer or a `basic.get` can't be decoded, also a requeued one.
+- **A segment of another version**: a read reaches a segment with an unsupported schema version, such as one written by a newer LavinMQ before a downgrade.
+- **Message TTL**: the check of when the first message expires can't read it. That check also runs when the queue starts, so a queue can be paused right after a restart.
+- **Limits**: `max-length`, `max-length-bytes` or `delivery-limit` have to drop the first message and can't read it.
+- **A reject, requeue or `basic.recover`** of a message that can't be read again, which its TTL, dead-lettering and retries need. The message goes back in the queue.
+- **A failed delete** of a message that was dead-lettered or moved to the retry queue, for example when the disk is full.
+- **Retry queues and the queues of delayed exchanges**, when releasing a message fails in one of these ways.
 
-While a queue is paused this way its `max-length`, `max-length-bytes` and `delivery-limit` aren't enforced, as the message at its head can't be read. They are again once the queue is resumed.
+A queue isn't paused for a message that was half written when the broker was killed, which is dropped at start, or for a segment that ends in the middle of a message, where the reader continues with the next segment and logs a warning. A segment that can't be read doesn't pause a queue when it's loaded either, only when it's read.
 
-The same applies to the internal queues of delayed exchanges and [automatic retries](automatic-retries.md). Resuming a queue resumes its retry queue, unless that was paused through the API.
+#### What it looks like
 
-- **Streams** aren't paused. A consumer that reaches a segment it can't read continues with the next segment, which is logged, and other consumers aren't held back. The segment is kept until retention removes it, so a restart or a failover delivers it to consumers that start before it.
-- **MQTT sessions** can't be paused through the API. A session with a message that can't be read delivers nothing, its client stays connected, until the session is purged or deleted, or the broker is restarted.
+- The queue's state is `paused`, in the HTTP API (`GET /api/queues?state=paused` lists them) and the management UI. The API doesn't tell this pause from one made by an operator.
+- The log has an error from the queue, `Paused due to a message store error`, with the segment's path and the position in it.
+- Consumers get no messages and aren't cancelled. `basic.get` returns empty.
+- Publishes are confirmed and stored, in a new segment. `max-length`, `max-length-bytes` and `delivery-limit` aren't enforced until the queue is resumed, as the first message can't be read, so a queue with publishers keeps growing.
+
+#### What to do
+
+| Situation | Action |
+|-----------|--------|
+| The cause was temporary or is fixed, such as a full disk or a disk error | Resume the queue. The data is read again, and the queue is paused again if that still fails. |
+| The segment was written by a newer version | Upgrade and restart. This pause isn't stored, so the queue runs without being resumed. |
+| In a cluster, when this node's copy may be the only bad one | Fail over to another node, which reads its own copy of the files. The pause isn't replicated. |
+| The data can be given up | Purge the queue and resume it, or delete the queue. |
+
+- A purge removes the whole segment that can't be read, as where the next message in it starts is unknown. That includes its messages that are delivered but not acked yet, whose acks and rejects are then ignored.
+- Resuming a queue also resumes its retry queue, unless that was paused through the API, and purging a queue purges its retry queue.
+- Editing segment files by hand isn't supported.
+
+#### Streams and MQTT sessions
+
+- **Streams** aren't paused. A consumer that reaches a segment it can't read continues with the next segment, which is logged, and other consumers aren't held back. The segment is kept until retention removes it, so after a restart or a failover that can read it, it's delivered to consumers that start before it.
+- **MQTT sessions** can't be paused. A session with a message that can't be read delivers nothing, with its client still connected, and logs an error. Purge or delete the session, or restart the broker to read the message again.
 
 ## Reserved Queue Name Prefixes
 
