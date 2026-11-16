@@ -48,7 +48,6 @@ Normally ECR files and static resources are baked into the binary, which is grea
 ### Release
 
 1. Update `CHANGELOG.md`: collect the `### Changelog` entries from the descriptions of the PRs merged since the previous release (`git log <prev-tag>..HEAD`), and link each PR. PRs don't edit `CHANGELOG.md` themselves. A rebase-merged PR has its entry in one of its commit messages
-   - Order each section (Added, Changed, Fixed) by user impact, most impactful first. New features, behaviour changes users must act on, and fixes for data loss, crashes or a stopped broker go before performance tweaks, metrics, management UI polish and build or packaging changes
 1. Bump version in `shards.yml`
 1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
 
