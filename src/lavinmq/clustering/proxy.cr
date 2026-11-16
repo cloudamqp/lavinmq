@@ -71,12 +71,9 @@ module LavinMQ
       # forwarded as v2, so that its TLVs (e.g. TLS details) are kept.
       private def proxy_header_for(client : TCPSocket) : ProxyProtocol::V1 | ProxyProtocol::V2
         config = Config.instance
-        if config.tcp_proxy_protocol? && (header = ProxyProtocol.read(client))
-          if !config.trusted_proxy_source?(client.remote_address.address)
-            Log.warn { "PROXY protocol from untrusted source #{client.remote_address}, ignoring header" }
-          elsif !header.local? # LOCAL means: use the connection's own addresses
-            return header
-          end
+        if config.tcp_proxy_protocol?
+          header = ProxyProtocol.read_trusted(client, client.remote_address, config, Log)
+          return header if header
         end
         ProxyProtocol::V1.new(client.remote_address, client.local_address)
       end

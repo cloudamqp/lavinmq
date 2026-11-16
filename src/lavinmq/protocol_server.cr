@@ -240,9 +240,9 @@ module LavinMQ
       # proxy_protocol_trusted_sources, else the client address would be lost
       from_follower = from_follower?(remote_address)
       if from_follower || @config.tcp_proxy_protocol?
-        if parsed_proxy = ProxyProtocol.parse(client)
-          return parsed_proxy if from_follower || @config.trusted_proxy_source?(remote_address.address)
-          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" }
+        if (header = ProxyProtocol.read_trusted(client, remote_address, @config, Log, trusted: from_follower)) &&
+           (conn_info = header.to_conn_info)
+          return conn_info
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)

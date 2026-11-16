@@ -1,5 +1,7 @@
 require "socket"
+require "log"
 require "./connection_info"
+require "./config"
 
 module LavinMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
@@ -40,6 +42,21 @@ module LavinMQ
       end
     ensure
       io.read_timeout = nil
+    end
+
+    # Reads a PROXY header, v1 or v2, and returns it if the source may send
+    # one: if *trusted* (e.g. a cluster follower), or if *remote_address* is
+    # one of the proxy_protocol_trusted_sources. An untrusted header is
+    # consumed and logged, and nil returned, as is a LOCAL header: the
+    # connection's own addresses are to be used then.
+    def self.read_trusted(io : IO, remote_address : Socket::IPAddress, config : Config,
+                          log : ::Log, trusted = false) : (V1 | V2)?
+      header = read(io) || return
+      unless trusted || config.trusted_proxy_source?(remote_address.address)
+        log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" }
+        return
+      end
+      header unless header.local?
     end
 
     # True if the bytes seen so far match the start of *signature* (comparing
