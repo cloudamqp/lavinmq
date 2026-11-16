@@ -1371,11 +1371,23 @@ module LavinMQ::AMQP
 
     # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
     def requeue(sp : SegmentPosition)
+      put_back(sp, count_attempt: true)
+    end
+
+    # Puts back a message shifted for a delivery that never reached a client,
+    # e.g. because its channel closed first. Unlike #requeue it's not counted
+    # as a delivery attempt or a reject, as no client got it.
+    def requeue_undelivered(sp : SegmentPosition) : Nil
+      put_back(sp, count_attempt: false)
+    end
+
+    private def put_back(sp : SegmentPosition, count_attempt : Bool) : Nil
       return if @deleted || @closed
-      @log.debug { "Requeuing #{sp}" }
-      @reject_count.add(1, :relaxed)
+      @log.debug { "Requeuing #{sp}#{" undelivered" unless count_attempt}" }
+      @reject_count.add(1, :relaxed) if count_attempt
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
+      uncount_delivery(sp) unless count_attempt
       redeliver_message(sp, route_to_retry: false)
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -1383,31 +1395,18 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Puts back a message shifted for a delivery that never reached a client,
-    # e.g. because its channel closed first. Unlike #requeue it's not counted
-    # as a delivery attempt or a reject, as no client got it.
-    def requeue_undelivered(sp : SegmentPosition) : Nil
-      return if @deleted || @closed
-      @log.debug { "Requeuing undelivered #{sp}" }
-      @unacked_count.sub(1, :relaxed)
-      @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      if settings.counts_deliveries?
-        # Undo the count #get added when it shifted the message for delivery
-        @msg_store_lock.synchronize do
-          if count = @deliveries[sp]?
-            if count > 1
-              @deliveries[sp] = count - 1
-            else
-              @deliveries.delete(sp)
-            end
+    # Undoes the count #get added when it shifted the message for delivery
+    private def uncount_delivery(sp : SegmentPosition) : Nil
+      return unless settings.counts_deliveries?
+      @msg_store_lock.synchronize do
+        if count = @deliveries[sp]?
+          if count > 1
+            @deliveries[sp] = count - 1
+          else
+            @deliveries.delete(sp)
           end
         end
       end
-      redeliver_message(sp, route_to_retry: false)
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
