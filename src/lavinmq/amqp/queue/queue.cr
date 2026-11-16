@@ -114,6 +114,9 @@ module LavinMQ::AMQP
     # Paused by an operator, which resuming another queue doesn't undo (see
     # #resume_after_store_error). Guarded by @state_lock.
     @operator_paused = false
+    # One resume at a time: it enforces the limits between two sections under
+    # @state_lock, and another resume in between would wake the consumers first
+    @resume_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -862,6 +865,10 @@ module LavinMQ::AMQP
     private def resume(only_store_error : Bool) : Nil
       # Paused on its own if it was its store that failed
       @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume_after_store_error
+      @resume_lock.synchronize { resume_exclusively(only_store_error) }
+    end
+
+    private def resume_exclusively(only_store_error : Bool) : Nil
       store_failed = false
       @state_lock.synchronize do
         return unless @state.paused?
@@ -875,8 +882,7 @@ module LavinMQ::AMQP
       # limit drops. Not under @state_lock: a store error takes that lock under
       # @msg_store_lock.
       enforce_limits if store_failed
-      return unless unpause(only_store_error)
-      @log.debug { "Resumed" }
+      @log.debug { "Resumed" } if unpause(only_store_error)
       ensure_expire_fiber if store_failed
     end
 
