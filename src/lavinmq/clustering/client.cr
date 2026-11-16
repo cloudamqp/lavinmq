@@ -782,6 +782,7 @@ module LavinMQ
           return
         end
         @closed = true
+        follow_started = @follow_claimed.swap(true)
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
@@ -795,8 +796,7 @@ module LavinMQ
         @files.each_value &.close
         @socket.try &.close
         @closing.close
-        # Wait for the follow loop to exit, if it was started
-        if @follow_claimed.swap(true)
+        if follow_started
           select
           when @follower_done.receive
           when timeout(5.seconds)
