@@ -789,7 +789,7 @@ module LavinMQ
               unack.queue.requeue(unack.sp)
             else
               unack.queue.read(unack.sp) do |env|
-                # deliver puts it back in @unacked before writing to the socket
+                # deliver records it in @unacked again, or requeues it if the channel closed
                 handed_over += 1
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
               end
