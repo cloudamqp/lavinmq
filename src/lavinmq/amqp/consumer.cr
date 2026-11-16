@@ -144,9 +144,14 @@ module LavinMQ
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
             # FIXME: doesnt take into account that new higher prio consumer might connect
-            ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
+            channels = higher_prio_consumers.map(&.has_capacity.when_false.as(::Channel(Nil)))
+            # Also wake up when this consumer is closed, as an idle higher
+            # priority consumer may never run out of capacity
+            channels << @notify_closed
+            ::Channel.receive_first(channels)
             break
           rescue ::Channel::ClosedError
+            break if @closed # the deliver loop exits on its next closed check
             higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
             break if higher_prio_consumers.empty?
             next
@@ -219,12 +224,11 @@ module LavinMQ
         delivery_tag = begin
           @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         rescue ex : AMQP::Channel::ClosedError
-          # Only raised in ack mode. The channel closed after the message was
-          # shifted from the queue, so it was never recorded as unacked and
-          # close won't requeue it. When recovering, the channel still holds
-          # the original Unack, so it's not requeued here. The segment lease
+          # Only raised in ack mode. The channel closed before it recorded the
+          # message as unacked, so close won't requeue it. The segment lease
           # is released by the caller.
-          @queue.requeue(sp) unless recover
+          reject(sp) if recover
+          @queue.requeue(sp)
           raise ex
         end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,

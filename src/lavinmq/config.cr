@@ -4,6 +4,7 @@ require "option_parser"
 require "ini"
 require "./version"
 require "./log_formatter"
+require "./log_backend"
 require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
@@ -21,6 +22,7 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -422,13 +424,14 @@ module LavinMQ
     end
 
     private def setup_logger
-      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if journald_stream?
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+      backend = if path = @log_file
+                  LogBackend.new(path, formatter: StdoutLogFormat)
+                elsif journald_stream?
+                  LogBackend.new(formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  LogBackend.new(formatter: StdoutLogFormat)
                 end
+      broadcast_backend = ::Log::BroadcastBackend.new
 
       broadcast_backend.append(backend, @log_level)
 
@@ -443,6 +446,9 @@ module LavinMQ
       # federation/shovel layers (lmq.*), so keep the library's redundant
       # connection log out of the broker log.
       ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
+      # Closed once the new backend is bound so no entry in flight is lost
+      @log_backend.try &.close
+      @log_backend = backend
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
@@ -468,6 +474,14 @@ module LavinMQ
 
     def tls_configured?
       !@tls_cert_path.empty?
+    end
+
+    # Whether a PROXY header from *address* is trusted. With no trusted sources
+    # configured all sources are trusted, for backward compatibility
+    def trusted_proxy_source?(address : String) : Bool
+      sources = proxy_protocol_trusted_sources # read once, it can be replaced by a reload
+      return true if sources.empty?
+      sources.any?(&.matches?(address))
     end
 
     # The configured TCP keepalive, if any, on a connection
