@@ -865,23 +865,46 @@ module LavinMQ::AMQP
       store_failed = false
       @state_lock.synchronize do
         return unless @state.paused?
-        # Checked under the lock that the resume is done in, so that a pause by
-        # an operator in between isn't undone
+        # Checked under the lock, so that a pause by an operator in between
+        # isn't undone
         return if only_store_error && (@operator_paused || !@store_failed.get(:relaxed))
-        @state = QueueState::Running
         store_failed = @store_failed.swap(false, :relaxed)
+      end
+      # What was left alone while the store couldn't be read is enforced before
+      # the consumers are woken, so that they aren't delivered messages that a
+      # limit drops. Not under @state_lock: a store error takes that lock under
+      # @msg_store_lock.
+      enforce_limits if store_failed
+      return unless unpause(only_store_error)
+      @log.debug { "Resumed" }
+      ensure_expire_fiber if store_failed
+    end
+
+    # Returns false if the queue stays paused
+    private def unpause(only_store_error : Bool) : Bool
+      @state_lock.synchronize do
+        return false unless @state.paused?
+        return false if only_store_error && @operator_paused
+        if @store_failed.get(:relaxed)
+          @log.error { "Still paused, the message store failed again" }
+          return false
+        end
+        @state = QueueState::Running
         @operator_paused = false
         if File.delete?(paused_file)
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
         @paused.set(false)
       end
-      @log.debug { "Resumed" }
-      if store_failed
-        # What was left alone while the store couldn't be read
-        schedule_policy_limits
-        ensure_expire_fiber
+      true
+    end
+
+    private def enforce_limits : Nil
+      @msg_store_lock.synchronize do
+        drop_overflow
+        drop_redelivered
       end
+    rescue MessageStore::ClosedError
     end
 
     private def paused_file : String

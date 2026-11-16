@@ -499,8 +499,8 @@ describe LavinMQ::AMQP::Queue do
 
           write_at(segment.path, flags_pos, 0x0000u16)
           queue.resume!
-          # Enforced by the resume, without waiting for a publish
-          should_eventually(eq 2) { queue.message_count }
+          # Enforced by the resume, before a consumer is delivered what the limit drops
+          queue.message_count.should eq 2
           q.get(no_ack: true).try(&.body_io.to_s).should eq "msg2"
           q.get(no_ack: true).try(&.body_io.to_s).should eq "msg3"
         end
