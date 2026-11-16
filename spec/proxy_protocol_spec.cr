@@ -187,6 +187,20 @@ describe "ProxyProtocol" do
       LavinMQ::ProxyProtocol.parse(r).should be_nil
     end
 
+    it "discards the protocol block of a LOCAL header, whatever its family" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x20, 0x31, 0x00, 0x05, # LOCAL, UNIX stream, 5 bytes
+        0x01, 0x02, 0x03, 0x04, 0x05,
+        0x41, 0x4d, 0x51, 0x50, # payload after the header
+      ).to_slice
+      io = IO::Memory.new(pp_bytes)
+      header = LavinMQ::ProxyProtocol::V2.from_io(io)
+      header.local?.should be_true
+      header.to_conn_info.should be_nil
+      io.gets_to_end.should eq "AMQP"
+    end
+
     it "skips TLVs it doesn't understand" do
       pp_bytes = UInt8.static_array(
         0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,

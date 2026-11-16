@@ -155,8 +155,14 @@ module LavinMQ
           raise InvalidSignature.new(signature.to_s)
         end
         command = Command.from_value?(buffer[12]) || raise InvalidVersionCmd.new(buffer[12].to_s)
-        family = Family.from_value?(buffer[13]) || raise InvalidFamily.new(buffer[13].to_s)
         length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[14, 2])
+        if command.local?
+          # The spec says the protocol block of a LOCAL header is discarded,
+          # whatever its family, as the connection's own addresses are used
+          io.skip(length)
+          return new(nil, nil, command: command)
+        end
+        family = Family.from_value?(buffer[13]) || raise InvalidFamily.new(buffer[13].to_s)
 
         bytes = Bytes.new(length)
         io.read_fully(bytes)
