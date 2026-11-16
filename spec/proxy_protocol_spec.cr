@@ -7,7 +7,7 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V1.from_io(r).to_conn_info
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
       conn_info.local_address.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
@@ -19,7 +19,7 @@ describe "ProxyProtocol" do
       w.write "PROXY UNKNOWN\r\n".to_slice
 
       expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) do
-        LavinMQ::ProxyProtocol::V1.parse(r)
+        LavinMQ::ProxyProtocol::V1.from_io(r)
       end
     end
 
@@ -28,7 +28,7 @@ describe "ProxyProtocol" do
       w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
       expect_raises(LavinMQ::ProxyProtocol::InvalidFamily, "TCP") do
-        LavinMQ::ProxyProtocol::V1.parse(r)
+        LavinMQ::ProxyProtocol::V1.from_io(r)
       end
     end
 
@@ -36,7 +36,7 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "GET / HTTP/1.1\r\n".to_slice
       expect_raises(LavinMQ::ProxyProtocol::InvalidSignature) do
-        LavinMQ::ProxyProtocol::V1.parse(r)
+        LavinMQ::ProxyProtocol::V1.from_io(r)
       end
     end
 
@@ -77,7 +77,7 @@ describe "ProxyProtocol" do
       )
       w.write pp_bytes.to_slice
 
-      conn_info = LavinMQ::ProxyProtocol::V2.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V2.from_io(r).to_conn_info.should_not be_nil
       conn_info.remote_address.to_s.should eq "127.0.0.1:37424"
       conn_info.local_address.to_s.should eq "127.0.0.1:5671"
       conn_info.ssl?.should be_true
@@ -90,7 +90,7 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "GET / HTTP/1.1\r\n".to_slice
       expect_raises(LavinMQ::ProxyProtocol::InvalidSignature) do
-        LavinMQ::ProxyProtocol::V2.parse(r)
+        LavinMQ::ProxyProtocol::V2.from_io(r)
       end
     end
 
@@ -118,7 +118,7 @@ describe "ProxyProtocol" do
       ).to_slice
       header = LavinMQ::ProxyProtocol::V2.from_io(IO::Memory.new(pp_bytes))
       header.tlvs.size.should eq 1
-      header.to_conn_info.ssl_version.should eq "TLSv1.3"
+      header.to_conn_info.should_not(be_nil).ssl_version.should eq "TLSv1.3"
       io = IO::Memory.new
       io.write_bytes header, IO::ByteFormat::NetworkEndian
       io.to_slice.should eq pp_bytes
@@ -131,7 +131,7 @@ describe "ProxyProtocol" do
       io.write_bytes LavinMQ::ProxyProtocol::V2.new(src, dst), IO::ByteFormat::NetworkEndian
       io.to_slice[12, 4].should eq Bytes[0x21, 0x21, 0x00, 0x24]
       io.rewind
-      conn_info = LavinMQ::ProxyProtocol::V2.from_io(io).to_conn_info
+      conn_info = LavinMQ::ProxyProtocol::V2.from_io(io).to_conn_info.should_not be_nil
       conn_info.remote_address.address.should eq "2001:db8::1"
       conn_info.remote_address.port.should eq 37424
       conn_info.local_address.address.should eq "fe80::a:b"
@@ -147,7 +147,45 @@ describe "ProxyProtocol" do
       header = LavinMQ::ProxyProtocol::V2.from_io(io)
       header.command.should eq LavinMQ::ProxyProtocol::V2::Command::Local
       header.src.should be_nil
-      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) { header.to_conn_info }
+      header.to_conn_info.should be_nil
+    end
+
+    it "uses no addresses from a LOCAL header" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x20, 0x11, 0x00, 0x0c,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+      ).to_slice
+      r, w = IO.pipe
+      w.write pp_bytes
+      LavinMQ::ProxyProtocol.parse(r).should be_nil
+    end
+
+    it "skips TLVs it doesn't understand" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x16,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27,
+        0x04, 0x00, 0x02, 0x00, 0x00, # NOOP
+        0xea, 0x00, 0x02, 0x41, 0x42, # vendor specific (AWS)
+      ).to_slice
+      conn_info = LavinMQ::ProxyProtocol::V2.from_io(IO::Memory.new(pp_bytes)).to_conn_info.should_not be_nil
+      conn_info.remote_address.to_s.should eq "127.0.0.1:37424"
+    end
+
+    it "doesn't mark a connection as TLS when the SSL TLV says the client didn't use it" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x14,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27,
+        0x20, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, # SSL, client: 0, verify: 0
+      ).to_slice
+      conn_info = LavinMQ::ProxyProtocol::V2.from_io(IO::Memory.new(pp_bytes)).to_conn_info.should_not be_nil
+      conn_info.ssl?.should be_false
+      conn_info.ssl_verify?.should be_false
     end
 
     it "refuses a TLV that is longer than the header" do
@@ -364,6 +402,24 @@ describe "ProxyProtocol" do
       # An IPv4 load balancer behind a `bind = ::` listener arrives mapped
       sources.any?(&.matches?("::ffff:10.0.0.5")).should be_true
       sources.any?(&.matches?("::ffff:10.0.1.5")).should be_false
+    end
+  end
+
+  it "reads a load balancer's header in front of a TLS handshake" do
+    with_amqp_server(tls: true) do |s|
+      s.@config.tcp_proxy_protocol = true
+      tcp_client = TCPSocket.new("127.0.0.1", amqp_tls_port(s))
+      tcp_client.read_timeout = 5.seconds
+      tcp_client.write "PROXY TCP4 203.0.113.7 127.0.0.1 40000 5671\r\n".to_slice
+      client_ctx = OpenSSL::SSL::Context::Client.new
+      client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+      ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, sync_close: true)
+      ssl_client.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+      ssl_client.flush
+      AMQ::Protocol::Stream.new(ssl_client).next_frame.should be_a(AMQ::Protocol::Frame::Connection::Start)
+    ensure
+      ssl_client.try &.close rescue nil
+      tcp_client.try &.close rescue nil
     end
   end
 end

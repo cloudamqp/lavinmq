@@ -12,15 +12,13 @@ module LavinMQ
 
     class InvalidFamily < Error; end
 
-    class UnsupportedTLVType < Error; end
-
     # Bound how long a pre-auth connection may keep the accept fiber (and its FD)
     # parked while we wait for the first bytes. Without this the initial peek
     # blocks forever on a peer that completes the handshake but sends nothing.
     HANDSHAKE_TIMEOUT = 15.seconds
 
     # Reads a PROXY header, v1 or v2, and returns the connection info in it, or
-    # nil if the connection doesn't start with a header
+    # nil if the connection doesn't start with a header or the header is LOCAL
     def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
       read(io, timeout).try &.to_conn_info
     end
@@ -59,13 +57,6 @@ module LavinMQ
       def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
       end
 
-      def self.parse(io) : ConnectionInfo
-        io.read_timeout = HANDSHAKE_TIMEOUT
-        from_io(io).to_conn_info
-      ensure
-        io.read_timeout = nil
-      end
-
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
@@ -96,6 +87,10 @@ module LavinMQ
 
       def to_conn_info : ConnectionInfo
         ConnectionInfo.new(@src, @dst, proxied: true)
+      end
+
+      def local? : Bool
+        false
       end
 
       def to_io(io : IO, format = nil)
@@ -132,13 +127,6 @@ module LavinMQ
         elsif @src || @dst
           raise ArgumentError.new("Both or neither of src and dst must be given")
         end
-      end
-
-      def self.parse(io) : ConnectionInfo
-        io.read_timeout = HANDSHAKE_TIMEOUT
-        from_io(io).to_conn_info
-      ensure
-        io.read_timeout = nil
       end
 
       def self.from_io(io : IO, format = IO::ByteFormat::NetworkEndian) : self
@@ -206,22 +194,29 @@ module LavinMQ
         IO::ByteFormat::NetworkEndian.decode(UInt16, bytes)
       end
 
-      def to_conn_info : ConnectionInfo
+      # A LOCAL connection (e.g. a health check from the proxy itself) has no
+      # client, the connection's own addresses are to be used
+      def local? : Bool
+        @command.local?
+      end
+
+      # Nil for a LOCAL header
+      def to_conn_info : ConnectionInfo?
+        return if local?
         src, dst = @src, @dst
         raise InvalidFamily.new("UNSPEC") unless src && dst
         conn_info = ConnectionInfo.new(src, dst, proxied: true)
+        # TLVs that aren't understood are skipped, as the spec says
         @tlvs.each do |tlv|
-          case tlv.type
-          when TLVType::SSL.value then apply_ssl(conn_info, tlv.value)
-          else                         raise UnsupportedTLVType.new(tlv.type.to_s)
-          end
+          apply_ssl(conn_info, tlv.value) if tlv.type == TLVType::SSL.value
         end
         conn_info
       end
 
       private def apply_ssl(conn_info, bytes)
         raise Error.new("Truncated SSL TLV") if bytes.size < 5
-        # bytes[0] is the client field, which flags how the client connected
+        # The client field flags whether the client connected over SSL/TLS at all
+        return unless bytes[0].bits_set?(PP2_CLIENT_SSL)
         verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[1, 4])
         conn_info.ssl = true
         conn_info.ssl_verify = verify.zero?
@@ -287,6 +282,8 @@ module LavinMQ
           fields.each { |f| io.write_bytes f, IO::ByteFormat::NetworkEndian }
         end
       end
+
+      private PP2_CLIENT_SSL = 0x01u8
 
       Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
 

@@ -479,8 +479,9 @@ module LavinMQ
     # Whether a PROXY header from *address* is trusted. With no trusted sources
     # configured all sources are trusted, for backward compatibility
     def trusted_proxy_source?(address : String) : Bool
-      return true if proxy_protocol_trusted_sources.empty?
-      proxy_protocol_trusted_sources.any?(&.matches?(address))
+      sources = proxy_protocol_trusted_sources # read once, it can be replaced by a reload
+      return true if sources.empty?
+      sources.any?(&.matches?(address))
     end
 
     # The configured TCP keepalive, if any, on a connection

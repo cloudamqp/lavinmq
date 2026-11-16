@@ -109,6 +109,15 @@ describe LavinMQ::Clustering::Proxy do
       String.new(header).should match /\APROXY TCP4 127\.0\.0\.1 127\.0\.0\.1 #{client_addr.port} \d+\r\n\z/
     end
 
+    it "sends its own header in place of a LOCAL header" do
+      LavinMQ::Config.instance.tcp_proxy_protocol = true
+      io = IO::Memory.new
+      local = LavinMQ::ProxyProtocol::V2.new(nil, nil, command: LavinMQ::ProxyProtocol::V2::Command::Local)
+      io.write_bytes local, IO::ByteFormat::NetworkEndian
+      header, client_addr = forward_through_proxy(io.to_slice)
+      String.new(header).should match /\APROXY TCP4 127\.0\.0\.1 127\.0\.0\.1 #{client_addr.port} \d+\r\n\z/
+    end
+
     it "adds a header to a connection without one" do
       LavinMQ::Config.instance.tcp_proxy_protocol = true
       header, client_addr = forward_through_proxy(Bytes.empty)
