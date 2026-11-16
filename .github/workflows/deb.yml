@@ -42,8 +42,7 @@ jobs:
         run: |
           git_describe=$(git describe --tags)
           echo "version=${git_describe:1}" >> $GITHUB_ENV
-          # "~" sorts before everything in Debian versions, so 2.11.0~rc.3 < 2.11.0
-          echo "deb_version=$(sed -E 's/-(alpha|beta|rc)/~\1/' <<< ${git_describe:1})" >> $GITHUB_ENV
+          echo "deb_version=$(./packaging/debian/deb-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
