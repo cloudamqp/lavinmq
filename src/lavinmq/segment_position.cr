@@ -9,7 +9,9 @@ module LavinMQ
     getter priority : UInt8 # required for ordering in priority queues
     getter? has_dlx : Bool
 
-    def_equals_and_hash @segment, @position
+    # Priority sub-stores all number their segments from 1, so (segment,
+    # position) alone is not unique within a priority queue
+    def_equals_and_hash @segment, @position, @priority
 
     def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @has_dlx = false, @priority = 0u8, @delay = 0u32)
     end

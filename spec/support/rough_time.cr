@@ -1,6 +1,6 @@
 module RoughTime
   @@paused_utc = Time.utc
-  @@paused_unix_ms : Int64 = @@paused_utc.to_unix_ms // 100 * 100
+  @@paused_unix_ms : Int64 = @@paused_utc.to_unix_ms
   @@paused_instant = Time.instant
   @@paused = false
 
@@ -25,16 +25,19 @@ module RoughTime
     previous_def
   end
 
+  # Snapshot the real (coarse) clocks, so values from before and while paused
+  # are comparable
   def self.pause
+    @@paused = false
+    @@paused_utc = utc
+    @@paused_unix_ms = @@paused_utc.to_unix_ms
+    @@paused_instant = instant
     @@paused = true
-    @@paused_utc = Time.utc
-    @@paused_unix_ms = @@paused_utc.to_unix_ms // 100 * 100
-    @@paused_instant = Time.instant
   end
 
   def self.travel(time : Time::Span)
     @@paused_utc += time
-    @@paused_unix_ms = @@paused_utc.to_unix_ms // 100 * 100
+    @@paused_unix_ms = @@paused_utc.to_unix_ms
     @@paused_instant += time
   end
 

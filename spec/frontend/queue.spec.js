@@ -50,8 +50,53 @@ test.describe('queue', _ => {
 
     test('queue is loaded', async ({ page }) => {
       await expect(page.locator('#pagename-label')).toHaveText(new RegExp(`${queueName} .* ${queueVhost}`))
-      await expect(page.locator('#consumer-count')).toHaveText("1")
+      await expect(page.locator('#consumer-count')).toHaveText(queueResponse.consumers.toString())
     })
+  })
+
+  test('consumer count stays at the total while loading more and updates on refresh', async ({ apimap, page }) => {
+    let total = 35
+    const allConsumers = Array.from({ length: total }, (_, index) => ({
+      ...consumers[0], consumer_tag: `consumer_${index}`
+    }))
+    await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/${queueName}`, async route => {
+      const limit = Number(new URL(route.request().url()).searchParams.get('consumer_list_length'))
+      await route.fulfill({ json: {
+        ...queueResponse,
+        consumers: total,
+        consumer_details: allConsumers.slice(0, Math.min(limit, total))
+      } })
+    })
+    const bindingsLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`, bindingResponse)
+    await page.goto(queueUrl('consumers'))
+    await bindingsLoaded
+
+    const count = page.locator('#consumer-count')
+    const badge = page.locator('[data-tab="consumers"] .badge')
+    const rows = page.locator('#table tbody tr:has(button)')
+    const loadMore = page.locator('#load-more-consumers')
+    await expect(rows).toHaveCount(20)
+    await expect(count).toHaveText('35')
+    await expect(badge).toHaveText('35')
+    await expect(page.locator('#q-consumers')).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 20 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(30)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 30 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(35)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toBeHidden()
+
+    total = 0
+    await page.reload()
+    await expect(rows).toHaveCount(0)
+    await expect(count).toHaveText('0')
+    await expect(badge).toHaveText('0')
+    await expect(loadMore).toBeHidden()
   })
 
   test.describe('consumers tab', _ => {
@@ -98,6 +143,49 @@ test.describe('queue', _ => {
       page.on('dialog', async dialog => await dialog.accept())
       await page.locator('#bindings-table').getByRole('button', { name: /unbind/i }).click()
       await expect(unbindRequest).toBeRequested()
+    })
+
+    test('keeps binding form values and table unchanged when add fails', async ({ page }) => {
+      const errors = []
+      let bindingsReloaded = false
+      const source = 'missing.exchange'
+      const bindingPath = `/api/bindings/${encodeURIComponent(queueVhost)}/e/${source}/q/${queueName}`
+      const bindingsPath = `/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`
+
+      page.on('pageerror', err => errors.push(err.message))
+      page.on('dialog', dialog => dialog.dismiss())
+      page.on('request', request => {
+        const url = new URL(request.url())
+        if (request.method() === 'GET' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingsPath)) {
+          bindingsReloaded = true
+        }
+      })
+      await page.route(url => decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath), async route => {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'access_refused', reason: 'No permission' })
+        })
+      })
+
+      const form = page.locator('#addBinding')
+      await form.getByLabel('From exchange').fill(source)
+      await form.getByLabel('Binding key').fill('rk')
+      await form.getByLabel('Arguments').fill('{"x":1}')
+
+      const failedRequest = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return response.request().method() === 'POST' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath)
+      })
+      await form.getByRole('button', { name: /bind/i }).click()
+      await failedRequest
+      await page.waitForTimeout(100)
+
+      await expect(form.getByLabel('From exchange')).toHaveValue(source)
+      await expect(form.getByLabel('Binding key')).toHaveValue('rk')
+      await expect(form.getByLabel('Arguments')).toHaveValue('{"x":1}')
+      expect(bindingsReloaded).toBe(false)
+      expect(errors).toEqual([])
     })
   })
 

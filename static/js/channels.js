@@ -1,6 +1,21 @@
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as HTTP from './http.js'
+import * as DOM from './dom.js'
+
+// A one button form that closes the named channel, for use in a table cell
+function closeChannelForm (name) {
+  const form = document.createElement('form')
+  form.appendChild(DOM.button.delete({ text: 'Close', type: 'submit' }))
+  form.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    if (!window.confirm(`Are you sure you want to close channel ${name}?`)) return false
+    const headers = new window.Headers({ 'X-Reason': 'Closed via Web management' })
+    HTTP.request('DELETE', HTTP.url`api/channels/${name}`, { headers })
+      .then(() => { DOM.toast(`Channel ${name} closed`) })
+  })
+  return form
+}
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/channels'
@@ -22,6 +37,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.user)
+    Table.renderCell(tr, 7, closeChannelForm(item.name), 'right')
   }
   if (item.confirm) {
     const confirmSpan = document.createElement('span')

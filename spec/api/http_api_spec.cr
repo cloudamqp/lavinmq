@@ -9,6 +9,13 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "advertises the stats interval on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Stats-Interval"].should eq LavinMQ::Config.instance.stats_interval.to_s
+      end
+    end
+
     it "is not set on static/HTML responses" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/login")
@@ -89,6 +96,21 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "publish")
         count.should eq(before_count.as_i + 10)
+      end
+    end
+
+    it "should log queue totals over the same window as the rates" do
+      with_http_server do |http, s|
+        3.times { s.update_stats_rates }
+        with_channel(s) do |ch|
+          ch.queue("totals_q", exclusive: true)
+          s.update_stats_rates
+          body = JSON.parse(http.get("/api/overview").body)
+          rates_size = body.dig("recv_oct_details", "log").size
+          body.dig("queue_totals", "messages_ready_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_unacknowledged_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_log").size.should eq rates_size
+        end
       end
     end
 
@@ -203,7 +225,7 @@ describe LavinMQ::HTTP::Server do
             q1.publish_confirm("m")
           end
           5.times do
-            q1.get(false).not_nil!
+            q1.get(false).should_not be_nil
           end
         end
 
@@ -227,7 +249,7 @@ describe LavinMQ::HTTP::Server do
           q1.publish_confirm("m")
         end
         5.times do
-          q1.get.not_nil!
+          q1.get.should_not be_nil
         end
       end
 

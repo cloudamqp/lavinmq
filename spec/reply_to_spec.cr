@@ -55,7 +55,8 @@ describe LavinMQ::Server do
           q = ch.queue("test")
           props = AMQ::Protocol::Properties.new(reply_to: "amq.direct.reply-to")
           q.publish_confirm("test", props: props)
-          reply_to = q.get.not_nil!.properties.reply_to
+          msg = q.get.should_not be_nil
+          reply_to = msg.properties.reply_to
           reply_to.should match /^amq\.direct\.reply-to\..+$/
         end
       end
@@ -82,7 +83,8 @@ describe LavinMQ::Server do
           q = ch.queue("test")
           props = AMQ::Protocol::Properties.new(reply_to: "amq.direct.reply-to")
           q.publish_confirm("test", props: props)
-          reply_to = q.get.not_nil!.properties.reply_to.not_nil!
+          msg = q.get.should_not be_nil
+          reply_to = msg.properties.reply_to.should_not be_nil
           with_channel(s) do |ch2|
             drt = ch2.queue_declare(reply_to, passive: true)
             drt[:consumer_count].should eq 1

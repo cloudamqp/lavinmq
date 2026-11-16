@@ -106,9 +106,9 @@ module MqttSpecs
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos0 (i.e. our subscribe is correct)
           packet.qos.should eq(0u8)
 
@@ -121,9 +121,9 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos1 (i.e. our second subscribe is correct)
           packet.qos.should eq(1u8)
 
@@ -147,9 +147,9 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos1, i.e. the downgrade is real and not just
           # reported in the SubAck
           packet.qos.should eq(1u8)
@@ -165,7 +165,8 @@ module MqttSpecs
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
         with_client_io(server) do |io|
           connect(io)
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 2})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
 
           binding = exchange.bindings_details.first
           binding.binding_key.qos.should eq 1u8
@@ -173,12 +174,30 @@ module MqttSpecs
 
           # A follow up subscribe with the qos we granted is the same
           # subscription, so it must not add a second binding
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 1})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
           exchange.bindings_details.size.should eq 1
           exchange.binding_count.should eq 1
 
           disconnect(io)
         end
+      end
+    end
+
+    it "grants Failure for a subscription whose session was deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_queue("mqtt.gone", true, false, LavinMQ::MQTT::Session::ARGUMENTS)
+        session = vhost.session("mqtt.gone")
+        session.delete
+        vhost.session?("mqtt.gone").should be_nil
+
+        broker = server.mqtt_server.broker("/")
+        [0u8, 1u8, 2u8].each do |qos|
+          broker.grant(session, subtopic("a/b", qos))
+            .should eq MQTT::Protocol::SubAck::ReturnCode::Failure
+        end
+        vhost.mqtt_exchange.binding_count.should eq 0
       end
     end
 
@@ -211,6 +230,23 @@ module MqttSpecs
         restart_server(server)
 
         server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+      end
+    end
+
+    it "grants Failure for a topic filter longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          suback = subscribe(io, topic_filters: [subtopic("a/#{"x" * 300}"), subtopic("a/b")])
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [
+            MQTT::Protocol::SubAck::ReturnCode::Failure,
+            MQTT::Protocol::SubAck::ReturnCode::QoS0,
+          ]
+          pingpong(io).should be_a(MQTT::Protocol::PingResp)
+          disconnect(io)
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
       end
     end
   end

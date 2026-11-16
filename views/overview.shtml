@@ -44,7 +44,7 @@
         </div>
         <div class="flex-1">
           <div class="counter" id="uptime">0s</div>
-          <div class="overview-col-footer uptime-footer">Uptime</div>
+          <div class="overview-col-footer">Uptime</div>
         </div>
       </div>
       <section class="card tb-card cols-4 cols-6-md">
@@ -65,7 +65,7 @@
           <div class="chart-container relative" id="rateChart"></div>
         </div>
       </section>
-      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card align-start tb-card cols-6 require-administrator">
+      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card align-start tb-card cols-6 grid-break require-administrator">
         <h3 class="form-card-title">Upload definitions</h3>
         <div class="form-card-inner">
           <label>

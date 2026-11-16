@@ -93,7 +93,7 @@ describe LavinMQ::HTTP::UsersController do
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         u = s.users["alan"]
-        ok = u.not_nil!.password.try &.verify("test")
+        ok = u.password.try &.verify("test")
         ok.should be_true
       end
     end
@@ -108,7 +108,8 @@ describe LavinMQ::HTTP::UsersController do
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         u = s.users["alan"]
-        u.not_nil!.password.not_nil!.verify("test12").should be_true
+        password = u.password.should_not be_nil
+        password.verify("test12").should be_true
       end
     end
 
@@ -241,6 +242,9 @@ describe LavinMQ::HTTP::UsersController do
     end
 
     it "should not create user if disk is full" do
+      # Also for the stats loop, which otherwise starts flow again
+      free_disk_min = LavinMQ::Config.instance.free_disk_min
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
       with_http_server do |http, s|
         s.flow(false)
         body = <<-JSON
@@ -255,6 +259,8 @@ describe LavinMQ::HTTP::UsersController do
       ensure
         s.flow(true)
       end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = free_disk_min if free_disk_min
     end
   end
 

@@ -1,7 +1,87 @@
 require "../spec_helper"
 require "../../src/lavinmq/definitions"
 
+private def import_defs(s, defs)
+  tmpfile = File.tempname("lavinmq-defs", ".json")
+  File.write(tmpfile, defs.to_json)
+  LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+ensure
+  File.delete?(tmpfile) if tmpfile
+end
+
+private def ctx(username)
+  LavinMQ::MQTT::PermissionService::Context.new(username, "dev")
+end
+
 describe LavinMQ::GlobalDefinitions do
+  [false, true].each do |skip_existing|
+    it "keeps all active groups after a failed import save with skip_existing=#{skip_existing}" do
+      defs = {"mqtt_permissions" => [
+        {"name" => "default", "vhost" => "/", "members" => ["*"],
+         "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+      ]}
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        service = vhost.mqtt_permission_service
+        original = service.to_json
+        path = File.join(vhost.data_dir, "mqtt_permissions.json")
+        on_disk = File.read(path)
+        Dir.mkdir("#{path}.tmp")
+        if skip_existing
+          expect_raises(LavinMQ::MQTT::PermissionService::SaveError) { import_defs(s, defs) }
+        else
+          http.post("/api/definitions", body: defs.to_json).status_code.should eq 500
+        end
+        service.to_json.should eq original
+        service["sensors"]?.should be_nil
+        service.can_write?(ctx("guest"), "anything").should be_true
+        File.read(path).should eq on_disk
+
+        Dir.delete("#{path}.tmp")
+        if skip_existing
+          import_defs(s, defs)
+        else
+          http.post("/api/definitions", body: defs.to_json).status_code.should eq 200
+        end
+        reloaded = LavinMQ::MQTT::PermissionService.new("/", vhost.data_dir, nil)
+        [service, reloaded].each do |permissions|
+          # skip_existing keeps the existing default group, without it the
+          # narrowed default group from the file replaces it.
+          permissions.can_write?(ctx("guest"), "anything").should eq skip_existing
+          permissions.can_write?(ctx("guest"), "public/1").should be_true
+          permissions.can_write?(ctx("alice"), "sensors/1").should be_true
+        end
+      end
+    end
+
+    it "adds groups next to the default group of an existing vhost with skip_existing=#{skip_existing}" do
+      defs = {"mqtt_permissions" => [
+        {"name" => "default", "vhost" => "/", "members" => ["*"],
+         "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "iot", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+      ]}
+      with_amqp_server do |s|
+        s.vhosts.create("iot")
+        LavinMQ::GlobalDefinitions.new(s).import(JSON.parse(defs.to_json), skip_existing: skip_existing)
+
+        service = s.vhosts["/"].mqtt_permission_service
+        service.can_write?(ctx("guest"), "public/1").should be_true
+        service.can_write?(ctx("guest"), "private/1").should eq skip_existing
+        service.can_write?(ctx("alice"), "sensors/1").should be_true
+
+        other = s.vhosts["iot"].mqtt_permission_service
+        other["default"]?.should_not be_nil
+        other.can_write?(ctx("alice"), "sensors/1").should be_true
+        other.can_write?(ctx("guest"), "sensors/1").should be_true
+      end
+    end
+  end
+
   describe ".import_from_file" do
     it "does not overwrite existing users" do
       defs = {
@@ -193,6 +273,27 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "raises on an invalid topic filter in a permission group" do
+      defs = {
+        "mqtt_permissions" => [
+          {"name"    => "bad",
+           "members" => [] of String,
+           "rules"   => [{"identifier" => "bad", "pattern" => "secret/#/temp", "read" => true, "write" => false}]},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "raises on invalid JSON" do
       tmpfile = File.tempname("lavinmq-defs", ".json")
       File.write(tmpfile, "not valid json")
@@ -256,7 +357,8 @@ describe LavinMQ::HTTP::Server do
           u = s.users[name]?
           next unless u
           u.should be_a(LavinMQ::Auth::BaseUser)
-          ok = u.not_nil!.password.not_nil!.verify "hej"
+          password = u.password.should_not be_nil
+          ok = password.verify "hej"
           {u.name, ok}.should(eq({u.name, true}))
         end
       end
@@ -296,10 +398,9 @@ describe LavinMQ::HTTP::Server do
         body = %({"users":[{"name":"legacy","password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==","hashing_algorithm":null,"tags":""}]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        u = s.users["legacy"]?
-        u.should_not be_nil
-        u.not_nil!.password.should_not be_nil
-        u.not_nil!.password.not_nil!.verify("hej").should be_true
+        u = s.users["legacy"]?.should_not be_nil
+        password = u.password.should_not be_nil
+        password.verify("hej").should be_true
       end
     end
 
@@ -351,6 +452,106 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         vhost = s.vhosts["def"]?
         vhost.should be_a(LavinMQ::VHost)
+      end
+    end
+
+    it "imports permission groups for a vhost created by the same definitions" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          {
+            "vhosts": [{ "name": "iot" }],
+            "mqtt_permissions": [{
+              "name": "devices", "vhost": "iot", "members": ["*"],
+              "rules": [{ "identifier": "all", "pattern": "#", "read": true, "write": true }]
+            }]
+          }
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        service = s.vhosts["iot"].mqtt_permission_service
+        service["devices"]?.should_not be_nil
+      end
+    end
+
+    describe "mqtt_permissions for a vhost the definitions create" do
+      it "gives the vhost only the groups from the file" do
+        defs = {
+          "vhosts"           => [{"name" => "iot"}],
+          "mqtt_permissions" => [
+            {"name" => "sensors", "vhost" => "iot", "members" => ["alice"],
+             "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+          ],
+        }
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          vhost = s.vhosts["iot"]
+          service = vhost.mqtt_permission_service
+          service["default"]?.should be_nil
+          service.can_write?(ctx("alice"), "sensors/1").should be_true
+          service.can_write?(ctx("guest"), "sensors/1").should be_false
+          path = File.join(vhost.data_dir, "mqtt_permissions.json")
+          JSON.parse(File.read(path)).as_a.map(&.["name"]).should eq ["sensors"]
+        end
+      end
+
+      it "applies a narrowed default group from the file" do
+        defs = {
+          "vhosts"           => [{"name" => "iot"}],
+          "mqtt_permissions" => [
+            {"name" => "default", "vhost" => "iot", "members" => ["*"],
+             "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+          ],
+        }
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          service = s.vhosts["iot"].mqtt_permission_service
+          service.can_write?(ctx("guest"), "public/x").should be_true
+          service.can_write?(ctx("guest"), "private/x").should be_false
+        end
+      end
+
+      it "keeps a vhost without groups locked down" do
+        with_http_server do |http, s|
+          s.vhosts.create("iot").mqtt_permission_service.delete("default")
+          body = http.get("/api/definitions").body
+          JSON.parse(body)["mqtt_permissions"].as_a.none? { |g| g["vhost"] == "iot" }.should be_true
+          s.vhosts.delete("iot")
+
+          http.post("/api/definitions", body: body).status_code.should eq 200
+
+          service = s.vhosts["iot"].mqtt_permission_service
+          service.size.should eq 0
+          service.can_write?(ctx("guest"), "anything").should be_false
+          restart_server(s)
+          s.vhosts["iot"].mqtt_permission_service.can_write?(ctx("guest"), "anything").should be_false
+        end
+      end
+
+      it "gives the vhost the default group when the file has no mqtt_permissions" do
+        with_amqp_server do |s|
+          import_defs(s, {"vhosts" => [{"name" => "iot"}]})
+          service = s.vhosts["iot"].mqtt_permission_service
+          service["default"]?.should_not be_nil
+          service.can_write?(ctx("guest"), "anything").should be_true
+        end
+      end
+
+      it "keeps the groups of a configured vhost and adds only new names" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+           "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+          {"name" => "default", "vhost" => "/", "members" => ["*"],
+           "rules" => [{"identifier" => "none", "pattern" => "nothing", "read" => false, "write" => false}]},
+        ]}
+        with_amqp_server do |s|
+          service = s.vhosts["/"].mqtt_permission_service
+          service.put(LavinMQ::MQTT::PermissionGroup.new("mine", "/", ["bob"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("m", "mine/#", read: true, write: true)]))
+          import_defs(s, defs)
+          service["mine"]?.should_not be_nil
+          service["sensors"]?.should_not be_nil
+          service.can_write?(ctx("guest"), "anything").should be_true
+        end
       end
     end
 
@@ -417,14 +618,14 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
-        res = Set(LavinMQ::Exchange).new
+        res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
@@ -497,11 +698,102 @@ describe LavinMQ::HTTP::Server do
         # after this spec has finished
         sleep 0.1.seconds # Start the shovel
         wait_for do
-          shovels = s.vhosts["/"].shovels.not_nil!
+          shovels = s.vhosts["/"].shovels
           shovels.values.all? &.running?
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true
+      end
+    end
+
+    it "imports a federation-upstream-set, whose value is an array" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "set_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            },
+            {
+              "name": "import_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "upstream": "set_upstream" }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].parameters[{"federation-upstream-set", "import_set"}]?.should_not be_nil
+        s.vhosts["/"].upstreams.get_set?("import_set").should_not be_nil
+      end
+    end
+
+    it "fills a federation-upstream-set listed before its upstream" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "early_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "upstream": "late_upstream" }]
+            },
+            {
+              "name": "late_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].upstreams.get_set?("early_set").try(&.map(&.name)).should eq ["late_upstream"]
+      end
+    end
+
+    it "rejects a non-hash shovel value without applying earlier parameters" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "applied_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            },
+            {
+              "name": "bad_shovel",
+              "component": "shovel",
+              "vhost": "/",
+              "value": [1]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].parameters[{"federation-upstream", "applied_upstream"}]?.should be_nil
+      end
+    end
+
+    it "rejects a federation-upstream-set entry without an upstream" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "bad_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "uri": "#{s.amqp_server.url}" }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].parameters[{"federation-upstream-set", "bad_set"}]?.should be_nil
       end
     end
 
@@ -577,6 +869,34 @@ describe LavinMQ::HTTP::Server do
         vhost.policies.has_key?("regression_policy_2073").should be_false
         policies_file = File.join(vhost.data_dir, "policies.json")
         File.read(policies_file).should_not contain("regression_policy_2073") if File.exists?(policies_file)
+      end
+    end
+
+    it "applies no permission groups when one entry is malformed" do
+      with_http_server do |http, s|
+        # A valid group followed by one with an invalid topic filter pattern.
+        # Groups are parsed and validated up front, so a malformed later entry
+        # makes the whole import a clean no-op: the earlier group is neither
+        # applied in memory nor written to disk.
+        body = <<-JSON
+          { "mqtt_permissions": [
+            {
+              "name": "regression_group_ok",
+              "members": ["*"],
+              "rules": [{ "identifier": "ok", "pattern": "a/#", "read": true, "write": true }]
+            },
+            {
+              "name": "regression_group_bad",
+              "members": ["*"],
+              "rules": [{ "identifier": "bad", "pattern": "secret/#/temp", "read": true, "write": false }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should_not eq 200
+        s.vhosts["/"].mqtt_permission_service["regression_group_ok"]?.should be_nil
+        groups_file = File.join(s.vhosts["/"].data_dir, "mqtt_permissions.json")
+        File.read(groups_file).should_not contain("regression_group_ok") if File.exists?(groups_file)
       end
     end
 
@@ -668,6 +988,19 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "does not export internal queues" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true})
+        s.vhosts["/"].declare_exchange("delayed-export-test", "topic", true, false, arguments: args)
+        s.vhosts["/"].queue?("amq.delayed-delayed-export-test").should_not be_nil
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        queue_names = body["queues"].as_a.map(&.["name"].as_s)
+        queue_names.none?(&.starts_with?("amq.delayed")).should be_true
+      end
+    end
+
     it "exports vhosts" do
       with_http_server do |http, _|
         response = http.get("/api/definitions")
@@ -703,9 +1036,8 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         queues = body["queues"].as_a
-        durable = queues.find { |v| v["name"] == "mqtt.durable" }
-        durable.should_not be_nil
-        durable.not_nil!["arguments"]["x-queue-type"].should eq "mqtt"
+        durable = queues.find { |v| v["name"] == "mqtt.durable" }.should_not be_nil
+        durable["arguments"]["x-queue-type"].should eq "mqtt"
         queues.find { |v| v["name"] == "mqtt.transient" }.should be_nil
       end
     end
@@ -722,6 +1054,48 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         s.vhosts["/"].session?("mqtt.roundtrip").should_not be_nil
         s.vhosts["/"].queue?("mqtt.roundtrip").should be_nil
+      end
+    end
+
+    it "round-trips an x-mqtt-topic exchange and its bindings through export and import" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        vhost.bind_queue("q1", "xmqtt", "a/b/#")
+
+        body = http.get("/api/definitions").body
+        parsed = JSON.parse(body)
+        exported = parsed["exchanges"].as_a.find { |e| e["name"] == "xmqtt" }
+        exported.try(&.["type"]).should eq "x-mqtt-topic"
+        parsed["bindings"].as_a.any? { |b| b["source"] == "xmqtt" }.should be_true
+        # reserved-prefix internals stay out of the export
+        parsed["exchanges"].as_a.none? { |e| e["name"] == "mqtt.default" }.should be_true
+
+        vhost.delete_exchange("xmqtt")
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost.exchange?("xmqtt").should_not be_nil
+        vhost.exchange("xmqtt").binding_count.should eq 1
+      end
+    end
+
+    # Only a boolean x-delayed-exchange makes an exchange delayed, so the
+    # export mustn't write any other value as delayed
+    it "round-trips an exchange with a non-boolean x-delayed-exchange as not delayed" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => "true"})
+        vhost.declare_exchange("xtopic", "topic", true, false, arguments: args)
+
+        body = http.get("/api/definitions").body
+        exchanges = JSON.parse(body)["exchanges"].as_a
+        exchanges.find! { |e| e["name"] == "xtopic" }["type"].should eq "topic"
+
+        vhost.delete_exchange("xtopic")
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost.exchange("xtopic").delayed?.should be_false
       end
     end
 
@@ -759,6 +1133,29 @@ describe LavinMQ::HTTP::Server do
         keys = ["user", "vhost", "configure", "read", "write"]
         body["permissions"].as_a.empty?.should be_false
         body["permissions"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
+    end
+
+    it "exports and imports permission groups" do
+      with_http_server do |http, s|
+        rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors", "sensors/#", read: true, write: false)
+        group = LavinMQ::MQTT::PermissionGroup.new("testers", "/", ["alice"], [rule])
+        s.vhosts["/"].mqtt_permission_service.put(group)
+
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["mqtt_permissions"].as_a.empty?.should be_false
+        exported = body["mqtt_permissions"].as_a.find { |g| g["name"] == "testers" }.should_not be_nil
+        exported["members"].as_a.map(&.as_s).should contain("alice")
+
+        s.vhosts["/"].mqtt_permission_service.delete("testers")
+        s.vhosts["/"].mqtt_permission_service["testers"]?.should be_nil
+
+        response = http.post("/api/definitions", body: body.to_json)
+        response.status_code.should eq 200
+        imported = s.vhosts["/"].mqtt_permission_service["testers"]?.should_not be_nil
+        imported.members.should contain("alice")
       end
     end
 
@@ -944,14 +1341,14 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
-        res = Set(LavinMQ::Exchange).new
+        res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
@@ -1134,7 +1531,8 @@ describe LavinMQ::HTTP::Server do
 
       u = s.users[name]
       u.should be_a(LavinMQ::Auth::BaseUser)
-      ok = u.not_nil!.password.not_nil!.verify "hej"
+      password = u.password.should_not be_nil
+      ok = password.verify "hej"
       {u.name, ok}.should eq({name, true})
 
       update_body = <<-JSON
@@ -1151,7 +1549,8 @@ describe LavinMQ::HTTP::Server do
 
       u = s.users[name]
       u.should be_a(LavinMQ::Auth::BaseUser)
-      ok = u.not_nil!.password.not_nil!.verify "test"
+      password = u.password.should_not be_nil
+      ok = password.verify "test"
       {u.name, ok}.should eq({name, true})
     end
   end

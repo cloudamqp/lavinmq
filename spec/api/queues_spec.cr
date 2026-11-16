@@ -18,6 +18,85 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should only return queues in the given state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
+
+    it "should filter on multiple states" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues?state=paused,closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"].as_s).sort!.should eq ["q_closed", "q_paused"]
+      end
+    end
+
+    it "should return 400 for an invalid state" do
+      with_http_server do |http, _|
+        response = http.get("/api/queues?state=foo")
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should apply the state filter on top of a name filter, not instead of it" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("orders_paused", false, false)
+        vhost.declare_queue("orders_running", false, false)
+        vhost.declare_queue("events_paused", false, false)
+        vhost.queue("orders_paused").pause!
+        vhost.queue("events_paused").pause!
+
+        response = http.get("/api/queues?state=paused&name=orders")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"]).should eq ["orders_paused"]
+      end
+    end
+
+    it "should apply the state filter on top of a regex name filter" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_paused_1", false, false)
+        vhost.declare_queue("q_paused_2", false, false)
+        vhost.declare_queue("other_paused", false, false)
+        ["q_paused_1", "q_paused_2", "other_paused"].each { |n| vhost.queue(n).pause! }
+
+        response = http.get("/api/queues?state=paused&name=^q_&use_regex=true")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"].as_s).sort!.should eq ["q_paused_1", "q_paused_2"]
+      end
+    end
+
+    it "should keep total_count unfiltered when filtering on state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?page=1&state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["total_count"].should eq 2
+        body["filtered_count"].should eq 1
+        body["items"].as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
   end
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
@@ -29,6 +108,19 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.empty?.should be_false
       end
     end
+
+    it "should only return queues in the given state for a vhost" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues/%2f?state=closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_closed"]
+      end
+    end
   end
   describe "GET /api/queues/vhost/name" do
     it "should return queue" do
@@ -36,6 +128,28 @@ describe LavinMQ::HTTP::QueuesController do
         s.vhosts["/"].declare_queue("q0", false, false)
         response = http.get("/api/queues/%2f/q0")
         response.status_code.should eq 200
+      end
+    end
+
+    it "should return the tag of an exclusive consumer" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_consumer_tag")
+          q.subscribe(tag: "the-exclusive-one", exclusive: true) { }
+          response = http.get("/api/queues/%2f/exclusive_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should eq "the-exclusive-one"
+        end
+      end
+    end
+
+    it "should not return an exclusive consumer tag for a normal consumer on an exclusive queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_queue_consumer_tag", exclusive: true)
+          q.subscribe(tag: "not-exclusive") { }
+          response = http.get("/api/queues/%2f/exclusive_queue_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should be_nil
+        end
       end
     end
 
@@ -378,6 +492,15 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should refuse to delete an internal queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("delq", true, false, LavinMQ::AMQP::Table.new({"x-delayed-retry-min" => 1000}))
+        response = http.delete("/api/queues/%2f/amq.retry-delq")
+        response.status_code.should eq 403
+        s.vhosts["/"].queue?("amq.retry-delq").should_not be_nil
+      end
+    end
+
     it "should not delete queue if it has messasge when query param if-unused is set" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -399,6 +522,30 @@ describe LavinMQ::HTTP::QueuesController do
                   "properties", "payload", "payload_encoding"]
           body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
           s.vhosts["/"].queue("q3").message_count.should be > 0
+        end
+      end
+    end
+
+    it "should not move peeked messages to the retry queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("q3-retry-peek", args: args)
+          q.publish_confirm "m1"
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
+          response = http.post("/api/queues/%2f/q3-retry-peek/get", body: body)
+          response.status_code.should eq 200
+          s.vhosts["/"].queue("q3-retry-peek").message_count.should eq 1
+          s.vhosts["/"].queue("amq.retry-q3-retry-peek").message_count.should eq 0
         end
       end
     end
@@ -609,6 +756,18 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/pause", headers: hdrs)
+        response.status_code.should eq 403
+        s.vhosts["/"].queue("confqueue").state.should eq LavinMQ::QueueState::Running
+      end
+    end
   end
 
   describe "PUT /api/queues/vhost/name/resume" do
@@ -633,6 +792,20 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["state"].should eq "running"
         end
+      end
+    end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        q = s.vhosts["/"].queue("confqueue")
+        q.pause!
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/resume", headers: hdrs)
+        response.status_code.should eq 403
+        q.state.should eq LavinMQ::QueueState::Paused
       end
     end
   end
@@ -695,6 +868,20 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["state"].should eq "running"
         end
+      end
+    end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("restart_queue", true, false)
+        q = s.vhosts["/"].queue("restart_queue")
+        q.close
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/restart_queue/restart", headers: hdrs)
+        response.status_code.should eq 403
+        q.state.should eq LavinMQ::QueueState::Closed
       end
     end
   end

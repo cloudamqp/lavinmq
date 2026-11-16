@@ -4,6 +4,7 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 Helpers.disableUserMenuVhost()
 
@@ -15,15 +16,17 @@ const chart = Chart.render('chart', 'msgs/s')
 document.title = exchange + ' | LavinMQ'
 
 const exchangeUrl = HTTP.url`api/exchanges/${vhost}/${exchange}`
-function updateExchange (all) {
-  HTTP.request('GET', exchangeUrl).then(item => {
+let detailsRendered = false
+function updateExchange (signal) {
+  return HTTP.request('GET', exchangeUrl, { signal }).then(item => {
     Chart.update(chart, item.message_stats)
-    if (all) {
+    if (!detailsRendered) {
+      detailsRendered = true
       const features = []
       if (item.durable) features.push('Durable')
       if (item.auto_delete) features.push('Auto delete')
       if (item.internal) features.push('Internal')
-      if (item.arguments['x-delayed-exchange']) features.push('Delayed')
+      if (item.arguments['x-delayed-exchange'] === true) features.push('Delayed')
       document.getElementById('e-features').innerText = features.join(', ')
       document.getElementById('e-type').textContent = item.type
       document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
@@ -50,11 +53,15 @@ function updateExchange (all) {
         policyLink.textContent = item.policy
         document.getElementById('e-policy').appendChild(policyLink)
       }
+      if (item.type === 'x-mqtt-topic') {
+        document.getElementById('e-policy').textContent = 'Not supported'
+        document.getElementById('e-arguments').textContent = 'Not supported by this exchange type'
+        document.querySelector('#addBinding [name="routing_key"]').placeholder = 'MQTT topic filter, e.g. sensors/+/temp'
+      }
     }
-  })
+  }).catch(() => {})
 }
-updateExchange(true)
-setInterval(updateExchange, 5000)
+Poller.start(updateExchange)
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
@@ -74,7 +81,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       click: function () {
         const type = item.destination_type === 'exchange' ? 'e' : 'q'
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -103,8 +112,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(res => {
-      if (res && res.is_error) return
+    .then(() => {
       bindingsTable.reload()
       evt.target.reset()
     })
@@ -133,6 +141,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     .then(res => {
       DOM.toast('Published message to ' + exchange + (res.routed ? '.' : ', but not routed.'))
     })
+    .catch(() => {})
 })
 
 document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
@@ -141,6 +150,7 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'exchanges' })
+      .catch(() => {})
   }
 })
 
@@ -150,10 +160,6 @@ function updateAutocomplete (val) {
 }
 updateAutocomplete('q')
 document.getElementById('dest-type').addEventListener('change', (e) => updateAutocomplete(e.target.value))
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})
 
 // Handle navigation to another exchange via hash change
 window.addEventListener('hashchange', () => {

@@ -58,6 +58,25 @@ module ClusteringSpecHelper
       @log_loops_running -= 1
     end
 
+    # Paths fsynced on the leader's fsync requests, in order
+    getter fsynced_paths = Array(String).new
+
+    def protocol_version=(@protocol_version : Int32)
+    end
+
+    def protocol_version : Int32
+      @protocol_version
+    end
+
+    def authenticate_public(socket)
+      authenticate(socket)
+    end
+
+    private def fsync_path(path : String) : Nil
+      @fsynced_paths << path
+      super
+    end
+
     private def sync_data_dir : Nil
       @syncs_started += 1
       sleep @sync_delay unless @sync_delay.zero?

@@ -102,6 +102,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
+  DOM.wireTooltipAnchors(tr)
   const btns = document.createElement('div')
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
@@ -113,6 +114,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
             tr.parentNode.removeChild(tr)
             DOM.toast(`Shovel ${item.name} deleted`)
           })
+          .catch(() => {})
       }
     }
   })
@@ -220,7 +222,11 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-uri').startsWith('http')) {
+  const httpDest = data.get('dest-uri').startsWith('http')
+  if (httpDest) {
+    // HTTP destinations POST to the URI, there's no queue/exchange
+    const timeout = data.get('dest-timeout')
+    if (timeout) body.value['dest-timeout'] = parseFloat(timeout)
     const signatureSecret = data.get('dest-signature-secret')
     if (signatureSecret) {
       body.value['dest-signature-secret'] = signatureSecret
@@ -236,6 +242,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
     })
+    .catch(() => {})
 })
 
 document.querySelector('#createShovel').addEventListener('reset', function () {

@@ -1,5 +1,6 @@
 require "http/server/handler"
 require "../../version"
+require "../../config"
 
 module LavinMQ
   module HTTP
@@ -13,6 +14,7 @@ module LavinMQ
         # it off any API response (see static/js/http.js) to show the version
         # without an extra request.
         context.response.headers["LavinMQ-Version"] = LavinMQ::VERSION
+        context.response.headers["LavinMQ-Stats-Interval"] = Config.instance.stats_interval.to_s
         {% if flag?(:release) %}
           call_next(context)
         {% else %}

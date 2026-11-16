@@ -13,7 +13,7 @@ module LavinMQ
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}" }
         context.response.status_code = 400
         message = ex.message.to_s.split(", at /").first || "Unknown error"
-        {error: "bad_request", reason: "#{message}"}.to_json(context.response)
+        {error: "bad_request", reason: "#{message}"}.to_json(context.response.output)
       rescue ex : Controller::HaltRequest
         Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
       rescue ex : IO::Error | ::HTTP::Server::ClientError
@@ -21,15 +21,15 @@ module LavinMQ
       rescue ex : LavinMQ::Exchange::AccessRefused
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=403 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 403
-        {error: "access_refused", reason: "Access Refused"}.to_json(context.response)
+        {error: "access_refused", reason: "Access Refused"}.to_json(context.response.output)
       rescue ex : LavinMQ::Error::PreconditionFailed
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=\"#{ex.message}\"" }
         context.response.status_code = 400
-        {error: "bad_request", reason: ex.message.to_s}.to_json(context.response)
+        {error: "bad_request", reason: ex.message.to_s}.to_json(context.response.output)
       rescue ex : Exception
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 500
-        {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
+        {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response.output)
       end
     end
   end

@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
@@ -11,6 +12,8 @@ module LavinMQ
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
+      property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true
@@ -86,7 +89,10 @@ module LavinMQ
       end
 
       private def deliver_loop
-        i = 0
+        delivered_bytes = 0_i32
+        iterations = 0
+        yield_each_delivered_bytes = Config.instance.yield_each_delivered_bytes
+
         loop do
           wait_for_capacity
           loop do
@@ -101,8 +107,14 @@ module LavinMQ
           {% end %}
           stream_queue.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
+            delivered_bytes &+= env.segment_position.bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          iterations &+= 1
+          if delivered_bytes >= yield_each_delivered_bytes || iterations >= 32_768
+            delivered_bytes = 0
+            iterations = 0
+            Fiber.yield
+          end
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
@@ -111,6 +123,8 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
+        # @requeued is pushed to under the queue's msg store lock, which is not
+        # taken here; a push this misses also sets @new_message_available
         if @offset > stream_queue.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
           flush
@@ -150,8 +164,10 @@ module LavinMQ
       def reject(sp, requeue : Bool)
         super
         if requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          # Set after the push, so a deliver loop that found @requeued empty
+          # is woken up by the notification instead
+          was_empty = stream_queue.push_requeued(self, sp)
+          @new_message_available.set(true) if was_empty
         end
       end
 

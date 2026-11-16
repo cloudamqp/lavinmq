@@ -6,6 +6,14 @@
     description: List all queues in the server.
     summary: List all queues
     operationId: GetQueues
+    parameters:
+    - in: query
+      name: state
+      required: false
+      schema:
+        type: string
+      description: Only return queues in the given state(s), comma separated. Valid
+        states are running, paused, flow, closed and deleted.
     responses:
       '200':
         description: OK
@@ -39,6 +47,14 @@
     description: List all queues for specific vhost.
     summary: List queues for vhost
     operationId: GetQueuesVhost
+    parameters:
+    - in: query
+      name: state
+      required: false
+      schema:
+        type: string
+      description: Only return queues in the given state(s), comma separated. Valid
+        states are running, paused, flow, closed and deleted.
     responses:
       '200':
         description: OK
@@ -131,7 +147,7 @@
   delete:
     tags:
     - queues
-    description: Remove a specific queue by name and vhost.
+    description: Remove a specific queue by name and vhost. Internal queues, such as a queue's `amq.retry-` queue, are deleted with the queue they belong to and are refused with 403.
     summary: Delete queue
     operationId: DeleteQueue
     responses:
@@ -166,7 +182,7 @@
   put:
     tags:
     - queues
-    description: Pause the queue. When the queue is paused, messages are not delivered to consumers.
+    description: Pause the queue. When the queue is paused, messages are not delivered to consumers. Needs configure permission on the queue, otherwise the request is refused with 403.
     summary: Pause queue
     operationId: PauseQueue
     responses:
@@ -205,7 +221,7 @@
   put:
     tags:
     - queues
-    description: Resume the queue. When the queue is paused, messages are not delivered to consumers.
+    description: Resume the queue. When the queue is paused, messages are not delivered to consumers. Needs configure permission on the queue, otherwise the request is refused with 403.
     summary: Resume queue
     operationId: ResumeQueue
     responses:
@@ -244,7 +260,7 @@
   put:
     tags:
     - queues
-    description: Restart a closed queue. This operation can only be performed on queues that are in a closed state. If the queue is still running, the operation will fail.
+    description: Restart a closed queue. This operation can only be performed on queues that are in a closed state. If the queue is still running, the operation will fail. Needs configure permission on the queue, otherwise the request is refused with 403.
     summary: Restart closed queue
     operationId: RestartQueue
     responses:

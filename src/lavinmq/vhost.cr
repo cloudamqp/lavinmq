@@ -1,3 +1,4 @@
+require "./filesystem"
 require "json"
 require "../stdlib/*"
 require "./logger"
@@ -11,11 +12,16 @@ require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
 require "digest/sha1"
 require "./amqp/queue"
+require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/broker"
+require "./mqtt/subscription_tree"
+require "./mqtt/subscriber"
+require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
@@ -27,29 +33,49 @@ module LavinMQ
     include SortableJSON
     include Stats
 
-    rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
-                "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
+    STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
+                  "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
+                  "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
+    rate_stats(STATS_KEYS)
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
+    DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
+                        "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
+                        "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
+                        "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
+    {% for key in DEAD_LETTER_KEYS %}
+      @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
+
+      def {{ key.id }}_count : UInt64
+        @{{ key.id }}_count.get(:relaxed)
+      end
+    {% end %}
+
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
+    getter mqtt_permission_service : MQTT::PermissionService
+    # Routing index for MQTT publishes. Owned by the vhost so that it exists
+    # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
+    getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    # Set by the server's disk space monitor, read by every publishing client
+    @flow = Atomic(Bool).new(true)
+    @policy_snapshot_lock = Mutex.new
+    @policy_generation = 0_u64
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
+    @mqtt_broker : MQTT::Broker?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
@@ -132,6 +158,10 @@ module LavinMQ
       definitions.register_queue(queue)
     end
 
+    def synchronize_definitions(&)
+      definitions.synchronize { yield }
+    end
+
     def queues_clear : Nil
       definitions.queues_clear
     end
@@ -183,6 +213,10 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections.add client
+      # Added after #close closed the connections, it'd be served by a
+      # closed vhost. Not #close, an MQTT client's waits for its read loop,
+      # which only starts after this.
+      client.force_close if closed?
     end
 
     def rm_connection(client : Client)
@@ -210,21 +244,23 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
-      Dir.mkdir_p File.join(@data_dir)
+      FileSystem.mkdir_p @data_dir
       FileUtils.rm_rf File.join(@data_dir, "transient")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
+      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
+      @mqtt_broker = MQTT::Broker.new(self)
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
@@ -243,14 +279,18 @@ module LavinMQ
       end
     end
 
-    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      @persister.enqueue_ack(channel, msgid)
+    def enqueue_ack(target : Persister::ConfirmTarget, id : UInt64)
+      @persister.enqueue_ack(target, id)
     end
 
     def max_connections=(value : Int32) : Nil
       value = nil if value < 0
       @max_connections = value
       store_limits
+    end
+
+    def connection_limit_reached? : Bool
+      @max_connections.try { |max| connections_size >= max } || false
     end
 
     def max_queues=(value : Int32) : Nil
@@ -299,7 +339,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(AMQP::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else
@@ -323,32 +363,13 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = deliver_get = 0_u64
       each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
-        ack += q.ack_count
-        confirm += q.confirm_count
-        deliver += q.deliver_count
-        deliver_no_ack += q.deliver_no_ack_count
-        deliver_get += q.deliver_get_count
-        get += q.get_count
-        get_no_ack += q.get_no_ack_count
-        publish += q.publish_count
-        redeliver += q.redeliver_count
       end
       each_session do |s|
         ready += s.message_count
         unacked += s.unacked_count
-        ack += s.ack_count
-        confirm += s.confirm_count
-        deliver += s.deliver_count
-        deliver_no_ack += s.deliver_no_ack_count
-        deliver_get += s.deliver_get_count
-        get += s.get_count
-        get_no_ack += s.get_no_ack_count
-        publish += s.publish_count
-        redeliver += s.redeliver_count
       end
 
       {
@@ -356,15 +377,15 @@ module LavinMQ
         messages_unacknowledged: unacked,
         messages_ready:          ready,
         message_stats:           {
-          ack:               ack,
-          confirm:           confirm,
-          deliver:           deliver,
-          deliver_no_ack:    deliver_no_ack,
-          get:               get,
-          get_no_ack:        get_no_ack,
-          deliver_get:       deliver_get,
-          publish:           publish,
-          redeliver:         redeliver,
+          ack:               ack_count,
+          confirm:           confirm_count,
+          deliver:           deliver_count,
+          deliver_no_ack:    deliver_no_ack_count,
+          get:               get_count,
+          get_no_ack:        get_no_ack_count,
+          deliver_get:       deliver_get_count,
+          publish:           publish_count,
+          redeliver:         redeliver_count,
           return_unroutable: return_unroutable_count,
         },
       }
@@ -478,8 +499,15 @@ module LavinMQ
 
     def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
+      previous = @parameters[p.name]?
       @parameters.create(p, save: save)
-      apply_parameters(p)
+      begin
+        apply_parameters(p)
+      rescue ex
+        # The old config still runs in memory, so put its parameter back
+        previous.try { |prev| @parameters.create(prev, save: save) }
+        raise ex
+      end
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
@@ -527,11 +555,13 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
-      # then force close the remaining (close tcp socket)
-      each_connection &.force_close
+      # then force close the remaining (close tcp socket), a copy as they
+      # delete themselves when closed
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
       each_session &.close
+      @mqtt_broker.try &.close
       each_exchange &.close
       Fiber.yield
       definitions.close
@@ -541,23 +571,33 @@ module LavinMQ
     def delete
       close(reason: "VHost deleted")
       Fiber.yield
+      @replicator.try &.delete_dir(@data_dir)
       FileUtils.rm_rf @data_dir
     end
 
+    # Each policy change spawns its own run, and runs can overlap. Each run
+    # takes a generation along with its snapshot of the policies, and a
+    # resource skips a run older than the newest one it has applied, so a run
+    # that read the policies before a later change can't overwrite that
+    # change's run. No lock is held while applying: applying a policy can
+    # take other locks, e.g. a delayed-message policy registers a queue.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
-      policies = @policies.values.sort_by!(&.priority).reverse
-      operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
+      policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
+        {@policies.values.sort_by!(&.priority).reverse,
+         @operator_policies.values.sort_by!(&.priority).reverse,
+         @policy_generation += 1}
+      end
       if r = resources
         r.each do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       else
         each_policy_target do |resource|
           policy = policies.find &.match?(resource)
           operator_policy = operator_policies.find &.match?(resource)
-          resource.apply_policy(policy, operator_policy)
+          resource.apply_policy(policy, operator_policy, generation)
         end
       end
     rescue ex : TypeCastError
@@ -596,11 +636,15 @@ module LavinMQ
     end
 
     def upstreams
-      @upstreams.not_nil!
+      @upstreams.not_nil!("upstreams not initialized")
+    end
+
+    def mqtt_broker : MQTT::Broker
+      @mqtt_broker.not_nil!("mqtt_broker not initialized")
     end
 
     def shovels
-      @shovels.not_nil!
+      @shovels.not_nil!("shovels not initialized")
     end
 
     def event_tick(event_type)
@@ -634,6 +678,19 @@ module LavinMQ
       end
     end
 
+    def count_dead_lettered(reason : Symbol, *, dlx : Bool) : Nil
+      case reason
+      when :delivery_limit
+        dlx ? @dead_lettered_delivery_limit_at_most_once_count.add(1, :relaxed) : @dead_lettered_delivery_limit_disabled_count.add(1, :relaxed)
+      when :expired
+        dlx ? @dead_lettered_expired_at_most_once_count.add(1, :relaxed) : @dead_lettered_expired_disabled_count.add(1, :relaxed)
+      when :maxlen, :maxlenbytes
+        dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
+      when :rejected
+        dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
     def add_recv_bytes(bytes : UInt64) : Nil
       @recv_oct_count.add(bytes, :relaxed)
     end
@@ -647,7 +704,7 @@ module LavinMQ
     end
 
     private def definitions : DefinitionsStore
-      @definitions.not_nil!
+      @definitions.not_nil!("definitions not initialized")
     end
   end
 end

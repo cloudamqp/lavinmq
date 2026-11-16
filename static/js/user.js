@@ -15,6 +15,7 @@ function updateUser () {
       document.getElementById('hasPassword').textContent = hasPassword
       tagHelper(item.tags)
     })
+    .catch(() => {})
 }
 
 function tagHelper (tags) {
@@ -26,7 +27,7 @@ function tagHelper (tags) {
 }
 
 const permissionsUrl = HTTP.url`api/users/${user}/permissions`
-const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], autoReloadTimeout: 0, countId: 'permissions-count' }
+const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
   Table.renderCell(tr, 2, item.write)
@@ -42,6 +43,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
           .then(() => {
             tr.parentNode.removeChild(tr)
           })
+          .catch(() => {})
       }
     })
     const editBtn = DOM.button.edit({
@@ -72,6 +74,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
       permissionsTable.reload()
       evt.target.reset()
     })
+    .catch(() => {})
 })
 
 document.querySelector('[name=remove_password]').addEventListener('change', function () {
@@ -105,10 +108,7 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
       pwd.disabled = false
       pwd.required = true
     })
-})
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelper('updateUser', 'tags', e)
+    .catch(() => {})
 })
 
 document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
@@ -117,6 +117,7 @@ document.querySelector('#deleteUser').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'users' })
+      .catch(() => {})
   }
 })
 

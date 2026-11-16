@@ -55,6 +55,8 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
+            elsif q.internal?
+              access_refused(context, "Queue '#{q.name}' is an internal queue")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -80,7 +82,7 @@ module LavinMQ
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             props = params["props"]
-            binding_for_props(context, e, q, props).to_json(context.response)
+            binding_for_props(context, e, q, props).to_json(context.response.output)
           end
         end
 
@@ -161,7 +163,7 @@ module LavinMQ
             destination = exchange(context, params, vhost, "destination")
             props = params["props"]
             binding = binding_for_props(context, source, destination, props)
-            binding.to_json(context.response)
+            binding.to_json(context.response.output)
           end
         end
 

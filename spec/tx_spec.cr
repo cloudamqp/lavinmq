@@ -2,6 +2,21 @@ require "./spec_helper"
 
 describe "Transactions" do
   describe "publishes" do
+    {% if flag?(:linux) %}
+      it "advises the segments they're written to for random access" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.tx_select
+            q = ch.queue("tx_random_access")
+            q.publish "m"
+            ch.tx_commit
+            queue = s.vhosts["/"].queue("tx_random_access").as(LavinMQ::AMQP::Queue)
+            vm_flags(queue.@msg_store.@wfile.path).should contain "rr"
+          end
+        end
+      end
+    {% end %}
+
     it "can be commited" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -55,6 +70,24 @@ describe "Transactions" do
       end
     end
 
+    it "doesn't return a mandatory publish that a full queue rejects" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          returned = Channel(String).new
+          ch.on_return { |msg| returned.send msg.routing_key }
+          args = AMQP::Client::Arguments.new
+          args["x-max-length"] = 0_i64
+          args["x-overflow"] = "reject-publish"
+          q = ch.queue("", args: args)
+          ch.tx_select
+          ch.basic_publish("m1", "", q.name, mandatory: true)
+          ch.basic_publish("m2", "", "unroutable", mandatory: true)
+          ch.tx_commit
+          returned.receive.should eq "unroutable"
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -79,7 +112,7 @@ describe "Transactions" do
           2.times { |i| q.publish "#{i}" }
           ch.tx_commit
           2.times do |i|
-            msg = q.get(no_ack: false).not_nil!
+            msg = q.get(no_ack: false).should_not be_nil
             msg.body_io.to_s.should eq "#{i}"
             msg.ack
           end
@@ -98,7 +131,7 @@ describe "Transactions" do
           2.times { |i| q.publish "#{i}" }
           ch.tx_commit
           2.times do |i|
-            msg = q.get(no_ack: false).not_nil!
+            msg = q.get(no_ack: false).should_not be_nil
             msg.body_io.to_s.should eq "#{i}"
             msg.ack
           end

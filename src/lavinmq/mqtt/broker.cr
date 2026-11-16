@@ -9,8 +9,14 @@ require "../vhost"
 
 module LavinMQ
   module MQTT
+    # Raised for a topic that cannot become an AMQP routing key, so the
+    # packet can never be processed, which the client read loop and the
+    # connection factory handle like a packet that can't be decoded
+    class TopicTooLong < ::MQTT::Protocol::Error::PacketDecode; end
+
     class Broker
       getter vhost, sessions
+      Log = LavinMQ::Log.for "mqtt.broker"
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -25,8 +31,12 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
+      end
+
+      def permission_service : PermissionService
+        @vhost.mqtt_permission_service
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -34,6 +44,13 @@ module LavinMQ
         session = sessions[client_id]? || return false
         return false if session.clean_session?
         true
+      end
+
+      # A reconnecting client_id displaces the existing connection in
+      # `add_client`, so the connection count doesn't grow
+      def connection_limit_reached?(client_id : String) : Bool
+        return false if @clients.has_key?(client_id)
+        @vhost.connection_limit_reached?
       end
 
       def add_client(io, connection_info, user, packet) : Client
@@ -57,7 +74,9 @@ module LavinMQ
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          if session = sessions[client.client_id]?
+            session.client = client
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -86,29 +105,41 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish)
+      # Returns false, without storing or routing the packet, during a disk alarm
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
+        if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
+          raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
+        end
+        return false unless @vhost.flow?
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet)
+        @exchange.publish(packet, ctx)
+        true
       end
 
-      def subscribe(client, topics)
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
         session = sessions.declare(client)
-        headers = AMQP::Table.new({RETAIN_HEADER => true})
-        topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
-          session.subscribe(tf.topic, qos)
-          ts = RoughTime.unix_ms
-          @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: qos)
-            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
-            session.publish(msg)
-          end
-          Protocol::SubAck::ReturnCode.from_int(qos)
+        unless session
+          Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
+          return topics.map { Protocol::SubAck::ReturnCode::Failure }
         end
+        topics.map { |tf| grant(session, tf) }
+      end
+
+      def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
+        qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+        return Protocol::SubAck::ReturnCode::Failure if tf.topic.bytesize > MAX_TOPIC_BYTESIZE
+        return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
+        ts = RoughTime.unix_ms
+        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+          props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
+          msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+          session.publish(msg)
+        end
+        Protocol::SubAck::ReturnCode.from_int(qos)
       end
 
       def unsubscribe(client_id, topics)
-        session = sessions[client_id]
+        session = sessions[client_id]? || return
         topics.each do |tf|
           session.unsubscribe(tf)
         end

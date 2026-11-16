@@ -6,6 +6,33 @@ module ClientSyncSpec
   # `extend` only copies methods, not the module's nested types.
   alias TestClient = ClusteringSpecHelper::TestClient
 
+  def self.write_append(lz4 : IO, filename : String, payload : String) : Nil
+    lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+    lz4.write filename.to_slice
+    lz4.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
+    lz4.write payload.to_slice
+  end
+
+  def self.write_fsync_request(lz4 : IO, filename : String) : Nil
+    lz4.write_bytes filename.bytesize + 1, IO::ByteFormat::LittleEndian
+    lz4.write "$#{filename}".to_slice
+    lz4.write_bytes 0i64, IO::ByteFormat::LittleEndian
+  end
+
+  def self.record_size(filename : String, payload_size = 0) : Int64
+    (sizeof(Int32) + filename.bytesize + sizeof(Int64) + payload_size).to_i64
+  end
+
+  # Read acks until `expected` bytes are acked
+  def self.read_acks(leader_io : IO, expected : Int64) : Int64
+    leader_io.read_timeout = 2.seconds
+    acked = 0i64
+    while acked < expected
+      acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+    end
+    acked
+  end
+
   # Runs one file-list comparison pass against a leader offering `leader_files`,
   # with `resync` picking the reconnect variant (see TestClient).
   def self.sync_with_leader(client : TestClient, leader_files : Hash(String, String), resync = false)
@@ -29,6 +56,21 @@ module ClientSyncSpec
   ensure
     server_io.try &.close
     client_io.try &.close
+  end
+
+  # Writes `dirs` x `files_per_dir` small segment-like files and returns them as
+  # the leader's file list, with the same content so their checksums match.
+  def self.write_cached_files(data_dir : String, dirs : Int32, files_per_dir : Int32) : Hash(String, String)
+    leader_files = Hash(String, String).new
+    dirs.times do |d|
+      Dir.mkdir File.join(data_dir, "q#{d}")
+      files_per_dir.times do |f|
+        name = "q#{d}/msgs.#{f.to_s.rjust(10, '0')}"
+        File.write File.join(data_dir, name), name
+        leader_files[name] = name
+      end
+    end
+    leader_files
   end
 
   # One replication record: a negative length appends, a positive one replaces.
@@ -599,6 +641,49 @@ module ClientSyncSpec
           Dir.exists?(File.join(data_dir, "queue2")).should be_false
         end
       end
+
+      # Removing each leader file from arrays of local files and dirs made the
+      # comparison quadratic: 30k files took about 6 s, now about 0.3 s. The
+      # bound is loose because the measured block also includes the simulated
+      # leader and a non-release build on a busy runner.
+      it "compares a large data dir in linear time" do
+        with_datadir do |data_dir|
+          leader_files = write_cached_files(data_dir, dirs: 100, files_per_dir: 300)
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          elapsed = Time.measure { sync_with_leader(client, leader_files) }
+          elapsed.should be < 2.seconds
+          Dir.children(data_dir).count(&.starts_with?("q")).should eq 100
+        end
+      end
+
+      # With cached checksums nothing in the comparison yields on its own, so
+      # without periodic yields it blocks client proxies, the HTTP API and acks.
+      it "lets other fibers run while comparing a large data dir" do
+        with_datadir do |data_dir|
+          leader_files = write_cached_files(data_dir, dirs: 4, files_per_dir: 1000)
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          logs = ::Log::MemoryBackend.new
+          ::Log.builder.bind("lmq.clustering.client", :info, logs)
+          ran_while_comparing = false
+          stop = false
+          spawn do
+            until stop
+              last = logs.entries.last?.try(&.message) || ""
+              # "Comparing files" or "Compared 1/4000 files…" while the loop
+              # runs; "Compared 4000 files, 0 to sync" once it's done.
+              ran_while_comparing = true if last == "Comparing files" || last.matches?(/\ACompared \d+\/\d+ files/)
+              Fiber.yield
+            end
+          end
+          sync_with_leader(client, leader_files)
+          stop = true
+          ran_while_comparing.should be_true
+        ensure
+          ::Log.builder.unbind("lmq.clustering.client", :info, logs) if logs
+        end
+      end
     end
 
     describe "checksum persistence during sync" do
@@ -923,6 +1008,319 @@ module ClientSyncSpec
       end
     end
 
+    describe "fsync requests" do
+      it "fsyncs a requested file, and the dir of a file it created, before acking the request" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          expected = record_size(filename, payload.bytesize) + record_size("$#{filename}")
+          read_acks(leader_io, expected).should eq expected
+          # Fsynced before the ack: the file, vhost/queue for the new file's
+          # entry, and vhost and the data dir for the entries of the new
+          # vhost/queue and vhost directories
+          client.fsynced_paths.sort.should eq [
+            data_dir, File.join(data_dir, filename), File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"),
+          ].sort
+          client.syncs_started.should eq 0
+
+          # The dir entries are durable now, only the file needs fsyncs from here
+          write_append(lz4_writer, filename, payload)
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, expected).should eq expected
+          client.fsynced_paths.last(1).should eq [File.join(data_dir, filename)]
+          client.fsynced_paths.size.should eq 5
+          File.read(File.join(data_dir, filename)).should eq payload * 2
+          client_socket.close
+        end
+      end
+
+      it "syncs the whole data dir instead of exiting when it's out of file descriptors" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          payload = "data"
+          write_append(lz4_writer, filename, payload)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          without_free_file_descriptors do
+            write_fsync_request(lz4_writer, filename)
+            read_acks(leader_io, record_size("$#{filename}"))
+          end
+          # Opening the file to fsync it failed, so the data dir was synced instead
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
+          client.syncs_started.should eq 1
+          client_socket.close
+        end
+      end
+
+      it "fsyncs the directories a replace created with the next fsync request" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/.queue"
+          payload = "queue"
+          write_record(lz4_writer, filename, payload.bytesize.to_i64, payload.to_slice)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          # The replace's ack only covers the rename, not the new directories
+          client.fsynced_paths.should eq [File.join(data_dir, "vhost/queue")]
+
+          segment = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, segment, payload)
+          write_fsync_request(lz4_writer, segment)
+          read_acks(leader_io, record_size(segment, payload.bytesize) + record_size("$#{segment}"))
+          client.fsynced_paths.skip(1).sort.should eq [
+            data_dir, File.join(data_dir, "vhost"), File.join(data_dir, "vhost/queue"), File.join(data_dir, segment),
+          ].sort
+          client_socket.close
+        end
+      end
+
+      it "doesn't fsync the directories a request without a path synced" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_append(lz4_writer, filename, "data")
+          write_fsync_request(lz4_writer, "")
+          read_acks(leader_io, record_size(filename, 4) + record_size("$"))
+          client.syncs_started.should eq 1
+
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}"))
+          client.fsynced_paths.should_not contain data_dir
+          client.fsynced_paths.should_not contain File.join(data_dir, "vhost")
+          client_socket.close
+        end
+      end
+
+      it "doesn't fsync the directories a full sync created" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {"vhost/queue/msgs.0000000001" => "data"}, rounds: 2)
+            done.send nil
+          end
+          client.full_sync_public(client_io, lz4_reader)
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          server_io.close
+          client_io.close
+          client.syncs_started.should eq 1
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/queue/msgs.0000000001"
+          write_fsync_request(lz4_writer, filename)
+          read_acks(leader_io, record_size("$#{filename}"))
+          client.fsynced_paths.should eq [File.join(data_dir, filename)]
+          client_socket.close
+        end
+      end
+
+      it "doesn't sync streamed bytes that no fsync request covers" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_append(lz4_writer, "acks.0000000001", "ack!")
+          expected = record_size("acks.0000000001", 4)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 0
+          client.fsynced_paths.should be_empty
+          client_socket.close
+        end
+      end
+
+      it "acks a request for a missing file without creating it" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_fsync_request(lz4_writer, "missing_file")
+          expected = record_size("$missing_file")
+          read_acks(leader_io, expected).should eq expected
+          File.exists?(File.join(data_dir, "missing_file")).should be_false
+          client_socket.close
+        end
+      end
+
+      it "syncs the data dir on a request without a path" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_append(lz4_writer, "file", "data")
+          write_fsync_request(lz4_writer, "")
+          expected = record_size("file", 4) + record_size("$")
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should eq 1
+          client.fsynced_paths.should be_empty
+          client_socket.close
+        end
+      end
+
+      it "syncs the data dir instead when more files than the threshold are requested" do
+        with_datadir do |data_dir|
+          LavinMQ::Config.instance.syncfs_threshold = 4
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
+          filenames = (0..LavinMQ::Config.instance.syncfs_threshold).map { |i| "file#{i}" }
+          filenames.each { |f| File.write(File.join(data_dir, f), "") }
+          # All requests in one LZ4 block, so the ack loop gets them in one batch
+          filenames.each { |f| write_fsync_request(lz4_writer, f) }
+          lz4_writer.flush
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          expected = filenames.sum { |f| record_size("$#{f}") }
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should be > 0
+          client.fsynced_paths.size.should be <= LavinMQ::Config.instance.syncfs_threshold
+          client_socket.close
+        end
+      end
+
+      it "fsyncs the directory of a replaced file before acking the replace" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "vhost/users.json"
+          payload = "{}"
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          lz4_writer.write payload.to_slice
+          expected = record_size(filename, payload.bytesize)
+          read_acks(leader_io, expected).should eq expected
+          client.fsynced_paths.should eq [File.join(data_dir, "vhost")]
+          File.read(File.join(data_dir, filename)).should eq payload
+          client_socket.close
+        end
+      end
+
+      it "falls back to protocol version 1 when the leader rejects version 2" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = UNIXSocket.pair
+          spawn(name: "version 1 leader") do
+            header = Bytes.new(8)
+            leader_io.read_fully(header)
+            header.should eq LavinMQ::Clustering::StartV2
+            leader_io.write LavinMQ::Clustering::Start
+          end
+          expect_raises(IO::Error, /version mismatch/) do
+            client.authenticate_public(client_socket)
+          end
+          client.protocol_version.should eq 1
+          client_socket.close
+        end
+      end
+
+      it "syncs before every ack when following a version 1 leader" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client.protocol_version = 1
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_append(lz4_writer, "file", "data")
+          expected = record_size("file", 4)
+          read_acks(leader_io, expected).should eq expected
+          client.syncs_started.should be > 0
+          client_socket.close
+        end
+      end
+    end
+
     describe "#close" do
       # Regression: close used to wait only for the follow loop, then close
       # the data dir fd while the ack-sending fiber could still be draining
@@ -943,21 +1341,25 @@ module ClientSyncSpec
           rescue IO::Error
           end
 
-          # Stream a small append so acks start flowing and the ack loop
-          # enters its (slowed) sync.
+          # Stream a small append and a syncfs request so acks start flowing
+          # and the ack loop enters its (slowed) sync.
           filename = "ack_file"
           payload = "data"
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
           lz4_writer.write payload.to_slice
+          lz4_writer.write_bytes 1, IO::ByteFormat::LittleEndian
+          lz4_writer.write "$".to_slice
+          lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian
           lz4_writer.flush
           wait_for { client.syncs_started > 0 }
 
-          # Keep acks arriving while close runs, so a sync is in flight or
-          # pending throughout the shutdown.
+          # Keep syncfs requests arriving while close runs, so a sync is in
+          # flight or pending throughout the shutdown.
           spawn(name: "ack feeder") do
             20.times do
+              client.@acks.send("")
               client.@acks.send(1i64)
               sleep 10.milliseconds
             end

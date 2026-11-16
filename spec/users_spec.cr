@@ -137,10 +137,9 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["legacy"]?
-        u.should_not be_nil
-        u.not_nil!.password.should_not be_nil
-        u.not_nil!.password.not_nil!.verify("hej").should be_true
+        u = store["legacy"]?.should_not be_nil
+        password = u.password.should_not be_nil
+        password.verify("hej").should be_true
       end
     end
 
@@ -160,9 +159,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
       end
     end
 
@@ -182,9 +180,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
       end
     end
 
@@ -204,9 +201,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
       end
     end
 
@@ -227,9 +223,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.permissions["/"][:config].should eq /.*/
+        u = store["alan"]?.should_not be_nil
+        u.permissions["/"][:config].should eq /.*/
       end
     end
 

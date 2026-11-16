@@ -268,6 +268,23 @@ describe LavinMQ::Etcd, tags: "etcd" do
   end
 end
 
+describe LavinMQ::Etcd::Lease do
+  it "revokes the lease before signaling expiry on release" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease.release
+    etcd.expired_before_revoke.should be_false
+    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
+  end
+
+  it "signals expiry when the revoke fails" do
+    etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
+    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
+    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
+  end
+end
+
 class EtcdCluster
   @ports : Array(Int32)
 
@@ -341,5 +358,25 @@ class EtcdCluster
         next
       end
     end
+  end
+end
+
+# Etcd stand-in that never connects and records whether the lease had already
+# signaled expiry when the revoke was sent
+private class RecordingEtcd < LavinMQ::Etcd
+  property lease : LavinMQ::Etcd::Lease?
+  getter expired_before_revoke : Bool?
+
+  def initialize(endpoints, @revoke_error : Exception? = nil)
+    super(endpoints)
+  end
+
+  def lease_revoke(id) : Nil
+    @expired_before_revoke = @lease.try &.expired.closed?
+    @revoke_error.try { |ex| raise ex }
+  end
+
+  def lease_keepalive(id) : Int32
+    raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
   end
 end

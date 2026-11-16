@@ -12,6 +12,16 @@ class LavinMQ::Launcher
   end
 end
 
+# Counts the data dir syncs a reload does, see Config#sync_data_dir_after_enabled
+class LavinMQ::Config
+  getter spec_data_dir_syncs = Atomic(Int32).new(0)
+
+  private def sync_data_dir : Nil
+    previous_def
+    @spec_data_dir_syncs.add(1)
+  end
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -107,12 +117,14 @@ describe LavinMQ::Config do
           stats_log_size = 240
           set_timestamp = true
           socket_buffer_size = 32768
-          tcp_nodelay = true
+          tcp_nodelay = false
           segment_size = 16777216
           sync = false
+          syncfs_threshold = 8
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
+          tcp_send_timeout = 30
           log_exchange = true
           free_disk_min = 1073741824
           free_disk_warn = 5368709120
@@ -127,6 +139,7 @@ describe LavinMQ::Config do
           data_dir_lock = false
           tls_cert = /etc/lavinmq/cert.pem
           tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
+          tls_ciphersuites = TLS_AES_128_GCM_SHA256
           tls_prefer_server_ciphers = true
           tls_key = /etc/lavinmq/key.pem
           tls_min_version = 1.3
@@ -176,6 +189,7 @@ describe LavinMQ::Config do
           port = 5680
           etcd_endpoints = localhost:2380,localhost:2381
           etcd_prefix = test-lavinmq
+          etcd_lease_ttl = 30
           max_unsynced_actions = 16384
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
@@ -194,12 +208,14 @@ describe LavinMQ::Config do
     config.stats_log_size.should eq 240
     config.set_timestamp?.should be_true
     config.socket_buffer_size.should eq 32768
-    config.tcp_nodelay?.should be_true
+    config.tcp_nodelay?.should be_false
     config.segment_size.should eq 16777216
     config.sync?.should be_false
+    config.syncfs_threshold.should eq 8
     config.tcp_keepalive.should eq({120, 20, 5})
     config.tcp_recv_buffer_size.should eq 65536
     config.tcp_send_buffer_size.should eq 65536
+    config.tcp_send_timeout.should eq 30
     config.log_exchange?.should be_true
     config.free_disk_min.should eq 1073741824
     config.free_disk_warn.should eq 5368709120
@@ -213,6 +229,7 @@ describe LavinMQ::Config do
     config.data_dir_lock?.should be_false
     config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/lavinmq/key.pem"
     config.tls_min_version.should eq "1.3"
@@ -262,6 +279,7 @@ describe LavinMQ::Config do
     config.clustering_port.should eq 5680
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
     config.clustering_etcd_prefix.should eq "test-lavinmq"
+    config.clustering_etcd_lease_ttl.should eq 30
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
     config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
     config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
@@ -291,6 +309,7 @@ describe LavinMQ::Config do
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
       "--ciphers=ECDHE-RSA-AES256-GCM-SHA384",
+      "--ciphersuites=TLS_AES_128_GCM_SHA256",
       "--tls-prefer-server-ciphers=true",
       "--key=/etc/ssl/key.pem",
       "--tls-min-version=1.3",
@@ -309,6 +328,7 @@ describe LavinMQ::Config do
       "--clustering-bind=0.0.0.0",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
       "--clustering-etcd-prefix=cli-prefix",
+      "--clustering-etcd-lease-ttl=20",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
     ]
@@ -332,6 +352,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/ssl/key.pem"
     config.tls_min_version.should eq "1.3"
@@ -350,6 +371,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
+    config.clustering_etcd_lease_ttl.should eq 20
     config.clustering_port.should eq 5680
   end
 
@@ -374,6 +396,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_HTTPS_PORT"] = "15676"
     ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
     ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
+    ENV["LAVINMQ_TLS_CIPHERSUITES"] = "TLS_AES_128_GCM_SHA256"
     ENV["LAVINMQ_TLS_PREFER_SERVER_CIPHERS"] = "true"
     ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
     ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
@@ -384,6 +407,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
     ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
+    ENV["LAVINMQ_CLUSTERING_ETCD_LEASE_TTL"] = "15"
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
     ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
     ENV["LAVINMQ_SYNC"] = "false"
@@ -400,6 +424,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15676
     config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
     config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/certs/env-key.pem"
     config.tls_min_version.should eq "1.2"
@@ -410,6 +435,7 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "10.3.3.3"
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
+    config.clustering_etcd_lease_ttl.should eq 15
     config.clustering_port.should eq 5681
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
   ensure
@@ -423,6 +449,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_HTTPS_PORT")
     ENV.delete("LAVINMQ_TLS_CERT_PATH")
     ENV.delete("LAVINMQ_TLS_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_CIPHERSUITES")
     ENV.delete("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")
     ENV.delete("LAVINMQ_TLS_KEY_PATH")
     ENV.delete("LAVINMQ_TLS_MIN_VERSION")
@@ -433,6 +460,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_BIND")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
@@ -634,7 +662,86 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "tcp_send_timeout" do
+    it "defaults to 15 seconds" do
+      LavinMQ::Config.new.tcp_send_timeout.should eq 15
+    end
+
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          tcp_send_timeout = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /tcp_send_timeout/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
+  describe "max_inflight_messages" do
+    it "rejects zero" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [mqtt]
+          max_inflight_messages = 0
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /max_inflight_messages/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
+  describe "clustering_etcd_lease_ttl" do
+    it "defaults to 10 seconds" do
+      LavinMQ::Config.new.clustering_etcd_lease_ttl.should eq 10
+    end
+
+    it "rejects non-positive values" do
+      [0, -1].each do |ttl|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            etcd_lease_ttl = #{ttl}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /etcd_lease_ttl/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
+    it "syncs the data dir once when sync is enabled again" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      data_dir = File.tempname("lavinmq-data")
+      Dir.mkdir_p(data_dir)
+      begin
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = false\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.sync?.should be_false
+
+        config.reload # still disabled
+        File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = true\n")
+        config.reload
+        config.sync?.should be_true
+        config.spec_data_dir_syncs.get.should eq 1 # before the reload returns
+        config.reload                              # already enabled
+        config.spec_data_dir_syncs.get.should eq 1
+      ensure
+        File.delete?(config_file.path)
+        FileUtils.rm_rf(data_dir)
+        Log.setup(:fatal)
+      end
+    end
+
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
@@ -702,6 +809,44 @@ describe LavinMQ::Config do
       ensure
         File.delete?(config_file.path)
         Log.setup(:fatal)
+      end
+    end
+
+    it "refuses a broken [sni:] section when TLS is configured" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /SNI host 'foobar.localhost'/) do
+          config.parse(["-c", config_file.path])
+        end
+      ensure
+        File.delete?(config_file.path)
+      end
+    end
+
+    it "warns on a broken [sni:] section when TLS is not configured" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        io = IO::Memory.new
+        config = LavinMQ::Config.new(io)
+        # No TLS listener can use the section, so it must not stop startup
+        config.parse(["-c", config_file.path])
+        io.to_s.should contain "Invalid TLS settings for SNI host 'foobar.localhost'"
+        config.sni_manager.get_host("foobar.localhost").should_not be_nil
+      ensure
+        File.delete?(config_file.path)
       end
     end
 
@@ -777,6 +922,56 @@ describe LavinMQ::Config do
       end
     {% end %}
   end
+
+  # [main] parses booleans through parse_value, which downcases first; the
+  # [sni:] branch calls true? on the raw value. Anything but all-lowercase
+  # silently off under SNI would leave mTLS disabled on a host meant to
+  # require client certificates.
+  describe "tls_verify_peer under [sni:]" do
+    {% for value in ["true", "TRUE", "True", "YES"] %}
+      it "is on when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_verify_peer = {{ value.id }}
+            mqtt_tls_verify_peer = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_verify_peer?.should be_true
+          host.mqtt_tls_verify_peer.should be_true
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+
+    {% for value in ["false", "FALSE"] %}
+      it "is off when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_verify_peer = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_verify_peer?.should be_false
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+  end
 end
 
 # Connect a TLS client requesting *servername* to a one-shot server using
@@ -804,6 +999,33 @@ private def served_cn(server_ctx : OpenSSL::SSL::Context::Server, servername : S
   ssl_client.close
   tcp_client.close
   cn
+ensure
+  tcp_server.try &.close
+end
+
+private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server, servername = "localhost") : String?
+  tcp_server = TCPServer.new("127.0.0.1", 0)
+  port = tcp_server.local_address.port
+  spawn do
+    if client = tcp_server.accept?
+      begin
+        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
+      rescue
+        # ignore handshake errors, the client assertion will surface them
+      ensure
+        client.close rescue nil
+      end
+    end
+  end
+  Fiber.yield
+  tcp_client = TCPSocket.new("127.0.0.1", port)
+  client_ctx = OpenSSL::SSL::Context::Client.new
+  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: servername)
+  cipher = ssl_client.cipher
+  ssl_client.close
+  tcp_client.close
+  cipher
 ensure
   tcp_server.try &.close
 end
@@ -839,7 +1061,7 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/foobar_localhost_certificate.pem
         tls_key = spec/resources/foobar_localhost_key.pem
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
         served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
 
@@ -864,7 +1086,7 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/server_certificate.pem
         tls_key = spec/resources/server_key.pem
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
 
         # Add an SNI host and reload, as a SIGHUP would.
@@ -889,7 +1111,7 @@ describe LavinMQ::Launcher do
         tls_key = spec/resources/server_key.pem
         tls_prefer_server_ciphers = true
         INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
         amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
 
         File.write(config_file.path, <<-INI)
@@ -900,6 +1122,113 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
+      end
+    end
+
+    it "applies tls_ciphersuites, also after reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_min_version = 1.3
+        tls_ciphersuites = TLS_AES_128_GCM_SHA256
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_128_GCM_SHA256"
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          tls_min_version = 1.3
+          tls_ciphersuites = TLS_AES_256_GCM_SHA384
+          INI
+        launcher.reload!
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "applies the listener's cipher settings to SNI hosts' handshakes" do
+      with_launcher(<<-INI) do |launcher, _config, _config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_min_version = 1.3
+        tls_ciphersuites = TLS_AES_256_GCM_SHA384
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        # The host gets its own certificate, the listener's cipher settings
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+        negotiated_cipher(amqp_ctx, "foobar.localhost").should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "loads the key from the certificate file when a per-protocol key override is empty" do
+      combined = File.tempfile("combined-cert", ".pem")
+      File.write(combined.path, File.read("spec/resources/foobar_localhost_certificate.pem") +
+                                File.read("spec/resources/foobar_localhost_key.pem"))
+      with_launcher(<<-INI) do |launcher, _config, _config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = #{combined.path}
+        tls_key = spec/resources/server_key.pem
+        amqp_tls_key =
+        mqtt_tls_key =
+        http_tls_key =
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        # The empty overrides keep the host's tls_key out of the contexts, so
+        # the key is read from the combined certificate file.
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+      end
+    ensure
+      combined.try &.delete
+    end
+
+    it "refuses to start when an SNI host's certificate can't be read" do
+      expect_raises(LavinMQ::Config::Error, /SNI host 'foobar.localhost'/) do
+        with_launcher(<<-INI) { }
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+      end
+    end
+
+    it "keeps the running configuration when a reload brings an unreadable SNI certificate" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!("AMQP TLS context not set")
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/no_such_certificate.pem
+          INI
+        launcher.reload!
+        # The invalid reload is refused as a whole; the old certificate still serves
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
       end
     end
 

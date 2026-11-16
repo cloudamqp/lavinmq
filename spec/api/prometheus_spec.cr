@@ -138,9 +138,48 @@ describe LavinMQ::HTTP::PrometheusController do
         response = http.get("/metrics")
         response.status_code.should eq 200
         parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
-        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
-        mfile_metric.should_not be_nil
-        mfile_metric.not_nil![:value].should be >= 0
+        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }.should_not be_nil
+        mfile_metric[:value].should be >= 0
+      end
+    end
+
+    it "should expose gc pause time as a histogram" do
+      with_metrics_server do |http, _|
+        GC.collect
+        lines = http.get("/metrics").body.lines
+        lines.should contain "# TYPE lavinmq_gc_pause_seconds histogram"
+        value = ->(prefix : String) do
+          lines.find!(&.starts_with?(prefix)).split(' ').last.to_f
+        end
+        count = value.call("lavinmq_gc_pause_seconds_count ")
+        count.should be > 0
+        value.call("lavinmq_gc_pause_seconds_sum ").should be > 0
+        value.call(%(lavinmq_gc_pause_seconds_bucket{le="+Inf"} )).should eq count
+        buckets = lines.select(&.starts_with?("lavinmq_gc_pause_seconds_bucket"))
+          .map(&.split(' ').last.to_f)
+        buckets.should eq buckets.sort
+      end
+    end
+
+    it "should expose socket buffer pool stats" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("buffer_pool_metrics")
+          q.publish_confirm "m"
+          q.get.should_not be_nil
+        end
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        size = LavinMQ::Config.instance.socket_buffer_size.to_s
+        %w[available allocated_total reused_total released_total dropped_total].each do |key|
+          metric = parsed_metrics.find do |m|
+            m[:key] == "lavinmq_socket_buffer_pool_#{key}" && m[:attrs]["buffer_size"]? == size
+          end
+          metric.should_not be_nil, "lavinmq_socket_buffer_pool_#{key} missing"
+        end
+        reused = parsed_metrics.find! do |m|
+          m[:key] == "lavinmq_socket_buffer_pool_reused_total" && m[:attrs]["buffer_size"]? == size
+        end
+        reused[:value].should be > 0
       end
     end
 
@@ -200,6 +239,19 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 
   describe "GET /metrics/detailed" do
+    it "writes a body larger than the writer buffer completely" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("chunked")
+        200.times { |i| vhost.declare_queue("q-#{i}", false, false) }
+        body = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        body.bytesize.should be > LavinMQ::HTTP::PrometheusWriter::BUFFER_SIZE
+        lines = body.lines
+        ready = lines.select(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+        ready.count(&.includes?(%(vhost="chunked"))).should eq 200
+        lines.last.should start_with "telemetry_scrape_mem"
+      end
+    end
+
     it "should support specifying families" do
       with_metrics_server do |http, _|
         response = http.get("/metrics/detailed?family=connection_churn_metrics")
@@ -296,8 +348,7 @@ describe LavinMQ::HTTP::PrometheusController do
 
           lines.size.should be > 0
           relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
-          relevant.should_not be_nil
-          line = relevant.not_nil!
+          line = relevant.should_not be_nil
           # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
           line.should match(/connection="[^"]+"/)
           line.should match(/channel="[^"]+"/)
@@ -329,18 +380,14 @@ describe LavinMQ::HTTP::PrometheusController do
 
         # Verify grouping: TYPE and HELP should immediately precede the values
         # Find TYPE line index, HELP should be next, then values should follow
-        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
-        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
-        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
-
-        type_idx.should_not be_nil
-        help_idx.should_not be_nil
-        first_value_idx.should_not be_nil
+        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready")).should_not be_nil
+        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{")).should_not be_nil
 
         # HELP should come right after TYPE
-        help_idx.should eq(type_idx.not_nil! + 1)
+        help_idx.should eq(type_idx + 1)
         # First value should come right after HELP
-        first_value_idx.should eq(help_idx.not_nil! + 1)
+        first_value_idx.should eq(help_idx + 1)
       end
     end
 
@@ -367,8 +414,8 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            delivered.not_nil![:value]
+            end.should_not be_nil
+            delivered[:value]
           end
 
           should_eventually(eq(2)) do
@@ -378,11 +425,212 @@ describe LavinMQ::HTTP::PrometheusController do
               m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            end
-            acked.not_nil![:value]
+            end.should_not be_nil
+            acked[:value]
           end
         end
       end
+    end
+  end
+end
+
+describe "LavinMQ::HTTP::PrometheusController dead-lettered metrics" do
+  it "counts messages rejected or nacked without requeue" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+        plain.get(no_ack: false).should_not(be_nil).reject(requeue: false)
+        dlx.get(no_ack: false).should_not(be_nil).nack(requeue: false)
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "rejected", "at_most_once") }
+        dead_lettered_counter(http, "expired", "disabled").should eq 0
+      end
+    end
+  end
+
+  it "counts messages expired by TTL" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-message-ttl" => 1} of String => AMQ::Protocol::Field)
+        plain.publish_confirm "m"
+        dlx.publish_confirm "m"
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "expired", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages dropped by max-length and max-length-bytes as maxlen" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, _ = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        _, dlx = declare_dead_letter_queues(ch, {"x-max-length-bytes" => 1} of String => AMQ::Protocol::Field, suffix: "bytes")
+        3.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "disabled") }
+        should_eventually(eq(2)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+      end
+    end
+  end
+
+  it "counts messages exceeding the delivery limit" do
+    with_metrics_server do |http, s|
+      with_channel(s) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-delivery-limit" => 1} of String => AMQ::Protocol::Field)
+        {plain, dlx}.each do |q|
+          q.publish_confirm "m"
+          2.times { wait_for { q.get(no_ack: false) }.should_not(be_nil).reject(requeue: true) }
+        end
+
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "disabled") }
+        should_eventually(eq(1)) { dead_lettered_counter(http, "delivery_limit", "at_most_once") }
+      end
+    end
+  end
+
+  it "keeps counters when queues and vhosts are deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("dl_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        plain, dlx = declare_dead_letter_queues(ch, {"x-max-length" => 1} of String => AMQ::Protocol::Field)
+        2.times { plain.publish_confirm "m" }
+        2.times { dlx.publish_confirm "m" }
+      end
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "disabled") }
+      should_eventually(eq(1)) { dead_lettered_counter(http, "maxlen", "at_most_once") }
+
+      vhost.delete_queue("dl_plain")
+      vhost.delete_queue("dl_dlx")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
+
+      s.vhosts.delete("dl_mono")
+      dead_lettered_counter(http, "maxlen", "disabled").should eq 1
+      dead_lettered_counter(http, "maxlen", "at_most_once").should eq 1
+    end
+  end
+end
+
+describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
+  # Counter series must never decrease: rate()/increase() read a drop as a reset
+  # and fabricate a spike. These exercise the queue/vhost churn that caused it.
+
+  it "keeps global_messages_delivered_total monotonic when a queue is deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_qdel")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("doomed", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      before.should be >= 3
+
+      # Deleting the queue must not drop the global counter.
+      vhost.delete_queue("doomed")
+
+      after = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      after.should be >= before
+    end
+  end
+
+  it "keeps queues_declared_total monotonic when a vhost is deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = prometheus_counter(http, "lavinmq_queues_declared_total")
+      before.should be >= 2
+
+      s.vhosts.delete("mono_vdel")
+
+      after = prometheus_counter(http, "lavinmq_queues_declared_total")
+      after.should be >= before
+    end
+  end
+
+  it "keeps global_messages_delivered_total monotonic when a vhost is deleted via the store" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel_msg")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      before.should be >= 3
+
+      # Must survive the canonical VHostStore#delete path, not just HTTP DELETE.
+      s.vhosts.delete("mono_vdel_msg")
+
+      after = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      after.should be >= before
+    end
+  end
+
+  it "counts a fan-out publish once, not once per bound queue" do
+    with_metrics_server do |_, s|
+      vhost = s.vhosts.create("fanout_publish")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      vhost.declare_exchange("fx", "fanout", false, false)
+      %w[q1 q2 q3].each do |q|
+        vhost.declare_queue(q, false, false)
+        vhost.bind_queue(q, "fx", "")
+      end
+
+      with_channel(s, vhost: vhost.name) do |ch|
+        ch.basic_publish_confirm("m", "fx", "")
+      end
+
+      # One publish fanned out to 3 queues must still count as 1.
+      vhost.message_details[:message_stats][:publish].should eq 1
+    end
+  end
+
+  it "keeps /api/overview message_stats monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("ov_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      before.should be >= 3
+
+      s.vhosts.delete("ov_mono")
+
+      after = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      after.should be >= before
+    end
+  end
+
+  it "keeps /api/nodes queue_declared monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("node_mono")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      before.should be >= 2
+
+      s.vhosts.delete("node_mono")
+
+      after = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      after.should be >= before
     end
   end
 end
@@ -394,6 +642,7 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.status_code.should eq 200
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_pause_seconds_count").should be_true
     end
   end
 
@@ -406,6 +655,50 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
     end
   end
+end
+
+describe LavinMQ::HTTP::MetricsServer do
+  it "switches from follower to leader metrics on the same socket" do
+    with_amqp_server do |s|
+      h = LavinMQ::HTTP::MetricsServer.new
+      begin
+        addr = h.bind_tcp("127.0.0.1", 0)
+        spawn(name: "metrics listen") { h.listen }
+        Fiber.yield
+        http = HTTPSpecHelper.new(addr)
+        http.get("/metrics").body.should_not contain "lavinmq_identity_info"
+
+        h.leader = s
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        response.body.should contain "lavinmq_identity_info"
+      ensure
+        h.close
+      end
+    end
+  end
+end
+
+# Scrape /metrics and return the value of a single (unlabeled) counter series.
+def prometheus_counter(http, key : String) : Float64
+  raw = http.get("/metrics").body
+  PrometheusSpecHelper.parse_prometheus(raw).find! { |m| m[:key] == key }[:value]
+end
+
+def dead_lettered_counter(http, reason : String, strategy : String) : Float64
+  raw = http.get("/metrics").body
+  PrometheusSpecHelper.parse_prometheus(raw).find! do |m|
+    m[:key] == "lavinmq_global_messages_dead_lettered_#{reason}_total" &&
+      m[:attrs]["dead_letter_strategy"]? == strategy
+  end[:value]
+end
+
+def declare_dead_letter_queues(ch, args : Hash(String, AMQ::Protocol::Field), *, suffix = "")
+  ch.queue("dl_target#{suffix}")
+  plain = ch.queue("dl_plain#{suffix}", args: AMQP::Client::Arguments.new(args))
+  dlx_args = args.merge({"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dl_target#{suffix}"} of String => AMQ::Protocol::Field)
+  dlx = ch.queue("dl_dlx#{suffix}", args: AMQP::Client::Arguments.new(dlx_args))
+  {plain, dlx}
 end
 
 class PrometheusSpecHelper
@@ -462,5 +755,19 @@ class PrometheusSpecHelper
       s.scan(/\s/)
     end
     attrs
+  end
+end
+
+describe LavinMQ::GCPauseRecorder do
+  it "adds recorded nanoseconds to the sum in seconds" do
+    GC.disable # no real pauses may land between the snapshots
+    begin
+      sum_before = LavinMQ::GCPauseRecorder.sum
+      1000.times { LavinMQ::GCPauseRecorder.record(1_u64) }
+      LavinMQ::GCPauseRecorder.record(1_500_000_u64)
+      (LavinMQ::GCPauseRecorder.sum - sum_before).should be_close(0.001501, 1e-12)
+    ensure
+      GC.enable
+    end
   end
 end

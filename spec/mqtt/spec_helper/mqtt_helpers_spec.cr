@@ -17,7 +17,9 @@ module MqttHelpers
       tcp_listener.port,
       connect_timeout: 30)
     socket.keepalive = true
-    socket.tcp_nodelay = false
+    # Packets are written in pieces to an unbuffered socket. With Nagle each
+    # piece after the first waits for the server's delayed ACK (40 ms or more).
+    socket.tcp_nodelay = true
     socket.tcp_keepalive_idle = 60
     socket.tcp_keepalive_count = 3
     socket.tcp_keepalive_interval = 10
@@ -118,6 +120,14 @@ module MqttHelpers
     MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
   end
 
+  # After a QoS 1 publish to a topic the same client subscribes to: the PUBACK
+  # is sent once the publish is durable, so it can come after the delivery.
+  def read_delivery_and_puback(io) : MQTT::Protocol::Publish
+    packets = {read_packet(io), read_packet(io)}
+    packets.count(&.is_a?(MQTT::Protocol::PubAck)).should eq 1
+    packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
+  end
+
   def puback(io, packet_id : UInt16?)
     return if packet_id.nil?
     MQTT::Protocol::PubAck.new(packet_id).to_io(io)
@@ -140,5 +150,22 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io)
   rescue IO::TimeoutError
     nil
+  end
+
+  # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
+  # QoS needs one and none at QoS 0 [MQTT-2.3.1-5]. Use this instead of casting
+  # `read_packet` when comparing packet ids: `packet_id` is nilable, so a pair of
+  # nils would otherwise satisfy an equality assertion.
+  def read_publish(io) : MQTT::Protocol::Publish
+    # `should be_a` rather than `as`: on a read timeout `read_packet` returns nil,
+    # and a cast would report "cast from Nil" instead of naming the PUBLISH that
+    # never arrived.
+    pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+    if pub.qos.positive?
+      pub.packet_id.should_not be_nil
+    else
+      pub.packet_id.should be_nil
+    end
+    pub
   end
 end
