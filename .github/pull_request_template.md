@@ -21,4 +21,7 @@ Put reviewer-only notes (how to test, screenshots, open questions) in a PR comme
 
      Fixed: A paused queue started running again after a failover
 
-     Write "None" when users can't notice the change (refactors, specs, CI). -->
+     Write "None" when users can't notice the change (refactors, specs, CI).
+
+     A rebase merge doesn't put this description in `git log`. If you merge with
+     a rebase, copy this section into the message of one of your commits. -->
