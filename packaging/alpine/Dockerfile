@@ -1,4 +1,4 @@
-FROM 84codes/crystal:latest-alpine AS builder
+FROM 84codes/crystal:1.22.2-alpine AS builder
 RUN apk add curl openssl lz4-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .

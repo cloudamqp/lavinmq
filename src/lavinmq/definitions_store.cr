@@ -275,6 +275,10 @@ module LavinMQ
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
       queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      # Destinations each source exchange has bindings to. Deleting an
+      # exchange stores no unbinds, so its bindings are dropped through these.
+      queues_bound_from = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
+      exchanges_bound_from = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
       should_compact = false
       io = @definitions_file
       if io.size.zero?
@@ -295,11 +299,19 @@ module LavinMQ
           when AMQP::Frame::Exchange::Declare
             exchanges[f.exchange_name] = f
           when AMQP::Frame::Exchange::Delete
-            exchanges.delete f.exchange_name
-            exchange_bindings.delete f.exchange_name
+            name = f.exchange_name
+            exchanges.delete name
+            exchange_bindings.delete name
+            queues_bound_from.delete(name).try &.each do |queue_name|
+              queue_bindings[queue_name]?.try &.reject! { |b| b.exchange_name == name }
+            end
+            exchanges_bound_from.delete(name).try &.each do |destination|
+              exchange_bindings[destination]?.try &.reject! { |b| b.source == name }
+            end
             should_compact = true
           when AMQP::Frame::Exchange::Bind
             exchange_bindings[f.destination] << f
+            exchanges_bound_from[f.source] << f.destination
           when AMQP::Frame::Exchange::Unbind
             exchange_bindings[f.destination].reject! do |b|
               b.source == f.source &&
@@ -315,6 +327,7 @@ module LavinMQ
             should_compact = true
           when AMQP::Frame::Queue::Bind
             queue_bindings[f.queue_name] << f
+            queues_bound_from[f.exchange_name] << f.queue_name
           when AMQP::Frame::Queue::Unbind
             queue_bindings[f.queue_name].reject! do |b|
               b.exchange_name == f.exchange_name &&
