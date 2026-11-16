@@ -574,7 +574,7 @@ describe "Retry Queue" do
           wait_for { s.vhosts["/"].queue("amq.retry-corrupt-retry").message_count == 1 }
         end
         segment = File.join(s.vhosts["/"].queue("amq.retry-corrupt-retry").@data_dir, "msgs.0000000001")
-        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        write_at(segment, 0, 9_u32) # an unsupported schema version
         restart_server(s)
         retry_q = s.vhosts["/"].queue("amq.retry-corrupt-retry")
         retry_q.closed?.should be_false

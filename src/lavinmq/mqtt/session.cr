@@ -154,26 +154,20 @@ module LavinMQ
             delivered_bytes = 0
             Fiber.yield
           end
-        rescue ex : MessageStore::Error
+        rescue ex
           # The client stays connected: disconnecting it would only make it
           # reconnect to the same message. A restart of the broker reads it again.
-          if still_unreadable?
-            @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
-          else # another store error, or a purge removed the message meanwhile
-            @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-            @client.try &.close("Server force closed client")
-            self.client = nil
-          end
-        rescue ex
+          next stop_deliveries(ex) if ex.is_a?(MessageStore::Error) && still_unreadable?
+          # Another error, or a purge removed the message meanwhile
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           @client.try &.close("Server force closed client")
           self.client = nil
         end
       end
 
-      # Stops the deliveries if the next message can't be read. Checked again
-      # under the lock a purge holds, which may have removed it since the
-      # delivery failed.
+      # Checked again under the lock a purge holds, which may have removed the
+      # message since the delivery failed. Deliveries are stopped under it too,
+      # so that the purge isn't undone.
       private def still_unreadable? : Bool
         @msg_store_lock.synchronize do
           @msg_store.first?
@@ -184,6 +178,11 @@ module LavinMQ
         rescue MessageStore::ClosedError
           false
         end
+      end
+
+      private def stop_deliveries(ex : Exception) : Nil
+        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+        @store_readable.set(false) unless closed?
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -480,8 +479,7 @@ module LavinMQ
           end
         end
       rescue ex : MessageStore::Error
-        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
-        @store_readable.set(false) unless closed?
+        stop_deliveries(ex)
       end
 
       private def clear_policy_arguments

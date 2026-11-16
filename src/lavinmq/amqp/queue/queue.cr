@@ -803,17 +803,18 @@ module LavinMQ::AMQP
 
     # Paused by an operator, which is kept over a restart of the broker
     def pause! : Nil
-      pause(persist: true)
+      pause(store_error: false)
     end
 
     # Returns true if the queue was running
-    private def pause(persist : Bool, store_failed = false) : Bool
+    private def pause(store_error : Bool) : Bool
       @state_lock.synchronize do
         return false unless @state.running? || @state.paused?
-        # Under the lock, so that a resume can't clear it and leave the queue
-        # paused without it
-        @store_failed.set(true, :relaxed) if store_failed
-        if persist
+        # Both under the lock, so that a resume can't clear them and leave the
+        # queue paused without them
+        if store_error
+          @store_failed.set(true, :relaxed)
+        elsif !@operator_paused
           @operator_paused = true
           # Not empty: a follower applies a replaced file of zero bytes as a delete
           File.write(paused_file, @name)
@@ -834,7 +835,7 @@ module LavinMQ::AMQP
     # isn't kept over a restart of the broker, which also reads the data again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if @closed
-      if pause(persist: false, store_failed: true)
+      if pause(store_error: true)
         @log.error(ex) do
           "Paused due to a message store error. Resume the queue to try again, " \
           "or purge or delete it to give up the data that can't be read"
@@ -1407,11 +1408,20 @@ module LavinMQ::AMQP
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      if requeue
-        redeliver_message(sp, route_to_retry: true)
-      else
-        expire_msg(sp, :rejected)
+      keep_on_store_error(sp) do
+        if requeue
+          redeliver_message(sp, route_to_retry: true)
+        else
+          expire_msg(sp, :rejected)
+        end
       end
+    end
+
+    # For a message that is rejected or requeued: if it can't be read the
+    # queue is paused and the message goes back in the store as it is, to be
+    # read again once the queue is resumed
+    private def keep_on_store_error(sp : SegmentPosition, &) : Nil
+      yield
     rescue MessageStore::MissingSegment
       segment_gone(sp)
     rescue ex : MessageStore::Error
@@ -1440,12 +1450,7 @@ module LavinMQ::AMQP
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      redeliver_message(sp, route_to_retry: false)
-    rescue MessageStore::MissingSegment
-      segment_gone(sp)
-    rescue ex : MessageStore::Error
-      pause_on_store_error(ex)
-      requeue_unread(sp)
+      keep_on_store_error(sp) { redeliver_message(sp, route_to_retry: false) }
     end
 
     private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)

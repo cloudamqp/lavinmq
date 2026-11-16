@@ -48,7 +48,7 @@ module LavinMQ
       @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       # Another instance can have emptied segments in the same directory,
-      # e.g. the store of a queue that is restarted
+      # e.g. the store of a deleted queue that is declared again
       @persister.try &.flush_unlinks(@msg_dir)
       close_on_error do
         load_segments_from_disk
@@ -62,10 +62,15 @@ module LavinMQ
         load_stats_from_segments
         prune_orphaned_acks
         delete_unused_segments
-        seal_unreadable_write_segment
+        seal_at_load
         readahead_for_writes(@wfile)
         @empty.set empty?
       end
+    end
+
+    # Overridden by a store that can't open a segment before it has loaded more
+    private def seal_at_load : Nil
+      seal_unreadable_write_segment
     end
 
     # Nothing more is written to a segment with data that can't be read: it
@@ -112,14 +117,8 @@ module LavinMQ
 
     def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      while sp = @requeued.first?
-        seg = @segments[sp.segment]? || next drop_requeued
-        begin
-          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true, segment: seg)
-        rescue ex
-          raise unreadable(sp.segment, seg, ex)
-        end
+      if env = first_requeued?
+        return env
       end
 
       loop do
@@ -170,16 +169,9 @@ module LavinMQ
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      while sp = @requeued.first?
-        segment = @segments[sp.segment]? || next drop_requeued
-        begin
-          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-        rescue ex
-          # The message stays requeued, so that the read can be tried again
-          raise unreadable(sp.segment, segment, ex)
-        end
+      if env = first_requeued?
         drop_requeued
-        return Envelope.new(sp, msg, redelivered: true, segment: segment)
+        return env
       end
 
       loop do
@@ -223,6 +215,20 @@ module LavinMQ
       error = Error.new(mfile, cause: cause)
       seal_write_segment if seg == @wfile_id && !@closed
       error
+    end
+
+    # The first requeued message. If it can't be read it stays requeued, so
+    # that the read can be tried again.
+    private def first_requeued? : Envelope?
+      while sp = @requeued.first?
+        seg = @segments[sp.segment]? || next drop_requeued
+        begin
+          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
+          return Envelope.new(sp, msg, redelivered: true, segment: seg)
+        rescue ex
+          raise unreadable(sp.segment, seg, ex)
+        end
+      end
     end
 
     # Removes the first requeued message, e.g. one whose segment is gone, which
@@ -288,10 +294,7 @@ module LavinMQ
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
-          select_next_read_segment if sp.segment == @rfile_id
-          unlink_segment(sp.segment)
-          @segment_msg_count.delete(sp.segment)
-          @deleted.delete(sp.segment)
+          remove_segment(sp.segment)
         end
       rescue ex
         raise Error.new(afile, cause: ex)
@@ -345,11 +348,16 @@ module LavinMQ
       return unless @segments.has_key?(seg)
       mark_given_up(seg)
       seal_write_segment if seg == @wfile_id
+      remove_segment(seg)
+      @requeued.reject! { |sp| sp.segment == seg }
+    end
+
+    # The reader moves on from the segment, and its files are unlinked
+    private def remove_segment(seg : UInt32) : Nil
       select_next_read_segment if seg == @rfile_id
       unlink_segment(seg)
       @segment_msg_count.delete(seg)
       @deleted.delete(seg)
-      @requeued.reject! { |sp| sp.segment == seg }
     end
 
     private def mark_given_up(seg : UInt32) : Nil

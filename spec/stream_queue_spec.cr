@@ -1083,7 +1083,7 @@ describe LavinMQ::AMQP::Stream do
           q.publish_confirm "x"
         end
         segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
-        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        write_at(segment, 0, 9_u32) # an unsupported schema version
         restart_server(s)
         stream = s.vhosts["/"].queue("corrupt-stream")
         stream.closed?.should be_false
@@ -1119,7 +1119,7 @@ describe LavinMQ::AMQP::Stream do
         s.stop
 
         # The segment is kept: once it can be read, it's delivered
-        File.open(segment, "r+", &.write_bytes(LavinMQ::Schema::VERSION))
+        write_at(segment, 0, LavinMQ::Schema::VERSION)
         restart_server(s)
         with_channel(s) do |ch|
           ch.prefetch 1

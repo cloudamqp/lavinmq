@@ -347,7 +347,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           unacked = store.shift?.should_not be_nil
           segment = store.@stores[2].@segments.first_value
           # The schema version, checked when a read starts a segment
-          File.open(segment.path, "r+", &.write_bytes(9_u32))
+          write_at(segment.path, 0, 9_u32)
           segment.pos = 4
           expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
 
