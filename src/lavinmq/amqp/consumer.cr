@@ -221,10 +221,9 @@ module LavinMQ
         rescue ex : AMQP::Channel::ClosedError
           # Only raised in ack mode. The channel closed after the message was
           # shifted from the queue, so it was never recorded as unacked and
-          # close won't requeue it. When recovering, the channel still holds
-          # the original Unack, so it's not requeued here. The segment lease
-          # is released by the caller.
-          @queue.requeue(sp) unless recover
+          # close won't requeue it. The segment lease is released by the
+          # caller.
+          @queue.requeue(sp)
           raise ex
         end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
