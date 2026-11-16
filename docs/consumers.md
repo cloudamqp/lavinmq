@@ -44,6 +44,8 @@ Prefetch of `0` means unlimited delivery. The server-wide default applies when a
 |-----------|---------|---------|-------------|
 | `default_consumer_prefetch` | `[main]` | `65535` | Default per-consumer prefetch |
 
+See [Channels](channels.md#global-prefetch) for how a global prefetch is shared between the consumers on a channel.
+
 ## Single Active Consumer
 
 When a queue is declared with `x-single-active-consumer: true`, only one consumer receives messages at a time. If that consumer disconnects, the next registered consumer becomes active.
