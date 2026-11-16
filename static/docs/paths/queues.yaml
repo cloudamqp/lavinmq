@@ -182,7 +182,7 @@
   put:
     tags:
     - queues
-    description: Pause the queue. When the queue is paused, messages are not delivered to consumers.
+    description: Pause the queue. When the queue is paused, messages are not delivered to consumers. Needs configure permission on the queue, otherwise the request is refused with 403.
     summary: Pause queue
     operationId: PauseQueue
     responses:
@@ -221,7 +221,7 @@
   put:
     tags:
     - queues
-    description: Resume the queue. When the queue is paused, messages are not delivered to consumers.
+    description: Resume the queue. When the queue is paused, messages are not delivered to consumers. Needs configure permission on the queue, otherwise the request is refused with 403.
     summary: Resume queue
     operationId: ResumeQueue
     responses:

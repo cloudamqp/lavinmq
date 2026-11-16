@@ -1350,6 +1350,38 @@ describe LavinMQ::Server do
     end
   end
 
+  it "hands over to the next single active consumer while its deliver loop starts" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("sac", args: AMQ::Protocol::Table.new({"x-single-active-consumer": true}))
+        tags = Channel(String).new(10)
+        q.subscribe(no_ack: false, tag: "a") { tags.send "a" }
+        q.publish "1"
+        tags.receive.should eq "a"
+        # The queue is empty, so b gets no deliver loop until the next publish
+        q.subscribe(no_ack: false, tag: "b") { tags.send "b" }
+        queue = s.vhosts["/"].queue("sac").as(LavinMQ::AMQP::Queue)
+        # Holding the write lock suspends b's deliver loop on the socket while a's cancel is handled
+        write_lock = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).@write_lock
+        write_lock.lock
+        begin
+          queue.publish(LavinMQ::Message.new("", "sac", "2"))
+          q.unsubscribe("a")
+          wait_for { queue.single_active_consumer.try(&.as(LavinMQ::AMQP::Consumer).tag) == "b" }
+        ensure
+          write_lock.unlock
+        end
+        select
+        when tag = tags.receive
+          tag.should eq "b"
+        when timeout(2.seconds)
+          fail "b got no message after a was cancelled"
+        end
+      end
+    end
+  end
+
   it "can publish large messages to multiple queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

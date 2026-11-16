@@ -470,6 +470,16 @@ module LavinMQ
       !@tls_cert_path.empty?
     end
 
+    # The configured TCP keepalive, if any, on a connection
+    def apply_tcp_keepalive(socket : TCPSocket) : Nil
+      if keepalive = tcp_keepalive
+        socket.keepalive = true
+        socket.tcp_keepalive_idle = keepalive[0]
+        socket.tcp_keepalive_interval = keepalive[1]
+        socket.tcp_keepalive_count = keepalive[2]
+      end
+    end
+
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
       return if false?(str)
       if keepalive = str.try &.split(":")

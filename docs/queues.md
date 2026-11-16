@@ -95,7 +95,7 @@ A queue can be in one of the following states:
 | `closed` | Queue is being shut down, with the broker or before it is deleted |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. A pause is kept when the broker restarts.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. Both routes need `configure` permission on the queue, and are refused with 403 without it. A pause is kept when the broker restarts, and in a cluster when another node takes over.
 
 The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=paused` or `?state=running,paused`.
 
