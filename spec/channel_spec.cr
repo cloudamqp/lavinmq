@@ -86,7 +86,10 @@ describe LavinMQ::AMQP::Channel do
   it "should requeue a basic_get message when the channel closes during the get" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("basic-get-close")
+        # With no delivery attempt to spare, the message is dropped if the get
+        # that never reached the client counts as one
+        args = AMQP::Client::Arguments.new({"x-delivery-limit" => 0})
+        q = ch.queue("basic-get-close", args: args)
         q.publish_confirm("m")
         sq = s.vhosts["/"].queue("basic-get-close")
         server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
@@ -106,7 +109,16 @@ describe LavinMQ::AMQP::Channel do
         got.receive
         sq.unacked_count.should eq 0
         sq.message_count.should eq 1
+        sq.reject_count.should eq 0
         ch.@connection.closed?.should be_false
+      end
+      with_channel(s) do |ch|
+        msg = ch.basic_get("basic-get-close", no_ack: false).should_not be_nil
+        # Redelivered, so the get shifted it and put it back, but it's still on
+        # its first counted delivery
+        msg.redelivered.should be_true
+        msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+        msg.ack
       end
     end
   end
