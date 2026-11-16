@@ -118,6 +118,15 @@ describe LavinMQ::Clustering::Proxy do
       String.new(header).should match /\APROXY TCP4 127\.0\.0\.1 127\.0\.0\.1 #{client_addr.port} \d+\r\n\z/
     end
 
+    it "forwards data that came with the header, also beyond the read buffer used for it" do
+      LavinMQ::Config.instance.tcp_proxy_protocol = true
+      lb_header = "PROXY TCP4 203.0.113.7 10.0.0.1 40000 5672\r\n"
+      data = Bytes.new(1000) { |i| (i % 251).to_u8 }
+      received, _ = forward_through_proxy(lb_header.to_slice + data)
+      String.new(received[0, lb_header.bytesize]).should eq lb_header
+      received[lb_header.bytesize..].should eq data
+    end
+
     it "adds a header to a connection without one" do
       LavinMQ::Config.instance.tcp_proxy_protocol = true
       header, client_addr = forward_through_proxy(Bytes.empty)

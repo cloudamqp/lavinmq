@@ -1,6 +1,21 @@
 require "./spec_helper"
 require "../src/lavinmq/proxy_protocol"
 
+# Counts the writes it gets, to check that a header isn't written in pieces
+private class WriteCountingIO < IO
+  getter writes = 0
+  getter bytes_written = 0
+
+  def read(slice : Bytes)
+    0
+  end
+
+  def write(slice : Bytes) : Nil
+    @writes += 1
+    @bytes_written += slice.size
+  end
+end
+
 describe "ProxyProtocol" do
   describe "v1" do
     it "can parse valid data" do
@@ -122,6 +137,16 @@ describe "ProxyProtocol" do
       io = IO::Memory.new
       io.write_bytes header, IO::ByteFormat::NetworkEndian
       io.to_slice.should eq pp_bytes
+    end
+
+    it "writes a header in a single write" do
+      io = WriteCountingIO.new
+      src = Socket::IPAddress.new("2001:db8::1", 37424)
+      dst = Socket::IPAddress.new("2001:db8::2", 5671)
+      tlvs = [LavinMQ::ProxyProtocol::V2::TLV.new(0x04u8, Bytes.new(8))]
+      io.write_bytes LavinMQ::ProxyProtocol::V2.new(src, dst, tlvs), IO::ByteFormat::NetworkEndian
+      io.writes.should eq 1
+      io.bytes_written.should eq 16 + 36 + 3 + 8
     end
 
     it "writes and parses TCPv6 addresses" do

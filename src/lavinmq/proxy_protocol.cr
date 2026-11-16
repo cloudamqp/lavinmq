@@ -256,7 +256,9 @@ module LavinMQ
         end
       end
 
-      # The header is always in network byte order, *format* is ignored
+      # The header is always in network byte order, *format* is ignored. It's
+      # built in memory and written at once, so that on a socket with
+      # TCP_NODELAY it isn't sent as many small segments.
       def to_io(io : IO, format = IO::ByteFormat::NetworkEndian)
         src, dst = @src, @dst
         family, address_length =
@@ -272,21 +274,23 @@ module LavinMQ
         length = address_length + @tlvs.sum { |tlv| 3 + tlv.value.size }
         raise Error.new("Header too long") if length > UInt16::MAX
 
-        io.write(Signature.to_slice)
-        io.write_byte @command.value
-        io.write_byte family.value
-        io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
+        buf = IO::Memory.new(16 + length)
+        buf.write(Signature.to_slice)
+        buf.write_byte @command.value
+        buf.write_byte family.value
+        buf.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
         if src && dst
-          write_address(io, src)
-          write_address(io, dst)
-          io.write_bytes src.port.to_u16, IO::ByteFormat::NetworkEndian
-          io.write_bytes dst.port.to_u16, IO::ByteFormat::NetworkEndian
+          write_address(buf, src)
+          write_address(buf, dst)
+          buf.write_bytes src.port.to_u16, IO::ByteFormat::NetworkEndian
+          buf.write_bytes dst.port.to_u16, IO::ByteFormat::NetworkEndian
         end
         @tlvs.each do |tlv|
-          io.write_byte tlv.type
-          io.write_bytes tlv.value.size.to_u16, IO::ByteFormat::NetworkEndian
-          io.write tlv.value
+          buf.write_byte tlv.type
+          buf.write_bytes tlv.value.size.to_u16, IO::ByteFormat::NetworkEndian
+          buf.write tlv.value
         end
+        io.write(buf.to_slice)
         io.flush
       end
 

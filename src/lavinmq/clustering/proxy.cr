@@ -72,6 +72,12 @@ module LavinMQ
       private def proxy_header_for(client : TCPSocket) : ProxyProtocol::V1 | ProxyProtocol::V2
         config = Config.instance
         if config.tcp_proxy_protocol?
+          # Peeking for the header fills the read buffer, which would be the
+          # default 32 KiB, kept for the life of the connection. The header
+          # doesn't need more: the peek only matches the start of a signature,
+          # a v1 header is at most 107 bytes and a v2 header is read with
+          # read_fully. IO.copy reads unbuffered once what's buffered is drained.
+          client.buffer_size = 128
           header = ProxyProtocol.read_trusted(client, client.remote_address, config, Log)
           return header if header
         end
