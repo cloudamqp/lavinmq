@@ -47,7 +47,7 @@ Normally ECR files and static resources are baked into the binary, which is grea
 
 ### Release
 
-1. Update `CHANGELOG.md`
+1. Update `CHANGELOG.md`: collect the `### Changelog` entries from the descriptions of the PRs merged since the previous release (`git log <prev-tag>..HEAD`), and link each PR. PRs don't edit `CHANGELOG.md` themselves
 1. Bump version in `shards.yml`
 1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
 
