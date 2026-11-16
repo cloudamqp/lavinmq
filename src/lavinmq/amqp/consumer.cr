@@ -69,7 +69,7 @@ module LavinMQ
       end
 
       private def deliver_loop
-        return if stop_standby_loop?
+        return if standby_consumer?
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -116,7 +116,7 @@ module LavinMQ
       end
 
       # A standby consumer of a single active consumer queue runs no deliver loop
-      private def stop_standby_loop? : Bool
+      private def standby_consumer? : Bool
         return false if @queue.deliver_to?(self)
         @log.debug { "Not the single active consumer, exiting fiber" }
         @deliver_loop_running.set(false, :release)
