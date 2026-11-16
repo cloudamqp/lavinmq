@@ -67,12 +67,7 @@ module LavinMQ
         socket.tcp_nodelay = true
         return if socket.remote_address.loopback?
 
-        if keepalive = Config.instance.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        Config.instance.apply_tcp_keepalive(socket)
       end
     end
   end

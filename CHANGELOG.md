@@ -7,13 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- RPM packages are built for Enterprise Linux 10 (AlmaLinux 10, RHEL 10, Rocky Linux 10 etc) [#2741](https://github.com/cloudamqp/lavinmq/pull/2741)
+
+### Removed
+
+- Migration of data directories created by LavinMQ < 1.0 (schema versions 1-3). Such a data directory is now refused at startup; upgrade it with LavinMQ 2.11 first [#2482](https://github.com/cloudamqp/lavinmq/pull/2482)
+
 ### Fixed
 
+- A delayed message that came due during a shutdown, after the shutdown closed its destination queue, was lost. The broker now keeps the message in the delayed exchange and releases it after the restart [#2694](https://github.com/cloudamqp/lavinmq/pull/2694)
+- A message that was being written to a queue when the broker was killed could be delivered after the restart with part of its body missing (zero bytes), instead of being dropped like any other publish that was never confirmed. A message's timestamp is now written last, after its body, and a message without a timestamp is dropped at start. The segment format is unchanged [#2735](https://github.com/cloudamqp/lavinmq/pull/2735)
+- In a priority queue, messages of different priorities could share a delivery count. With `x-delivery-limit`, messages were dead-lettered before or after their limit, or dropped early without a dead letter exchange, and a first delivery could be flagged as redelivered. With automatic retries, messages were dead-lettered before their configured number of retries and retried with the wrong backoff. Each message now has its own delivery count [#2744](https://github.com/cloudamqp/lavinmq/pull/2744)
+- Pausing a queue or a shovel wasn't replicated to followers, so a paused durable queue or shovel started running again after a failover. The paused state is now replicated. A queue or shovel that was paused before the upgrade stays paused, and is replicated, when the node that was leader starts first on the new version, as in an in-place upgrade. After a rolling upgrade it has to be paused again [#2742](https://github.com/cloudamqp/lavinmq/pull/2742)
+- `PUT /api/queues/:vhost/:name/pause`, `/resume` and `/restart` didn't check the user's permissions on the queue, so any management user with access to the vhost could pause, resume or restart any queue in it. They now require configure permission on the queue, like delete does [#2690](https://github.com/cloudamqp/lavinmq/pull/2690)
+- On a queue with `x-single-active-consumer`, the next consumer could get no messages after the active consumer cancelled, while the queue had messages ready. The handoff was lost when it happened while the next consumer's deliver loop started. Now only the active consumer runs a deliver loop, and the handoff starts it [#2693](https://github.com/cloudamqp/lavinmq/pull/2693)
 - With thousands of connections and queues, every garbage collection rescanned the whole heap, because libgc 8.2.12 never grows its mark stack while marking in parallel. LavinMQ now links libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows it and lets the parallel markers share the parked fiber stacks; with 20k queues and 2,000 connections, pauses drop from ~240 ms to ~55 ms. Set `GC_DISABLE_GROW_MARK_STACK=1` to switch it off [#2689](https://github.com/cloudamqp/lavinmq/pull/2689)
+- A follower's full sync compared its files with the leader's in quadratic time, without letting other fibers run, which blocked its client proxies, HTTP API and replication for seconds with tens of thousands of files, and about a minute with 100,000. The comparison is now linear and lets other fibers run every 1,024 files [#2755](https://github.com/cloudamqp/lavinmq/pull/2755)
 - A queue declared while the server was low on disk space was still created, even though the declare was refused with PRECONDITION_FAILED [#2560](https://github.com/cloudamqp/lavinmq/pull/2560)
 - The Upstream column of the federation links table was always empty [#2574](https://github.com/cloudamqp/lavinmq/pull/2574)
 - The exchange page's rates chart had room for a single y axis tick and cut off its legend labels at common window widths. Charts now have a minimum height, and the legend's value column only takes the room its values need [#2572](https://github.com/cloudamqp/lavinmq/pull/2572)
 - The Bindings counter and footer on the overview sat lower than the others whenever the other cards' links wrapped, e.g. with a long uptime [#2573](https://github.com/cloudamqp/lavinmq/pull/2573)
+- Since 2.11.0, a connection that the broker closed while it held a pooled socket read buffer, such as after a failed AMQP login, didn't return the buffer to the pool. The `socket_buffer_pool_*` metrics then counted it as still in use, and the pool allocated a new buffer instead of reusing one. The buffer is now returned when the connection closes [#2692](https://github.com/cloudamqp/lavinmq/pull/2692)
 
 ## [2.11.0] - 2026-11-12
 

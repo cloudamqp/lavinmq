@@ -105,6 +105,9 @@ module LavinMQ::AMQP
     @federation_staged = false
     @delayed_retry_queue : DelayedRetryQueue?
     @retry_queue_lock = Mutex.new
+    # Keeps the state, the paused file and its replication in step when
+    # #pause! and #resume! race
+    @pause_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -130,6 +133,15 @@ module LavinMQ::AMQP
 
     def consumers_size : Int32
       @consumer_count.get(:relaxed)
+    end
+
+    # False for a standby consumer of a single active consumer queue
+    def deliver_to?(consumer : Client::Channel::Consumer) : Bool
+      return true unless @single_active_consumer_queue
+      @consumers_lock.synchronize do
+        sac = @single_active_consumer
+        sac.nil? || sac == consumer
+      end
     end
 
     def consumers_empty? : Bool
@@ -307,7 +319,6 @@ module LavinMQ::AMQP
     getter state = QueueState::Running
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
-    getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
@@ -348,9 +359,10 @@ module LavinMQ::AMQP
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
           FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
-        if File.exists?(File.join(@data_dir, "paused"))
+        if File.exists?(paused_file)
           @state = QueueState::Paused
           @paused.set(true)
+          @vhost.replicator.try &.register_file(paused_file) if durable?
         end
         handle_arguments
         init_retry_queue if settings.delayed_retry_min
@@ -466,7 +478,6 @@ module LavinMQ::AMQP
       @message_ttl_change = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
-      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
       @deliver_loop_wg = WaitGroup.new
       reset_queue_stats
     end
@@ -804,19 +815,30 @@ module LavinMQ::AMQP
     end
 
     def pause!
-      return unless @state.running?
-      @state = QueueState::Paused
-      @log.debug { "Paused" }
-      @paused.set(true)
-      File.touch(File.join(@data_dir, "paused"))
+      @pause_lock.synchronize do
+        return unless @state.running?
+        @state = QueueState::Paused
+        @log.debug { "Paused" }
+        @paused.set(true)
+        # Not empty: a follower applies a replaced file of zero bytes as a delete
+        File.write(paused_file, @name)
+        @vhost.replicator.try &.replace_file(paused_file) if durable?
+      end
     end
 
     def resume!
-      return unless @state.paused?
-      @state = QueueState::Running
-      @log.debug { "Resuming" }
-      @paused.set(false)
-      File.delete(File.join(@data_dir, "paused"))
+      @pause_lock.synchronize do
+        return unless @state.paused?
+        @state = QueueState::Running
+        @log.debug { "Resuming" }
+        @paused.set(false)
+        File.delete(paused_file)
+        @vhost.replicator.try &.delete_file(paused_file) if durable?
+      end
+    end
+
+    private def paused_file : String
+      File.join(@data_dir, "paused")
     end
 
     def close : Bool
@@ -871,6 +893,9 @@ module LavinMQ::AMQP
         @vhost.replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
           r.delete_file(dotqueue_file)
+          # Removed locally with the store's directory. Under the lock, so a
+          # concurrent #pause! can't replicate the file after this delete
+          @pause_lock.synchronize { r.delete_file(paused_file) }
         end
       end
       @vhost.delete_queue(@name)
@@ -1009,8 +1034,12 @@ module LavinMQ::AMQP
 
     private def ensure_consumers_deliver_loops : Nil
       @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          consumer.ensure_deliver_loop
+        if sac = @single_active_consumer
+          sac.ensure_deliver_loop
+        else
+          @consumers.each do |consumer|
+            consumer.ensure_deliver_loop
+          end
         end
       end
     end
@@ -1393,6 +1422,7 @@ module LavinMQ::AMQP
     # raises ClosedError if the queue is closed or about to be deleted.
     def add_consumer(consumer : Client::Channel::Consumer) : Bool
       raise ClosedError.new if @closed
+      active = false
       consumers_size = @consumers_lock.synchronize do
         raise ClosedError.new if @consumers_closed
         return false if in_exclusive_use?(consumer.exclusive?)
@@ -1405,9 +1435,11 @@ module LavinMQ::AMQP
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
         end
+        sac = @single_active_consumer
+        active = sac.nil? || sac == consumer
         @consumers.size
       end
-      consumer.ensure_deliver_loop unless @msg_store.empty?
+      consumer.ensure_deliver_loop if active && !@msg_store.empty?
       @log.debug { "Adding consumer (now #{consumers_size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
       true
@@ -1428,8 +1460,7 @@ module LavinMQ::AMQP
           if @single_active_consumer == consumer
             @single_active_consumer = @consumers.first?
             if new_consumer = @single_active_consumer
-              while @single_active_consumer_change.try_send? new_consumer
-              end
+              new_consumer.ensure_deliver_loop unless @msg_store.empty?
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
