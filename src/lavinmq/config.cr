@@ -18,6 +18,11 @@ module LavinMQ
     # boot, caught on SIGHUP reload to keep the running config.
     class Error < Exception; end
 
+    # Unsent bytes a client socket may hold before writes to it block, see
+    # `Socket#tcp_notsent_lowat=`. Small enough that a client reading slowly
+    # makes a blocked write resume well within `tcp_send_timeout`.
+    TCP_NOTSENT_LOWAT = 512 * 1024
+
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
