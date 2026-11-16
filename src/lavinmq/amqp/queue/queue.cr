@@ -850,11 +850,23 @@ module LavinMQ::AMQP
     end
 
     def resume! : Nil
+      resume(only_store_error: false)
+    end
+
+    # Not if an operator paused it, also when its store has failed as well
+    protected def resume_after_store_error : Nil
+      resume(only_store_error: true)
+    end
+
+    private def resume(only_store_error : Bool) : Nil
       # Paused on its own if it was its store that failed
       @retry_queue_lock.synchronize { @delayed_retry_queue }.try &.resume_after_store_error
       store_failed = false
       @state_lock.synchronize do
         return unless @state.paused?
+        # Checked under the lock that the resume is done in, so that a pause by
+        # an operator in between isn't undone
+        return if only_store_error && (@operator_paused || !@store_failed.get(:relaxed))
         @state = QueueState::Running
         store_failed = @store_failed.swap(false, :relaxed)
         @operator_paused = false
@@ -869,12 +881,6 @@ module LavinMQ::AMQP
         schedule_policy_limits
         ensure_expire_fiber
       end
-    end
-
-    # Not if an operator paused it, also when its store has failed as well
-    protected def resume_after_store_error : Nil
-      paused_by_error = @state_lock.synchronize { @store_failed.get(:relaxed) && !@operator_paused }
-      resume! if paused_by_error
     end
 
     private def paused_file : String
