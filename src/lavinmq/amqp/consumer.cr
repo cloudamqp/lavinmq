@@ -214,7 +214,15 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = begin
+          @channel.next_delivery_tag(@queue, sp, @no_ack, self, recover)
+        rescue ex : AMQP::Channel::ClosedError
+          # Only raised for a recover redelivery. The channel closed before it
+          # recorded the message as unacked, so close won't requeue it.
+          reject(sp)
+          @queue.reject(sp, requeue: true)
+          raise ex
+        end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
