@@ -271,7 +271,7 @@ module LavinMQ
     end
 
     private def from_follower?(remote_address) : Bool
-      @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+      @config.clustering? && @server.follower_address?(remote_address.address)
     end
 
     private def set_socket_options(socket)

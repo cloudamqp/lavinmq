@@ -91,9 +91,9 @@ module LavinMQ
       @leader_host = Atomic(String?).new(nil)
 
       # The leader's host while connected to it, client connections are
-      # forwarded there with a PROXY header the leader only accepts from the
-      # followers it has registered, see ClientListeners. So nil until it
-      # has registered this one, and while reconnecting.
+      # forwarded there with a PROXY header the leader only accepts from
+      # followers that have authenticated, see ClientListeners. So nil until
+      # this one has, and while reconnecting.
       def host : String?
         @leader_host.get
       end
@@ -191,6 +191,9 @@ module LavinMQ
         Log.info { "Connected" }
         authenticate(socket)
         Log.info { "Authenticated" }
+        # The leader trusts our PROXY headers from before it told us, and
+        # until the file list comes we may wait for another follower's sync
+        self.leader_host = @host
         set_socket_opts(socket)
         full_sync(socket, lz4)
       end
@@ -261,7 +264,6 @@ module LavinMQ
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
-        self.leader_host = @host # the leader registered this follower before sending it
 
         # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
