@@ -756,6 +756,18 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/pause", headers: hdrs)
+        response.status_code.should eq 403
+        s.vhosts["/"].queue("confqueue").state.should eq LavinMQ::QueueState::Running
+      end
+    end
   end
 
   describe "PUT /api/queues/vhost/name/resume" do
@@ -780,6 +792,20 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["state"].should eq "running"
         end
+      end
+    end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        q = s.vhosts["/"].queue("confqueue")
+        q.pause!
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/resume", headers: hdrs)
+        response.status_code.should eq 403
+        q.state.should eq LavinMQ::QueueState::Paused
       end
     end
   end

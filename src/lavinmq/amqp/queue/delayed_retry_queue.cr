@@ -21,9 +21,8 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
-    # A retry queue never closes on its own, only with its primary queue, so
-    # a reject never closes or deletes it, which would take the definitions
-    # lock while the rejecting channel holds its own lock.
+    # Never closes or deletes the queue, which would take the definitions lock
+    # while the rejecting channel holds its own lock
     def delay(msg : Message) : Bool
       return false if closed?
       @msg_store_lock.synchronize do

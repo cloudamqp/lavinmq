@@ -205,9 +205,15 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def release_idle_pages : Nil
+        return if @closed
+        @stores.each &.release_idle_pages
+      end
+
+      def purge_all : UInt32
+        count = @stores.sum(0u32, &.purge_all)
         @empty.set true
+        count
       end
 
       def delete

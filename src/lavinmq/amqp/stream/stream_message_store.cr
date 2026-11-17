@@ -17,18 +17,22 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
+    # segment_id => position of every 64th message, so an offset lookup needn't scan from the segment start
+    @offset_index = Hash(UInt32, Array(UInt32)).new
+    OFFSET_INDEX_INTERVAL = 64
+    # Segment, position and count of the last lookup, so requeues in delivery order only scan forward
+    @offset_cursor = {0u32, 0u32, 0i64}
 
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
-      seal_write_segment if @wfile_unreadable
-      @wfile_unreadable = false
+      seal_unreadable_write_segment
       drop_overflow
     end
 
     # Done in #initialize, as a new segment needs the last offset
-    private def seal_unreadable_write_segment : Nil
+    private def seal_at_load : Nil
     end
 
     # #open_new_segment takes the last offset as the segment's first, which
@@ -131,18 +135,29 @@ module LavinMQ::AMQP
       mfile = @segments[seg]? || return
       return if mfile == @wfile
       mfile.dontneed
+      @offset_index.delete(seg)
     end
 
+    # Scans from the nearest indexed position or the last lookup before `pos`
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
-      mfile.pos = 4
+      index = @offset_index.put_if_absent(seg) { [4u32] }
+      i = (index.bsearch_index { |p| p > pos } || index.size) - 1
+      count = i.to_i64 * OFFSET_INDEX_INTERVAL
+      mfile.pos = index[i]
+      cursor_seg, cursor_pos, cursor_count = @offset_cursor
+      if cursor_seg == seg && index[i] < cursor_pos && cursor_pos <= pos
+        mfile.pos = cursor_pos
+        count = cursor_count
+      end
       while mfile.pos < pos
         BytesMessage.skip(mfile)
-        offset += 1
+        count += 1
+        index << mfile.pos.to_u32 if count == index.size * OFFSET_INDEX_INTERVAL
       end
-      {offset, seg, pos}
+      @offset_cursor = {seg, pos, count}
+      {@segment_first_offset[seg] + count, seg, pos}
     rescue ex : IndexError # first segment can be empty if message size >= segment size
       return offset_at(seg + 1, 4_u32, true) unless retried
       raise ex
@@ -170,7 +185,8 @@ module LavinMQ::AMQP
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
           unmap_if_unused(segment)
-          if segment = @segments.each_key.find { |sid| sid > segment }
+          if following = next_segment_id(segment)
+            segment = following
             rfile = @segments[segment]
             read_ahead(rfile)
             pos = 4u32
@@ -179,6 +195,7 @@ module LavinMQ::AMQP
             return last_offset_seg_pos
           end
         end
+        verify_schema(rfile) if pos == 4
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
 
         case offset
@@ -188,7 +205,12 @@ module LavinMQ::AMQP
         msg_offset += 1
         pos += msg.bytesize.to_u32
       rescue ex
-        raise rfile ? Error.new(rfile, cause: ex) : ex
+        raise ex unless rfile
+        # The rest of the segment can't be read: the search continues in the
+        # next one, where a consumer that reads this segment continues too
+        # (see #skip_unreadable_segment)
+        @log.warn(exception: ex) { "Segment #{segment} can't be read from pos #{pos}, looking for offset #{offset} after it" }
+        pos = rfile.size.to_u32
       end
       {msg_offset, segment, pos}
     end
@@ -298,23 +320,18 @@ module LavinMQ::AMQP
     end
 
     private def shift_requeued(consumer) : Envelope?
-      while sp = consumer.requeued.first?
+      while sp = consumer.requeued.shift?
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
-            # Only removed once it's read, so that a failed read can be tried again
-            consumer.requeued.shift?
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
             # Not redelivered, like one whose segment has expired
-            consumer.requeued.shift?
             @log.error(exception: ex) { "Requeued message #{sp} can't be read, consumer #{consumer.tag} continues without it" }
           end
-        else
-          consumer.requeued.shift?
         end
       end
     end
@@ -434,6 +451,8 @@ module LavinMQ::AMQP
         @segment_last_ts.delete(seg_id)
         @segment_first_offset.delete(seg_id)
         @segment_first_ts.delete(seg_id)
+        @offset_index.delete(seg_id)
+        @offset_cursor = {0u32, 0u32, 0i64} if @offset_cursor[0] == seg_id
         @bytesize -= mfile.size - 4
         delete_file(mfile, including_meta: true)
         true
@@ -468,6 +487,10 @@ module LavinMQ::AMQP
     # offset and timestamps from
     private def count_unreadable(seg : UInt32, mfile : MFile, pos : Int, readable_unacked : UInt32 = 0u32) : Nil
       super
+      segment_without_first_message(seg)
+    end
+
+    private def segment_without_first_message(seg : UInt32) : Nil
       previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
       previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
       @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
@@ -481,11 +504,7 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
-        @segment_first_ts[seg] = RoughTime.unix_ms
-        @segment_last_ts[seg] = RoughTime.unix_ms
+        segment_without_first_message(seg)
       else
         previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64

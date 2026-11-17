@@ -10,6 +10,7 @@ class SpyReplicator
   getter registered_files = Hash(String, Symbol).new
   getter deleted_files = Set(String).new
   getter replaced_files = Array(String).new
+  getter appended_values = Array({String, UInt32 | Int32}).new
 
   def register_file(path : String)
     @registered_files[path] = :path
@@ -35,6 +36,7 @@ class SpyReplicator
   end
 
   def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+    @appended_values << {path, value}
   end
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
@@ -181,6 +183,42 @@ end
     end
   end
 {% end %}
+
+# A message body that calls a block once half of it is read, which is when
+# that half is written to the segment
+class HalfwayBody < IO
+  def initialize(@body : Bytes, &@halfway : ->)
+    @pos = 0
+  end
+
+  def read(slice : Bytes) : Int32
+    half = @body.size // 2
+    @halfway.call if @pos == half
+    limit = @pos < half ? half : @body.size
+    len = Math.min(slice.size, limit - @pos)
+    @body[@pos, len].copy_to(slice)
+    @pos += len
+    len
+  end
+
+  def write(slice : Bytes) : Nil
+    raise IO::Error.new("Can't write to a HalfwayBody")
+  end
+end
+
+private def halfway_message(bodysize, &halfway : ->) : LavinMQ::Message
+  body = HalfwayBody.new(("b" * bodysize).to_slice, &halfway)
+  LavinMQ::Message.new(RoughTime.unix_ms, "ex", "rk", AMQ::Protocol::Properties.new, bodysize.to_u64, body)
+end
+
+# Copies the store's segment as it is in the page cache, at its full capacity,
+# to a new directory. That's what a crash at that point leaves on disk.
+private def crash_image(store, dir, name) : String
+  image_dir = File.join(dir, name)
+  Dir.mkdir(image_dir)
+  File.copy(store.@segments.last_value.path, File.join(image_dir, "msgs.0000000001"))
+  image_dir
+end
 
 private def shift_body(store) : String
   env = store.shift?.should_not be_nil
@@ -449,6 +487,36 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "keeps the count of a segment with an unsupported schema version that has a meta file" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        counts = store.@segment_msg_count.dup
+        counts.size.should eq 2
+        store.close
+        write_at(File.join(dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.@segment_msg_count.should eq counts # a stream's offsets depend on it
+        store.size.should eq 5
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.close
+      end
+    end
+
+    it "replicates that a segment is given up, for a follower that is promoted before the unlink" do
+      mktmpdir do |dir|
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        write_at(File.join(dir, "msgs.0000000001"), 0, 0x64636261) # schema version
+        store.purge(1)
+        replicator.appended_values.should contain({File.join(dir, "acks.0000000001"), UInt32::MAX})
+        store.close
+      end
+    end
+
     it "is given up by purge_all" do
       with_store do |store|
         store.push(LavinMQ::Message.new("ex", "rk", "body"))
@@ -479,6 +547,55 @@ describe LavinMQ::MessageStore do
         store = LavinMQ::MessageStore.new(dir, nil)
         store.size.should eq 0
         store.shift?.should be_nil
+        store.close
+      end
+    end
+  end
+
+  describe "a message that isn't completely written" do
+    it "isn't loaded after a crash while its body was written" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(File.join(dir, "store").tap { |d| Dir.mkdir(d) }, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "first"))
+        crashed = ""
+        store.push(halfway_message(4096) { crashed = crash_image(store, dir, "crashed") })
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed, nil)
+        store.size.should eq 1
+        # A shorter message takes its place, and the rest of it must not be
+        # loaded as a message after another crash
+        store.push(LavinMQ::Message.new("ex", "rk", "second"))
+        crashed_again = crash_image(store, dir, "crashed_again")
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed_again, nil)
+        store.size.should eq 2
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
+        store.shift?.should be_nil
+        store.close
+      end
+    end
+
+    it "is removed when its body can't be read" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(File.join(dir, "store").tap { |d| Dir.mkdir(d) }, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "first"))
+        expect_raises(IO::Error, "Spec body failure") do
+          store.push(halfway_message(4096) { raise IO::Error.new("Spec body failure") })
+        end
+        store.size.should eq 1
+        store.push(LavinMQ::Message.new("ex", "rk", "second"))
+        crashed = crash_image(store, dir, "crashed")
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
+        store.close
+
+        store = LavinMQ::MessageStore.new(crashed, nil)
+        store.size.should eq 2
+        shift_body(store).should eq "first"
+        shift_body(store).should eq "second"
         store.close
       end
     end
@@ -1117,8 +1234,10 @@ describe LavinMQ::MessageStore do
           store.closed.should be_false
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
           (seg_files + ack_files).each { |f| registered.should contain(f) }
-          # Kept until a purge gives it up, also with all its readable msgs acked
-          File.exists?(File.join(dir, seg_files[corrupt_idx])).should be_true
+          # The last segment has no meta file with its count, so it's kept
+          # until a purge gives it up. The others have, and all their msgs
+          # are acked.
+          File.exists?(File.join(dir, seg_files[corrupt_idx])).should eq(corrupt_idx == -1)
         end
       end
     end

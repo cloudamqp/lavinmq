@@ -40,6 +40,7 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      @client_lock = Mutex.new
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
@@ -141,39 +142,45 @@ module LavinMQ
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
           client = @client
+          if @msg_store.empty?
+            client.try &.flush
+            next @msg_store.empty.when_false.receive?
+          end
           next @has_client.when_true.receive? if client.nil?
-          next @has_capacity.when_true.receive? unless @has_capacity.value
-          next @store_readable.when_true.receive? unless @store_readable.value
+          unless @has_capacity.value
+            client.flush
+            next @has_capacity.when_true.receive?
+          end
+          unless @store_readable.value
+            client.flush
+            next @store_readable.when_true.receive?
+          end
           get_packet do |pub_packet, bytesize|
-            client.send(pub_packet)
+            client.send(pub_packet, flush: false)
             delivered_bytes &+= bytesize
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
+            client.flush
             Fiber.yield
           end
-        rescue ex : MessageStore::Error
+        rescue ex
           # The client stays connected: disconnecting it would only make it
           # reconnect to the same message. A restart of the broker reads it again.
-          if still_unreadable?
-            @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
-          else # another store error, or a purge removed the message meanwhile
-            @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-            @client.try &.close("Server force closed client")
-            self.client = nil
-          end
-        rescue ex
+          next stop_deliveries(ex) if ex.is_a?(MessageStore::Error) && still_unreadable?
+          # Another error, or a purge removed the message meanwhile
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          if client
+            client.close("Server force closed client")
+            detach(client)
+          end
         end
       end
 
-      # Stops the deliveries if the next message can't be read. Checked again
-      # under the lock a purge holds, which may have removed it since the
-      # delivery failed.
+      # Checked again under the lock a purge holds, which may have removed the
+      # message since the delivery failed. Deliveries are stopped under it too,
+      # so that the purge isn't undone.
       private def still_unreadable? : Bool
         @msg_store_lock.synchronize do
           @msg_store.first?
@@ -184,6 +191,11 @@ module LavinMQ
         rescue MessageStore::ClosedError
           false
         end
+      end
+
+      private def stop_deliveries(ex : Exception) : Nil
+        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+        @store_readable.set(false) unless closed?
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -212,6 +224,17 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
+        @client_lock.synchronize { attach(client) }
+      end
+
+      # Detaches *client*, unless another connection has replaced it
+      def detach(client : MQTT::Client) : Nil
+        @client_lock.synchronize do
+          attach(nil) if @client.same?(client)
+        end
+      end
+
+      private def attach(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
 
@@ -461,6 +484,8 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        # The first message can't be read, the limit is enforced after a purge
+        return unless @store_readable.value
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -477,6 +502,8 @@ module LavinMQ
             end
           end
         end
+      rescue ex : MessageStore::Error
+        stop_deliveries(ex)
       end
 
       private def clear_policy_arguments

@@ -43,6 +43,7 @@ jobs:
         run: |
           git_describe=$(git describe --tags)
           echo "version=${git_describe:1}" >> $GITHUB_ENV
+          echo "deb_version=$(./packaging/debian/deb-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
@@ -51,8 +52,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:latest-${{ matrix.os }}
+            build_image=84codes/crystal:1.22.2-${{ matrix.os }}
             version=${{ env.version }}
+            deb_version=${{ env.deb_version }}
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
 

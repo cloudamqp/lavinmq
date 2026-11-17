@@ -417,6 +417,25 @@ describe "Retry Queue" do
       end
     end
 
+    it "doesn't requeue a message that was rejected without requeue when deleting it fails" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("reject-delete-error")
+          queue = s.vhosts["/"].queue("reject-delete-error")
+          q.publish_confirm "x"
+          msg = wait_for { q.get(no_ack: false) }
+          LavinMQ::MessageStore.fail_next_delete = true
+          msg.reject(requeue: false)
+          wait_for { queue.state.paused? }
+          queue.message_count.should eq 0
+          queue.unacked_count.should eq 0
+          ch.closed?.should be_false
+        end
+      ensure
+        LavinMQ::MessageStore.fail_next_delete = false
+      end
+    end
+
     it "keeps the retry queue paused by an operator when its queue is resumed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
@@ -429,6 +448,11 @@ describe "Retry Queue" do
         primary.pause!
         primary.resume!
         primary.state.running?.should be_true
+        retry_q.state.paused?.should be_true
+        File.exists?(File.join(retry_q.@data_dir, "paused")).should be_true
+        # Also when its store fails while it's paused
+        retry_q.@store_failed.set(true)
+        primary.resume!
         retry_q.state.paused?.should be_true
         File.exists?(File.join(retry_q.@data_dir, "paused")).should be_true
         retry_q.resume!
@@ -550,7 +574,7 @@ describe "Retry Queue" do
           wait_for { s.vhosts["/"].queue("amq.retry-corrupt-retry").message_count == 1 }
         end
         segment = File.join(s.vhosts["/"].queue("amq.retry-corrupt-retry").@data_dir, "msgs.0000000001")
-        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        write_at(segment, 0, 9_u32) # an unsupported schema version
         restart_server(s)
         retry_q = s.vhosts["/"].queue("amq.retry-corrupt-retry")
         retry_q.closed?.should be_false

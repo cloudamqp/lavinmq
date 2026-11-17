@@ -42,8 +42,9 @@ module LavinMQ
     end
 
     def reject!(& : T -> Bool) : Nil
+      size = @heap.size
       @heap.reject! { |value| yield value }
-      @heap.sort! # a sorted array is a heap
+      @heap.sort! unless @heap.size == size # a sorted array is a heap
     end
 
     private def sift_up(idx : Int32) : Nil

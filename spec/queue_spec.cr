@@ -541,6 +541,30 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "ends an operator's pause at their resume, also when the queue stays paused by its store" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-max-length" => 1}))
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+          queue.pause!
+          paused_file = File.join(queue.@data_dir, "paused")
+          File.exists?(paused_file).should be_true
+          # Paused by its store too, on the limit
+          2.times { q.publish_confirm "more" }
+          queue.@store_failed.get.should be_true
+
+          # Enforcing the limit fails on the same data, the queue stays paused
+          queue.resume!
+          queue.state.paused?.should be_true
+          File.exists?(paused_file).should be_false
+          queue.@operator_paused.should be_false
+        end
+      end
+    end
+
     it "is given up by a purge" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -553,7 +577,8 @@ describe LavinMQ::AMQP::Queue do
           q.get(no_ack: true).should be_nil
           queue.state.paused?.should be_true
 
-          q.purge
+          # Counts the messages purged, not the data that can't be read
+          queue.purge.should eq 0
           queue.message_count.should eq 0
           queue.resume!
           q.publish_confirm "third"
@@ -639,10 +664,10 @@ describe LavinMQ::AMQP::Queue do
 
           write_at(segment.path, flags_pos, 0x0000u16)
           queue.resume!
-          q.publish_confirm("last").should be_true
+          # Enforced by the resume, before a consumer is delivered what the limit drops
           queue.message_count.should eq 2
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "msg2"
           q.get(no_ack: true).try(&.body_io.to_s).should eq "msg3"
-          q.get(no_ack: true).try(&.body_io.to_s).should eq "last"
         end
       end
     end
@@ -1148,6 +1173,25 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "keeps the segment mapped when the queue is closed during a recover redelivery" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        sp = nil
+        q.basic_get(false) { |env| sp = env.segment_position }.should be_true
+        mfile = nil
+        # What basic.recover(requeue: false) does to redeliver an unacked message
+        q.read(sp.should_not be_nil) do |env|
+          segment = segment_file.call(q, env.segment_position)
+          mfile = segment
+          q.close
+          segment.closed?.should be_false
+          env.redelivered.should be_true
+          String.new(env.message.body).should eq body
+        end
+        mfile.try(&.closed?).should be_true
+      end
+    end
+
     it "doesn't truncate a segment reopened before the deferred close" do
       with_queue do |q|
         q.publish(LavinMQ::Message.new("", q.name, body))
@@ -1197,6 +1241,8 @@ describe LavinMQ::AMQP::Queue do
           expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
             ch.queue("test_queue_flow", durable: true)
           end
+          ch.@connection.channel
+          s.vhosts["/"].queue?("test_queue_flow").should be_nil
         end
       end
     ensure
@@ -1751,6 +1797,76 @@ describe LavinMQ::AMQP::Queue do
       wakeup.should be > (ttl - 1_000).milliseconds
     end
   end
+
+  {% if flag?(:linux) %}
+    describe "Idle segment pages" do
+      body = "x" * 1024
+
+      it "unmaps the write segment when a consumer's deliver loop idles out on the empty queue" do
+        config = LavinMQ::Config.new
+        config.deliver_loop_idle_timeout = 500.milliseconds
+        with_amqp_server(config: config) do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages")
+            path = s.vhosts["/"].queue("idle-pages").@msg_store.@wfile.path
+            msgs = Channel(Nil).new(100)
+            q.subscribe(no_ack: true) { msgs.send nil }
+            100.times { q.publish body }
+            100.times { msgs.receive }
+            mapped_rss_kb(path).should be > 0
+            should_eventually(eq 0) { mapped_rss_kb(path) }
+            q.publish body
+            msgs.receive
+          end
+        end
+      end
+
+      it "unmaps the write segment when the last consumer leaves" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages-left")
+            queue = s.vhosts["/"].queue("idle-pages-left")
+            path = queue.@msg_store.@wfile.path
+            100.times { |i| q.publish_confirm "#{i} #{body}" }
+            ch.prefetch(count: 1)
+            acked = Atomic(Int32).new(0)
+            tag = q.subscribe(no_ack: false) do |msg|
+              next if acked.get >= 50 # leaves the 51st unacked, so no more are delivered
+              msg.ack
+              acked.add(1)
+            end
+            wait_for { acked.get == 50 }
+            mapped_rss_kb(path).should be > 0
+            q.unsubscribe(tag)
+            should_eventually(eq 0) { mapped_rss_kb(path) }
+            # The backlog is still readable, from the page cache
+            (51...100).each do |i|
+              msg = q.get(no_ack: true).should_not be_nil
+              msg.body_io.to_s.should eq "#{i} #{body}"
+            end
+          end
+        end
+      end
+
+      it "unmaps every sub store's write segment of a priority queue" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue("idle-pages-prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 2}))
+            store = s.vhosts["/"].queue("idle-pages-prio").@msg_store.as(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+            paths = store.@stores.map { |sub| sub.@wfile.path }
+            3.times do |prio|
+              10.times { q.publish_confirm body, props: AMQP::Client::Properties.new(priority: prio.to_u8) }
+            end
+            tag = q.subscribe(no_ack: true) { }
+            should_eventually(eq 0) { s.vhosts["/"].queue("idle-pages-prio").message_count }
+            paths.each { |path| mapped_rss_kb(path).should be > 0 }
+            q.unsubscribe(tag)
+            should_eventually(eq 0) { paths.sum { |path| mapped_rss_kb(path) } }
+          end
+        end
+      end
+    end
+  {% end %}
 
   describe "Idle fiber management" do
     it "should not start message_expire_loop for empty queue" do
