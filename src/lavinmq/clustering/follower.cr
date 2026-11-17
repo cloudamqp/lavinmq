@@ -61,13 +61,15 @@ module LavinMQ
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
-      def negotiate!(password) : Nil
+      # *on_authenticated* is called once the follower is authenticated,
+      # before it's told so
+      def negotiate!(password, on_authenticated : Proc(Nil)? = nil) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
         if @protocol_version < 3
-          authenticate_password!(password)
+          authenticate_password!(password, on_authenticated)
         else
-          authenticate_challenge!(password)
+          authenticate_challenge!(password, on_authenticated)
         end
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         Config.instance.apply_tcp_keepalive(@socket)
@@ -213,15 +215,15 @@ module LavinMQ
       end
 
       # Versions 1 and 2 send the password
-      private def authenticate_password!(password) : Nil
+      private def authenticate_password!(password, on_authenticated) : Nil
         len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         client_password = @socket.read_string(len)
-        authenticated!(Crypto::Subtle.constant_time_compare(password, client_password))
+        authenticated!(Crypto::Subtle.constant_time_compare(password, client_password), on_authenticated)
       end
 
       # The follower proves it knows the password, then the leader does,
       # see StartV3
-      private def authenticate_challenge!(password) : Nil
+      private def authenticate_challenge!(password, on_authenticated) : Nil
         nonce = Random::Secure.random_bytes(CHALLENGE_SIZE)
         @socket.write(StartV3 + nonce)
         follower_nonce = Bytes.new(CHALLENGE_SIZE)
@@ -229,12 +231,13 @@ module LavinMQ
         response = Bytes.new(RESPONSE_SIZE)
         @socket.read_fully(response)
         expected = Clustering.challenge_response(password, :follower, nonce, follower_nonce)
-        authenticated!(Crypto::Subtle.constant_time_compare(response, expected))
+        authenticated!(Crypto::Subtle.constant_time_compare(response, expected), on_authenticated)
         @socket.write Clustering.challenge_response(password, :leader, nonce, follower_nonce)
       end
 
-      private def authenticated!(ok : Bool) : Nil
+      private def authenticated!(ok : Bool, on_authenticated) : Nil
         if ok
+          on_authenticated.try &.call
           @socket.write_byte 0u8
         else
           @socket.write_byte 1u8

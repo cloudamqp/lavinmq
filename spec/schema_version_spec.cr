@@ -51,31 +51,32 @@ describe LavinMQ::SchemaVersion do
       end
     end
   end
-end
 
-describe LavinMQ::Schema do
-  it "neither backs up nor restores the node's own clustering files, nor sockets" do
-    with_datadir do |data_dir|
-      File.write(File.join(data_dir, ".clustering_id"), "id")
-      File.write(File.join(data_dir, "vhosts.json"), "[]")
-      # Like lavinmqctl's, when it's configured in the data dir
-      socket = UNIXServer.new(File.join(data_dir, "control.sock"))
-      LavinMQ::Schema.migrate(data_dir, nil)
-      backup = Dir.children(File.join(data_dir, "backups")).first
-      Dir.children(File.join(data_dir, "backups", backup)).should eq ["vhosts.json"]
-    ensure
-      socket.try &.close
+  describe "data directory" do
+    it "writes schema_version to a new data directory" do
+      with_datadir do |data_dir|
+        LavinMQ::Schema.verify(data_dir, nil)
+        File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
+      end
     end
-    with_datadir do |data_dir|
-      File.write(File.join(data_dir, ".clustering_id"), "id")
-      File.write(File.join(data_dir, "vhosts.json"), "not json")
-      socket = UNIXServer.new(File.join(data_dir, "control.sock"))
-      expect_raises(JSON::ParseException) { LavinMQ::Schema.migrate(data_dir, nil) }
-      File.read(File.join(data_dir, ".clustering_id")).should eq "id"
-      File.read(File.join(data_dir, "vhosts.json")).should eq "not json"
-      File.info(File.join(data_dir, "control.sock")).type.socket?.should be_true
-    ensure
-      socket.try &.close
+
+    it "refuses a pre 1.0 data directory without schema_version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion, /LavinMQ < 1.0/) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+        File.exists?(File.join(data_dir, "schema_version")).should be_false
+      end
+    end
+
+    it "refuses an unknown schema version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "schema_version"), "5")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+      end
     end
   end
 end

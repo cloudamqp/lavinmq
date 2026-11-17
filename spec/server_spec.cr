@@ -1028,6 +1028,44 @@ describe LavinMQ::Server do
     end
   end
 
+  it "recover(requeue=false) redelivers to the original consumer" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        q.publish "m1"
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        first = msgs.receive
+        ch.basic_recover(requeue: false)
+        m = msgs.receive
+        m.body_io.to_s.should eq "m1"
+        m.redelivered.should be_true
+        m.delivery_tag.should_not eq first.delivery_tag
+        m.ack
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 0
+      end
+    end
+  end
+
+  {true, false}.each do |requeue|
+    it "basic_recover releases basic.get messages (requeue #{requeue})" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue("recover-get")
+          3.times { q.publish "m1" }
+          q.get(no_ack: false).should_not be_nil
+          ch.basic_recover(requeue: requeue)
+          s.vhosts["/"].queue(q.name).basic_get_unacked_size.should eq 0
+          delivered = 0
+          q.subscribe(no_ack: false) { |_m| delivered += 1 }
+          sleep 50.milliseconds
+          delivered.should eq 1
+        end
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1107,6 +1145,38 @@ describe LavinMQ::Server do
         args["x-overflow"] = "reject-publish"
         q = ch.queue("", args: args)
         q.publish_confirm("m1").should be_false
+      end
+    end
+  end
+
+  it "nacks but doesn't return a mandatory publish that a full queue rejects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish_confirm("m1", "", q.name, mandatory: true).should be_false
+        ch.basic_publish_confirm("m2", "", "unroutable", mandatory: true).should be_true
+        returned.receive.should eq "unroutable"
+      end
+    end
+  end
+
+  it "doesn't return a mandatory publish that a full queue rejects without confirms" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish("m1", "", q.name, mandatory: true)
+        ch.basic_publish("m2", "", "unroutable", mandatory: true)
+        returned.receive.should eq "unroutable"
       end
     end
   end
@@ -1313,6 +1383,38 @@ describe LavinMQ::Server do
           msg.ack
         ensure
           q.delete
+        end
+      end
+    end
+  end
+
+  it "hands over to the next single active consumer while its deliver loop starts" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("sac", args: AMQ::Protocol::Table.new({"x-single-active-consumer": true}))
+        tags = Channel(String).new(10)
+        q.subscribe(no_ack: false, tag: "a") { tags.send "a" }
+        q.publish "1"
+        tags.receive.should eq "a"
+        # The queue is empty, so b gets no deliver loop until the next publish
+        q.subscribe(no_ack: false, tag: "b") { tags.send "b" }
+        queue = s.vhosts["/"].queue("sac").as(LavinMQ::AMQP::Queue)
+        # Holding the write lock suspends b's deliver loop on the socket while a's cancel is handled
+        write_lock = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).@write_lock
+        write_lock.lock
+        begin
+          queue.publish(LavinMQ::Message.new("", "sac", "2"))
+          q.unsubscribe("a")
+          wait_for { queue.single_active_consumer.try(&.as(LavinMQ::AMQP::Consumer).tag) == "b" }
+        ensure
+          write_lock.unlock
+        end
+        select
+        when tag = tags.receive
+          tag.should eq "b"
+        when timeout(2.seconds)
+          fail "b got no message after a was cancelled"
         end
       end
     end

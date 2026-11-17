@@ -3,6 +3,7 @@ require "benchmark"
 require "../controller"
 require "../binding_helpers"
 require "../../../stdlib/io_buffered"
+require "../../gc_pause"
 
 module LavinMQ
   module HTTP
@@ -52,6 +53,7 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(le: String) |
                            NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(dead_letter_strategy: String) |
@@ -218,6 +220,19 @@ module LavinMQ
         writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
                       type: "counter",
                       help: "Total amount of memory obtained from OS, in bytes"})
+
+        gc_pause_metrics(writer)
+      end
+
+      private def gc_pause_metrics(writer)
+        writer.write_header("gc_pause_seconds", "histogram", "Stop-the-world GC pause durations in seconds")
+        count = 0_u64
+        LavinMQ::GCPauseRecorder.each_bucket do |le, cumulative|
+          writer.write_value("gc_pause_seconds_bucket", cumulative, {le: le.nil? ? "+Inf" : le.to_s})
+          count = cumulative
+        end
+        writer.write({name: "gc_pause_seconds_sum", value: LavinMQ::GCPauseRecorder.sum})
+        writer.write({name: "gc_pause_seconds_count", value: count})
       end
     end
 

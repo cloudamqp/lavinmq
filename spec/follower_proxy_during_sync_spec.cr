@@ -218,4 +218,100 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "slo
       end
     end
   end
+
+  it "uses the client address from a synced follower's header when the follower isn't a trusted source" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |leader_s|
+        leader_s.@config.clustering = true
+        leader_s.@config.default_user_only_loopback = false
+        leader_s.@config.tcp_proxy_protocol = true
+        leader_s.@config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("10.9.9.9")
+        mqtt_tcp = TCPServer.new("localhost", 0)
+        leader_s.mqtt_server.bind_tcp(mqtt_tcp)
+        spawn(name: "mqtt listener") { leader_s.mqtt_server.listen }
+        Fiber.yield
+
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+        mqtt_port = mqtt_tcp.local_address.port
+        client_socket = TCPSocket.new("localhost", mqtt_port)
+        client_socket.read_timeout = 1.second
+
+        begin
+          client_socket.write "PROXY TCP4 192.168.1.100 127.0.0.1 54321 #{mqtt_port}\r\n".to_slice
+          io = MQTT::Protocol::IO.new(client_socket)
+          MQTT::Protocol::Connect.new("c1", false, 30u16, "guest", "guest".to_slice, nil).to_io(io)
+          connack = MQTT::Protocol::Packet.from_io(io).should be_a(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          conn = leader_s.vhosts["/"].connections.first.as(LavinMQ::MQTT::Client)
+          conn.connection_info.remote_address.address.should eq "192.168.1.100"
+        ensure
+          client_socket.close rescue nil
+        end
+
+        cluster.stop
+      end
+    end
+  end
+
+  it "trusts a follower's PROXY header from when it authenticates, before it's registered" do
+    config = LavinMQ::Config.instance.dup
+    FileUtils.mkdir_p(config.data_dir)
+    replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
+    listener = TCPServer.new("127.0.0.1", 0)
+    spawn(replicator.listen(listener), name: "leader clustering")
+    password = replicator.password
+    socket = TCPSocket.new("127.0.0.1", listener.local_address.port)
+    socket.read_timeout = 5.seconds
+    socket.write LavinMQ::Clustering::StartV3
+    header = Bytes.new(8)
+    socket.read_fully(header)
+    leader_nonce = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+    socket.read_fully(leader_nonce)
+    nonce = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+    socket.write nonce
+    socket.write LavinMQ::Clustering.challenge_response(password, :follower, leader_nonce, nonce)
+    socket.read_byte.should eq 0u8 # authenticated, the id isn't sent yet
+    replicator.follower_address?("127.0.0.1").should be_true
+    replicator.all_followers.should be_empty
+    socket.close
+    wait_for { !replicator.follower_address?("127.0.0.1") }
+  ensure
+    socket.try &.close rescue nil
+    replicator.try &.close
+  end
+
+  it "forwards client connections while the leader syncs another follower" do
+    leader_config = LavinMQ::Config.instance.dup
+    FileUtils.mkdir_p(leader_config.data_dir)
+    slow_replicator = SlowClusteringServer.new(leader_config, NullCoordinator.new, 0)
+    leader_tcp_server = TCPServer.new("localhost", 0)
+    spawn(slow_replicator.listen(leader_tcp_server), name: "slow leader clustering")
+    with_amqp_server(replicator: slow_replicator) do |leader_s|
+      with_channel(leader_s) do |ch|
+        q = ch.queue("test_queue")
+        20.times { |i| q.publish_confirm "message #{i}" }
+      end
+      data_dirs = {File.tempname, File.tempname}
+      clients = data_dirs.map_with_index do |dir, i|
+        Dir.mkdir dir
+        config = leader_config.dup.tap &.data_dir = dir
+        LavinMQ::Clustering::Client.new(config, i + 2, slow_replicator.password)
+      end
+      begin
+        first, second = clients
+        spawn(name: "first follower") { first.follow("localhost", leader_tcp_server.local_address.port) }
+        wait_for { slow_replicator.syncing_followers.size == 1 && first.host }
+        spawn(name: "second follower") { second.follow("localhost", leader_tcp_server.local_address.port) }
+        # Its file list waits for the first follower's sync
+        wait_for { second.host }
+        slow_replicator.followers.should be_empty # neither has synced
+      ensure
+        clients.each &.close
+        data_dirs.each { |dir| FileUtils.rm_rf dir }
+      end
+    end
+  ensure
+    slow_replicator.try &.close
+  end
 end
