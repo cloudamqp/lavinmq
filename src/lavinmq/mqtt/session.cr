@@ -52,7 +52,7 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
-      # False while the next message can't be read, until a purge gives it up
+      # False once the next message can't be read
       @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
 
@@ -169,7 +169,7 @@ module LavinMQ
           # The client stays connected: disconnecting it would only make it
           # reconnect to the same message. A restart of the broker reads it again.
           next stop_deliveries(ex) if ex.is_a?(MessageStore::Error) && still_unreadable?
-          # Another error, or a purge removed the message meanwhile
+          # Another error, or the message is gone meanwhile
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           if client
             client.close("Server force closed client")
@@ -178,9 +178,8 @@ module LavinMQ
         end
       end
 
-      # Checked again under the lock a purge holds, which may have removed the
-      # message since the delivery failed. Deliveries are stopped under it, and
-      # nowhere else, so that the purge isn't undone.
+      # Checked again under the lock, as the message may be gone since the
+      # delivery failed
       private def still_unreadable? : Bool
         @msg_store_lock.synchronize do
           @msg_store.first?
@@ -195,7 +194,7 @@ module LavinMQ
 
       # Only logs: #still_unreadable? has stopped them
       private def stop_deliveries(ex : Exception) : Nil
-        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
+        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the broker is restarted" }
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -484,7 +483,7 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
-        # The first message can't be read, the limit is enforced after a purge
+        # The first message can't be read
         return unless @store_readable.value
         if ml = @max_length
           @msg_store_lock.synchronize do
@@ -527,9 +526,7 @@ module LavinMQ
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
-        count = @msg_store_lock.synchronize do
-          @msg_store.purge(max_count).tap { @store_readable.set(true) unless closed? }
-        end
+        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
         count
       end

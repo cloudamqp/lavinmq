@@ -841,7 +841,7 @@ module LavinMQ::AMQP
       if pause(store_error: true)
         @log.error(ex) do
           "Paused due to a message store error. Resume the queue to try again, " \
-          "or purge or delete it to give up the data that can't be read"
+          "or delete it to give up the data that can't be read"
         end
       else
         @log.debug(ex) { "Message store error while paused" }
@@ -1467,18 +1467,9 @@ module LavinMQ::AMQP
     # read again once the queue is resumed
     private def keep_on_store_error(sp : SegmentPosition, &) : Nil
       yield
-    rescue MessageStore::MissingSegment
-      segment_gone(sp)
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       requeue_unread(sp)
-    end
-
-    # A purge removed the message with its segment, for data in it that
-    # couldn't be read (see MessageStore#give_up_unreadable)
-    private def segment_gone(sp : SegmentPosition) : Nil
-      @log.debug { "#{sp} is gone, its segment was purged" }
-      @msg_store_lock.synchronize { @deliveries.delete(sp) }
     end
 
     # A message that can't be read when it's rejected or requeued goes back
@@ -1625,7 +1616,9 @@ module LavinMQ::AMQP
         # delivery between the check and the purge isn't purged uncounted
         if unacked_count == 0 && max_count >= @msg_store.size
           # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+          count = @msg_store.size
           @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+          count
         else
           @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
         end
@@ -1640,8 +1633,8 @@ module LavinMQ::AMQP
       delete_count += purge_delayed(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
-      # Not from data that can't be read, which a purge removes
-      @log.error(ex) { "Purge failed" }
+      # A purge doesn't get past data that can't be read
+      pause_on_store_error(ex)
       raise ex
     end
 
@@ -1706,7 +1699,7 @@ module LavinMQ::AMQP
     # mapped until the block returns, as the delivery can be suspended in a
     # socket write while the queue is closed or deleted.
     # Returns false, without yielding, if the message can't be read, which
-    # pauses the queue, or if a purge removed it with its segment.
+    # pauses the queue.
     def read(sp : SegmentPosition, & : Envelope -> _) : Bool
       env = @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true).lease }
       begin
@@ -1715,8 +1708,6 @@ module LavinMQ::AMQP
         env.release
       end
       true
-    rescue MessageStore::MissingSegment
-      false
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       false

@@ -286,7 +286,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers nothing from a session with a message that can't be read, until a purge gives it up" do
+    it "delivers nothing from a session with a message that can't be read" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 
@@ -313,13 +313,6 @@ module MqttSpecs
           session.client.should_not be_nil
           session.closed?.should be_false
           session.message_count.should eq 2
-
-          # The purge removes the segment, with the message published after
-          session.purge
-          session.message_count.should eq 0
-          store.@packet_ids.should be_empty
-          publish_from(server, "a/b", ["3"])
-          read_publishes(io, 1).first.payload.should eq "3".to_slice
           disconnect(io)
         end
       end

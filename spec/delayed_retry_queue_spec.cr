@@ -557,9 +557,7 @@ describe "Retry Queue" do
         store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil)
         store.closed.should be_false
         expect_raises(LavinMQ::MessageStore::Error) { store.shift_delayed? }
-        store.purge.should eq 0
-        store.size.should eq 0
-        store.@segments.has_key?(1u32).should be_false
+        store.size.should eq 1
         store.close
       end
     end

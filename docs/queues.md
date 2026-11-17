@@ -129,16 +129,15 @@ A queue isn't paused for a message that was half written when the broker was kil
 | The cause was temporary or is fixed, such as a full disk or a disk error | Resume the queue. The data is read again, and the queue is paused again if that still fails. |
 | The segment was written by a newer version | Upgrade and restart. This pause isn't stored, so the queue runs without being resumed. |
 | In a cluster, when this node's copy may be the only bad one | Fail over to another node, which reads its own copy of the files. The pause isn't replicated. |
-| The data can be given up | Purge the queue and resume it, or delete the queue. |
+| The data can be given up | Delete the queue. A purge doesn't get past the data. |
 
-- A purge removes the whole segment that can't be read, as where the next message in it starts is unknown. That includes its messages that are delivered but not acked yet, whose acks and rejects are then ignored.
-- Resuming a queue also resumes its retry queue, unless that was paused through the API, and purging a queue purges its retry queue.
+- Resuming a queue also resumes its retry queue, unless that was paused through the API.
 - Editing segment files by hand isn't supported.
 
 #### Streams and MQTT sessions
 
 - **Streams** aren't paused. A consumer that reaches a segment it can't read continues with the next segment, which is logged, and other consumers aren't held back. The segment is kept until retention removes it, so after a restart or a failover that can read it, it's delivered to consumers that start before it.
-- **MQTT sessions** can't be paused. A session with a message that can't be read delivers nothing, with its client still connected, and logs an error. Purge or delete the session, or restart the broker to read the message again.
+- **MQTT sessions** can't be paused. A session with a message that can't be read delivers nothing, with its client still connected, and logs an error. Delete the session, or restart the broker to read the message again.
 
 ## Reserved Queue Name Prefixes
 
