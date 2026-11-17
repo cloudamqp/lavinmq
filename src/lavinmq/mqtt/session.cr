@@ -40,6 +40,8 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      # Makes "detach this client if it's still attached" one step with attach
+      @client_lock = Mutex.new
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
@@ -142,7 +144,7 @@ module LavinMQ
           client = @client
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
-          get_packet do |pub_packet, bytesize|
+          get_packet(client) do |pub_packet, bytesize|
             client.send(pub_packet)
             delivered_bytes &+= bytesize
           end
@@ -152,8 +154,11 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          # Only the client the delivery failed to, not one that has replaced it
+          if client
+            client.close("Server force closed client")
+            detach(client)
+          end
         end
       end
 
@@ -183,27 +188,41 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
+        @client_lock.synchronize { set_client(client) }
+      end
+
+      # Detaches `client`, unless another client has been attached since
+      def detach(client : MQTT::Client) : Nil
+        @client_lock.synchronize do
+          set_client(nil) if @client.same?(client)
+        end
+      end
+
+      private def set_client(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
 
         # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
         # persistent one requeues what it owes and remembers the packet ids, to
         # resend under the ids the client already knows [MQTT-4.4.0-1].
-        unless clean_session?
-          @msg_store_lock.synchronize do
+        # `@unacked` and `@client` change together under the store lock, so a
+        # delivery to the previous client can't be recorded as in flight to
+        # this one (see #get_packet).
+        @msg_store_lock.synchronize do
+          unless clean_session?
             @unacked.each do |packet_id, sp|
               @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
           end
+          # Subtracted rather than reset: a delivery being sent counts too,
+          # and takes itself off when it finds its client gone
+          @unacked_count.sub(@unacked.size.to_u32, :release)
+          @unacked_bytesize.sub(@unacked.sum(0_u64) { |_, sp| sp.bytesize.to_u64 }, :release)
+          @unacked.clear
+          @client = client
         end
-
-        @unacked.clear
-        @unacked_count.set(0, :release)
-        @unacked_bytesize.set(0, :release)
         refresh_capacity
-
-        @client = client
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
@@ -295,7 +314,9 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
+      # `@unacked` is only read or changed under `@msg_store_lock`: the client's
+      # fiber acks, and attaching or detaching a client requeues and clears it.
+      private def get_packet(client : MQTT::Client, & : Protocol::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if closed?
         loop do
           # The payload is sent straight from the segment, which a close or
@@ -319,35 +340,27 @@ module LavinMQ
               end
               delete_message(sp)
             else
-              begin
-                id = delivery_id(sp)
-                unless id
-                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                  # Without this the deliver_loop spins: the store is non-empty and
-                  # capacity still reads true. Recomputed rather than closed
-                  # outright, since an ack can free a slot while the requeue above
-                  # waits on a contended @msg_store_lock.
-                  refresh_capacity
-                  return false
-                end
-                packet = build_packet(env, id)
-                @unacked_count.add(1, :relaxed)
-                @unacked_bytesize.add(sp.bytesize, :relaxed)
-                yield packet, sp.bytesize
-                if env.redelivered
-                  @redeliver_count.add(1, :relaxed)
-                else
-                  @deliver_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
-                end
-                @unacked[id] = sp
-                @msg_store.forget_packet_id(sp)
-                refresh_capacity
-              rescue ex # requeue failed delivery
+              unless id = record_inflight(client, sp)
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                @unacked_count.sub(1, :relaxed)
-                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                # Without this the deliver_loop spins: the store is non-empty and
+                # capacity still reads true. Recomputed rather than closed
+                # outright, since an ack can free a slot while the requeue above
+                # waits on a contended @msg_store_lock.
+                refresh_capacity
+                return false
+              end
+              refresh_capacity
+              begin
+                yield build_packet(env, id), sp.bytesize
+              rescue ex # requeue failed delivery
+                requeue_inflight(id, sp)
                 raise ex
+              end
+              if env.redelivered
+                @redeliver_count.add(1, :relaxed)
+              else
+                @deliver_count.add(1, :relaxed)
+                @deliver_get_count.add(1, :relaxed)
               end
             end
             return true
@@ -358,6 +371,38 @@ module LavinMQ
         @log.error(ex) { "Queue closed due to error" }
         close
         raise ClosedError.new(cause: ex)
+      end
+
+      # Records a delivery as in flight before it's sent: the client's fiber,
+      # possibly on another thread, can read its PUBACK as soon as it's
+      # written. Only for the client it's sent to, as a client attached since
+      # won't ack it. Returns its packet id, or nil when it's not to be sent.
+      private def record_inflight(client : MQTT::Client, sp : SegmentPosition) : UInt16?
+        @msg_store_lock.synchronize do
+          next unless @client.same?(client)
+          if id = delivery_id(sp)
+            @unacked[id] = sp
+            @msg_store.forget_packet_id(sp)
+            @unacked_count.add(1, :relaxed)
+            @unacked_bytesize.add(sp.bytesize, :relaxed)
+          end
+          id
+        end
+      end
+
+      # Takes back a delivery whose send failed, unless a new client took over
+      # the session meanwhile, which requeued what was in flight and took it
+      # off the counts
+      private def requeue_inflight(id : UInt16, sp : SegmentPosition) : Nil
+        @msg_store_lock.synchronize do
+          if @unacked[id]? == sp
+            @unacked.delete(id)
+            @msg_store.requeue(sp)
+            @unacked_count.sub(1, :relaxed)
+            @unacked_bytesize.sub(sp.bytesize, :relaxed)
+          end
+        end
+        refresh_capacity
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -399,7 +444,7 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
+        if sp = @msg_store_lock.synchronize { @unacked.delete(id) }
           begin
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)

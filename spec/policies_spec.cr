@@ -168,6 +168,8 @@ describe LavinMQ::VHost do
         end
         ch.queue_declare("mld", passive: true)[:message_count].should eq 10
         s.vhosts["/"].delete_policy("mld")
+        # The policy is applied by a spawned fiber, possibly on another thread
+        wait_for { s.vhosts["/"].queue("mld").policy.nil? }
         q.publish_confirm "body"
         ch.queue_declare("mld", passive: true)[:message_count].should eq 11
       end
@@ -215,9 +217,8 @@ describe LavinMQ::VHost do
         expire_before = queue.settings.expires
         expire_before.should eq 1000
         s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(100)}, 2_i8)
-        Fiber.yield
-        expire_after = queue.settings.expires
-        expire_after.should eq 100
+        # The policy is applied by a spawned fiber, possibly on another thread
+        should_eventually(eq 100) { queue.settings.expires }
         select
         when queue.@paused.when_true.receive?
           fail "queue state not closed?" unless queue.closed?
@@ -311,7 +312,10 @@ describe LavinMQ::VHost do
         defs = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
         with_channel(s) do |ch|
           q = ch.queue("max-length-bytes", exclusive: true)
+          queue = s.vhosts["/"].queue("max-length-bytes").as(LavinMQ::AMQP::Queue)
           s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
+          # The policy is applied by a spawned fiber, possibly on another thread
+          wait_for { queue.settings.max_length_bytes == 100 }
           q.publish_confirm "short1"
           q.publish_confirm "short2"
           q.publish_confirm "long"
@@ -319,6 +323,7 @@ describe LavinMQ::VHost do
 
           defs = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
           s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
+          wait_for { queue.settings.max_length == 10 }
           10.times do
             q.publish_confirm "msg"
           end
@@ -347,6 +352,7 @@ describe LavinMQ::VHost do
 
           # deleting operator policy should make normal policy active again
           s.vhosts["/"].delete_operator_policy("ml1")
+          wait_for { queue.operator_policy.nil? }
           3.times do
             q.publish_confirm "body"
           end

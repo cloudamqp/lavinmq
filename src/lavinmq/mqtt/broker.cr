@@ -31,6 +31,9 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
+        # Takes over a client id and detaches a closed client as one step, so a
+        # displaced client's own cleanup can't detach its replacement's session
+        @clients_lock = Mutex.new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
       end
@@ -49,17 +52,15 @@ module LavinMQ
       # A reconnecting client_id displaces the existing connection in
       # `add_client`, so the connection count doesn't grow
       def connection_limit_reached?(client_id : String) : Bool
-        return false if @clients.has_key?(client_id)
+        return false if @clients_lock.synchronize { @clients.has_key?(client_id) }
         @vhost.connection_limit_reached?
       end
 
+      # The new client takes over the client id at once, but gets the session
+      # only once the previous client has shut down. Its shutdown can publish
+      # its will through the broker, so it's waited for outside the lock, where
+      # it doesn't hold up other clients connecting and disconnecting.
       def add_client(io, connection_info, user, packet) : Client
-        if prev_client = @clients[packet.client_id]?
-          prev_client.close(
-            "New client #{connection_info.remote_address} " \
-            "(username=#{packet.username}) connected as #{packet.client_id}")
-          remove_client(prev_client)
-        end
         client = MQTT::Client.new(io,
           connection_info,
           user,
@@ -69,6 +70,26 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will)
+        prev_client = @clients_lock.synchronize do
+          prev = @clients[client.client_id]?
+          @clients[client.client_id] = client
+          @vhost.add_connection client
+          prev
+        end
+        if prev_client
+          prev_client.close(
+            "New client #{connection_info.remote_address} " \
+            "(username=#{packet.username}) connected as #{packet.client_id}")
+        end
+        @clients_lock.synchronize do
+          remove_client_locked(prev_client) if prev_client
+          # Unless yet another client has taken over the client id meanwhile
+          attach_session(client) if @clients[client.client_id]?.same?(client)
+        end
+        client
+      end
+
+      private def attach_session(client : Client) : Nil
         if client.clean_session?
           sessions[client.client_id]?.try &.delete
         else
@@ -78,9 +99,6 @@ module LavinMQ
             session.client = client
           end
         end
-        @clients[packet.client_id] = client
-        @vhost.add_connection client
-        client
       end
 
       def run_client(io, connection_info, user, packet) : Client
@@ -94,6 +112,10 @@ module LavinMQ
       end
 
       def remove_client(client)
+        @clients_lock.synchronize { remove_client_locked(client) }
+      end
+
+      private def remove_client_locked(client)
         client_id = client.client_id
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)

@@ -340,8 +340,8 @@ describe LavinMQ::HTTP::PrometheusController do
         s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("ch_q", durable: false, auto_delete: true)
-          q.subscribe(no_ack: false) { |_| }
-          wait_for { !ch.@consumers.empty? }
+          tag = q.subscribe(no_ack: false) { |_| }
+          wait_for { ch.has_subscriber?(tag) }
 
           raw = http.get("/metrics/detailed?family=channel_metrics").body
           lines = raw.lines.select(&.starts_with?("lavinmq_detailed_channel_consumers{"))

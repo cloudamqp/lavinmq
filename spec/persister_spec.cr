@@ -585,8 +585,9 @@ describe LavinMQ::Persister, "segments the stores have emptied" do
         s.persister.sync # a syncfs, nothing is unmarked after it
         8.times { src.publish "x" * 100_000 }
         src_segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
-        wait_for { !File.exists?(src_segment) }
-        File.exists?("#{src_segment.sub("msgs.", "acks.")}").should be_false
+        src_acks = src_segment.sub("msgs.", "acks.")
+        # The segment is unlinked before its ack file, possibly on another thread
+        wait_for { !File.exists?(src_segment) && !File.exists?(src_acks) }
         sync = last_sync(s)
         sync.syncfs.should be_false
         sync.paths.should contain File.join(queue_dir(s, "dst"), "msgs.0000000001")

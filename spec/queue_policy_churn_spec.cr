@@ -137,9 +137,15 @@ describe "Queue policy churn" do
                                          "delivery-limit"   => 5}), nil)
         Fiber.yield
         # Count unnamed workers too: the regression spawned three per update.
-        workers = [] of Fiber
-        Fiber.list { |fiber| workers << fiber unless existing.includes?(fiber) }
-        workers.size.should eq 1
+        # Skip named fibers of other resources, e.g. left behind by an
+        # earlier spec, which can spawn while this spec yields.
+        workers = [] of String?
+        Fiber.list do |fiber|
+          next if existing.includes?(fiber)
+          next if (name = fiber.name) && !name.includes?(queue.name)
+          workers << fiber.name
+        end
+        workers.should eq ["Queue#apply_policy_limits #{queue.vhost.name}/#{queue.name}"]
         queue.message_count.should eq 10
       end
       should_eventually(eq 2) { queue.message_count }
