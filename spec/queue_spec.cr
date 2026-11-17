@@ -400,6 +400,30 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "ends an operator's pause at their resume, also when the queue stays paused by its store" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-max-length" => 1}))
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+          queue.pause!
+          paused_file = File.join(queue.@data_dir, "paused")
+          File.exists?(paused_file).should be_true
+          # Paused by its store too, on the limit
+          2.times { q.publish_confirm "more" }
+          queue.@store_failed.get.should be_true
+
+          # Enforcing the limit fails on the same data, the queue stays paused
+          queue.resume!
+          queue.state.paused?.should be_true
+          File.exists?(paused_file).should be_false
+          queue.@operator_paused.should be_false
+        end
+      end
+    end
+
     it "is given up by a purge" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

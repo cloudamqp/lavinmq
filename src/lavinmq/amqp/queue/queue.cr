@@ -891,15 +891,17 @@ module LavinMQ::AMQP
       @state_lock.synchronize do
         return false unless @state.paused?
         return false if only_store_error && @operator_paused
+        # Before the check below: an operator's pause ends with their resume,
+        # also when the queue stays paused by its store
+        @operator_paused = false
+        if File.delete?(paused_file)
+          @vhost.replicator.try &.delete_file(paused_file) if durable?
+        end
         if @store_failed.get(:relaxed)
           @log.error { "Still paused, the message store failed again" }
           return false
         end
         @state = QueueState::Running
-        @operator_paused = false
-        if File.delete?(paused_file)
-          @vhost.replicator.try &.delete_file(paused_file) if durable?
-        end
         @paused.set(false)
       end
       true
