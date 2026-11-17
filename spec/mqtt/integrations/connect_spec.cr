@@ -1,5 +1,15 @@
 require "../spec_helper"
 
+# Lets a spec hold a client's will, and with it the rest of its shutdown
+class LavinMQ::MQTT::Client
+  class_property will_gate : ::Channel(Nil)? = nil
+
+  private def publish_will
+    @@will_gate.try &.receive?
+    previous_def
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -44,6 +54,45 @@ module MqttSpecs
               connect(io2)
               io.should be_closed
             end
+          end
+        end
+      end
+
+      # The new client waited for the displaced one to shut down, including
+      # publishing its will, under the broker's lock, which held up every
+      # other client connecting or disconnecting in the vhost
+      it "lets other clients connect while a displaced client shuts down" do
+        with_server do |server|
+          gate = ::Channel(Nil).new
+          LavinMQ::MQTT::Client.will_gate = gate
+          begin
+            will = MQTT::Protocol::Will.new(topic: "will/t", payload: "bye".to_slice, qos: 0u8, retain: false)
+            with_client_io(server) do |io|
+              connect(io, client_id: "displaced", will: will)
+              with_client_io(server) do |io2|
+                connect(io2, client_id: "displaced", expect_response: false)
+                io.should be_closed # its shutdown now waits on the gate
+                connected = Channel(MQTT::Protocol::Packet?).new(1)
+                spawn do
+                  with_client_io(server) do |other|
+                    connected.send connect(other, client_id: "other")
+                    disconnect(other)
+                  end
+                end
+                select
+                when packet = connected.receive
+                  packet.should be_a(MQTT::Protocol::Connack)
+                when timeout(5.seconds)
+                  fail "another client couldn't connect while a displaced client shut down"
+                end
+                gate.close
+                MQTT::Protocol::Packet.from_io(io2).should be_a(MQTT::Protocol::Connack)
+                disconnect(io2)
+              end
+            end
+          ensure
+            LavinMQ::MQTT::Client.will_gate = nil
+            gate.close
           end
         end
       end
