@@ -36,7 +36,6 @@ Operator policies (see below) are evaluated independently and can layer on top o
 | `alternate-exchange` | Exchanges | Alternate exchange for unroutable messages |
 | `federation-upstream` | Both | Federation upstream name |
 | `federation-upstream-set` | Both | Federation upstream set name |
-| `delayed-message` | Exchanges | Enable delayed message behavior |
 
 ## Policy vs Queue Arguments
 

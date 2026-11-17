@@ -580,7 +580,7 @@ module LavinMQ
     # resource skips a run older than the newest one it has applied, so a run
     # that read the policies before a later change can't overwrite that
     # change's run. No lock is held while applying: applying a policy can
-    # take other locks, e.g. a delayed-message policy registers a queue.
+    # take other locks, e.g. a federation-upstream policy reconciles its link.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
       policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
         {@policies.values.sort_by!(&.priority).reverse,
