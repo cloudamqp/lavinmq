@@ -203,6 +203,37 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   end
 
+  it "stops without exiting while campaigning to lead" do
+    with_datadir do |data_dir|
+      # Another node leads, so this one's campaign blocks
+      etcd = LavinMQ::Etcd.new("localhost:12379")
+      leader_lease = etcd.lease_grant(ttl: 10)
+      etcd.election_campaign("lavinmq/leader", "tcp://localhost:5699", leader_lease.id)
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5698"
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Int32?).new(1)
+      spawn(name: "campaigning controller") do
+        controller.run { fail "served while another node leads" }
+        done.send nil
+      rescue ex : SpecExit
+        done.send ex.code
+      end
+      sleep 0.5.seconds # campaigning
+      controller.stop
+      select
+      when code = done.receive
+        code.should be_nil
+      when timeout(5.seconds)
+        fail "run didn't return after stop"
+      end
+    ensure
+      leader_lease.try &.release
+    end
+  end
+
   it "stops reporting the replication client's metrics once it leads" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
