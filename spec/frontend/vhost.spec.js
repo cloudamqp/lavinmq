@@ -149,6 +149,25 @@ test.describe("vhost", _ => {
     expect(errors).toEqual([])
   })
 
+  test('renders thousands of permissions without freezing the page', async ({ page }) => {
+    const manyPermissions = Array.from({ length: 5000 }, (_, i) => (
+      { user: `user${i}`, vhost: vhostName, configure: '.*', read: '.*', write: '.*' }
+    ))
+    await page.route(url => url.pathname === `/api/vhosts/${vhostName}/permissions`, async route => {
+      await route.fulfill({ json: manyPermissions })
+    })
+    await page.route(url => url.pathname === '/api/users', async route => {
+      await route.fulfill({ json: usersResponse })
+    })
+
+    const permissionsResponseReceived = page.waitForResponse(`**/api/vhosts/${vhostName}/permissions*`)
+    await page.goto(`/vhost#name=${vhostName}`)
+    await permissionsResponseReceived
+    const start = Date.now()
+    await expect(page.locator('#permissions tbody tr')).toHaveCount(manyPermissions.length, { timeout: 30000 })
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+
   test('delete button works', async ({ page }) => {
     await page.goto(`/vhost#name=${vhostName}`)
 
