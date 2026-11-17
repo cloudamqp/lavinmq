@@ -28,8 +28,7 @@ targets:
 dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    # The multi-threading fixes (cloudamqp/amqp-client.cr#92), until they're released
-    commit: 4dcd96940437d75907030994cf3234423b0b31ca
+    version: ">= 1.5.0"
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
     version: ">= 1.3.0"
