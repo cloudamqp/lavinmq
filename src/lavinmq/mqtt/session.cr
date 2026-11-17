@@ -251,17 +251,23 @@ module LavinMQ
 
       # A concurrent API deletion can make the bind fail.
       # TODO: Check session identity under the definitions lock before binding.
+      # @subscriptions is only written under the definitions lock, by the MQTT
+      # exchange, so the lookup and the bind it decides on happen under it too
       def subscribe(tf, qos) : Bool
-        if current = @subscriptions[tf]?
-          return true if current == qos
-          unbind(tf, MQTT.qos_arguments(current))
+        @vhost.synchronize_definitions do
+          if current = @subscriptions[tf]?
+            next true if current == qos
+            unbind(tf, MQTT.qos_arguments(current))
+          end
+          @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
       end
 
       def unsubscribe(tf)
-        if qos = @subscriptions[tf]?
-          unbind(tf, MQTT.qos_arguments(qos))
+        @vhost.synchronize_definitions do
+          if qos = @subscriptions[tf]?
+            unbind(tf, MQTT.qos_arguments(qos))
+          end
         end
       end
 

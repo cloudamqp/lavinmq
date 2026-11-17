@@ -272,8 +272,11 @@ module LavinMQ
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
       if queue.is_a?(MQTT::Session)
         bindings = [default_binding] of AMQP::BindingDetails | MQTT::SubscriptionDetails
-        queue.each_subscription do |filter, qos|
-          bindings << MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+        # The MQTT exchange changes the session's filters under this lock
+        @definitions_lock.synchronize do
+          queue.each_subscription do |filter, qos|
+            bindings << MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+          end
         end
         return bindings
       end
