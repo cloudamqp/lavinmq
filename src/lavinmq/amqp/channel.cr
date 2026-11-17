@@ -871,10 +871,14 @@ module LavinMQ
           @unack_lock.synchronize do
             raise ClosedError.new("Channel is closed") unless @running
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
+            add = consumer ? 0u32 : 1u32
+            basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+            # Under the lock, as in #notify_has_capacity: outside it, an ack on
+            # another thread could set the flag between this check and the
+            # set, which then cleared it with capacity left, stalling every
+            # consumer on the channel
+            @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
           end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
-          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         end
         tag
       end
