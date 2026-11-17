@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Two queues that dead-letter into each other (for example on overflow) could deadlock when publishes to both ran at the same time; dropped messages are now dead-lettered after the source queue's lock is released [#2396](https://github.com/cloudamqp/lavinmq/pull/2396)
 - Under journald (systemd), every logged exception showed the log message where the exception's message belongs, so the actual error was missing from the journal, e.g. `Read Loop error (IO::Error)`. A cause line also got a stray `<3>` priority prefix. Exceptions are now logged with their own message, as with stdout logging, with line breaks in it escaped so it stays one journal entry [#2698](https://github.com/cloudamqp/lavinmq/pull/2698)
 - A delayed message that came due during a shutdown, after the shutdown closed its destination queue, was lost. The broker now keeps the message in the delayed exchange and releases it after the restart [#2694](https://github.com/cloudamqp/lavinmq/pull/2694)
 - A message that was being written to a queue when the broker was killed could be delivered after the restart with part of its body missing (zero bytes), instead of being dropped like any other publish that was never confirmed. A message's timestamp is now written last, after its body, and a message without a timestamp is dropped at start. The segment format is unchanged [#2735](https://github.com/cloudamqp/lavinmq/pull/2735)
