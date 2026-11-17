@@ -95,7 +95,7 @@ A queue can be in one of the following states:
 | `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`. The three routes need `configure` permission on the queue, and are refused with 403 without it.
 
 The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
 
@@ -105,4 +105,4 @@ Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use
 
 ## Internal Queues
 
-Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect, purge and delete them. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`) and a queue's retry queue (`amq.retry-<queue>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect and purge them. A delete through the HTTP API is refused with 403: an internal queue is deleted together with the exchange or queue it belongs to. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.

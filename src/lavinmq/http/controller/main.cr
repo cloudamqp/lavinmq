@@ -91,6 +91,11 @@ module LavinMQ
             {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
             {% end %}
           end
+          {ready_log, unacked_log}.each do |log|
+            until log.size >= recv_rate_log.size
+              log.unshift 0
+            end
+          end
           {
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",
