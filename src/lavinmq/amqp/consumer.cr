@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      # Also the turn for messages, a consumer is in one line at a time
       @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
@@ -129,7 +130,7 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
+        ch.has_capacity.wait_until(true, @capacity_turn, @notify_closed) { flush }
         true
       end
 
@@ -153,19 +154,16 @@ module LavinMQ
         end
       end
 
+      # Consumers wait for messages in line, so the one that delivered last
+      # can't win every message while the others also have capacity
       private def wait_for_queue_ready
         return unless @queue.empty?
         @log.debug { "Waiting for queue not to be empty" }
-        flush
-        select
-        when @queue.empty.when_false.receive
-          :ready
-        when @notify_closed.receive
-          raise ClosedError.new
-        when timeout Config.instance.deliver_loop_idle_timeout
-          @log.debug { "Deliver loop idle timeout" }
-          :timeout
-        end
+        idle_timeout = Config.instance.deliver_loop_idle_timeout
+        return :ready if @queue.empty.wait_until(false, @capacity_turn, @notify_closed, idle_timeout) { flush }
+        raise ClosedError.new if @closed
+        @log.debug { "Deliver loop idle timeout" }
+        :timeout
       end
 
       private def wait_for_paused_queue
