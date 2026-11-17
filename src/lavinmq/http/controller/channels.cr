@@ -22,7 +22,7 @@ module LavinMQ
 
         get "/api/channels/:name" do |context, params|
           with_channel(context, params) do |channel|
-            channel.to_json(context.response)
+            channel.to_json(context.response.output)
           end
         end
 

@@ -1,8 +1,11 @@
 # Monkey-patch OpenSSL::SSL::Context::Server#on_server_name to copy
 # settings that SSL_set_SSL_CTX does not propagate to the SSL connection:
-# verify mode, verify depth, client CA list, and options.
-# Without this, mTLS and per-host TLS settings break when switching
-# contexts via SNI.
+# verify mode, verify depth, and client CA list.
+# Without this, mTLS breaks when switching contexts via SNI.
+# The connection keeps the listener's options: OpenSSL selects the TLS
+# version before this callback runs, so option changes here could only
+# clear post-handshake hardening like the renegotiation ban. The TLS 1.2
+# cipher is picked after it, from the swapped-in context (see SNIHost).
 
 require "openssl"
 
@@ -13,9 +16,6 @@ lib LibSSL
   fun ssl_ctx_get_client_ca_list = SSL_CTX_get_client_CA_list(ctx : SSLContext) : Void*
   fun ssl_dup_ca_list = SSL_dup_CA_list(list : Void*) : Void*
   fun ssl_set_client_ca_list = SSL_set_client_CA_list(ssl : SSL, list : Void*) : Void
-  fun ssl_get_options = SSL_get_options(ssl : SSL) : ULong
-  fun ssl_set_options = SSL_set_options(ssl : SSL, options : ULong) : ULong
-  fun ssl_clear_options = SSL_clear_options(ssl : SSL, options : ULong) : ULong
 end
 
 class OpenSSL::SSL::Context::Server
@@ -46,9 +46,6 @@ class OpenSSL::SSL::Context::Server
           unless ca_list.null?
             LibSSL.ssl_set_client_ca_list(ssl, LibSSL.ssl_dup_ca_list(ca_list))
           end
-
-          LibSSL.ssl_clear_options(ssl, LibSSL.ssl_get_options(ssl))
-          LibSSL.ssl_set_options(ssl, LibSSL.ssl_ctx_get_options(new_ctx))
         end
 
         LibSSL::SSL_TLSEXT_ERR_OK

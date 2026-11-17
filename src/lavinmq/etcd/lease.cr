@@ -14,10 +14,13 @@ module LavinMQ
         end
       end
 
-      # Force release of lease (and leadership)
+      # Force release of lease (and leadership). The lease is revoked before
+      # anything waiting on it wakes, so writes fenced by the lease are already
+      # refused by then.
       def release
-        @expired.close
         @etcd.lease_revoke(@id)
+      ensure
+        @expired.close
       end
 
       # Wait until lease expires (if leader, leadership is lost)
@@ -32,7 +35,11 @@ module LavinMQ
 
       private def keepalive_loop(ttl : Int32)
         loop do
-          sleep (ttl / 3).seconds
+          select
+          when @expired.receive? # closed by #release
+            return
+          when timeout((ttl / 3).seconds)
+          end
           ttl = @etcd.lease_keepalive(@id)
         end
       rescue ex : Etcd::Error # only rescue etcd errors

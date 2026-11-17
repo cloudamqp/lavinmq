@@ -483,9 +483,15 @@ module FollowerSpec
         rescue IO::Error
         end
 
+        # A real follower's full_sync writes before ack_loop runs, which starts
+        # the LZ4 frame. Without it, the idle flush raises with liblz4 1.11.
+        follower.append("#{data_dir}/file", "first".to_slice)
+        spawn { follower.ack_loop(50.milliseconds) }
+        client_socket.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+        wait_for { follower.lag_in_bytes.zero? }
+
         # Stay idle (no outstanding data) for well over the ack deadline: the
         # deadline must not start ticking until data is actually outstanding.
-        spawn { follower.ack_loop(50.milliseconds) }
         sleep 200.milliseconds
 
         # Now publish; a healthy follower acking promptly must NOT be dropped.

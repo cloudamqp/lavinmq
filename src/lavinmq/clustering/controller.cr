@@ -1,5 +1,6 @@
 require "../http/metrics_server"
 require "../etcd"
+require "../filesystem"
 require "./client"
 require "./etcd_coordinator"
 
@@ -9,6 +10,7 @@ class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  @lease : Etcd::Lease? = nil
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -31,7 +33,7 @@ class LavinMQ::Clustering::Controller
   # The method is blocking.
 
   def run(&)
-    lease = @lease = @etcd.lease_grant(id: @id)
+    lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
@@ -72,8 +74,8 @@ class LavinMQ::Clustering::Controller
       id = File.read(id_file_path).to_i(36)
     rescue File::NotFoundError
       id = rand(Int32::MAX)
-      Dir.mkdir_p @config.data_dir
-      File.write(id_file_path, id.to_s(36))
+      FileSystem.mkdir_p @config.data_dir
+      FileSystem.replace(id_file_path, &.print(id.to_s(36)))
       Log.info { "Generated new clustering ID" }
     end
     id
@@ -87,6 +89,8 @@ class LavinMQ::Clustering::Controller
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
+          # Waits for a close already in progress, so the ports are free before
+          # the next client binds them, but it also holds up later leader events
           repli_client.close
         end
       end

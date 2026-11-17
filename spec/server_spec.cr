@@ -1028,6 +1028,44 @@ describe LavinMQ::Server do
     end
   end
 
+  it "recover(requeue=false) redelivers to the original consumer" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        q.publish "m1"
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        first = msgs.receive
+        ch.basic_recover(requeue: false)
+        m = msgs.receive
+        m.body_io.to_s.should eq "m1"
+        m.redelivered.should be_true
+        m.delivery_tag.should_not eq first.delivery_tag
+        m.ack
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 0
+      end
+    end
+  end
+
+  {true, false}.each do |requeue|
+    it "basic_recover releases basic.get messages (requeue #{requeue})" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue("recover-get")
+          3.times { q.publish "m1" }
+          q.get(no_ack: false).should_not be_nil
+          ch.basic_recover(requeue: requeue)
+          s.vhosts["/"].queue(q.name).basic_get_unacked_size.should eq 0
+          delivered = 0
+          q.subscribe(no_ack: false) { |_m| delivered += 1 }
+          sleep 50.milliseconds
+          delivered.should eq 1
+        end
+      end
+    end
+  end
+
   it "basic_recover requeues messages for cancelled consumers" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1107,6 +1145,38 @@ describe LavinMQ::Server do
         args["x-overflow"] = "reject-publish"
         q = ch.queue("", args: args)
         q.publish_confirm("m1").should be_false
+      end
+    end
+  end
+
+  it "nacks but doesn't return a mandatory publish that a full queue rejects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish_confirm("m1", "", q.name, mandatory: true).should be_false
+        ch.basic_publish_confirm("m2", "", "unroutable", mandatory: true).should be_true
+        returned.receive.should eq "unroutable"
+      end
+    end
+  end
+
+  it "doesn't return a mandatory publish that a full queue rejects without confirms" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        returned = Channel(String).new
+        ch.on_return { |msg| returned.send msg.routing_key }
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 0_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("", args: args)
+        ch.basic_publish("m1", "", q.name, mandatory: true)
+        ch.basic_publish("m2", "", "unroutable", mandatory: true)
+        returned.receive.should eq "unroutable"
       end
     end
   end
@@ -1318,6 +1388,38 @@ describe LavinMQ::Server do
     end
   end
 
+  it "hands over to the next single active consumer while its deliver loop starts" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("sac", args: AMQ::Protocol::Table.new({"x-single-active-consumer": true}))
+        tags = Channel(String).new(10)
+        q.subscribe(no_ack: false, tag: "a") { tags.send "a" }
+        q.publish "1"
+        tags.receive.should eq "a"
+        # The queue is empty, so b gets no deliver loop until the next publish
+        q.subscribe(no_ack: false, tag: "b") { tags.send "b" }
+        queue = s.vhosts["/"].queue("sac").as(LavinMQ::AMQP::Queue)
+        # Holding the write lock suspends b's deliver loop on the socket while a's cancel is handled
+        write_lock = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).@write_lock
+        write_lock.lock
+        begin
+          queue.publish(LavinMQ::Message.new("", "sac", "2"))
+          q.unsubscribe("a")
+          wait_for { queue.single_active_consumer.try(&.as(LavinMQ::AMQP::Consumer).tag) == "b" }
+        ensure
+          write_lock.unlock
+        end
+        select
+        when tag = tags.receive
+          tag.should eq "b"
+        when timeout(2.seconds)
+          fail "b got no message after a was cancelled"
+        end
+      end
+    end
+  end
+
   it "can publish large messages to multiple queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1421,5 +1523,111 @@ describe LavinMQ::Server do
       t.read(buf)
       buf.should eq Bytes['A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord, 0, 0, 9, 1]
     end
+  end
+end
+
+# Fails to accept with *errno* *failures* times, then returns *client* once
+private class FailingListener
+  include Socket::Server
+  getter? closed = false
+
+  def initialize(@failures : Int32, @client : IO, @errno = Errno::EMFILE)
+  end
+
+  def accept? : IO?
+    return if @closed
+    if @failures > 0
+      @failures -= 1
+      raise Socket::Error.from_os_error("accept", @errno)
+    end
+    client, @client = @client, nil
+    client
+  end
+
+  def accept : IO
+    accept? || raise IO::Error.new("Closed")
+  end
+
+  def close
+    @closed = true
+  end
+end
+
+describe LavinMQ::AcceptLoop do
+  it "accepts the next connection when the one being accepted failed" do
+    # Network errors that accept(2) passes on from the connection
+    errors = [Errno::ECONNABORTED]
+    {% if flag?(:linux) %}
+      errors << Errno.new(112) << Errno.new(64) # EHOSTDOWN, ENONET
+    {% end %}
+    errors.each do |errno|
+      client, server_side = UNIXSocket.pair
+      listener = FailingListener.new(failures: 1, client: server_side, errno: errno)
+      accepted = nil
+      LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+        accepted = socket
+        listener.close
+      end
+      accepted.should be server_side
+    ensure
+      client.try &.close
+      server_side.try &.close
+    end
+  end
+
+  it "keeps accepting after an error that isn't listed" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 2, client: server_side, errno: Errno::ECONNRESET)
+    accepted = nil
+    started = Time.instant
+    LavinMQ::AcceptLoop.each(listener, "Spec listener") do |socket|
+      accepted = socket
+      listener.close
+    end
+    accepted.should be server_side
+    # 10 and 20ms, as it's not known to pass right away
+    (Time.instant - started).should be >= 30.milliseconds
+  ensure
+    client.try &.close
+    server_side.try &.close
+  end
+end
+
+describe "Running out of file descriptors" do
+  it "keeps accepting AMQP connections" do
+    with_amqp_server do |s|
+      address = s.amqp_server.@listeners.select(TCPServer).first.local_address
+      rejected = Socket.tcp(address.family)
+      without_free_file_descriptors do
+        rejected.connect(address)
+        sleep 100.milliseconds # the listener fails to accept it
+      end
+      # Linux accepts this one later, macOS drops it when accept fails
+      rejected.close
+      client = TCPSocket.new(address.address, address.port)
+      client.read_timeout = 5.seconds
+      client.write "AMQP\u0000\u0000\u0009\u0001".to_slice
+      client.read_byte.should eq 1 # the method frame with the server's Connection.Start
+    ensure
+      rejected.try &.close
+      client.try &.close
+    end
+  end
+
+  it "pauses the HTTP listener before accepting again" do
+    client, server_side = UNIXSocket.pair
+    listener = FailingListener.new(failures: 4, client: server_side)
+    http = HTTP::Server.new(&.response.print("ok"))
+    http.bind(listener)
+    started = Time.instant
+    spawn { http.listen }
+    client << "GET / HTTP/1.1\r\nHost: spec\r\n\r\n"
+    client.flush
+    HTTP::Client::Response.from_io(client).body.should eq "ok"
+    # 10, 20, 40 and 80ms, instead of trying again right away
+    (Time.instant - started).should be >= 140.milliseconds
+  ensure
+    http.try &.close
+    client.try &.close
   end
 end

@@ -6,12 +6,23 @@ module PrioSpec
       super(*args, **kwargs)
     end
   end
+
+  # Fails the migration from a single store on its first message
+  class FailingPushStore < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+
+    def push(msg) : LavinMQ::SegmentPosition
+      raise "Spec push failure"
+    end
+  end
 end
 
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, durable: true, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store
@@ -90,6 +101,21 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
 
     describe "migration" do
+      it "unmaps the old store when the migration fails" do
+        data_dir = File.tempname
+        Dir.mkdir data_dir
+        old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
+        old_store.push LavinMQ::Message.new("ex", "rk", "body")
+        old_store.close
+        count_before = MFile.mmap_count
+        expect_raises(Exception, "Spec push failure") do
+          PrioSpec::FailingPushStore.new(5u8, data_dir, nil, durable: true)
+        end
+        MFile.mmap_count.should eq count_before
+      ensure
+        FileUtils.rm_rf data_dir if data_dir
+      end
+
       it "should migrate old store" do
         data_dir = File.tempname
         Dir.mkdir data_dir
@@ -587,6 +613,72 @@ describe LavinMQ::AMQP::PriorityQueue do
           end
           q.get(no_ack: false).should_not be_nil
           q.purge[:message_count].should eq 3
+        end
+      end
+    end
+  end
+
+  # Every priority sub-store numbers its segments from 1, so the first message
+  # of each priority has the same segment and position
+  describe "delivery count" do
+    it "is not shared between messages of different priorities" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("prio-dlimit-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"            => 9,
+            "x-delivery-limit"          => 1,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "prio-dlimit-dlq",
+          })
+          q = ch.queue("prio-dlimit", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+          lo.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+
+          lo.reject(requeue: true)
+          lo2 = q.get(no_ack: false).should_not be_nil
+          lo2.body_io.to_s.should eq "lo"
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          s.vhosts["/"].queue("prio-dlimit-dlq").message_count.should eq 0
+          hi.ack
+          lo2.ack
+        end
+      end
+    end
+
+    it "is not shared between messages of different priorities with retries" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"             => 9,
+            "x-delivery-limit"           => 3,
+            "x-delayed-retry-min"        => 1,
+            "x-delayed-retry-multiplier" => 1,
+          })
+          q = ch.queue("prio-retry", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+
+          lo.reject(requeue: true)
+          lo2 = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          lo2.body_io.to_s.should eq "lo"
+          lo2.redelivered.should be_true
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          hi.ack
+          lo2.ack
         end
       end
     end

@@ -706,6 +706,97 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "imports a federation-upstream-set, whose value is an array" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "set_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            },
+            {
+              "name": "import_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "upstream": "set_upstream" }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].parameters[{"federation-upstream-set", "import_set"}]?.should_not be_nil
+        s.vhosts["/"].upstreams.get_set?("import_set").should_not be_nil
+      end
+    end
+
+    it "fills a federation-upstream-set listed before its upstream" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "early_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "upstream": "late_upstream" }]
+            },
+            {
+              "name": "late_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].upstreams.get_set?("early_set").try(&.map(&.name)).should eq ["late_upstream"]
+      end
+    end
+
+    it "rejects a non-hash shovel value without applying earlier parameters" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "applied_upstream",
+              "component": "federation-upstream",
+              "vhost": "/",
+              "value": { "uri": "#{s.amqp_server.url}" }
+            },
+            {
+              "name": "bad_shovel",
+              "component": "shovel",
+              "vhost": "/",
+              "value": [1]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].parameters[{"federation-upstream", "applied_upstream"}]?.should be_nil
+      end
+    end
+
+    it "rejects a federation-upstream-set entry without an upstream" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "bad_set",
+              "component": "federation-upstream-set",
+              "vhost": "/",
+              "value": [{ "uri": "#{s.amqp_server.url}" }]
+            }
+          ]}
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.vhosts["/"].parameters[{"federation-upstream-set", "bad_set"}]?.should be_nil
+      end
+    end
+
     it "applies no parameters when one entry is malformed (issue #2073)" do
       with_http_server do |http, s|
         # A valid shovel followed by an operator_policy with priority > 127, which
@@ -986,6 +1077,25 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         vhost.exchange?("xmqtt").should_not be_nil
         vhost.exchange("xmqtt").binding_count.should eq 1
+      end
+    end
+
+    # Only a boolean x-delayed-exchange makes an exchange delayed, so the
+    # export mustn't write any other value as delayed
+    it "round-trips an exchange with a non-boolean x-delayed-exchange as not delayed" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => "true"})
+        vhost.declare_exchange("xtopic", "topic", true, false, arguments: args)
+
+        body = http.get("/api/definitions").body
+        exchanges = JSON.parse(body)["exchanges"].as_a
+        exchanges.find! { |e| e["name"] == "xtopic" }["type"].should eq "topic"
+
+        vhost.delete_exchange("xtopic")
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost.exchange("xtopic").delayed?.should be_false
       end
     end
 

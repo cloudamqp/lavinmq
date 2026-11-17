@@ -25,7 +25,9 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        build_index
+        # A segment that failed to load closed the store and unmapped its
+        # segments, so they can't be indexed
+        close_on_error { build_index } unless @closed
       end
 
       def build_index
@@ -54,6 +56,12 @@ module LavinMQ::AMQP
           rescue ex : IO::EOFError | IndexError
             @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
             break
+          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+            # Like a record the load can't decode, see MessageStore#produce_metadata.
+            # A segment with a meta file isn't read record by record at load.
+            @log.error { "Could not index segment #{seg_id} at pos #{pos}, closing message store: #{ex}" }
+            close_store
+            return
           end
         end
         @requeued = requeued
@@ -104,28 +112,12 @@ module LavinMQ::AMQP
         sp
       end
 
-      # Puts back a message shifted out with shift_delayed?, unless a purge
-      # deleted its segment meanwhile
-      def restore_delayed(sp : SegmentPosition) : Nil
-        raise ClosedError.new if @closed
-        segment = @segments[sp.segment]? || return
-        msg = begin
-          BytesMessage.from_bytes(segment.to_slice + sp.position)
-        rescue ex
-          raise MessageStore::Error.new(segment, cause: ex)
-        end
-        was_empty = @size.zero?
-        requeued.insert(sp, msg.timestamp)
-        @bytesize += sp.bytesize
-        @size += 1
-        @empty.set false if was_empty
-      end
-
-      def purge_all
+      def purge_all(&on_requeued : SegmentPosition ->)
         while sp = @requeued.shift?
           @size -= 1
           @bytesize -= sp.bytesize
           delete(sp) if @segments.has_key?(sp.segment)
+          on_requeued.call(sp)
         end
         @empty.set true
       end

@@ -45,7 +45,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             consumer_limit = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
-            JSON.build(context.response) do |json|
+            JSON.build(context.response.output) do |json|
               find_queue(context, params, vhost).to_json(json, consumer_limit)
             end
           end
@@ -94,8 +94,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to pause queue '#{q.name}'")
+            end
             q.pause!
             context.response.status_code = 204
           end
@@ -103,8 +107,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to resume queue '#{q.name}'")
+            end
             q.resume!
             context.response.status_code = 204
           end
@@ -112,8 +120,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/restart" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to restart queue '#{q.name}'")
+            end
             if q.restart!
               context.response.status_code = 204
             else
@@ -129,6 +141,9 @@ module LavinMQ
             user = user(context)
             unless user.can_config?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
+            end
+            if q.internal?
+              access_refused(context, "Queue '#{q.name}' in vhost '#{vhost.name}' is an internal queue")
             end
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
@@ -189,7 +204,7 @@ module LavinMQ
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
-            JSON.build(context.response) do |j|
+            JSON.build(context.response.output) do |j|
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
@@ -260,7 +275,7 @@ module LavinMQ
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
             reader = q.reader(offset)
-            JSON.build(context.response) do |j|
+            JSON.build(context.response.output) do |j|
               j.array do
                 reader.each do |env|
                   break if count.zero?

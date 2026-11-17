@@ -94,6 +94,7 @@ module LavinMQ
           max_retry_delay = 5.minutes
           spawn do
             loop do
+              break if @stopped.value
               @fetch_lock.synchronize { update_keys }
               retry_delay = initial_retry_delay
               wait_time = calculate_wait_time
