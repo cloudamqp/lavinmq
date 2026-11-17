@@ -333,6 +333,36 @@ describe LavinMQ::Client::Channel::Consumer do
       end
     end
 
+    it "should round-robin when deliver loops idled out between messages" do
+      config = LavinMQ::Config.new
+      config.deliver_loop_idle_timeout = 50.milliseconds
+      with_amqp_server(config: config) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("idle-round-robin")
+          got = Channel(Int32).new
+          with_channel(s) do |ch1|
+            with_channel(s) do |ch2|
+              {ch1, ch2}.each_with_index do |consumer_ch, i|
+                consumer_ch.prefetch 8
+                consumer_ch.basic_consume(q.name, no_ack: false) do |msg|
+                  msg.ack
+                  got.send i
+                end
+              end
+              # Every publish finds all deliver loops exited, so no consumer
+              # is waiting in line
+              order = Array.new(10) do
+                sleep 150.milliseconds
+                q.publish("m")
+                got.receive
+              end
+              order.each_cons_pair { |a, b| a.should_not eq b }
+            end
+          end
+        end
+      end
+    end
+
     it "shuts down deliver_loop after idle timeout and respawns on next message" do
       config = LavinMQ::Config.new
       config.deliver_loop_idle_timeout = 100.milliseconds
