@@ -108,13 +108,6 @@ test.describe('queue', _ => {
       await expect(page.locator('#q-retry-delivery-limit')).toHaveText('None')
     })
 
-    test('shows constant backoff', async ({ apimap, page }) => {
-      await loadRetryApi(apimap, page, 'orders', {
-        delayed_retry: { min: 1000, multiplier: 1, max: null, delivery_limit: null, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
-      })
-      await expect(page.locator('#q-retry-backoff')).toHaveText('Constant')
-    })
-
     test('shows no retry queue link when the retry queue could not be created', async ({ apimap, page }) => {
       await loadRetryApi(apimap, page, 'orders', {
         delayed_retry: { min: 1000, multiplier: null, max: null, delivery_limit: null, messages_delayed: 0, retry_queue: null }

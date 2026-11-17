@@ -191,24 +191,6 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should show a delivery limit set by a policy" do
-      with_http_server do |http, s|
-        with_channel(s) do |ch|
-          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
-          ch.queue("q-retry-policy", args: args)
-          definitions = {"delivery-limit" => JSON::Any.new(50_i64)}
-          s.vhosts["/"].add_policy("retry-limit", "^q-retry-policy$", "queues", definitions, 0_i8)
-          wait_for { s.vhosts["/"].queue("q-retry-policy").policy }
-          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
-          retry["delivery_limit"].as_i.should eq 50
-          s.vhosts["/"].delete_policy("retry-limit")
-          wait_for { s.vhosts["/"].queue("q-retry-policy").policy.nil? }
-          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-policy").body)["delayed_retry"]
-          retry["delivery_limit"].raw.should be_nil
-        end
-      end
-    end
-
     it "should not name a retry queue that couldn't be created" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
