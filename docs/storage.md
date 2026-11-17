@@ -4,7 +4,7 @@ LavinMQ uses a disk-first persistence model. Messages are written directly to di
 
 ## Segment-Based Storage
 
-Messages are stored in fixed-size segment files. New messages are appended to the current write segment; when it fills, or when an idle queue has consumed all of it (see [Segment Garbage Collection](#segment-garbage-collection)), a new segment is created. Segments are named sequentially (`msgs.0000000000`, `msgs.0000000001`, etc.).
+Messages are stored in fixed-size segment files. New messages are appended to the current write segment; when it fills, a new segment is created. A queue or MQTT session without messages has no segment: the first message creates one, and an idle queue that has consumed all of its write segment deletes it (see [Segment Garbage Collection](#segment-garbage-collection)). Streams always have a write segment. Segments are named sequentially (`msgs.0000000000`, `msgs.0000000001`, etc.).
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
@@ -39,7 +39,7 @@ Streams do not record individual message deletions in ack files. Acknowledgments
 
 For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
-The write segment, where new messages go, is kept until it fills, unless the queue goes idle: a consumer has waited 30 seconds on the empty queue, or the last consumer leaves. If every message in the write segment has been acknowledged by then, the queue starts a new write segment and the old one is deleted like any other fully acknowledged segment. Otherwise a drained queue would keep up to `segment_size` of consumed messages on disk, and read them at every start. Write segments smaller than an eighth of `segment_size` are kept, so that a queue that gets a message slightly less often than every 30 seconds doesn't create and delete a file per message. Streams never switch write segments this way.
+The write segment, where new messages go, is kept until it fills, unless the queue goes idle: a consumer has waited 30 seconds on the empty queue, or the last consumer leaves. If every message in the write segment has been acknowledged by then, the segment is deleted like any other fully acknowledged segment, and the queue's next message creates a new one. Otherwise a drained queue would keep up to `segment_size` of consumed messages on disk, and read them at every start. Write segments smaller than an eighth of `segment_size` are kept, so that a queue that gets a message slightly less often than every 30 seconds doesn't create and delete a file per message. At start, a queue whose messages have all been acknowledged deletes its write segment whatever its size. Streams never delete their write segment this way.
 
 ## Data Directory Layout
 
@@ -51,7 +51,7 @@ The write segment, where new messages go, is kept until it fills, unless the que
   <vhost_sha1>/              # Per-vhost directory (SHA1 of vhost name)
     definitions.amqp         # Exchange, queue, binding, policy definitions
     <queue_sha1>/            # Per-queue directory (SHA1 of queue name)
-      msgs.0000000000        # Message segment files
+      msgs.0000000000        # Message segment files, none while the queue has no messages
       acks.0000000000        # Ack tracking files
       meta.0000000000        # Metadata files (used by some queue types)
 ```

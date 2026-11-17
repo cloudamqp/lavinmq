@@ -58,10 +58,10 @@ describe LavinMQ::AMQP::DurableQueue do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
           queue = vhost.queue("corrupt_q2").as(LavinMQ::AMQP::DurableQueue)
-          enq_path = queue.@msg_store.@segments.last_value.path
           2.times do |i|
             q.publish_confirm "test message #{i}"
           end
+          enq_path = queue.@msg_store.@segments.last_value.path
         end
         s.stop
         File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
@@ -107,6 +107,7 @@ describe LavinMQ::AMQP::DurableQueue do
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
         queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
+        q.publish_confirm "first" # the segment is opened on the first publish
         mfile = queue.@msg_store.@segments.first_value
 
         fill_segment_with_one_extra_byte(q, queue_name, mfile)
@@ -125,6 +126,7 @@ describe LavinMQ::AMQP::DurableQueue do
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
         queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
+        q.publish_confirm "first" # the segment is opened on the first publish
         mfile = queue.@msg_store.@segments.first_value
 
         fill_segment_with_one_extra_byte(q, queue_name, mfile)
