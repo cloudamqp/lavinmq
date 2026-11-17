@@ -1,5 +1,17 @@
 require "../spec_helper.cr"
 
+# Runs right after a packet is written, before #send returns to its caller, as
+# when the client's fiber, on another thread, reads the reply to it first
+class LavinMQ::MQTT::Client
+  class_property after_send_hook : Proc(LavinMQ::MQTT::Client, MQTT::Protocol::Packet, Nil)? = nil
+
+  def send(packet)
+    result = previous_def
+    @@after_send_hook.try &.call(self, packet)
+    result
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -17,6 +29,39 @@ module MqttSpecs
           io.should be_closed
         end
       end
+    end
+
+    # The deliver loop recorded a QoS 1 delivery as in flight only after its
+    # send returned, so a PUBACK read in between found nothing to ack and the
+    # client was disconnected
+    it "accepts a PUBACK read before the send of its PUBLISH has returned" do
+      LavinMQ::MQTT::Client.after_send_hook = ->(client : LavinMQ::MQTT::Client, packet : MQTT::Protocol::Packet) do
+        if packet.is_a?(MQTT::Protocol::Publish) && (id = packet.packet_id)
+          client.recieve_puback(MQTT::Protocol::PubAck.new(id))
+        end
+        nil
+      end
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+          with_client_io(server) do |publisher_io|
+            connect(publisher_io, client_id: "publisher")
+            publish(publisher_io, topic: "a/b", qos: 1u8)
+            disconnect(publisher_io)
+          end
+
+          read_publish(io).qos.should eq 1u8
+          io.should be_drained # still connected
+          session = server.vhosts["/"].session("mqtt.client_id")
+          should_eventually(eq 0) { session.unacked_count }
+          session.message_count.should eq 0
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::MQTT::Client.after_send_hook = nil
     end
 
     it "qos is set according to subscription qos [LavinMQ non-normative]" do

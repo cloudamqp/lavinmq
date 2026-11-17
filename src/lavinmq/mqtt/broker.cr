@@ -56,19 +56,11 @@ module LavinMQ
         @vhost.connection_limit_reached?
       end
 
+      # The new client takes over the client id at once, but gets the session
+      # only once the previous client has shut down. Its shutdown can publish
+      # its will through the broker, so it's waited for outside the lock, where
+      # it doesn't hold up other clients connecting and disconnecting.
       def add_client(io, connection_info, user, packet) : Client
-        @clients_lock.synchronize do
-          add_client_locked(io, connection_info, user, packet)
-        end
-      end
-
-      private def add_client_locked(io, connection_info, user, packet) : Client
-        if prev_client = @clients[packet.client_id]?
-          prev_client.close(
-            "New client #{connection_info.remote_address} " \
-            "(username=#{packet.username}) connected as #{packet.client_id}")
-          remove_client_locked(prev_client)
-        end
         client = MQTT::Client.new(io,
           connection_info,
           user,
@@ -78,6 +70,26 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will)
+        prev_client = @clients_lock.synchronize do
+          prev = @clients[client.client_id]?
+          @clients[client.client_id] = client
+          @vhost.add_connection client
+          prev
+        end
+        if prev_client
+          prev_client.close(
+            "New client #{connection_info.remote_address} " \
+            "(username=#{packet.username}) connected as #{packet.client_id}")
+        end
+        @clients_lock.synchronize do
+          remove_client_locked(prev_client) if prev_client
+          # Unless yet another client has taken over the client id meanwhile
+          attach_session(client) if @clients[client.client_id]?.same?(client)
+        end
+        client
+      end
+
+      private def attach_session(client : Client) : Nil
         if client.clean_session?
           sessions[client.client_id]?.try &.delete
         else
@@ -87,9 +99,6 @@ module LavinMQ
             session.client = client
           end
         end
-        @clients[packet.client_id] = client
-        @vhost.add_connection client
-        client
       end
 
       def run_client(io, connection_info, user, packet) : Client
