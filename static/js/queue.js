@@ -169,6 +169,10 @@ function updateQueue (all, signal) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      const headTs = item.head_message_timestamp
+      document.getElementById('q-head-message').textContent = headTs
+        ? `${Helpers.formatTimestamp(headTs)} (${Helpers.duration(Math.max(0, (Date.now() - headTs) / 1000))} ago)`
+        : ''
       document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       renderDelayedRetry(item)
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`

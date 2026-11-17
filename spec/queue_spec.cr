@@ -1943,6 +1943,57 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "#head_message_timestamp" do
+    it "is the arrival time of the oldest ready message" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("head_ts")
+          queue = s.vhosts["/"].queue("head_ts").as(LavinMQ::AMQP::Queue)
+          queue.head_message_timestamp.should be_nil
+
+          before = RoughTime.unix_ms
+          q.publish_confirm "m1"
+          first = queue.head_message_timestamp.should_not be_nil
+          first.should be >= before
+          sleep 10.milliseconds # the coarse clock ticks every 1-4 ms
+          q.publish_confirm "m2"
+          queue.head_message_timestamp.should eq first
+
+          msg = q.get(no_ack: false).should_not be_nil
+          second = queue.head_message_timestamp.should_not be_nil
+          second.should be > first
+
+          msg.reject(requeue: true)
+          wait_for { queue.head_message_timestamp == first }
+        end
+      end
+    end
+
+    it "is the oldest message across all priorities" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("head_ts_prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 5}))
+          queue = s.vhosts["/"].queue("head_ts_prio").as(LavinMQ::AMQP::Queue)
+          q.publish_confirm "low", props: AMQP::Client::Properties.new(priority: 0u8)
+          low = queue.head_message_timestamp.should_not be_nil
+          sleep 10.milliseconds
+          q.publish_confirm "high", props: AMQP::Client::Properties.new(priority: 5u8)
+          queue.head_message_timestamp.should eq low
+        end
+      end
+    end
+
+    it "is nil for a stream" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("head_ts_stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "m1"
+          s.vhosts["/"].queue("head_ts_stream").as(LavinMQ::AMQP::Queue).head_message_timestamp.should be_nil
+        end
+      end
+    end
+  end
 end
 
 describe LavinMQ::AMQP::DurableQueue do

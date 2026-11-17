@@ -38,6 +38,10 @@
               <td id="q-consumers"></td>
             </tr>
             <tr>
+              <th>Oldest ready message</th>
+              <td id="q-head-message"></td>
+            </tr>
+            <tr>
               <th>Policy</th>
               <td id="q-policy"></td>
             </tr>

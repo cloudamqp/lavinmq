@@ -371,6 +371,18 @@ describe LavinMQ::HTTP::QueuesController do
         body["messages_persistent"].should eq 1
       end
     end
+
+    it "should return head_message_timestamp only for a non-empty queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("head_ts_empty")
+          ch.queue("head_ts_full").publish_confirm "m1"
+        end
+        JSON.parse(http.get("/api/queues/%2f/head_ts_empty").body)["head_message_timestamp"]?.should be_nil
+        ts = JSON.parse(http.get("/api/queues/%2f/head_ts_full").body)["head_message_timestamp"].as_i64
+        ts.should eq s.vhosts["/"].queue("head_ts_full").as(LavinMQ::AMQP::Queue).head_message_timestamp
+      end
+    end
   end
 
   describe "GET /api/queues/vhost/name/unacked" do

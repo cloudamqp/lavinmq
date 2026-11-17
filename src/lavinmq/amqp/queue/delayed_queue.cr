@@ -102,6 +102,10 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { delayed_msg_store.time_to_next_expiration? }
     end
 
+    # Messages are ordered by delay, so the head isn't the oldest message
+    def head_message_timestamp : Int64?
+    end
+
     # Policies never apply to internal queues
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool
       false

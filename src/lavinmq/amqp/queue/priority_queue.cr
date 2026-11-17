@@ -167,6 +167,12 @@ module LavinMQ::AMQP
         end
       end
 
+      # The head of a lower priority can be older than #first?
+      def first_timestamp? : Int64?
+        raise ClosedError.new if @closed
+        @stores.compact_map(&.first_timestamp?).min?
+      end
+
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         @stores.reverse_each do |s|
