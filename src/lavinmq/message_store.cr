@@ -303,11 +303,19 @@ module LavinMQ
 
     # Deletes all "ready" messages (not unacked)
     def purge(max_count : Int = UInt32::MAX) : UInt32
+      purge(max_count) { }
+    end
+
+    # Calls the block with the position of each purged message. The block is
+    # captured, not yielded to, as a priority store passes it on to its sub
+    # stores.
+    def purge(max_count : Int = UInt32::MAX, &block : SegmentPosition ->) : UInt32
       raise ClosedError.new if @closed
       count = 0u32
-      while count < max_count
-        env = shift_or_give_up? || break
-        delete(env.segment_position)
+      while count < max_count && (env = shift_or_give_up?)
+        sp = env.segment_position
+        delete(sp)
+        block.call(sp)
         count += 1
         break if count >= max_count
         Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -422,6 +430,12 @@ module LavinMQ
 
     # Returns the number of messages purged, without data that can't be read
     def purge_all : UInt32
+      purge_all { }
+    end
+
+    # Calls on_requeued with each requeued message: the only purged messages
+    # that can have been delivered before
+    def purge_all(&on_requeued : SegmentPosition ->) : UInt32
       count = 0u32
       # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
@@ -429,6 +443,7 @@ module LavinMQ
         @bytesize -= sp.bytesize
         count += 1
         delete(sp) if @segments.has_key?(sp.segment)
+        on_requeued.call(sp)
       end
 
       # Delete all segments except the current rfile and wfile
