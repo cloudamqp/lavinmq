@@ -232,9 +232,6 @@ module LavinMQ::AMQP
     def requeue(sp : SegmentPosition)
     end
 
-    def requeue_undelivered(sp : SegmentPosition) : Nil
-    end
-
     private def drop_overflow : Nil
       # Overflow handling is done in StreamMessageStore
     end

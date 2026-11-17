@@ -223,17 +223,12 @@ module LavinMQ
         end
         delivery_tag = begin
           @channel.next_delivery_tag(@queue, sp, @no_ack, self)
-        rescue ex : AMQP::Channel::ClosedError
-          # Only raised in ack mode. The channel closed before it recorded the
-          # message as unacked, so close won't requeue it. The segment lease
-          # is released by the caller.
+        rescue ex : AMQP::Channel::UnrecordedError
+          # Queue#get puts back the messages it shifts, but a recovered one was
+          # delivered before, so it's requeued like on close
           if recover
-            # Recovered messages reached the client before and weren't
-            # shifted again by Queue#get, so there's no count to undo
             reject(sp)
             @queue.requeue(sp)
-          else
-            @queue.requeue_undelivered(sp)
           end
           raise ex
         end

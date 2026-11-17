@@ -1279,8 +1279,18 @@ module LavinMQ::AMQP
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
-            yield env # deliver the message
-            # requeuing of failed delivery is up to the consumer
+            begin
+              yield env # deliver the message
+            rescue ex : AMQP::Channel::UnrecordedError
+              # No client got it, so it's put back as if never shifted: not
+              # counted as a delivery attempt or a reject
+              @unacked_count.sub(1, :relaxed)
+              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              uncount_delivery(sp) if settings.counts_deliveries?
+              redeliver_message(sp, route_to_retry: false)
+              raise ex
+            end
+            # requeuing of other failed deliveries is up to the consumer
           end
           # Signal expire loop to recalculate wait time for next message
           @message_ttl_change.try_send? nil
@@ -1319,6 +1329,15 @@ module LavinMQ::AMQP
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
       env.message.properties.headers = headers
       delivery_count > 0 ? env.as_redelivered : env
+    end
+
+    # Undoes the count #with_delivery_count_header added
+    private def uncount_delivery(sp : SegmentPosition) : Nil
+      @msg_store_lock.synchronize do
+        if count = @deliveries[sp]?
+          count > 1 ? (@deliveries[sp] = count - 1) : @deliveries.delete(sp)
+        end
+      end
     end
 
     # See #strip_delivery_count for why the header can be trusted here
@@ -1371,42 +1390,16 @@ module LavinMQ::AMQP
 
     # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
     def requeue(sp : SegmentPosition)
-      put_back(sp, count_attempt: true)
-    end
-
-    # Puts back a message shifted for a delivery that never reached a client,
-    # e.g. because its channel closed first. Unlike #requeue it's not counted
-    # as a delivery attempt or a reject, as no client got it.
-    def requeue_undelivered(sp : SegmentPosition) : Nil
-      put_back(sp, count_attempt: false)
-    end
-
-    private def put_back(sp : SegmentPosition, count_attempt : Bool) : Nil
       return if @deleted || @closed
-      @log.debug { "Requeuing #{sp}#{" undelivered" unless count_attempt}" }
-      @reject_count.add(1, :relaxed) if count_attempt
+      @log.debug { "Requeuing #{sp}" }
+      @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      uncount_delivery(sp) unless count_attempt
       redeliver_message(sp, route_to_retry: false)
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
-    end
-
-    # Undoes the count #get added when it shifted the message for delivery
-    private def uncount_delivery(sp : SegmentPosition) : Nil
-      return unless settings.counts_deliveries?
-      @msg_store_lock.synchronize do
-        if count = @deliveries[sp]?
-          if count > 1
-            @deliveries[sp] = count - 1
-          else
-            @deliveries.delete(sp)
-          end
-        end
-      end
     end
 
     private def redeliver_message(sp : SegmentPosition, route_to_retry : Bool)
