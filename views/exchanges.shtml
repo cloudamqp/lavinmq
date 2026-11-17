@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage exchanges</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-exchange-dialog">+ Add exchange</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -36,8 +39,12 @@
           </table>
         </div>
       </section>
-      <form method="put" id="addExchange" class="form card">
-        <h3>Add exchange</h3>
+      <dialog id="add-exchange-dialog" class="dialog" closedby="any">
+        <div class="dialog-header">
+          <h3>Add exchange</h3>
+          <button type="button" class="dialog-close" command="close" commandfor="add-exchange-dialog" aria-label="Close">&#x2715;</button>
+        </div>
+        <form method="put" id="addExchange" class="form">
         <label>
           <span>Virtual host</span>
           <select class="dropdown" name="vhost" required></select>
@@ -110,8 +117,11 @@
             </a>
           </div>
         </label>
-        <button type="submit" class="btn btn-green">Add exchange</button>
-      </form>
+        <div class="dialog-footer">
+          <button type="submit" class="btn btn-green btn-inline">Add exchange</button>
+        </div>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>
