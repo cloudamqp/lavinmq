@@ -15,7 +15,7 @@ class LavinMQ::Clustering::Controller
   @advertised_uri : String
 
   def self.new(config : Config)
-    etcd = Etcd.new(config.clustering_etcd_endpoints)
+    etcd = Etcd.new(config.clustering_etcd_endpoints, config.clustering_etcd_lease_ttl.seconds)
     new(config, etcd, EtcdCoordinator.new(config, etcd))
   end
 
