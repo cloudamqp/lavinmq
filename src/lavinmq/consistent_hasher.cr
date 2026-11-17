@@ -9,6 +9,13 @@ class RingConsistentHasher(T) < Hasher(T)
     @sorted_keys = Array(UInt32).new(128)
   end
 
+  protected def initialize(@ring : Hash(UInt32, T), @sorted_keys : Array(UInt32))
+  end
+
+  def copy : RingConsistentHasher(T)
+    RingConsistentHasher(T).new(@ring.dup, @sorted_keys.dup)
+  end
+
   def add(key : String, weight : UInt32, target : T)
     weight.times do |t|
       @ring[hash_key("#{key}.#{t}")] = target

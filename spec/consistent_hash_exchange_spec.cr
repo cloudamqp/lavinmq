@@ -258,7 +258,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "jump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
@@ -268,7 +268,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "ring"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
@@ -278,10 +278,31 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           LavinMQ::Config.instance.default_consistent_hash_algorithm.should eq LavinMQ::ConsistentHashAlgorithm::Ring
           ch.exchange(x_name, "x-consistent-hash")
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
+    # Applying a policy re-runs handle_arguments, which used to replace the
+    # hasher with an empty one and so stop routing to every bound queue
+    it "keeps routing to bound queues after a policy is applied" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        x_args = LavinMQ::AMQP::Table.new({"x-algorithm" => "jump"})
+        vhost.declare_exchange("chx-policy", "x-consistent-hash", false, false, arguments: x_args)
+        vhost.declare_queue("chx-policy-q", false, false)
+        vhost.bind_queue("chx-policy-q", "chx-policy", "1")
+        ex = vhost.exchange("chx-policy").as(LavinMQ::AMQP::ConsistentHashExchange)
+        q = vhost.queue("chx-policy-q")
+        vhost.add_policy("chx-p", "^chx-policy$", "exchanges",
+          {"alternate-exchange" => JSON::Any.new("amq.fanout")}, 0i8)
+        should_eventually(be_true) { !ex.policy.nil? }
+        queues = Set(LavinMQ::AMQP::Queue).new
+        ex.find_queues("any key", nil, queues)
+        queues.should contain(q)
+        ex.@state.get.hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+      end
+    end
+
     it "should fallback to default if invalid x-algorithm was supplied" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -289,7 +310,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "juump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
           ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
-          ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
+          ex.@state.get.hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
     end
