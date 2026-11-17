@@ -4,7 +4,7 @@ LavinMQ uses a disk-first persistence model. Messages are written directly to di
 
 ## Segment-Based Storage
 
-Messages are stored in fixed-size segment files. New messages are appended to the current write segment; when it fills, a new segment is created. Segments are named sequentially (`msgs.0000000000`, `msgs.0000000001`, etc.).
+Messages are stored in fixed-size segment files. New messages are appended to the current write segment; when it fills, or when an idle queue has consumed all of it (see [Segment Garbage Collection](#segment-garbage-collection)), a new segment is created. Segments are named sequentially (`msgs.0000000000`, `msgs.0000000001`, etc.).
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
@@ -38,6 +38,8 @@ Streams do not record individual message deletions in ack files. Acknowledgments
 ## Segment Garbage Collection
 
 For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
+
+The write segment, where new messages go, is kept until it fills, unless the queue goes idle: a consumer has waited 30 seconds on the empty queue, or the last consumer leaves. If every message in the write segment has been acknowledged by then, the queue starts a new write segment and the old one is deleted like any other fully acknowledged segment. Otherwise a drained queue would keep up to `segment_size` of consumed messages on disk, and read them at every start. Write segments smaller than an eighth of `segment_size` are kept, so that a queue that gets a message slightly less often than every 30 seconds doesn't create and delete a file per message. Streams never switch write segments this way.
 
 ## Data Directory Layout
 
