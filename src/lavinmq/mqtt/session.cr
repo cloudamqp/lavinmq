@@ -179,8 +179,8 @@ module LavinMQ
       end
 
       # Checked again under the lock a purge holds, which may have removed the
-      # message since the delivery failed. Deliveries are stopped under it too,
-      # so that the purge isn't undone.
+      # message since the delivery failed. Deliveries are stopped under it, and
+      # nowhere else, so that the purge isn't undone.
       private def still_unreadable? : Bool
         @msg_store_lock.synchronize do
           @msg_store.first?
@@ -193,9 +193,9 @@ module LavinMQ
         end
       end
 
+      # Only logs: #still_unreadable? has stopped them
       private def stop_deliveries(ex : Exception) : Nil
         @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
-        @store_readable.set(false) unless closed?
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -503,7 +503,7 @@ module LavinMQ
           end
         end
       rescue ex : MessageStore::Error
-        stop_deliveries(ex)
+        stop_deliveries(ex) if still_unreadable?
       end
 
       private def clear_policy_arguments

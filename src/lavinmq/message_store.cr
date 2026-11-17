@@ -29,6 +29,9 @@ module LavinMQ
     @closed = false
     # Set at load when the segment written to has data that can't be read
     @wfile_unreadable = false
+    # Segments whose message count includes one for data that can't be read,
+    # see #count_unreadable
+    @counted_unreadable = Set(UInt32).new
     # When the reader moved into @rfile, see #read_fast?
     @rfile_since : Time::Instant = RoughTime.instant
     # Set once a publish to this store is synced, see #readahead_for_writes
@@ -366,6 +369,7 @@ module LavinMQ
       unlink_segment(seg)
       @segment_msg_count.delete(seg)
       @deleted.delete(seg)
+      @counted_unreadable.delete(seg)
     end
 
     private def mark_given_up(seg : UInt32) : Nil
@@ -454,18 +458,11 @@ module LavinMQ
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
         if (msg_count = @segment_msg_count.delete(seg_id)) && seg_id > @rfile_id
-          # msg_count is every msg ever written to the segment, acked ones
-          # included, while @size only counts the ready ones. Never take off
-          # more than @size holds: which msgs are ready is the subclass's to
-          # decide, and a purge must not underflow the counter here, outside
-          # the rescue below.
-          acked = @acks[seg_id]?.try { |f| (f.size // sizeof(UInt32)).to_u32 } || 0u32
-          ready = Math.min(acked < msg_count ? msg_count - acked : 0u32, @size)
-          @size -= ready
-          count += ready
+          count += uncount_unread_segment(seg_id, msg_count)
         end
         unlink_files(file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
+        @counted_unreadable.delete(seg_id)
         true
       end
 
@@ -489,6 +486,21 @@ module LavinMQ
       @size = 0_u32
       @empty.set true
       count
+    end
+
+    # Takes the ready messages of an unread segment off @size, and returns how
+    # many of them are messages.
+    # msg_count is every msg ever written to the segment, acked ones included,
+    # while @size only counts the ready ones. Never take off more than @size
+    # holds: which msgs are ready is the subclass's to decide, and a purge
+    # must not underflow the counter.
+    private def uncount_unread_segment(seg_id : UInt32, msg_count : UInt32) : UInt32
+      acked = @acks[seg_id]?.try { |f| (f.size // sizeof(UInt32)).to_u32 } || 0u32
+      ready = Math.min(acked < msg_count ? msg_count - acked : 0u32, @size)
+      @size -= ready
+      # Not the one that stands in for data that can't be read
+      ready -= 1 if ready > 0 && @counted_unreadable.includes?(seg_id)
+      ready
     end
 
     private def delete_meta_files : Nil
@@ -743,7 +755,10 @@ module LavinMQ
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unless @wfile_id.zero?
-        write_metadata_file(@wfile_id, @wfile)
+        # Not for a segment that a load seals: its count stands in for data
+        # that can't be read (see #count_unreadable), and a node or a version
+        # that can read it must count it from the segment
+        write_metadata_file(@wfile_id, @wfile) unless @wfile_unreadable
         @wfile.truncate(@wfile.size)
         @wfile.advise(MFile::Advice::Random) unless @synced_writes
       end
@@ -952,6 +967,7 @@ module LavinMQ
     private def count_unreadable(seg : UInt32, mfile : MFile, pos : Int, readable_unacked : UInt32 = 0u32) : Nil
       acked = @deleted[seg]?.try(&.size.to_u32) || 0u32
       @segment_msg_count[seg] = acked + readable_unacked + 1
+      @counted_unreadable << seg
       @wfile_unreadable = true if seg == @wfile_id
       @bytesize += mfile.size - pos
       @size += 1

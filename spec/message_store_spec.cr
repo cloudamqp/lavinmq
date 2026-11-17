@@ -399,6 +399,33 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "gets no meta file when a load stops writes to its segment, whose count stands in for it" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        3.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        store.close
+        segment = File.join(dir, "msgs.0000000001")
+        write_at(segment, 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.@segments.keys.should eq [1u32, 2u32]
+        store.size.should eq 1
+        File.exists?(File.join(dir, "meta.0000000001")).should be_false
+        store.close
+
+        # A node or a version that can read it counts it from the segment.
+        # With the count that stood in for it, one ack would delete it.
+        write_at(segment, 0, LavinMQ::Schema::VERSION)
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 3
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position)
+        File.exists?(segment).should be_true
+        2.times { |i| shift_body(store).should eq "body#{i + 1}" }
+        store.close
+      end
+    end
+
     it "is given up by a purge, for a requeued message" do
       with_store do |store|
         2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }

@@ -487,15 +487,17 @@ module LavinMQ::AMQP
     # offset and timestamps from
     private def count_unreadable(seg : UInt32, mfile : MFile, pos : Int, readable_unacked : UInt32 = 0u32) : Nil
       super
-      segment_without_first_message(seg)
+      # When the file was last written, not now: it's set again by each load,
+      # and max-age would never get past the segment
+      segment_without_first_message(seg, File.info(mfile.path).modification_time.to_unix_ms)
     end
 
-    private def segment_without_first_message(seg : UInt32) : Nil
+    private def segment_without_first_message(seg : UInt32, ts : Int64 = RoughTime.unix_ms) : Nil
       previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
       previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
       @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
-      @segment_first_ts[seg] = RoughTime.unix_ms
-      @segment_last_ts[seg] = RoughTime.unix_ms
+      @segment_first_ts[seg] = ts
+      @segment_last_ts[seg] = ts
     end
 
     private def produce_metadata(seg, mfile) : Bool

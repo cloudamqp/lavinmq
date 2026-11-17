@@ -1367,7 +1367,9 @@ module LavinMQ::AMQP
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
-            delete_message(sp)
+            # Delivered: a failed delete pauses the queue, and the message
+            # isn't reported as not delivered
+            delete_moved(sp)
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
