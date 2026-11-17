@@ -50,7 +50,7 @@ module LavinMQ
       @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
+        etcd = Etcd.new(@config.clustering_etcd_endpoints, @config.clustering_etcd_lease_ttl.seconds)
         coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
         @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
         @replicator = Clustering::Server.new(@config, coordinator, controller.id)

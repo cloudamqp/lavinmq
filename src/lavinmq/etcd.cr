@@ -14,8 +14,9 @@ module LavinMQ
     record ElectionLeader, election : String, key : String, lease : Int64
 
     @endpoints : Array(Endpoint)
+    @connected = Atomic(Bool).new(false)
 
-    def initialize(endpoints = "localhost:2379")
+    def initialize(endpoints = "localhost:2379", @reconnect_timeout : Time::Span = 10.seconds)
       @endpoints = endpoints.split(',').map { |ep| parse_endpoint(ep) }
     end
 
@@ -303,17 +304,27 @@ module LavinMQ
       end
     end
 
+    # Exits at once if etcd has never been reached, e.g. it isn't running at
+    # startup. Once it has, a member restart is waited out for up to
+    # *reconnect_timeout* (the lease TTL), as the lease outlives it.
     private def connect : Connection
-      @endpoints.shuffle.each do |e|
-        address = "#{e.host}:#{e.port}"
-        tcp_socket = create_tcp_socket(e.host, e.port)
-        socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
+      deadline = Time.instant + @reconnect_timeout
+      loop do
+        @endpoints.shuffle.each do |e|
+          address = "#{e.host}:#{e.port}"
+          tcp_socket = create_tcp_socket(e.host, e.port)
+          socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
 
-        Log.debug { "Connected to #{address}" }
-        return Connection.new socket, address, e.auth
-      rescue ex : IO::Error
-        Log.debug { "Could not connect to #{address}: #{ex}" }
-        next
+          Log.debug { "Connected to #{address}" }
+          @connected.set(true)
+          return Connection.new socket, address, e.auth
+        rescue ex : IO::Error
+          Log.debug { "Could not connect to #{address}: #{ex}" }
+          next
+        end
+        break if !@connected.get || Time.instant >= deadline
+        Log.warn { "No etcd endpoint responded, retrying" }
+        sleep 1.second
       end
       Log.fatal { "No etcd endpoint responded" }
       exit 5 # 5th character in the alphabet is E(etcd)
