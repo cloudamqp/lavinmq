@@ -163,6 +163,11 @@ module LavinMQ::AMQP
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
+    # Held by a drop that starts a dead lettering chain while it publishes,
+    # so that concurrent drops publish their dead letters in the order they
+    # shifted them out, see #drop_messages. Taken before @msg_store_lock,
+    # never while holding it.
+    @drop_lock = Mutex.new
     @msg_store : MessageStore
     getter deliver_loop_wg = WaitGroup.new
 
@@ -981,6 +986,7 @@ module LavinMQ::AMQP
       end
       was_empty = false
       pushed = false
+      over_limit = false
       @msg_store_lock.synchronize do
         # Checked under the lock: other publishers can fill the queue while
         # this one waits for it, and a message pushed past the limit would
@@ -989,9 +995,10 @@ module LavinMQ::AMQP
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
+        over_limit = drop_unrouted_overflow
       end
-      # Outside the lock, as it might dead letter
-      drop_overflow(dlx_tasks)
+      # Outside the lock, as it dead letters
+      drop_overflow(dlx_tasks) if over_limit
       @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty
 
@@ -1043,32 +1050,57 @@ module LavinMQ::AMQP
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
+      settings = self.settings
+      return if settings.reject_on_overflow?
+      # The block re-reads the limits under the lock, a policy might change them
+      if settings.max_length
+        drop_messages(:maxlen, dlx_tasks) { shift_overflow(:maxlen) }
+      end
+      if settings.max_length_bytes
+        drop_messages(:maxlenbytes, dlx_tasks) { shift_overflow(:maxlenbytes) }
+      end
+    end
+
+    # Called with @msg_store_lock held: shifts out the head of the queue if
+    # it's over the max-length (reason :maxlen) or max-length-bytes limit
+    private def shift_overflow(reason : Symbol) : Envelope?
+      @msg_store.shift? if over_limit?(reason)
+    end
+
+    # Called with @msg_store_lock held
+    private def over_limit?(reason : Symbol) : Bool
       settings = self.settings
       # In reject-publish mode publishes past the limit are refused instead,
       # and a stored message is never dropped for the limit
-      return if settings.reject_on_overflow?
+      return false if settings.reject_on_overflow?
       ml = settings.max_length
       mlb = settings.max_length_bytes
-      return unless ml || mlb
+      over = if reason == :maxlen
+               ml && @msg_store.size > ml
+             else
+               mlb && @msg_store.bytesize > mlb
+             end
+      return false unless over
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
-      return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
+      !(((ml == 0) || (mlb == 0)) && immediate_delivery?)
+    end
 
-      # The limits are read again under the lock, a policy might have changed them
-      if ml
-        drop_messages(:maxlen, dlx_tasks) do
-          ml = self.settings.max_length
-          @msg_store.shift? if ml && @msg_store.size > ml
+    # Called with @msg_store_lock held, after a push: drops the messages over
+    # the length limits that aren't dead-lettered, which needs no other
+    # queue's lock. Returns true if the head is still over a limit, with a
+    # message to dead letter, for #drop_overflow once the lock is released.
+    private def drop_unrouted_overflow : Bool
+      {:maxlen, :maxlenbytes}.each do |reason|
+        while over_limit?(reason)
+          env = @msg_store.first? || break
+          return true if route_dropped?(env.segment_position)
+          env = @msg_store.shift? || break
+          drop_unrouted(env.segment_position, reason)
         end
       end
-      if mlb
-        drop_messages(:maxlenbytes, dlx_tasks) do
-          mlb = self.settings.max_length_bytes
-          @msg_store.shift? if mlb && @msg_store.bytesize > mlb
-        end
-      end
+      false
     end
 
     private def drop_redelivered : Nil
@@ -1084,76 +1116,69 @@ module LavinMQ::AMQP
     DROP_BATCH_SIZE = 64
 
     # Drops messages from the head of the queue for as long as the block,
-    # called with @msg_store_lock held, shifts out another one. Messages to
-    # dead letter are routed after the lock is released, as routing publishes
-    # into other queues, taking their locks, and they might dead letter back
-    # into this queue (deadlock). So the lock is held for at most a batch of
-    # messages at a time. Returns the number of dropped messages.
+    # called with @msg_store_lock held, shifts out another one. The dead
+    # letters are routed, in order, under the lock, which only queues the
+    # copies in a dead lettering chain (DeadLetterer#chain). The copies are
+    # published into the destination queues, taking their locks, once the
+    # lock is released, as the destinations might dead letter back into
+    # this queue (deadlock). The lock is held for a batch at a time.
+    #
+    # In another queue's chain (dlx_tasks given) that queue publishes the
+    # copies. Otherwise each batch is published before the next is shifted,
+    # under @drop_lock, so that the dead letters of concurrent drops are
+    # published in the order they were shifted.
+    #
+    # A dropped message is leased while shifted out, so a purge or close
+    # meanwhile doesn't unmap it before it's published. Returns the number of
+    # dropped messages.
     private def drop_messages(reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil,
-                              & : -> Envelope?) : Int32
-      dropped = 0
-      dead_letters = uninitialized StaticArray(SegmentPosition, DROP_BATCH_SIZE)
+                              & : -> Envelope?) : UInt64
+      return drop_batches(reason, dlx_tasks) { yield } if dlx_tasks
+      @drop_lock.synchronize do
+        drop_batches(reason, nil) { yield }
+      end
+    end
+
+    private def drop_batches(reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks?,
+                             & : -> Envelope?) : UInt64
+      dropped = 0_u64
       loop do
-        shifted = 0
-        dead_letter_count = 0
-        @msg_store_lock.synchronize do
-          while shifted < DROP_BATCH_SIZE && !@closed
-            env = yield || break
-            shifted += 1
-            sp = env.segment_position
-            @log.debug { "Dropping sp=#{sp} reason=#{reason}" }
-            if route_dropped?(sp)
-              dead_letters[dead_letter_count] = sp
-              dead_letter_count += 1
-            else
-              # Counted here as it skips expire_msg, which counts the others
-              @vhost.count_dead_lettered(reason, dlx: false)
-              delete_message(sp)
-            end
-          end
+        shifted = @dead_letter.chain(dlx_tasks) do |tasks|
+          drop_batch(reason, tasks) { yield }
         end
-        # Shifted out but not deleted, so expire_msg can still copy them, unless
-        # a purge or close removed them meanwhile
-        routed = 0
-        begin
-          while routed < dead_letter_count
-            sp = dead_letters[routed]
-            routed += 1
-            expire_msg(sp, reason, dlx_tasks)
-          end
-        ensure
-          # A routing that raised leaves the rest of the batch shifted out of
-          # the store, put it back
-          if routed < dead_letter_count
-            requeue_dropped(dead_letters.to_slice[routed, dead_letter_count - routed])
-          end
-        end
-        dropped += shifted
-        break if shifted < DROP_BATCH_SIZE
+        dropped &+= shifted
+        return dropped if shifted < DROP_BATCH_SIZE
         Fiber.yield if dropped % (16 * 1024) == 0
       end
-      dropped
     end
 
-    private def requeue_dropped(sps : Slice(SegmentPosition)) : Nil
+    private def drop_batch(reason : Symbol, tasks : Argument::DeadLettering::Tasks,
+                           & : -> Envelope?) : Int32
+      shifted = 0
       @msg_store_lock.synchronize do
-        sps.each { |sp| put_back_dropped(sp) }
+        while shifted < DROP_BATCH_SIZE && !@closed
+          env = yield || break
+          shifted += 1
+          sp = env.segment_position
+          @log.debug { "Dropping sp=#{sp} reason=#{reason}" }
+          if route_dropped?(sp)
+            dead_letter(env, reason, tasks)
+          else
+            drop_unrouted(sp, reason)
+          end
+        end
       end
-    rescue MessageStore::ClosedError
-    rescue ex : MessageStore::Error
-      # Don't replace the error that the routing raised
-      @log.error(ex) { "Could not put back dropped messages" }
+      shifted
     end
 
-    # Puts back a message that drop_messages shifted out but didn't route
-    private def put_back_dropped(sp : SegmentPosition) : Nil
-      @msg_store.requeue(sp)
-    end
-
-    # Whether a dropped message goes through expire_msg (to be dead lettered)
-    # rather than just being deleted
+    # Whether a dropped message is dead lettered rather than just deleted
     private def route_dropped?(sp : SegmentPosition) : Bool
       sp.has_dlx? || !@dead_letter.dlx.nil?
+    end
+
+    private def drop_unrouted(sp : SegmentPosition, reason : Symbol) : Nil
+      @vhost.count_dead_lettered(reason, dlx: false)
+      delete_message sp
     end
 
     private def time_to_message_expiration : Time::Span?
@@ -1211,38 +1236,48 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      dlx = sp.has_dlx? || !@dead_letter.dlx.nil?
-      @vhost.count_dead_lettered(reason, dlx: dlx)
-      if dlx
-        @log.debug { "Expiring #{sp} now due to #{reason}" }
-        # The message is published into other queues outside @msg_store_lock,
-        # while a concurrent purge or queue/vhost delete can delete or close
-        # its segment, so the segment is leased until the routed callback has
-        # run. That can be after #route returns, when an outer dead-lettering
-        # chain publishes the queued copies (see DeadLetterer#route).
-        env = begin
-          @msg_store_lock.synchronize { @msg_store.envelope(sp).lease }
-        rescue KeyError | MessageStore::ClosedError
-          # The segment (or whole store) is already gone: a racing purge or
-          # delete removed the message, so there is nothing left to route.
-          return
-        end
-        routed = false
-        begin
-          @dead_letter.route(env.message, reason, dlx_tasks) do |stored|
-            routed = true
-            begin
-              delete_message sp if stored
-            ensure
-              env.release
-            end
+      return drop_unrouted(sp, reason) unless route_dropped?(sp)
+      @dead_letter.chain(dlx_tasks) do |tasks|
+        @msg_store_lock.synchronize do
+          env = begin
+            @msg_store.envelope(sp)
+          rescue KeyError | MessageStore::ClosedError
+            # The segment (or whole store) is already gone: a racing purge or
+            # delete removed the message, so there is nothing left to route.
+            next
           end
-        rescue ex
-          env.release unless routed
-          raise ex
+          dead_letter(env, reason, tasks)
         end
-      else
-        delete_message sp
+      end
+    end
+
+    # Called with @msg_store_lock held: routes a message that has left the
+    # queue to the dead letter exchange, queuing the copies in tasks, and
+    # deletes it once the chain has published them. The chain publishes
+    # after the lock is released, while a concurrent purge or queue/vhost
+    # close can delete or close its segment, so the segment is leased until
+    # then.
+    private def dead_letter(env : Envelope, reason : Symbol, tasks : Argument::DeadLettering::Tasks) : Nil
+      sp = env.segment_position
+      @vhost.count_dead_lettered(reason, dlx: true)
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      # A restart! after a close replaces the store, which then has the
+      # message again; it's only deleted from the store it left
+      store = @msg_store
+      env = env.lease
+      routed = false
+      begin
+        @dead_letter.route(env.message, reason, tasks) do |stored|
+          routed = true
+          begin
+            delete_message(sp, store) if stored
+          ensure
+            env.release
+          end
+        end
+      rescue ex
+        env.release unless routed
+        raise ex
       end
     end
 
@@ -1373,7 +1408,9 @@ module LavinMQ::AMQP
       delete_message(sp)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    # With store, only if the message is still in that store, not in one
+    # that a restart! replaced it with
+    protected def delete_message(sp : SegmentPosition, store : MessageStore? = nil) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -1383,6 +1420,7 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
+        return if store && !store.same?(@msg_store)
         # The message may have been counted before its delivery-limit
         # policy was removed
         @deliveries.delete(sp) unless @deliveries.empty?

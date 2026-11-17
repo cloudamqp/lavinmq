@@ -12,27 +12,28 @@ class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
   end
 end
 
-# Exposes the delete a dead-lettered message gets once it has been routed
-class DeleteMessageQueue < LavinMQ::AMQP::Queue
-  def delete_shifted(sp)
-    delete_message(sp)
-  end
-end
-
 # Raises out of the next dead letter routing, like a store error would
 class FailingDeadLetterQueue < LavinMQ::AMQP::Queue
-  property? fail_next_expire = false
+  # The number of dead letters to route before one raises
+  property fail_after : Int32? = nil
 
   def overflow
     drop_overflow
   end
 
-  private def expire_msg(sp : LavinMQ::SegmentPosition, reason : Symbol, dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil)
-    if fail_next_expire?
-      @fail_next_expire = false
-      raise "routing failed"
+  private def dead_letter(env : LavinMQ::Envelope, reason : Symbol, tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks) : Nil
+    if n = @fail_after
+      @fail_after = n > 0 ? n - 1 : nil
+      raise "routing failed" if n == 0
     end
     super
+  end
+end
+
+# Exposes the delete a dead-lettered message gets once it has been routed
+class DeleteMessageQueue < LavinMQ::AMQP::DurableQueue
+  def delete_routed(sp, store)
+    delete_message(sp, store)
   end
 end
 
@@ -75,35 +76,9 @@ def in_parallel(ctx, n, &blk : Int32 -> Nil)
 end
 
 describe LavinMQ::AMQP::Queue do
-  # drop_messages shifts dead letters out under the lock but deletes them only
-  # once they're routed, so a purge in between can delete their segment
-  it "deletes a shifted message whose segment a purge has deleted" do
-    segment_size = LavinMQ::Config.instance.segment_size
-    LavinMQ::Config.instance.segment_size = 64 * 1024
-    with_amqp_server do |s|
-      vhost = s.vhosts["/"]
-      q = DeleteMessageQueue.create(vhost, "q")
-      body = "x" * (LavinMQ::Config.instance.segment_size // 2)
-      4.times { q.publish(LavinMQ::Message.new("", "q", body)).should eq LavinMQ::AMQP::Queue::PublishResult::Ok }
-      sps = Array.new(3) do
-        q.@msg_store_lock.synchronize { q.@msg_store.shift?.should_not(be_nil).segment_position }
-      end
-      q.purge
-      q.delete_shifted(sps.first)
-      q.message_count.should eq 0
-      # No ack file is recreated for the deleted segment
-      q.@msg_store.@acks.has_key?(sps.first.segment).should be_false
-      Dir.children(q.@msg_store.@msg_dir).should_not contain "acks.#{sps.first.segment.to_s.rjust(10, '0')}"
-    ensure
-      q.try &.delete
-    end
-  ensure
-    LavinMQ::Config.instance.segment_size = segment_size if segment_size
-  end
-
-  # drop_messages shifts out a batch before routing it, so a routing that
-  # raises must not strand the rest of the batch outside the store
-  it "puts back the dead letters of a batch whose routing failed" do
+  # The dead letters routed before a routing that raised are still
+  # published, and the messages after it are left in the queue
+  it "keeps the rest of a batch whose routing failed" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
       vhost.declare_queue("dlq", durable: false, auto_delete: false)
@@ -114,13 +89,38 @@ describe LavinMQ::AMQP::Queue do
       })
       q = FailingDeadLetterQueue.create(vhost, "q", arguments: args)
       10.times { q.@msg_store_lock.synchronize { q.@msg_store.push(LavinMQ::Message.new("", "q", "m")) } }
-      q.fail_next_expire = true
+      q.fail_after = 2
       expect_raises(Exception, "routing failed") { q.overflow }
-      # The message whose routing failed is gone, the rest of the batch is back
-      q.message_count.should eq 9
+      # The two routed before are published, the message whose routing
+      # failed is gone and the rest wasn't shifted
+      vhost.queue("dlq").message_count.should eq 2
+      q.message_count.should eq 7
       q.overflow
       q.message_count.should eq 2
       vhost.queue("dlq").message_count.should eq 7
+    ensure
+      q.try &.delete
+    end
+  end
+
+  # A dead letter's chain publishes it after the queue's lock is released. If
+  # the queue closes and restarts meanwhile, the new store has the message
+  # again, and the routed message's delete must not ack it there
+  it "doesn't delete a dead letter from a store that a restart replaced" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      q = DeleteMessageQueue.create(vhost, "q")
+      q.publish(LavinMQ::Message.new("", "q", "m")).should eq LavinMQ::AMQP::Queue::PublishResult::Ok
+      store = q.@msg_store
+      sp = q.@msg_store_lock.synchronize { store.shift?.should_not(be_nil).segment_position }
+      q.close
+      q.restart!.should be_true
+      q.delete_routed(sp, store)
+      # Not acked on disk either, which the next load would see
+      q.close
+      q.restart!.should be_true
+      q.message_count.should eq 1
+      q.basic_get(true) { |env| String.new(env.message.body).should eq "m" }.should be_true
     ensure
       q.try &.delete
     end
