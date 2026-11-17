@@ -1014,7 +1014,9 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      # The message may have been counted before its delivery-limit
+      # policy was removed
+      @deliveries.delete(sp) unless @deliveries.empty?
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -1117,9 +1119,9 @@ module LavinMQ::AMQP
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
+        @msg_store_lock.synchronize { @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? } }
       else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? } }
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and
