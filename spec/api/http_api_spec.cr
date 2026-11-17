@@ -99,6 +99,21 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should log queue totals over the same window as the rates" do
+      with_http_server do |http, s|
+        3.times { s.update_stats_rates }
+        with_channel(s) do |ch|
+          ch.queue("totals_q", exclusive: true)
+          s.update_stats_rates
+          body = JSON.parse(http.get("/api/overview").body)
+          rates_size = body.dig("recv_oct_details", "log").size
+          body.dig("queue_totals", "messages_ready_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_unacknowledged_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_log").size.should eq rates_size
+        end
+      end
+    end
+
     it "should return the number of published messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")

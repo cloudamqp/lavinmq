@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
         @flow = active
@@ -68,7 +69,7 @@ module LavinMQ
       end
 
       private def deliver_loop
-        wait_for_single_active_consumer
+        return if standby_consumer?
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -90,6 +91,8 @@ module LavinMQ
             next if wait_for_flow
             break
           end
+          # The waits above can suspend the fiber while the channel closes
+          raise ClosedError.new if @closed
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
@@ -112,41 +115,24 @@ module LavinMQ
         raise ex
       end
 
+      # A standby consumer of a single active consumer queue runs no deliver loop
+      private def standby_consumer? : Bool
+        return false if @queue.deliver_to?(self)
+        @log.debug { "Not the single active consumer, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        # The queue can hand over to this consumer between the check and the reset
+        ensure_deliver_loop if @queue.deliver_to?(self)
+        true
+      end
+
+      # Consumers wait for global capacity in line, so the one that delivered
+      # last can't take every freed slot and starve the others
       private def wait_for_global_capacity
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        flush
-        select
-        when ch.has_capacity.when_true.receive
-        when @notify_closed.receive
-        end
+        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
         true
-      end
-
-      private def wait_for_single_active_consumer
-        case @queue.single_active_consumer
-        when self
-          @log.debug { "This consumer is the single active consumer" }
-        when nil
-          @log.debug { "The queue isn't a single active consumer queue" }
-        else
-          @log.debug { "Waiting for this consumer to become the single active consumer" }
-          flush
-          loop do
-            select
-            when sca = @queue.single_active_consumer_change.receive
-              if sca == self
-                break
-              else
-                @log.debug { "New single active consumer, but not me" }
-              end
-            when @notify_closed.receive
-              break
-            end
-          end
-          true
-        end
       end
 
       private def wait_for_priority_consumers
@@ -158,9 +144,14 @@ module LavinMQ
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
             # FIXME: doesnt take into account that new higher prio consumer might connect
-            ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
+            channels = higher_prio_consumers.map(&.has_capacity.when_false.as(::Channel(Nil)))
+            # Also wake up when this consumer is closed, as an idle higher
+            # priority consumer may never run out of capacity
+            channels << @notify_closed
+            ::Channel.receive_first(channels)
             break
           rescue ::Channel::ClosedError
+            break if @closed # the deliver loop exits on its next closed check
             higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
             break if higher_prio_consumers.empty?
             next
@@ -230,7 +221,16 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = begin
+          @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        rescue ex : AMQP::Channel::ClosedError
+          # Only raised in ack mode. The channel closed before it recorded the
+          # message as unacked, so close won't requeue it. The segment lease
+          # is released by the caller.
+          reject(sp) if recover
+          @queue.requeue(sp)
+          raise ex
+        end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,

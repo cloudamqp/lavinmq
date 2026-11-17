@@ -47,7 +47,7 @@ module LavinMQ
 
       @data_dir = @config.data_dir
       FileSystem.mkdir_p @data_dir
-      Schema.migrate(@data_dir, @replicator)
+      Schema.verify(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)

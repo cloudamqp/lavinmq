@@ -26,7 +26,7 @@ function updateExchange (signal) {
       if (item.durable) features.push('Durable')
       if (item.auto_delete) features.push('Auto delete')
       if (item.internal) features.push('Internal')
-      if (item.arguments['x-delayed-exchange']) features.push('Delayed')
+      if (item.arguments['x-delayed-exchange'] === true) features.push('Delayed')
       document.getElementById('e-features').innerText = features.join(', ')
       document.getElementById('e-type').textContent = item.type
       document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost

@@ -188,21 +188,30 @@ module LavinMQ
         return client.close
       end
       return client.close unless track(client)
-      target = TCPSocket.new(host, port, connect_timeout: CONNECT_TIMEOUT)
-      set_socket_options(target)
       # A client that stops reading must not keep the connection open: the
       # copy from the leader would block in its write forever, and never see
       # that the leader closed the connection after its own tcp_send_timeout
       client.write_timeout = @config.tcp_send_timeout.seconds
-      if client.is_a?(TCPSocket)
-        set_socket_options(client)
-        # The leader parses it from followers, also before TLS, but HTTP has
-        # no place for it
-        unless l.kind.http?
-          header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
-          target.write_bytes header, IO::ByteFormat::NetworkEndian
-        end
-      end
+      set_socket_options(client) if client.is_a?(TCPSocket)
+      forward(l, client, host, port)
+    rescue ex : Socket::Error | ProxyProtocol::Error
+      Log.warn { "Forwarding a #{l.kind} connection to #{host}: #{ex.message}" }
+    rescue IO::Error
+    rescue ex
+      Log.warn { "Forwarding a #{l.kind} connection to #{host}: #{ex.inspect}" }
+    ensure
+      client.close rescue nil
+      @lock.synchronize { @forwarded.delete(client) }
+    end
+
+    private def forward(l : Listener, client : Socket, host : String, port : Int32) : Nil
+      # The leader parses it from followers, also before TLS, but HTTP has
+      # no place for it
+      tcp_client = client.as?(TCPSocket) unless l.kind.http?
+      header = proxy_header(tcp_client) if tcp_client
+      target = TCPSocket.new(host, port, connect_timeout: CONNECT_TIMEOUT)
+      set_socket_options(target)
+      target.write_bytes header, IO::ByteFormat::NetworkEndian if header
       spawn(name: "Forward #{l.kind} from the leader") do
         IO.copy(target, client)
       rescue IO::Error
@@ -211,12 +220,27 @@ module LavinMQ
         client.close rescue nil
       end
       IO.copy(client, target)
-    rescue ex : IO::Error | Socket::Error
-      Log.debug { "Forwarding a #{l.kind} connection to #{host}: #{ex.message}" }
     ensure
       target.try &.close rescue nil
-      client.close rescue nil
-      @lock.synchronize { @forwarded.delete(client) }
+    end
+
+    # The leader reads a single PROXY header, so a header the client sent
+    # (e.g. from a load balancer) can't be forwarded in front of ours. With
+    # tcp_proxy_protocol it's consumed here, and forwarded instead of ours if
+    # the source is trusted, like the leader would have done. A v2 header is
+    # forwarded as v2, so that its TLVs (e.g. TLS details) are kept.
+    private def proxy_header(client : TCPSocket) : ProxyProtocol::V1 | ProxyProtocol::V2
+      if @config.tcp_proxy_protocol?
+        # Peeking for the header fills the read buffer, which would be the
+        # default 32 KiB, kept for the life of the connection. The header
+        # doesn't need more: the peek only matches the start of a signature,
+        # a v1 header is at most 107 bytes and a v2 header is read with
+        # read_fully. IO.copy reads unbuffered once what's buffered is drained.
+        client.buffer_size = 128
+        header = ProxyProtocol.read_trusted(client, client.remote_address, @config, Log)
+        return header if header
+      end
+      ProxyProtocol::V1.new(client.remote_address, client.local_address)
     end
 
     # The leader's port of the same kind and TLS as *l*, it uses the same

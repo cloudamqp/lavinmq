@@ -47,6 +47,56 @@ private def listener_config : LavinMQ::Config
   config
 end
 
+private AMQP_START = "AMQP\u0000\u0000\t\u0001"
+
+# Sends *payload* and the AMQP protocol header through a follower's AMQP
+# port to a fake leader, returns what the leader got in front of the AMQP
+# protocol header, and the client's address
+private def forward_through_follower(payload : Bytes, *, trusted = "")
+  config = listener_config
+  config.amqps_port = -1
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(trusted) unless trusted.empty?
+  leader = TCPServer.new("127.0.0.1", 0)
+  listeners = SpecListeners.new(config, -> { "127.0.0.1".as(String?) },
+    {config.amqp_port => leader.local_address.port})
+  listeners.bind(nil, nil, nil)
+  listeners.listen
+  client = TCPSocket.new("127.0.0.1", config.amqp_port)
+  client.write payload
+  client.write AMQP_START.to_slice
+  upstream = leader.accept
+  upstream.read_timeout = 5.seconds
+  received = IO::Memory.new
+  buf = Bytes.new(256)
+  until received.size >= AMQP_START.bytesize && received.to_slice[-AMQP_START.bytesize..] == AMQP_START.to_slice
+    n = upstream.read(buf)
+    raise "Leader connection closed" if n.zero?
+    received.write buf[0, n]
+  end
+  {received.to_slice[0, received.size - AMQP_START.bytesize], client.local_address}
+ensure
+  client.try &.close rescue nil
+  upstream.try &.close rescue nil
+  listeners.try &.close
+  leader.try &.close
+end
+
+# A PROXY v2 header from a load balancer, with an ALPN and a NOOP TLV
+private def proxy_v2_header_with_tlvs : Bytes
+  header = LavinMQ::ProxyProtocol::V2.new(
+    Socket::IPAddress.new("203.0.113.7", 40000),
+    Socket::IPAddress.new("10.0.0.1", 5672),
+    [LavinMQ::ProxyProtocol::V2::TLV.new(0x01u8, "amqp".to_slice),
+     LavinMQ::ProxyProtocol::V2::TLV.new(0x04u8, Bytes.new(2))])
+  io = IO::Memory.new
+  io.write_bytes header, IO::ByteFormat::NetworkEndian
+  io.to_slice
+end
+
+private LB_V1_HEADER  = "PROXY TCP4 203.0.113.7 10.0.0.1 40000 5672\r\n"
+private OWN_V1_HEADER = /\APROXY TCP4 127\.0\.0\.1 127\.0\.0\.1 (\d+) \d+\r\n\z/
+
 private def proxied_connections(s : LavinMQ::Server) : Array(Bool)
   s.connections.map { |c| c.as(LavinMQ::AMQP::Client).connection_info.proxied? }
 end
