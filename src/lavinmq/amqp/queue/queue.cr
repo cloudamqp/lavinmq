@@ -905,12 +905,22 @@ module LavinMQ::AMQP
       true
     end
 
+    # A failed operation, e.g. a dead-lettering that raises, must not skip the
+    # other one or leave the queue paused without @store_failed, as in
+    # #apply_policy_limits. A store error pauses the queue again in them.
     private def enforce_limits : Nil
       @msg_store_lock.synchronize do
-        drop_overflow
-        drop_redelivered
+        begin
+          drop_overflow
+        rescue ex
+          @log.error(ex) { "drop_overflow failed" }
+        end
+        begin
+          drop_redelivered
+        rescue ex
+          @log.error(ex) { "drop_redelivered failed" }
+        end
       end
-    rescue MessageStore::ClosedError
     end
 
     private def paused_file : String
