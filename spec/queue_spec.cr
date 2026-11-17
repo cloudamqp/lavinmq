@@ -1852,6 +1852,43 @@ describe "Deleting a durable queue" do
     end
   end
 
+  it "syncs the messages it moved to other queues before it fsyncs the removal" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        vhost = s.vhosts["/"]
+        ch.queue("delete_moved_dst", durable: true)
+        args = AMQP::Client::Arguments.new({
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "delete_moved_dst",
+        })
+        src = ch.queue("delete_moved_src", durable: true, args: args)
+        dst_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest("delete_moved_dst"))
+        # Left unacked, so the queue still has a message when it's deleted
+        src.publish_confirm "kept"
+        ch.basic_get("delete_moved_src", no_ack: false).should_not be_nil
+        s.persister.sync
+        since = s.persister.syncs.size
+        deleted = Channel(Nil).new
+        with_drain_held do
+          # Dead-lettered without a confirm, so only a drain syncs its copy
+          src.publish "moved", props: AMQP::Client::Properties.new(expiration: "1")
+          wait_for { vhost.queue("delete_moved_dst").message_count == 1 }
+          LavinMQ::FileSystem.clear_fsynced_dirs
+          spawn do
+            vhost.delete_queue("delete_moved_src")
+          ensure
+            deleted.close
+          end
+          sleep 50.milliseconds
+          LavinMQ::FileSystem.fsynced_dirs.should_not contain vhost.data_dir
+        end
+        deleted.receive?
+        LavinMQ::FileSystem.fsynced_dirs.should contain vhost.data_dir
+        s.persister.syncs[since..].any?(&.paths.any?(&.starts_with?(dst_dir))).should be_true
+      end
+    end
+  end
+
   it "fsyncs the vhost directory when the queue's only message is unacked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

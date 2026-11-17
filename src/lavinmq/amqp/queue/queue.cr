@@ -890,6 +890,10 @@ module LavinMQ::AMQP
       retry_queue.try &.delete
       close
       @state = QueueState::Deleted
+      # Messages moved out of the queue (dead-lettered, delayed, retried) can
+      # still be unsynced in their destinations, and the fsynced removal must
+      # not become durable before them
+      @vhost.persister.sync_marked if fsync_removal
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
