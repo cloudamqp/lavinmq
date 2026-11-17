@@ -128,7 +128,7 @@ module LavinMQ::AMQP
         sp
       end
 
-      def purge_all : UInt32
+      def purge_all(&on_requeued : SegmentPosition ->) : UInt32
         count = 0u32
         while sp = @requeued.shift?
           @size -= 1
@@ -136,6 +136,7 @@ module LavinMQ::AMQP
           # Not what stands in for data that can't be read, see #index_unreadable
           count += 1 unless @unreadable_entries.includes?(sp)
           delete(sp) if @segments.has_key?(sp.segment)
+          on_requeued.call(sp)
         end
         # An ack of data that can't be decoded doesn't let a load skip it, so
         # its segment is removed
