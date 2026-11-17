@@ -14,7 +14,7 @@ class LavinMQ::Clustering::Controller
   @lease : Etcd::Lease? = nil
 
   def self.new(config : Config)
-    etcd = Etcd.new(config.clustering_etcd_endpoints)
+    etcd = Etcd.new(config.clustering_etcd_endpoints, config.clustering_etcd_lease_ttl.seconds)
     new(config, etcd, EtcdCoordinator.new(config, etcd))
   end
 

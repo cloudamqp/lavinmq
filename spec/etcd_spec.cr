@@ -144,6 +144,43 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
+  it "waits for etcd to come back once it has been connected", tags: "slow" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do |etcds|
+      etcd = LavinMQ::Etcd.new(cluster.endpoints, reconnect_timeout: 10.seconds)
+      etcd.put("foo", "bar")
+      etcds[0].terminate(graceful: false)
+      etcds[0].wait
+      spawn(name: "restart etcd") do
+        sleep 2.seconds
+        etcds[0] = cluster.restart(0)
+      end
+      etcd.put("foo", "baz") # reconnects once etcd is back, instead of exiting
+    end
+  end
+
+  it "exits when etcd doesn't come back within the reconnect timeout", tags: "slow" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do |etcds|
+      etcd = LavinMQ::Etcd.new(cluster.endpoints, reconnect_timeout: 2.seconds)
+      etcd.put("foo", "bar")
+      etcds[0].terminate(graceful: false)
+      etcds[0].wait
+      started = Time.instant
+      ex = expect_raises(SpecExit) { etcd.get("foo") }
+      ex.code.should eq 5
+      (Time.instant - started).should be >= 2.seconds
+    end
+  end
+
+  it "exits at once when etcd has never been reached" do
+    etcd = LavinMQ::Etcd.new("127.0.0.1:1", reconnect_timeout: 10.seconds)
+    started = Time.instant
+    ex = expect_raises(SpecExit) { etcd.get("foo") }
+    ex.code.should eq 5
+    (Time.instant - started).should be < 2.seconds
+  end
+
   it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
@@ -358,6 +395,11 @@ class EtcdCluster
       "--log-level=error",
       "--unsafe-no-fsync=true",
     }, output: STDOUT, error: STDERR)
+  end
+
+  # Starts member *i* again, e.g. after a spec terminated it
+  def restart(i) : Process
+    start_process(@ports[i], i)
   end
 
   def stop(etcds)
