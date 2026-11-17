@@ -95,7 +95,7 @@ queue:
         retry_queue:
           type: string
           nullable: true
-          description: Name of the internal retry queue. Null while it isn't created, e.g. just after a policy enabled retries.
+          description: Name of the internal retry queue. Null if it couldn't be created, e.g. on a disk error; rejects are then requeued instantly.
     primary_queue:
       type: string
       nullable: true

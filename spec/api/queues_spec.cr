@@ -3,6 +3,18 @@ require "socket/tcp_socket"
 require "../spec_helper"
 require "compress/deflate"
 
+class LavinMQ::AMQP::DelayedRetryQueue
+  class_property? fail_next_create = false
+
+  def self.create(vhost : LavinMQ::VHost, primary_queue : LavinMQ::AMQP::Queue)
+    if fail_next_create?
+      self.fail_next_create = false
+      raise IO::Error.new("Injected retry queue creation failure")
+    end
+    previous_def
+  end
+end
+
 describe LavinMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
@@ -195,42 +207,34 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should not name a retry queue that doesn't exist" do
+    it "should not name a retry queue that couldn't be created" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
-          ch.queue("q-retry-pending")
-          vhost = s.vhosts["/"]
-          definitions = {"delayed-retry-min" => JSON::Any.new(1000_i64)}
-          policy = vhost.add_policy("retry-pending", "^q-retry-pending$", "queues", definitions, 0_i8, apply: false)
-          queue = vhost.queue("q-retry-pending")
-          # The retry queue is created outside the policy apply, and creating
-          # it waits for the definitions lock
-          vhost.synchronize_definitions do
-            queue.apply_policy(policy, nil)
-            retry = JSON.parse(http.get("/api/queues/%2f/q-retry-pending").body)["delayed_retry"]
-            retry["min"].as_i.should eq 1000
-            retry["retry_queue"].raw.should be_nil
-            retry["messages_delayed"].as_i.should eq 0
-          end
-          wait_for { vhost.queue?("amq.retry-q-retry-pending") }
-          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-pending").body)["delayed_retry"]
-          retry["retry_queue"].as_s.should eq "amq.retry-q-retry-pending"
+          LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = true
+          ch.queue("q-retry-failed", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-failed").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+          retry["retry_queue"].raw.should be_nil
+          retry["messages_delayed"].as_i.should eq 0
         end
+      ensure
+        LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = false
       end
     end
 
-    it "should show retries enabled by a policy" do
+    it "should show retry settings tuned by a policy" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
-          ch.queue("q-retry-via-policy")
-          definitions = {"delayed-retry-min" => JSON::Any.new(1000_i64)}
-          s.vhosts["/"].add_policy("retry-via-policy", "^q-retry-via-policy$", "queues", definitions, 0_i8)
-          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-via-policy").body)["delayed_retry"]
+          ch.queue("q-retry-tuned", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          definitions = {"delayed-retry-min" => JSON::Any.new(500_i64)}
+          s.vhosts["/"].add_policy("retry-tuned", "^q-retry-tuned$", "queues", definitions, 0_i8)
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
+          retry["min"].as_i.should eq 500
+          s.vhosts["/"].delete_policy("retry-tuned")
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy.nil? }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
           retry["min"].as_i.should eq 1000
-          retry["delivery_limit"].raw.should be_nil
-          s.vhosts["/"].delete_policy("retry-via-policy")
-          body = JSON.parse(http.get("/api/queues/%2f/q-retry-via-policy").body)
-          body["delayed_retry"]?.should be_nil
         end
       end
     end
