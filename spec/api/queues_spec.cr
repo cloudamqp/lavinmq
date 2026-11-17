@@ -693,6 +693,18 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
   describe "POST /api/queues/vhost/name/get" do
+    it "should return published_at equal to the head message timestamp" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q_published_at").publish_confirm "m1"
+        end
+        head_ts = s.vhosts["/"].queue("q_published_at").as(LavinMQ::AMQP::Queue).head_message_timestamp
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
+        response = http.post("/api/queues/%2f/q_published_at/get", body: body)
+        JSON.parse(response.body)[0]["published_at"].as_i64.should eq head_ts
+      end
+    end
+
     it "should get plain text messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

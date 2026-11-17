@@ -152,9 +152,18 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `connection_churn_metrics` | Connection open/close totals |
 | `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
 | `channel_metrics` | Per-channel metrics |
-| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals; head message timestamp |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
+
+`detailed_queue_head_message_timestamp_seconds` is the timestamp of the message at the head of the queue, in unix seconds. It is only exported for queues with ready messages. `time() - lavinmq_detailed_queue_head_message_timestamp_seconds` is how long ago that message was published. The broker sets the timestamp when it receives the message. It is separate from the AMQP `timestamp` property. These cases change what the value means:
+
+- A dead-lettered message gets a new timestamp when it is dead-lettered.
+- A message from a delayed exchange or a delayed retry keeps its original timestamp. Its age includes the delay, and it can be older than messages ahead of it in the queue.
+- In a priority queue, the value is the earliest timestamp among the heads of all priority levels.
+- Streams, MQTT sessions and the internal queues of delayed exchanges and delayed retries are left out.
+
+Get messages (`POST /api/queues/{vhost}/{name}/get`) returns the same timestamp per message as `published_at`, in unix milliseconds. In a queue without priorities, the first message returned is the head message.
 
 ## Event Types
 

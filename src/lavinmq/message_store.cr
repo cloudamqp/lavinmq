@@ -137,7 +137,7 @@ module LavinMQ
       end
     end
 
-    # Broker arrival time (unix ms) of the oldest ready message
+    # Timestamp (unix ms) of the message at the head of the store
     def first_timestamp? : Int64?
       first?.try &.message.timestamp
     end

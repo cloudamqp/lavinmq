@@ -1945,7 +1945,7 @@ describe LavinMQ::AMQP::Queue do
   end
 
   describe "#head_message_timestamp" do
-    it "is the arrival time of the oldest ready message" do
+    it "is the timestamp of the message at the head" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("head_ts")
@@ -1970,7 +1970,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "is the oldest message across all priorities" do
+    it "is the earliest head timestamp across all priorities" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("head_ts_prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 5}))

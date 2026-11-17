@@ -100,12 +100,10 @@ queue:
       type: string
       nullable: true
       description: For an internal retry queue, the name of the queue it retries messages for. Null or absent otherwise.
-    first_message_timestamp:
+    head_message_timestamp:
       type: integer
-      description: Epoch timestamp of the first message in the queue.
-    last_message_timestamp:
-      type: integer
-      description: Epoch timestamp of the last message in the queue.
+      format: int64
+      description: Timestamp of the message at the head of the queue, in unix milliseconds, set by the broker on publish. Only in `GET /queues/{vhost}/{name}`, and only when the queue has ready messages. See the monitoring docs for delayed, dead-lettered and priority messages.
 consumer_details:
   type: object
   properties:
@@ -202,6 +200,10 @@ message:
       type: integer
     redelivered:
       type: boolean
+    published_at:
+      type: integer
+      format: int64
+      description: Timestamp the broker set when it received the message, in unix milliseconds. Matches the `head_message_timestamp` of the queue when this is the head message. Only returned by `POST /queues/{vhost}/{name}/get`.
     exchange:
       type: string
     routing_key:

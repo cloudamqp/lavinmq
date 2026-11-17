@@ -831,7 +831,9 @@ module LavinMQ::AMQP
       @msg_store.empty?
     end
 
-    # Broker arrival time (unix ms) of the oldest ready message, nil if empty
+    # Timestamp (unix ms) of the message at the head of the queue, nil if empty.
+    # The broker sets it on publish. Messages from a delayed exchange or a
+    # delayed retry keep it, dead-lettered messages get a new one.
     def head_message_timestamp : Int64?
       return if empty?
       @msg_store_lock.synchronize { @msg_store.first_timestamp? }

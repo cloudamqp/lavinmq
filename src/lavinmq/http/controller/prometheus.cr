@@ -705,7 +705,7 @@ module LavinMQ
         end
 
         writer.write_header("detailed_queue_head_message_timestamp_seconds", "gauge",
-          "Time the broker received the oldest ready message, in unix seconds")
+          "Timestamp of the message at the head of the queue, in unix seconds")
         vhosts.each do |vhost|
           vhost.each_queue do |q|
             ts = q.as?(AMQP::Queue).try(&.head_message_timestamp) || next # MQTT sessions are skipped
