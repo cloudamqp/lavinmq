@@ -108,12 +108,9 @@ man: $(MANPAGES)
 .PHONY: js
 js: $(JS)
 
-.PHONY: deps
-deps: js lib views
-
 # Download all build dependencies, so that make can then run without network access
-.PHONY: fetch
-fetch: lib js
+.PHONY: deps
+deps: js lib
 	$(if $(filter ext/libgc.a,$(LIBGC)),$(MAKE) -C packaging/libgc fetch)
 
 bin/ameba: lib/ameba | bin
