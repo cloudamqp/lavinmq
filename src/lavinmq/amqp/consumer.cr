@@ -82,6 +82,7 @@ module LavinMQ
             when :timeout
               @log.debug { "deliver loop idle, exiting fiber" }
               @deliver_loop_running.set(false, :release)
+              @queue.release_idle_memory
               ensure_deliver_loop unless @queue.empty?
               return
             when :ready
