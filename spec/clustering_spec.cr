@@ -259,8 +259,8 @@ describe LavinMQ::Clustering::Client do
       config.data_dir = data_dir
       client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
       spawn client.follow("tcp://127.0.0.1:1?amqp=5682") # no leader there, keeps retrying
-      Fiber.yield
-      client.follows?("tcp://127.0.0.1:1?amqp=5682").should be_true
+      # The follow fiber may not have run yet, e.g. on another thread
+      wait_for { client.follows?("tcp://127.0.0.1:1?amqp=5682") }
       client.follows?("tcp://127.0.0.1:1?amqp=5683").should be_false
       client.follows?("tcp://127.0.0.1:1").should be_false
       client.follows?("127.0.0.1", 1).should be_true
