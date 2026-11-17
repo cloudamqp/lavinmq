@@ -340,45 +340,51 @@ module LavinMQ
               end
               delete_message(sp)
             else
+              # Recorded as in flight before it's sent: the client's fiber,
+              # possibly on another thread, can read its PUBACK as soon as it's
+              # written. Only for the client it's sent to, as a client attached
+              # since won't ack it.
+              id = @msg_store_lock.synchronize do
+                next unless @client.same?(client)
+                if packet_id = delivery_id(sp)
+                  @unacked[packet_id] = sp
+                  @msg_store.forget_packet_id(sp)
+                  @unacked_count.add(1, :relaxed)
+                  @unacked_bytesize.add(sp.bytesize, :relaxed)
+                end
+                packet_id
+              end
+              unless id
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                # Without this the deliver_loop spins: the store is non-empty and
+                # capacity still reads true. Recomputed rather than closed
+                # outright, since an ack can free a slot while the requeue above
+                # waits on a contended @msg_store_lock.
+                refresh_capacity
+                return false
+              end
+              refresh_capacity
               begin
-                id = @msg_store_lock.synchronize { delivery_id(sp) }
-                unless id
-                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                  # Without this the deliver_loop spins: the store is non-empty and
-                  # capacity still reads true. Recomputed rather than closed
-                  # outright, since an ack can free a slot while the requeue above
-                  # waits on a contended @msg_store_lock.
-                  refresh_capacity
-                  return false
-                end
-                packet = build_packet(env, id)
-                @unacked_count.add(1, :relaxed)
-                @unacked_bytesize.add(sp.bytesize, :relaxed)
-                yield packet, sp.bytesize
-                if env.redelivered
-                  @redeliver_count.add(1, :relaxed)
-                else
-                  @deliver_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
-                end
+                yield build_packet(env, id), sp.bytesize
+              rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize do
-                  if @client.same?(client)
-                    @unacked[id] = sp
-                    @msg_store.forget_packet_id(sp)
-                  else
-                    # The client was replaced or detached while this was sent
-                    # to it, and the current one won't ack it: deliver it again
+                  # Unless a new client took over the session meanwhile, which
+                  # requeued what was in flight and took it off the counts
+                  if @unacked[id]? == sp
+                    @unacked.delete(id)
                     @msg_store.requeue(sp)
                     @unacked_count.sub(1, :relaxed)
                     @unacked_bytesize.sub(sp.bytesize, :relaxed)
                   end
                 end
                 refresh_capacity
-              rescue ex # requeue failed delivery
-                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                @unacked_count.sub(1, :relaxed)
-                @unacked_bytesize.sub(sp.bytesize, :relaxed)
                 raise ex
+              end
+              if env.redelivered
+                @redeliver_count.add(1, :relaxed)
+              else
+                @deliver_count.add(1, :relaxed)
+                @deliver_get_count.add(1, :relaxed)
               end
             end
             return true
