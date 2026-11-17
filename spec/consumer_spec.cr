@@ -183,7 +183,10 @@ describe LavinMQ::Client::Channel::Consumer do
             # The deliver loop exits once it notices the closed channel
             sq.deliver_loop_wg.wait
             sq.consumers.should be_empty
-            sq.unacked_count.should eq 0
+            # Closing the channel ends the deliver loop before it requeues the
+            # unacked messages, possibly on another thread, so wait for them.
+            # A stranded message fails this by timing out.
+            wait_for { sq.unacked_count == 0 }
             sq.message_count.should eq 1000
           end
         end
