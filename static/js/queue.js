@@ -128,7 +128,8 @@ function renderDelayedRetry (item) {
   document.getElementById('q-retry-backoff').textContent = retryBackoff(retry.multiplier)
   document.getElementById('q-retry-max').textContent = retry.max == null ? 'None' : formatDelay(retry.max)
   document.getElementById('q-retry-delivery-limit').textContent = retry.delivery_limit == null ? 'None' : Helpers.formatNumber(retry.delivery_limit)
-  document.getElementById('q-retry-queue').replaceChildren(queueLink(item.vhost, retry.retry_queue))
+  const retryQueue = retry.retry_queue ? queueLink(item.vhost, retry.retry_queue) : 'None'
+  document.getElementById('q-retry-queue').replaceChildren(retryQueue)
 }
 
 function renderPrimaryQueue (item) {

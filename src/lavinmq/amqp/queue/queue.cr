@@ -973,13 +973,15 @@ module LavinMQ::AMQP
     private def delayed_retry_details
       settings = self.settings
       return unless min = settings.delayed_retry_min
+      # Nil when the retry queue couldn't be created, e.g. a name too long
+      retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
       {
         min:              min,
         multiplier:       settings.delayed_retry_multiplier,
         max:              settings.delayed_retry_max,
         delivery_limit:   settings.delivery_limit,
-        messages_delayed: @delayed_retry_queue.try(&.message_count) || 0_u32,
-        retry_queue:      DelayedRetryQueue.queue_name(@name),
+        messages_delayed: retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:      retry_queue.try(&.name),
       }
     end
 

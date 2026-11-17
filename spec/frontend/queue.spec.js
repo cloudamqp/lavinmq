@@ -115,6 +115,14 @@ test.describe('queue', _ => {
       await expect(page.locator('#q-retry-backoff')).toHaveText('Constant')
     })
 
+    test('shows no retry queue link before the retry queue exists', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 1000, multiplier: null, max: null, delivery_limit: null, messages_delayed: 0, retry_queue: null }
+      })
+      await expect(page.locator('#q-retry-queue')).toHaveText('None')
+      await expect(page.locator('#q-retry-queue a')).toHaveCount(0)
+    })
+
     test('links a retry queue back to its primary queue', async ({ apimap, page }) => {
       await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
       await expect(page.locator('#q-delayed-retry')).toBeHidden()

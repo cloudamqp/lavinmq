@@ -195,6 +195,30 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not name a retry queue that doesn't exist" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q-retry-pending")
+          vhost = s.vhosts["/"]
+          definitions = {"delayed-retry-min" => JSON::Any.new(1000_i64)}
+          policy = vhost.add_policy("retry-pending", "^q-retry-pending$", "queues", definitions, 0_i8, apply: false)
+          queue = vhost.queue("q-retry-pending")
+          # The retry queue is created outside the policy apply, and creating
+          # it waits for the definitions lock
+          vhost.synchronize_definitions do
+            queue.apply_policy(policy, nil)
+            retry = JSON.parse(http.get("/api/queues/%2f/q-retry-pending").body)["delayed_retry"]
+            retry["min"].as_i.should eq 1000
+            retry["retry_queue"].raw.should be_nil
+            retry["messages_delayed"].as_i.should eq 0
+          end
+          wait_for { vhost.queue?("amq.retry-q-retry-pending") }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-pending").body)["delayed_retry"]
+          retry["retry_queue"].as_s.should eq "amq.retry-q-retry-pending"
+        end
+      end
+    end
+
     it "should show retries enabled by a policy" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

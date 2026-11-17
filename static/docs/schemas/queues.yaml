@@ -94,7 +94,8 @@ queue:
           description: Number of messages currently waiting in the retry queue.
         retry_queue:
           type: string
-          description: Name of the internal retry queue.
+          nullable: true
+          description: Name of the internal retry queue. Null while it isn't created, e.g. just after a policy enabled retries.
     primary_queue:
       type: string
       nullable: true
