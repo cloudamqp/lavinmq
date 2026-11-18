@@ -3,6 +3,7 @@ require "../src/lavinmq/etcd"
 require "../src/lavinmq/clustering/etcd_coordinator"
 require "file_utils"
 require "http/client"
+require "http/server"
 require "./spec_helper"
 
 describe LavinMQ::Etcd, tags: "etcd" do
@@ -304,6 +305,28 @@ describe LavinMQ::Etcd do
   ensure
     lease.try &.release
   end
+
+  # etcd's gateway answers with this error when the member shuts down, e.g.
+  # during `systemctl restart etcd`. Followers always have an observe stream
+  # and a campaign open, so it must be retried like a lost connection.
+  it "retries a request that etcd answers with an EOF error" do
+    requests = Atomic(Int32).new(0)
+    server = HTTP::Server.new do |ctx|
+      ctx.response.content_type = "application/json"
+      if requests.add(1) == 0 # as on an observe stream: 200, the error in the body
+        ctx.response.print %({"error":{"grpc_code":14,"http_code":503,"message":"error reading from server: EOF"}})
+      else
+        ctx.response.print %({"kvs":[{"value":"#{Base64.strict_encode("bar")}"}]})
+      end
+    end
+    address = server.bind_tcp("127.0.0.1", 0)
+    spawn(name: "fake etcd") { server.listen }
+    etcd = LavinMQ::Etcd.new("127.0.0.1:#{address.port}")
+    etcd.get("foo").should eq "bar"
+    requests.get.should eq 2
+  ensure
+    server.try &.close
+  end
 end
 
 describe LavinMQ::Etcd::Lease do
@@ -322,9 +345,9 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
-  # "no leader" during an etcd leader election, EOF while the etcd member
-  # restarts (the gateway's error, raised as IO::EOFError)
-  {LavinMQ::Etcd::NoLeader.new("etcdserver: no leader"), IO::EOFError.new("error reading from server: EOF")}.each do |error|
+  # "no leader" during an etcd leader election, and any other error that
+  # isn't etcd saying the lease is gone, e.g. a connection reset
+  {LavinMQ::Etcd::NoLeader.new("etcdserver: no leader"), IO::Error.new("Connection reset by peer")}.each do |error|
     it "keeps the lease through a transient #{error.class}" do
       failed = Atomic(Bool).new(false)
       etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) do
