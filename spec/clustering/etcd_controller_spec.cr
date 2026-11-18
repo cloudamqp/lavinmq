@@ -138,7 +138,8 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     leader1 = Channel(Nil).new
     spawn(name: "elect listen spec") do
       etcd.elect_listen("lavinmq/leader") do |value|
-        leader1.send nil if value == config1.clustering_advertised_uri
+        # The leader appends its client ports to its advertised URI
+        leader1.send nil if value.try &.starts_with?("#{config1.clustering_advertised_uri}?")
       end
     rescue SpecExit
     end
@@ -280,7 +281,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       # follow was never called, satisfy close's follower-done handshake
       spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
       changed = Atomic(Bool).new(false)
-      controller.on_leader_host_change { changed.set(true) }
+      controller.on_leader_change { changed.set(true) }
       served = Channel(Bool).new(1)
       spawn(name: "promoted controller") do
         controller.run { served.send changed.get }
@@ -398,7 +399,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       elected = Channel(Nil).new
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
       spawn do
-        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value.try &.starts_with?("#{config.clustering_advertised_uri}?") }
       rescue SpecExit
       end
       spawn do

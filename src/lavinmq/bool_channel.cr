@@ -40,7 +40,7 @@ class BoolChannel
   # Makes updating the value and switching the active channel one step, so
   # concurrent sets can't leave them disagreeing
   @lock = Mutex.new
-  # Turn channels of the fibers in #wait_until_true, first in line first
+  # Turn channels of the fibers in #wait_until, first in line first
   @line = Deque(::Channel(Nil)).new
 
   def initialize(value : Bool)
@@ -76,30 +76,43 @@ class BoolChannel
     if value
       @when_false.deactivate
       @when_true.activate
-      wake_first_in_line
     else
       @when_true.deactivate
       @when_false.activate
     end
+    wake_first_in_line
   end
 
-  # Blocks until the value is true and this fiber is first in line. Only the
-  # first is woken, and it wakes the next as it leaves.
-  def wait_until_true(turn : ::Channel(Nil), abort : ::Channel, & : ->) : Bool
+  # Blocks until the value is *target* and this fiber is first in line. Only
+  # the first is woken, and it wakes the next as it leaves. All waiters on
+  # one BoolChannel must wait for the same value, or one can block the line.
+  # Returns false when aborted or after *timeout* without a turn.
+  def wait_until(target : Bool, turn : ::Channel(Nil), abort : ::Channel,
+                 timeout : Time::Span? = nil, & : ->) : Bool
     @lock.synchronize { @line.push turn }
     loop do
-      return true if @lock.synchronize { value && @line.first? == turn }
+      return true if @lock.synchronize { value == target && @line.first? == turn }
       yield
-      select
-      when turn.receive
-      when abort.receive?
-        return false
+      if timeout
+        select
+        when turn.receive
+        when abort.receive?
+          return false
+        when timeout(timeout)
+          return false
+        end
+      else
+        select
+        when turn.receive
+        when abort.receive?
+          return false
+        end
       end
     end
   ensure
     @lock.synchronize do
       @line.first? == turn ? @line.shift : @line.delete(turn)
-      wake_first_in_line if value
+      wake_first_in_line if value == target
     end
   end
 
@@ -112,7 +125,7 @@ class BoolChannel
     end
   end
 
-  # Doesn't release fibers in #wait_until_true, they leave through their
+  # Doesn't release fibers in #wait_until, they leave through their
   # abort channel
   def close
     @when_true.close
