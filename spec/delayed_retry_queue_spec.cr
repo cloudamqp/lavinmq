@@ -1183,4 +1183,81 @@ describe "Retry Queue" do
       end
     end
   end
+
+  describe "Policy" do
+    it "should tune retries with the lower of argument and policy values" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          ch.queue("retry-policy-tune", args: AMQP::Client::Arguments.new({
+            "x-delayed-retry-min" => 500,
+            "x-delayed-retry-max" => 10_000,
+          }))
+          queue = vhost.queue("retry-policy-tune")
+          vhost.add_policy("retry", "^retry-policy-tune$", "queues", {
+            "delayed-retry-min"        => JSON::Any.new(100_i64),
+            "delayed-retry-max"        => JSON::Any.new(60_000_i64),
+            "delayed-retry-multiplier" => JSON::Any.new(2_i64),
+          }, 0_i8)
+          wait_for { queue.policy }
+          queue.settings.delayed_retry_min.should eq 100
+          queue.settings.delayed_retry_max.should eq 10_000
+          queue.settings.delayed_retry_multiplier.should eq 2
+          queue.effective_policy_args.should contain "delayed-retry-min"
+          queue.effective_policy_args.should_not contain "delayed-retry-max"
+          queue.effective_policy_args.should contain "delayed-retry-multiplier"
+
+          vhost.delete_policy("retry")
+          wait_for { queue.policy.nil? }
+          queue.settings.delayed_retry_min.should eq 500
+          queue.settings.delayed_retry_max.should eq 10_000
+          queue.settings.delayed_retry_multiplier.should be_nil
+        end
+      end
+    end
+
+    it "should apply a changed delay to the next retry" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-policy-next", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 600_000}))
+          queue = vhost.queue("retry-policy-next")
+          vhost.add_policy("retry", "^retry-policy-next$", "queues",
+            {"delayed-retry-min" => JSON::Any.new(100_i64)}, 0_i8)
+          wait_for { queue.policy }
+          q.publish_confirm "retry me"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          msg = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
+          msg.body_io.to_s.should eq "retry me"
+          msg.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+        end
+      end
+    end
+
+    it "should not enable retries on a queue declared without them" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          q = ch.queue("retry-policy-plain")
+          queue = vhost.queue("retry-policy-plain")
+          vhost.add_policy("retry", "^retry-policy-plain$", "queues", {
+            "delayed-retry-min" => JSON::Any.new(100_i64),
+            "delayed-retry-max" => JSON::Any.new(1_000_i64),
+            "delivery-limit"    => JSON::Any.new(3_i64),
+          }, 0_i8)
+          wait_for { queue.policy }
+          queue.settings.delayed_retry_min.should be_nil
+          queue.settings.delayed_retry_max.should be_nil
+          queue.settings.delivery_limit.should eq 3
+          queue.effective_policy_args.should eq ["delivery-limit"]
+          vhost.queue?("amq.retry-retry-policy-plain").should be_nil
+
+          q.publish_confirm "no retry"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { queue.message_count == 1 } # requeued instantly
+          vhost.queue?("amq.retry-retry-policy-plain").should be_nil
+        end
+      end
+    end
+  end
 end

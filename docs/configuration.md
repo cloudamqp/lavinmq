@@ -19,9 +19,11 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 ## Reloading
 
-Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
 
-Not every setting takes effect on reload. The log level and TLS certificates are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+
+A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
 
 ## [main] Section
 
@@ -41,7 +43,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
 | `tls_ktls` | `--tls-ktls` | — | Bool | `false` | Enable kernel TLS offloading |
 | `stats_interval` | — | — | Int | `5000` | Statistics collection interval (ms) |
-| `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain |
+| `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain, must be at least `1` |
 | `set_timestamp` | — | — | Bool | `false` | Set timestamp on received messages |
 | `socket_buffer_size` | — | — | Int | `16384` | Socket buffer size (bytes) |
 | `tcp_nodelay` | — | — | Bool | `true` | Disable Nagle's algorithm |
