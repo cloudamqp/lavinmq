@@ -612,6 +612,31 @@ describe "Retry Queue" do
       end
     end
 
+    it "purges all delayed messages when its queue's data can't be read, whatever the count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("retry-wipe", durable: true, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          queue = s.vhosts["/"].queue("retry-wipe")
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-wipe")
+          2.times do |i|
+            q.publish_confirm "delayed#{i}"
+            wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          end
+          wait_for { retry_q.message_count == 2 }
+          3.times { |i| q.publish_confirm "ready#{i}" }
+          segment = queue.@msg_store.@segments.first_value
+          # The property flags of the next message, with a bit that isn't defined
+          write_at(segment.path, segment.pos.to_i64 + sizeof(Int64) + 1 + 1 + "retry-wipe".bytesize, 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          queue.state.paused?.should be_true
+
+          queue.purge(1_u32).should eq 5
+          queue.state.running?.should be_true
+          retry_q.message_count.should eq 0
+        end
+      end
+    end
+
     it "should purge delayed messages with the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

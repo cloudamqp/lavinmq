@@ -159,8 +159,15 @@ module LavinMQ::AMQP
         @empty.set false if was_empty
       end
 
+      # Raises if a sub store can't be read: none of them is read until all
+      # are wiped
+      private def raise_if_failed : Nil
+        @stores.each { |s| s.first? if s.failed? }
+      end
+
       def first? : Envelope?
         raise ClosedError.new if @closed
+        raise_if_failed
         @stores.reverse_each do |s|
           envelope = s.first?
           return envelope unless envelope.nil?
@@ -169,6 +176,7 @@ module LavinMQ::AMQP
 
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
+        raise_if_failed
         @stores.reverse_each do |s|
           if envelope = s.shift?(consumer)
             @empty.set true if size.zero?

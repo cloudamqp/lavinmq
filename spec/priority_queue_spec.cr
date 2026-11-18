@@ -346,6 +346,22 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#shift?" do
+      it "reads no priority while one sub store can't be read" do
+        with_prio_store(5) do |store|
+          store.push LavinMQ::Message.new("ex", "rk", "low")
+          segment = store.@stores[0].@segments.first_value
+          # The body size of the first message
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.push LavinMQ::Message.new("ex", "rk", "high", properties: AMQP::Client::Properties.new(priority: 2u8))
+          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.size.should eq 2
+        end
+      end
+    end
+
     describe "#[]" do
       it "returns messages with priority above max" do
         with_prio_store(5) do |store|

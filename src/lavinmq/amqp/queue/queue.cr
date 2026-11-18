@@ -1612,7 +1612,9 @@ module LavinMQ::AMQP
         @message_ttl_change.try_send? nil
         ensure_expire_fiber
       end
-      delete_count += purge_delayed(max_count - delete_count)
+      # All of the delayed ones too when the store was wiped, which can be
+      # more than max_count
+      delete_count += purge_delayed(wiped ? UInt32::MAX : max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
