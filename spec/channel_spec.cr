@@ -178,6 +178,9 @@ describe "LavinMQ::AMQP::Channel basic.recover" do
         sq = s.vhosts["/"].queue(q.name)
         sq.unacked_count.should eq 0
         sq.message_count.should eq 2
+        # Both were delivered before, so unlike an unrecorded first delivery
+        # their requeue counts as a reject
+        sq.reject_count.should eq 2
       ensure
         LavinMQ::AMQP::Consumer.on_recover_deliver = nil
       end
