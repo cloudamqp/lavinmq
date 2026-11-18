@@ -73,11 +73,25 @@ module LavinMQ::AMQP
         first = @segment_first_offset[seg]?
         if first && @segment_msg_count.has_key?(seg)
           offset = Math.max(offset, first + @segment_msg_count[seg] - 1)
+        elsif stored = stored_last_offset(mfile)
+          # Not loaded, but its meta file has the offsets it holds. What
+          # retention dropped before it is only known from there.
+          offset = Math.max(offset, stored)
         else
           offset += mfile.size // BytesMessage::MIN_BYTESIZE
         end
       end
       offset
+    end
+
+    # The last offset of a segment, from its meta file if it has one
+    private def stored_last_offset(mfile : MFile) : Int64?
+      File.open(meta_file_name(mfile)) do |file|
+        count = file.read_bytes(UInt32)
+        file.read_bytes(Int64) + count - 1
+      end
+    rescue File::NotFoundError | IO::EOFError
+      nil
     end
 
     private def get_last_offset : Int64

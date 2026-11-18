@@ -1086,6 +1086,27 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "takes the offsets of a stream that failed to load from its meta files" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+        4.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        store.@segments.size.should be > 2
+        store.close
+        # As when retention has dropped the segments with the offsets before it
+        write_at(File.join(data_dir, "meta.0000000002"), sizeof(UInt32), 10_000_000_i64)
+        write_at(File.join(data_dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_true
+        store.last_offset.should be >= 10_000_000
+        store.wipe
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        store.last_offset.should be > 10_000_000
+        store.close
+      end
+    end
+
     it "loads as failed when a record in a segment can't be decoded" do
       with_datadir do |data_dir|
         io = IO::Memory.new
