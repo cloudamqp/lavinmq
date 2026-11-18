@@ -383,6 +383,17 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "isn't read as a requeued message from the start of a segment of another schema version" do
+      with_store do |store|
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        env = store.shift?.should_not be_nil
+        store.requeue(env.segment_position)
+        write_at(store.@segments.first_value.path, 0, LavinMQ::Schema::VERSION + 1)
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.size.should eq 1
+      end
+    end
+
     it "isn't written after, in the segment written to" do
       with_store do |store|
         2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }

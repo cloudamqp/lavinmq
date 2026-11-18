@@ -226,6 +226,7 @@ module LavinMQ
       while sp = @requeued.first?
         seg = @segments[sp.segment]? || next drop_requeued
         begin
+          verify_schema(seg) if sp.position == 4
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
           return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex

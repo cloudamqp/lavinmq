@@ -97,15 +97,7 @@ module LavinMQ::AMQP
 
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
-        sp = @requeued.first? || return
-        seg = @segments[sp.segment]
-        begin
-          verify_schema(seg) if sp.position == 4
-          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          Envelope.new(sp, msg, redelivered: true, segment: seg)
-        rescue ex
-          raise unreadable(sp.segment, seg, ex)
-        end
+        first_requeued?
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
