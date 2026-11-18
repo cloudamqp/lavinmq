@@ -265,6 +265,32 @@ describe "OAuth2" do
     end
   end
 
+  describe "OAuthController after a config reload" do
+    it "follows oauth being added to and removed from auth_backends" do
+      with_http_server do |http, s|
+        enabled = -> {
+          response = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
+          JSON.parse(response.body)["enabled"].as_bool
+        }
+        config = LavinMQ::Config.instance
+        config.oauth_client_id = "test-client"
+        config.oauth_issuer_url = URI.parse("http://127.0.0.1:1")
+        config.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
+        enabled.call.should be_false
+
+        config.auth_backends = ["local", "oauth"]
+        s.authenticator.reload(config)
+        enabled.call.should be_true
+
+        config.auth_backends = ["local"]
+        s.authenticator.reload(config)
+        enabled.call.should be_false
+        response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
+        response.status_code.should eq 503
+      end
+    end
+  end
+
   describe "OAuthController /oauth/enabled" do
     it "returns enabled=false when OAuth is not configured" do
       with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|

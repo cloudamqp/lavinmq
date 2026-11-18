@@ -112,6 +112,19 @@
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a>
+            <a class="arg-tooltip" data-tag="delayed-retry-min" data-value="1000">Retry min delay
+              <span class="tooltiptext">Initial delay (milliseconds) before a message rejected with requeue=true
+                is redelivered. Only applies to queues declared with x-delayed-retry-min, and only when lower
+                than the argument.</span>
+            </a>
+            <a class="arg-tooltip" data-tag="delayed-retry-multiplier" data-value="2">Retry multiplier
+              <span class="tooltiptext">Backoff shape for queues declared with x-delayed-retry-min: 1 for
+                constant, 2 or more for exponential (delay × multiplier^(attempt-1)).</span>
+            </a>
+            <a class="arg-tooltip" data-tag="delayed-retry-max" data-value="60000">Retry max delay
+              <span class="tooltiptext">Cap on a single retry delay (milliseconds) for queues declared with
+                x-delayed-retry-min. Only clamps the delay, never ends retries.</span>
+            </a>
             <a class="arg-tooltip" data-tag="max-age" data-value="1M">Max age
               <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
                 Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).

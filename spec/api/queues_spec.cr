@@ -3,6 +3,18 @@ require "socket/tcp_socket"
 require "../spec_helper"
 require "compress/deflate"
 
+class LavinMQ::AMQP::DelayedRetryQueue
+  class_property? fail_next_create = false
+
+  def self.create(vhost : LavinMQ::VHost, primary_queue : LavinMQ::AMQP::Queue)
+    if fail_next_create?
+      self.fail_next_create = false
+      raise IO::Error.new("Injected retry queue creation failure")
+    end
+    previous_def
+  end
+end
+
 describe LavinMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
@@ -131,6 +143,104 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not include retry details for a queue without retries" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q-no-retry", false, false)
+        body = JSON.parse(http.get("/api/queues/%2f/q-no-retry").body)
+        body["delayed_retry"]?.should be_nil
+        body["primary_queue"]?.should be_nil
+      end
+    end
+
+    it "should return the retry configuration and delayed message count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 60_000,
+            "x-delayed-retry-multiplier" => 2,
+            "x-delayed-retry-max"        => 300_000,
+          })
+          q = ch.queue("q-retry-details", args: args)
+          q.publish_confirm "m1"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-q-retry-details").message_count == 1 }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-details").body)["delayed_retry"]
+          retry["min"].as_i.should eq 60_000
+          retry["multiplier"].as_i.should eq 2
+          retry["max"].as_i.should eq 300_000
+          retry["delivery_limit"].as_i.should eq 5
+          retry["messages_delayed"].as_i.should eq 1
+          retry["retry_queue"].as_s.should eq "amq.retry-q-retry-details"
+        end
+      end
+    end
+
+    it "should show no delivery limit when none is set" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-default", args: args)
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-default").body)["delayed_retry"]
+          retry["multiplier"].raw.should be_nil
+          retry["max"].raw.should be_nil
+          retry["delivery_limit"].raw.should be_nil
+          retry["messages_delayed"].as_i.should eq 0
+        end
+      end
+    end
+
+    it "should not name a retry queue that couldn't be created" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = true
+          ch.queue("q-retry-failed", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-failed").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+          retry["retry_queue"].raw.should be_nil
+          retry["messages_delayed"].as_i.should eq 0
+        end
+      ensure
+        LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = false
+      end
+    end
+
+    it "should show retry settings tuned by a policy" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q-retry-tuned", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          definitions = {"delayed-retry-min" => JSON::Any.new(500_i64)}
+          s.vhosts["/"].add_policy("retry-tuned", "^q-retry-tuned$", "queues", definitions, 0_i8)
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
+          retry["min"].as_i.should eq 500
+          s.vhosts["/"].delete_policy("retry-tuned")
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy.nil? }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+        end
+      end
+    end
+
+    it "should link the retry queue to its primary queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-primary", args: args)
+          body = JSON.parse(http.get("/api/queues/%2f/amq.retry-q-retry-primary").body)
+          body["primary_queue"].as_s.should eq "q-retry-primary"
+          body["delayed_retry"]?.should be_nil
+          items = JSON.parse(http.get("/api/queues/%2f").body).as_a
+          primary = items.find! { |i| i["name"] == "q-retry-primary" }
+          primary["delayed_retry"]["retry_queue"].as_s.should eq "amq.retry-q-retry-primary"
+          primary["primary_queue"].raw.should be_nil
+          retry_queue = items.find! { |i| i["name"] == "amq.retry-q-retry-primary" }
+          retry_queue["primary_queue"].as_s.should eq "q-retry-primary"
+        end
+      end
+    end
+
     it "should return the tag of an exclusive consumer" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -203,6 +313,26 @@ describe LavinMQ::HTTP::QueuesController do
         body["message_stats"]["get_no_ack"].should eq 1
         body["message_stats"]["deliver_no_ack"].should eq 1
         body["message_stats"]["deliver_get"].should eq 4
+      end
+    end
+
+    it "counts messages read from a stream as get_no_ack" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("stats_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { q.publish_confirm "m" }
+        end
+        body = %({ "count": 2, "offset": "first" })
+        response = http.post("/api/queues/%2f/stats_stream/stream", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.size.should eq 2
+
+        body = JSON.parse(http.get("/api/queues/%2f/stats_stream").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
+        body = JSON.parse(http.get("/api/vhosts/%2f").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
       end
     end
 
