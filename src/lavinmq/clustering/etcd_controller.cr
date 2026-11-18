@@ -67,7 +67,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         Log.warn { "No leader available" }
         next
       end
-      if uri == @advertised_uri # if this instance has become leader
+      if same_node?(uri, @advertised_uri) # if this instance has become leader
         select
         when @elected_leader.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
