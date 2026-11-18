@@ -315,9 +315,13 @@ module MqttSpecs
           session.message_count.should eq 2
 
           # The purge removes the segment, with the message published after
+          segment = store.@segments[sp.segment].path
           session.purge
           session.message_count.should eq 0
           store.@packet_ids.should be_empty
+          # The segment is unlinked after a sync of the whole filesystem, which
+          # the next publish would wait for longer than the client's read timeout
+          wait_for { !File.exists?(segment) }
           publish_from(server, "a/b", ["3"])
           read_publishes(io, 1).first.payload.should eq "3".to_slice
           disconnect(io)
