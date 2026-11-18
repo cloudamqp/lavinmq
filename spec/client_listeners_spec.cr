@@ -9,6 +9,13 @@ private def leader_at(host : String, ports : Hash(String, Int32)) : Leader?
   Leader.new(host, 5679, ports).as(Leader?)
 end
 
+# The ports it would forward to on *leader*, one per listener
+private class PortListeners < LavinMQ::ClientListeners
+  def leader_ports(leader : LavinMQ::Clustering::Client::Leader) : Array(Int32?)
+    @listeners.map { |l| leader_port(l, leader) }
+  end
+end
+
 # Reports whether what it accepts has TCP_NODELAY set
 private class NodelayListeners < LavinMQ::ClientListeners
   getter nodelay = Channel(Bool).new(1)
@@ -156,22 +163,13 @@ describe LavinMQ::ClientListeners do
 
   it "forwards to this node's own port when the leader doesn't advertise it" do
     config = listener_config
-    config.amqps_port = -1
-    # Another loopback address, so the leader can listen on the same port
-    leader = TCPServer.new("127.0.0.2", config.amqp_port)
-    listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("127.0.0.2", {} of String => Int32) })
-    listeners.bind(nil, nil, nil)
-    listeners.listen
-    client = TCPSocket.new("127.0.0.1", config.amqp_port)
-    client.write AMQP_START.to_slice
-    upstream = leader.accept
-    upstream.read_timeout = 5.seconds
-    upstream.gets.to_s.should start_with "PROXY TCP4 127.0.0.1 "
+    config.amqp_port = -1 # AMQPS passes TLS through, to the leader's AMQPS port
+    listeners = PortListeners.new(config, -> { nil.as(Leader?) })
+    listeners.bind(tls_context, nil, nil)
+    listeners.leader_ports(Leader.new("leader", 5679)).should eq [config.amqps_port]
+    listeners.leader_ports(Leader.new("leader", 5679, {"amqps" => 30671})).should eq [30671]
   ensure
-    client.try &.close rescue nil
-    upstream.try &.close rescue nil
     listeners.try &.close
-    leader.try &.close
   end
 
   it "passes TLS through to the leader's TLS port when there's no plain port" do
