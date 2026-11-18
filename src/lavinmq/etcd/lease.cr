@@ -21,8 +21,12 @@ module LavinMQ
       # Force release of lease (and leadership). The lease is revoked before
       # anything waiting on it wakes, so writes fenced by the lease are already
       # refused by then.
+      # Both a stop and the node itself can release it. Each call revokes, so no
+      # caller returns before the lease is gone, and a lease already gone counts
+      # as released.
       def release
         @etcd.lease_revoke(@id)
+      rescue LeaseNotFound
       ensure
         @expired.close
       end

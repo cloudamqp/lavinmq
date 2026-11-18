@@ -42,8 +42,16 @@ class LavinMQ::Clustering::Controller
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
+    # A stop before this point, e.g. while the replication client closed, must
+    # not make this node leader: it would set the ISR to only itself and exit
+    if @stopping.get.stop?
+      lease.release # #stop has no lease to release if it came before the grant
+      lease_released.wait
+      return
+    end
+    @announced_leader.set(true)
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     yield
     lease_released.wait # until #stop releases the lease
   rescue Etcd::LeaseAlreadyExists
@@ -63,7 +71,7 @@ class LavinMQ::Clustering::Controller
   rescue ex : Etcd::Lease::Expired
     stopping = @stopping.get
     return if stopping.stepping_down? # never led, so no leader_lost hook
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost") if @elected_leader.value
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost") if @announced_leader.get
     if stopping.none?
       Log.fatal { "Lease expired: #{ex.cause.try(&.message) || ex.message}" }
       exit 3
@@ -79,6 +87,8 @@ class LavinMQ::Clustering::Controller
   end
 
   @stopping = Atomic(Stopping).new(Stopping::None)
+  # Set when the leader_elected hook runs, so leader_lost only follows it
+  @announced_leader = Atomic(Bool).new(false)
 
   def stop
     @stopping.set(Stopping::Stop)
