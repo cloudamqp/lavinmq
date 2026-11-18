@@ -110,7 +110,11 @@ A queue whose message store fails is paused, not closed. Consumers stay connecte
 
 A purge of a queue with data it can't read removes all of the queue's messages, whatever count is given, and resumes the queue unless it was also paused through the API. That includes the messages that can still be read and those that are delivered but not acked, whose acks and rejects are then ignored. While the queue waits for the purge, `max-length`, `max-length-bytes`, `delivery-limit` and message TTL aren't applied, so a queue with publishers keeps growing.
 
-A queue's retry queue and the queue of a delayed exchange are paused the same way. Purging a queue also purges its retry queue. Streams and MQTT sessions are closed when their data can't be read, and are available again after a restart of the broker that can read it.
+A queue's retry queue and the queue of a delayed exchange are paused the same way. Purging a queue also purges its retry queue.
+
+Streams follow the same rule. A purge of a stream with data it can't read removes all its segments, and its consumers continue with what is published next, at the offsets that follow the last one known.
+
+MQTT sessions can't be paused. A session with data it can't read delivers nothing, with its client still connected, and logs an error. Purge the session through the HTTP API or the management UI, which removes all its messages, or delete it.
 
 ## Reserved Queue Name Prefixes
 

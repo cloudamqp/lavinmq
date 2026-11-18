@@ -286,6 +286,49 @@ module MqttSpecs
       end
     end
 
+    it "delivers nothing from a session with a message that can't be read, until it's purged" do
+      with_server do |server|
+        deliver_unacked(server, ["1"])
+
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+        store = session.@msg_store
+        sp = store.@packet_ids.keys.first
+        # The body size of the owed message, which is the last thing before its body
+        File.open(store.@segments[sp.segment].path, "r+") do |f|
+          f.seek(sp.position + sp.bytesize - "1".bytesize - sizeof(UInt64))
+          f.write_bytes(UInt64::MAX)
+        end
+
+        # The client isn't disconnected, it would only reconnect to the same message
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          wait_for { !session.@store_readable.value }
+          # A limit can't drop the message either, and doesn't fail the publish
+          defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+          server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
+          server.vhosts["/"].apply_policies
+          publish_from(server, "a/b", ["2"])
+          read_packet(io).should be_nil
+          session.client.should_not be_nil
+          session.closed?.should be_false
+          session.message_count.should be > 0
+
+          # The purge removes all of it, with the message published after
+          segment = store.@segments[sp.segment].path
+          session.purge
+          session.message_count.should eq 0
+          store.@packet_ids.should be_empty
+          # The segment is unlinked after a sync of the whole filesystem, which
+          # the next publish would wait for longer than the client's read timeout
+          wait_for { !File.exists?(segment) }
+          publish_from(server, "a/b", ["3"])
+          read_publishes(io, 1).first.payload.should eq "3".to_slice
+          disconnect(io)
+        end
+      end
+    end
+
     it "forgets an owed id when a max-length policy drops its message" do
       with_server do |server|
         deliver_unacked(server, ["1"])

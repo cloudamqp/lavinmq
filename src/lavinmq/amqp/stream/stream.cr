@@ -121,6 +121,10 @@ module LavinMQ::AMQP
       if @msg_store.closed
         !close
       else
+        if @msg_store.failed?
+          @log.error { "Paused, message data can't be loaded. Purge the stream to remove all its messages, or delete it" }
+          @state_lock.synchronize { set_paused }
+        end
         handle_arguments
         true
       end
@@ -154,10 +158,6 @@ module LavinMQ::AMQP
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
       PublishResult::Closed
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     # Streams does not support basic_get, so always returns `false`
@@ -218,9 +218,8 @@ module LavinMQ::AMQP
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ClosedError.new(cause: ex)
+      pause_on_store_error(ex)
+      false
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -333,16 +332,19 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
+      wiped = false
       delete_count = @msg_store_lock.synchronize do
-        # Closed by a close, or a store error, while the purge waited for the lock
+        # Closed by a close while the purge waited for the lock
         next 0_u32 if @msg_store.closed
+        # All of it goes if it has data that can't be read
+        next @msg_store.wipe if wiped = @msg_store.failed?
         @msg_store.purge(max_count)
       end
       @log.info { "Purged #{delete_count} messages" }
+      resume_after_wipe if wiped
       delete_count
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
+      pause_on_store_error(ex)
       raise ex
     end
 
