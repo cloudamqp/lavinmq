@@ -1139,7 +1139,8 @@ describe LavinMQ::AMQP::Stream do
           q.publish_confirm "new"
           msg = msgs.receive
           msg.body_io.to_s.should eq "new"
-          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
+          # Not an offset the stream has handed out before, which were 1 and 2
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should be > 3
         end
         wait_for { !File.exists?(segment) }
         restart_server(s)

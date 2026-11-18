@@ -25,15 +25,20 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      # The last offset isn't known if a segment failed to load, and nothing
-      # is dropped from a store that isn't counted
-      @last_offset = load_stopped? ? 0i64 : get_last_offset
+      # Nothing is dropped from a store that failed to load, it isn't counted
+      @last_offset = if @closed
+                       0i64
+                     elsif failed?
+                       last_offset_upper_bound
+                     else
+                       get_last_offset
+                     end
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow unless failed?
     end
 
-    # Starts from scratch, after the offsets it had if they are known.
-    # Consumers continue with what is published next.
+    # Starts from scratch, after the offsets it had. Consumers continue with
+    # what is published next.
     def wipe : UInt32
       count = super
       seg = @wfile_id
@@ -57,6 +62,22 @@ module LavinMQ::AMQP
     def delete
       super
       @consumer_offsets.delete
+    end
+
+    # The last offset isn't known when a segment failed to load. Offsets must
+    # never be handed out twice, so the segments that aren't counted are taken
+    # to hold as many messages as could fit in them.
+    private def last_offset_upper_bound : Int64
+      offset = 0i64
+      @segments.each do |seg, mfile|
+        first = @segment_first_offset[seg]?
+        if first && @segment_msg_count.has_key?(seg)
+          offset = Math.max(offset, first + @segment_msg_count[seg] - 1)
+        else
+          offset += mfile.size // BytesMessage::MIN_BYTESIZE
+        end
+      end
+      offset
     end
 
     private def get_last_offset : Int64
