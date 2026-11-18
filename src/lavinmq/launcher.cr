@@ -63,8 +63,8 @@ module LavinMQ
       @runner.on_demote { |hand_over| demote(hand_over) }
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path)
-      @client_listeners = ClientListeners.new(@config, -> { @runner.leader_host })
-      @runner.on_leader_host_change { @client_listeners.leader_host_changed }
+      @client_listeners = ClientListeners.new(@config, -> { @runner.leader.as(Clustering::Client::Leader?) })
+      @runner.on_leader_change { @client_listeners.leader_changed }
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context

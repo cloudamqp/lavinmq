@@ -259,10 +259,17 @@ module LavinMQ
 
     # Deletes all "ready" messages (not unacked)
     def purge(max_count : Int = UInt32::MAX) : UInt32
+      purge(max_count) { }
+    end
+
+    # Yields the position of each purged message
+    def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
       raise ClosedError.new if @closed
       count = 0u32
       while count < max_count && (env = shift?)
-        delete(env.segment_position)
+        sp = env.segment_position
+        delete(sp)
+        yield sp
         count += 1
         break if count >= max_count
         Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -271,11 +278,18 @@ module LavinMQ
     end
 
     def purge_all
+      purge_all { }
+    end
+
+    # Calls on_requeued with each requeued message: the only purged messages
+    # that can have been delivered before
+    def purge_all(&on_requeued : SegmentPosition ->)
       # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
         delete(sp) if @segments.has_key?(sp.segment)
+        on_requeued.call(sp)
       end
 
       # Delete all segments except the current rfile and wfile
@@ -392,6 +406,15 @@ module LavinMQ
       File.delete?(meta_file_name(file)) if including_meta
       # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
+    end
+
+    # Unmaps the pages of the segment being written, for when nothing will
+    # read it soon. Writing keeps them mapped until the segment is full,
+    # which for an idle queue can be never. They stay in the page cache, dirty
+    # ones too, so a later read or msync still finds them.
+    def release_idle_pages : Nil
+      return if @closed || @wfile.closed?
+      @wfile.dontneed
     end
 
     def empty?

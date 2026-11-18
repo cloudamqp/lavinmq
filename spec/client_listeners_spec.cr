@@ -1,16 +1,12 @@
 require "./spec_helper"
 require "../src/lavinmq/client_listeners"
 
-# The leader runs on the same host in these specs, so it can't use the same
-# ports: forwards to *leader_ports*, by this node's port
-private class SpecListeners < LavinMQ::ClientListeners
-  def initialize(config, leader_host, @leader_ports : Hash(Int32, Int32))
-    super(config, leader_host)
-  end
+private alias Leader = LavinMQ::Clustering::Client::Leader
 
-  private def leader_port(l) : Int32?
-    l.target_port.try { |port| @leader_ports[port] }
-  end
+# A leader on this host, which can't use this node's ports, so it advertises
+# its own, as a leader does in its URI (see Clustering::Controller.advertised_uri)
+private def leader_at(host : String, ports : Hash(String, Int32)) : Leader?
+  Leader.new(host, 5679, ports).as(Leader?)
 end
 
 # Reports whether what it accepts has TCP_NODELAY set
@@ -58,8 +54,7 @@ private def forward_through_follower(payload : Bytes, *, tls = false, trusted = 
   config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(trusted) unless trusted.empty?
   configure.call(config)
   leader = TCPServer.new("127.0.0.1", 0)
-  listeners = SpecListeners.new(config, -> { "127.0.0.1".as(String?) },
-    {config.amqp_port => leader.local_address.port})
+  listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("127.0.0.1", {"amqp" => leader.local_address.port}) })
   listeners.bind(tls_context, nil, nil)
   listeners.listen
   socket = TCPSocket.new("127.0.0.1", tls ? config.amqps_port : config.amqp_port)
@@ -131,9 +126,7 @@ describe LavinMQ::ClientListeners do
       with_proxy_protocol do # how the leader trusts a follower's PROXY header
         s.@config.default_user_only_loopback = false
         config = listener_config
-        leader : String? = "localhost"
-        listeners = SpecListeners.new(config, -> { leader.as(String?) },
-          {config.amqp_port => amqp_port(s)})
+        listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("localhost", {"amqp" => amqp_port(s)}) })
         listeners.bind(tls_context, nil, nil)
         listeners.listen
         begin
@@ -161,14 +154,33 @@ describe LavinMQ::ClientListeners do
     end
   end
 
+  it "forwards to this node's own port when the leader doesn't advertise it" do
+    config = listener_config
+    config.amqps_port = -1
+    # Another loopback address, so the leader can listen on the same port
+    leader = TCPServer.new("127.0.0.2", config.amqp_port)
+    listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("127.0.0.2", {} of String => Int32) })
+    listeners.bind(nil, nil, nil)
+    listeners.listen
+    client = TCPSocket.new("127.0.0.1", config.amqp_port)
+    client.write AMQP_START.to_slice
+    upstream = leader.accept
+    upstream.read_timeout = 5.seconds
+    upstream.gets.to_s.should start_with "PROXY TCP4 127.0.0.1 "
+  ensure
+    client.try &.close rescue nil
+    upstream.try &.close rescue nil
+    listeners.try &.close
+    leader.try &.close
+  end
+
   it "passes TLS through to the leader's TLS port when there's no plain port" do
     with_amqp_server(extra_tls_listener: true) do |s|
       with_proxy_protocol do
         s.@config.default_user_only_loopback = false
         config = listener_config
         config.amqp_port = -1
-        listeners = SpecListeners.new(config, -> { "localhost".as(String?) },
-          {config.amqps_port => amqp_tls_port(s)})
+        listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("localhost", {"amqps" => amqp_tls_port(s)}) })
         listeners.bind(tls_context, nil, nil)
         listeners.listen
         begin
@@ -264,7 +276,7 @@ describe LavinMQ::ClientListeners do
       config.amqp_port = config.amqps_port = -1
       config.http_bind = "127.0.0.1"
       config.http_port = free_port
-      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
+      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(Leader?) })
       listeners.bind(nil, nil, nil)
       listeners.listen
       listeners.serve(LavinMQ::ClientListeners::Brokers.new(s.amqp_server, s.mqtt_server, s.http_server))
@@ -283,7 +295,7 @@ describe LavinMQ::ClientListeners do
     config.http_bind = "127.0.0.1"
     config.http_port = free_port
     # Knows a leader, so that it accepts
-    listeners = NodelayListeners.new(config, -> { "127.0.0.1".as(String?) })
+    listeners = NodelayListeners.new(config, -> { leader_at("127.0.0.1", {} of String => Int32) })
     listeners.bind(nil, nil, nil)
     listeners.listen
     TCPSocket.new("127.0.0.1", config.http_port).close
@@ -296,7 +308,7 @@ describe LavinMQ::ClientListeners do
     with_amqp_server do |s|
       config = listener_config
       config.amqps_port = -1
-      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(String?) })
+      listeners = LavinMQ::ClientListeners.new(config, -> { nil.as(Leader?) })
       listeners.bind(nil, nil, nil)
       connected = Channel(AMQP::Client::Connection).new(1)
       spawn { connected.send AMQP::Client.new(host: "127.0.0.1", port: config.amqp_port).connect }
@@ -319,8 +331,7 @@ describe LavinMQ::ClientListeners do
     config.amqps_port = -1
     config.tcp_send_timeout = 1
     leader = TCPServer.new("127.0.0.1", 0)
-    listeners = SpecListeners.new(config, -> { "127.0.0.1".as(String?) },
-      {config.amqp_port => leader.local_address.port})
+    listeners = LavinMQ::ClientListeners.new(config, -> { leader_at("127.0.0.1", {"amqp" => leader.local_address.port}) })
     listeners.bind(nil, nil, nil)
     listeners.listen
     client = TCPSocket.new("127.0.0.1", config.amqp_port)
@@ -354,7 +365,11 @@ describe LavinMQ::ClientListeners do
       config.amqps_port = -1
       leader = TCPServer.new("127.0.0.1", 0)
       leader_host : String? = nil
-      listeners = SpecListeners.new(config, -> { leader_host.as(String?) }, {config.amqp_port => leader.local_address.port})
+      listeners = LavinMQ::ClientListeners.new(config, -> {
+        if host = leader_host
+          leader_at(host, {"amqp" => leader.local_address.port})
+        end.as(Leader?)
+      })
       listeners.bind(nil, nil, nil)
       listeners.listen
       early = TCPSocket.new("127.0.0.1", config.amqp_port)
@@ -362,12 +377,12 @@ describe LavinMQ::ClientListeners do
       expect_raises(IO::TimeoutError) { early.read_byte } # not closed
 
       leader_host = "127.0.0.1"
-      listeners.leader_host_changed
+      listeners.leader_changed
       leader.accept.close # forwarded once there's a leader
 
       # The leader is gone, e.g. this node won the election and loads its data
       leader_host = nil
-      listeners.leader_host_changed
+      listeners.leader_changed
       promoted = TCPSocket.new("127.0.0.1", config.amqp_port)
       promoted.read_timeout = 100.milliseconds
       expect_raises(IO::TimeoutError) { promoted.read_byte }

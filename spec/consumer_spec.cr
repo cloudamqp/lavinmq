@@ -27,6 +27,37 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should round-robin when all consumers have capacity" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("round-robin")
+          got = Channel(Int32).new
+          with_channel(s) do |ch1|
+            with_channel(s) do |ch2|
+              {ch1, ch2}.each_with_index do |consumer_ch, i|
+                consumer_ch.prefetch 8 - 4 * i
+                consumer_ch.basic_consume(q.name, no_ack: false) do |msg|
+                  msg.ack
+                  got.send i
+                end
+              end
+              # The first message starts the deliver loops, which don't
+              # race for it in line
+              q.publish("m")
+              got.receive
+              # Publish one at a time, so both consumers are idle with free
+              # capacity whenever a message arrives
+              order = Array.new(20) do
+                q.publish("m")
+                got.receive
+              end
+              order.each_cons_pair { |a, b| a.should_not eq b }
+            end
+          end
+        end
+      end
+    end
   end
 
   describe "with x-priority" do

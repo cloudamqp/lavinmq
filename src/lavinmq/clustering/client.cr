@@ -29,8 +29,44 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
+      # Client protocols whose port a leader advertises in its URI's query, e.g.
+      # tcp://leader:5679?amqp=5672&http=15672
+      ADVERTISED_PORTS = {"amqp", "amqps", "mqtt", "mqtts", "http", "https"}
+
+      # The leader being followed: where to replicate from, and the client
+      # ports it advertises (none from leaders that don't advertise them)
+      class Leader
+        getter host : String
+        getter port : Int32
+        getter ports : Hash(String, Int32)
+
+        def initialize(@host, @port, @ports = Hash(String, Int32).new)
+        end
+
+        def self.parse(uri : URI) : self
+          host = uri.hostname.not_nil!("Host missing in follow URI")
+          ports = Hash(String, Int32).new
+          uri.query_params.each do |name, value|
+            next unless ADVERTISED_PORTS.includes?(name)
+            port = value.to_i? || next
+            ports[name] = port if 0 < port <= 65535
+          end
+          new(host, uri.port || 5679, ports)
+        end
+
+        def_equals @host, @port, @ports
+
+        # The port to forward a protocol to: the one the leader advertises, or
+        # the follower's own when the leader doesn't advertise it
+        def forward_port(protocol : String, own_port : Int32) : Int32
+          @ports[protocol]? || own_port
+        end
+      end
+
       @closed = false
       @close_done = Channel(Nil).new
+      # Read by #follows? from the controller's fiber while #follow sets it
+      @leader = Atomic(Leader?).new(nil)
       @socket : TCPSocket?
       getter streamed_bytes = 0_u64
 
@@ -83,24 +119,22 @@ module LavinMQ
         @checksums.restore
       end
 
-      @host : String?
-      @port : Int32?
-      @leader_host = Atomic(String?).new(nil)
+      @connected_leader = Atomic(Leader?).new(nil)
 
-      # The leader's host while connected to it, client connections are
-      # forwarded there with a PROXY header the leader only accepts from
-      # followers that have authenticated, see ClientListeners. So nil until
-      # this one has, and while reconnecting.
-      def host : String?
-        @leader_host.get
+      # The leader while connected to it. Client connections are forwarded to
+      # its host and advertised ports with a PROXY header the leader only
+      # accepts from followers that have authenticated, see ClientListeners.
+      # So nil until this one has, and while reconnecting.
+      def leader : Leader?
+        @connected_leader.get
       end
 
-      # Called after #host changed, set before #follow
-      property on_host_change : Proc(Nil)? = nil
+      # Called after #leader changed, set before #follow
+      property on_leader_change : Proc(Nil)? = nil
 
-      private def leader_host=(host : String?) : Nil
-        @leader_host.set(host)
-        @on_host_change.try &.call
+      private def connected_leader=(leader : Leader?) : Nil
+        @connected_leader.set(leader)
+        @on_leader_change.try &.call
       end
 
       def follow(uri : String)
@@ -108,15 +142,18 @@ module LavinMQ
       end
 
       def follow(uri : URI)
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follow(host, port)
+        follow(Leader.parse(uri))
       end
 
       def follow(host : String, port : Int32)
+        follow(Leader.new(host, port))
+      end
+
+      def follow(leader : Leader)
+        host = leader.host
+        port = leader.port
         Log.info { "Following #{host}:#{port}" }
-        @host = host
-        @port = port
+        @leader.set(leader)
         loop do
           hash_local_files
           return if @closed
@@ -128,7 +165,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
-          self.leader_host = nil
+          self.connected_leader = nil
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -147,14 +184,16 @@ module LavinMQ
         follows? URI.parse(uri)
       end
 
+      # A leader that advertises other ports, e.g. after a restart with a new
+      # configuration, isn't followed: client connections would be forwarded to
+      # the old ports
       def follows?(uri : URI) : Bool
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follows?(host, port)
+        @leader.get == Leader.parse(uri)
       end
 
       def follows?(host : String, port : Int32) : Bool
-        @host == host && @port == port
+        return false unless leader = @leader.get
+        leader.host == host && leader.port == port
       end
 
       private def sync(socket, lz4)
@@ -163,7 +202,7 @@ module LavinMQ
         Log.info { "Authenticated" }
         # The leader trusts our PROXY headers from before it told us, and
         # until the file list comes we may wait for another follower's sync
-        self.leader_host = @host
+        self.connected_leader = @leader.get
         set_socket_opts(socket)
         full_sync(socket, lz4)
       end

@@ -296,10 +296,10 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "slo
       begin
         first, second = clients
         spawn(name: "first follower") { first.follow("localhost", leader_tcp_server.local_address.port) }
-        wait_for { slow_replicator.syncing_followers.size == 1 && first.host }
+        wait_for { slow_replicator.syncing_followers.size == 1 && first.leader }
         spawn(name: "second follower") { second.follow("localhost", leader_tcp_server.local_address.port) }
         # Its file list waits for the first follower's sync
-        wait_for { second.host }
+        wait_for { second.leader }
         slow_replicator.followers.should be_empty # neither has synced
       ensure
         clients.each &.close
