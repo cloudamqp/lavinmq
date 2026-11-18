@@ -3,18 +3,18 @@ require "./client/client"
 module LavinMQ
   class DirectReplyConsumerStore
     def initialize
-      @consumers = Hash(String, Client::Channel).new
+      @consumers = Hash(String, AMQP::Channel).new
     end
 
-    def []?(consumer_tag : String) : Client::Channel?
+    def []?(consumer_tag : String) : AMQP::Channel?
       @consumers[consumer_tag]?
     end
 
-    def []=(consumer_tag : String, channel : Client::Channel) : Client::Channel
+    def []=(consumer_tag : String, channel : AMQP::Channel) : AMQP::Channel
       @consumers[consumer_tag] = channel
     end
 
-    def delete(consumer_tag : String) : Client::Channel?
+    def delete(consumer_tag : String) : AMQP::Channel?
       @consumers.delete(consumer_tag)
     end
 

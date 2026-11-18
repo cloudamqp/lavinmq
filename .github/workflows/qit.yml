@@ -1,0 +1,152 @@
+name: Qpid Interop Test
+# Runs the AMQP 1.0 clients of Apache Qpid Interop Test (Proton C++, Python,
+# .NET and ProtonJ2, Qpid JMS and rhea) against LavinMQ. Too slow for every
+# pull request, so it runs nightly, on demand, and when this workflow changes.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/qit.yml'
+      - '.github/qit-shim-wrapper.sh'
+
+jobs:
+  compile:
+    name: Compile LavinMQ
+    runs-on: ubuntu-latest
+    container: 84codes/crystal:latest-ubuntu-24.04
+
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build lavinmq
+        run: make -j bin/lavinmq DOCS= CRYSTAL_FLAGS="--release"
+
+      - name: Upload bin/
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin
+          path: bin/
+
+  qit:
+    name: QIT ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    needs: compile
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [amqp-types, amqp-headers, jms, large-content]
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # cmake, g++ and Maven come with the runner image
+          sudo apt-get install -y liblz4-1 libjsoncpp-dev libsasl2-dev libsasl2-modules libssl-dev
+
+      - name: Checkout LavinMQ for the shim wrapper
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
+          # The large content tests expect brokers with a 4 KiB and a 1 MiB
+          # frame-max on 5673 and 5674; the HTTP API is on AMQP port + 10000.
+          for spec in 5673:4096 5674:1048576; do
+            port=${spec%%:*}
+            mkdir -p /tmp/amqp-$port
+            printf '[amqp]\nframe_max = %s\n' ${spec##*:} > /tmp/amqp-$port/lavinmq.ini
+            bin/lavinmq --config /tmp/amqp-$port/lavinmq.ini --data-dir /tmp/amqp-$port/data \
+              --amqp-port $port --http-port 1$port --mqtt-port -1 --metrics-http-port -1 \
+              --control-unix-path /tmp/amqp-$port/lavinmqctl.sock &
+          done
+          # The .NET and ProtonJ2 shims log in as artemis/artemis; the others
+          # have no credentials and are logged in as guest (SASL ANONYMOUS, or
+          # no SASL at all), which LavinMQ allows on loopback connections.
+          for http in 15672 15673 15674; do
+            until curl -fsS -o /dev/null -u guest:guest http://127.0.0.1:$http/api/overview; do sleep 1; done
+            curl -fsS -u guest:guest -X PUT -H 'content-type: application/json' \
+              -d '{"password":"artemis","tags":""}' http://127.0.0.1:$http/api/users/artemis
+            curl -fsS -u guest:guest -X PUT -H 'content-type: application/json' \
+              -d '{"configure":".*","write":".*","read":".*"}' http://127.0.0.1:$http/api/permissions/%2F/artemis
+          done
+
+      - name: Clone Qpid Interop Test
+        uses: actions/checkout@v7
+        with:
+          repository: apache/qpid-interop-test
+          ref: b8b89adf8e0da09883d89fc4622f66cf4e0ac319
+          path: qit
+
+      - name: Clone Qpid Proton
+        uses: actions/checkout@v7
+        with:
+          repository: apache/qpid-proton
+          ref: '0.40.0'
+          path: qpid-proton
+
+      - name: Build Qpid Proton C++
+        run: |
+          # Ubuntu's package lacks the CMake config the C++ shim builds against
+          cmake -S qpid-proton -B qpid-proton/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$HOME/proton -DBUILD_BINDINGS=cpp \
+            -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TOOLS=OFF
+          cmake --build qpid-proton/build -j "$(nproc)" --target install
+          echo "LD_LIBRARY_PATH=$HOME/proton/lib" >> "$GITHUB_ENV"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Build shims
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: 1
+          DOTNET_NOLOGO: 1
+        run: |
+          cd qit
+          pipx install uv
+          uv sync
+          cmake -S shims/cpp-proton -B shims/cpp-proton/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$HOME/proton
+          cmake --build shims/cpp-proton/build -j "$(nproc)"
+          dotnet build shims/dotnet-proton -c Release
+          mvn -B -q -f shims/java-protonj2/pom.xml package -DskipTests
+          mvn -B -q -f shims/java-qpid-jms/pom.xml package -DskipTests
+          npm ci --prefix shims/javascript-rhea
+          for shim in shims/*/; do
+            mv "$shim/shim.sh" "$shim/shim.orig.sh"
+            cp ../.github/qit-shim-wrapper.sh "$shim/shim.sh"
+          done
+
+      - name: Run tests
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          cd qit
+          case "$SUITE" in
+            amqp-types) .venv/bin/qit test amqp-types --broker amqp://localhost:5672 -j "$(nproc)" ;;
+            amqp-headers) .venv/bin/pytest tests/test_amqp_headers.py -n "$(nproc)" -q -rfE ;;
+            jms) .venv/bin/pytest tests/test_jms_unified.py -n "$(nproc)" -q -rfE ;;
+            large-content) .venv/bin/pytest tests/test_large_content.py -n "$(nproc)" -q -rfE ;;
+          esac
