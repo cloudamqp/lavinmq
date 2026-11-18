@@ -235,6 +235,39 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   end
 
+  # Followers read it once they see a leader, and a watch for it started
+  # after the leader wrote it would wait forever
+  it "writes the clustering secret before it campaigns" do
+    with_datadir do |data_dir|
+      etcd = LavinMQ::Etcd.new("localhost:12379")
+      # Another node leads, so this one's campaign blocks
+      leader_lease = etcd.lease_grant(ttl: 10)
+      etcd.election_campaign("lavinmq/leader", "tcp://localhost:5699", leader_lease.id)
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5697"
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      served = Channel(Nil).new(1)
+      spawn(name: "campaigning controller") do
+        controller.run { served.send nil }
+      rescue SpecExit
+      end
+      begin
+        sleep 0.5.seconds # campaigning
+        etcd.get("lavinmq/clustering_secret").should_not be_nil
+      ensure
+        # Lets it win, so that it can be stopped
+        leader_lease.release
+        select
+        when served.receive
+        when timeout(5.seconds)
+        end
+        controller.stop
+      end
+    end
+  end
+
   it "stops reporting the replication client's metrics once it leads" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
