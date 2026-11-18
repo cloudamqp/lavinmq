@@ -156,7 +156,8 @@ module LavinMQ::AMQP
         raise ClosedError.new if @closed
         was_empty = size.zero?
         store_for sp, &.requeue(sp)
-        @empty.set false if was_empty
+        # Not requeued if a wipe removed it
+        @empty.set false if was_empty && !size.zero?
       end
 
       # Raises if a sub store can't be read: none of them is read until all
