@@ -31,20 +31,13 @@ module LavinMQ
                      cluster : Clustering::ClusterAdmin? = nil,
                      control_path = Config.instance.control_unix_path,
                      metrics : Proc(PrometheusWriter, Nil)? = nil)
-        oauth_authenticator =
-          case auth = @server.authenticator
-          when Auth::Chain
-            auth.backends.select(Auth::OAuthAuthenticator).first?
-          when Auth::OAuthAuthenticator
-            auth
-          end
         handlers = [
           (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server, @mqtt_server),
           ViewsController.new,
           StaticController.new,
-          oauth_authenticator && OAuthController.new(oauth_authenticator),
+          OAuthController.new(@server.authenticator),
           AuthHandler.new(@server.authenticator, @server.users.direct_user, control_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
