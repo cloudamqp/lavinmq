@@ -18,43 +18,43 @@
         <div class="tab" data-tab="messages">Messages</div>
       </div>
       <div data-tab-bar="tab" data-tab-content="overview">
-        <section class="card cols-4">
-          <h3>Details</h3>
-          <table class="details-table">
-            <tr>
-              <th>Features</th>
-              <td id="q-features"></td>
-            </tr>
-            <tr>
-              <th>State</th>
-              <td id="q-state"></td>
-            </tr>
-            <tr>
-              <th>Consumers</th>
-              <td id="q-consumers"></td>
-            </tr>
-            <tr>
-              <th>Policy</th>
-              <td id="q-policy"></td>
-            </tr>
-            <tr>
-              <th>Operator policy</th>
-              <td id="q-operator-policy"></td>
-            </tr>
-            <tr>
-              <th>Effective policy definition</th>
-              <td id="q-effective-policy-definition"></td>
-            </tr>
-          </table>
-          <form method="put" id="restartQueue" class="form hide">
+        <section class="card tb-card cols-4">
+          <h3 class="form-card-title">Details</h3>
+          <div class="details-grid">
+            <div class="details-cell">
+              <div class="details-label">Features</div>
+              <div class="details-value" id="q-features"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">State</div>
+              <div class="details-value" id="q-state"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Consumers</div>
+              <div class="details-value" id="q-consumers"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Policy</div>
+              <div class="details-value" id="q-policy"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Operator policy</div>
+              <div class="details-value" id="q-operator-policy"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Effective policy definition</div>
+              <div class="details-value" id="q-effective-policy-definition"></div>
+            </div>
+          </div>
+          <form method="put" id="restartQueue" class="form form-card-inner hide">
             <label>
               <button type="submit" class="btn btn-green">Restart queue</button>
             </label>
           </form>
         </section>
-        <section class="card cols-5">
-          <h3>Messages</h3>
-          <table class="details-table">
+        <section class="card tb-card cols-5">
+          <h3 class="form-card-title">Messages</h3>
+          <table class="messages-table">
             <tr>
               <th></th>
               <th>Count</th>
@@ -81,45 +81,61 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-3">
-          <h3>Arguments</h3>
-          <pre class="arguments" id="q-arguments"></pre>
+        <section class="card tb-card cols-3">
+          <h3 class="form-card-title">Arguments</h3>
+          <div class="form-card-inner form-card-inner-sm">
+            <pre class="arguments" id="q-arguments"></pre>
+          </div>
         </section>
-        <section class="card cols-12 align-start">
-          <h3>Rates</h3>
-          <div class="chart-container" id="chart"></div>
+        <section class="card tb-card cols-12 align-start">
+          <h3 class="form-card-title">Rates</h3>
+          <div class="form-card-inner">
+            <div class="chart-container chart-legend-right" id="chart"></div>
+          </div>
         </section>
-        <section class="card cols-4">
-          <h3>Pause Queue</h3>
-          <form method="put" id="pauseQueue" class="form">
-            <label>
-              <button type="submit" class="btn btn-yellow">Pause queue</button>
-            </label>
-          </form>
-          <form method="put" id="resumeQueue" class="form hide">
-            <label>
-              <button type="submit" class="btn btn-yellow">Resume queue</button>
-            </label>
-          </form>
-          <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
-        </section>
-        <form method="delete" id="purgeQueue" class="form card cols-4">
-          <h3>Purge queue</h3>
-          <label>
-            <span>Number of messages</span>
-            <input type="number" name="count" min="1" placeholder="All">
-          </label>
-          <label>
-            <button type="submit" class="btn btn-red">Purge queue</button>
-          </label>
-        </form>
-        <section class="card cols-4">
-          <h3>Delete queue</h3>
-          <form method="delete" id="deleteQueue" class="form">
-            <label>
-              <button type="submit" class="btn btn-red">Delete queue</button>
-            </label>
-          </form>
+        <section class="card tb-card cols-12 actionbar">
+          <h3 class="form-card-title">Queue actions</h3>
+          <div class="actionbar-grid">
+            <div class="actionbar-box">
+              <form method="put" id="pauseQueue">
+                <button type="submit" class="btn btn-outlined">
+                  <img src="img/icons/icon-pause-lg.svg" width="20" height="20" alt="">
+                  Pause queue
+                </button>
+              </form>
+              <form method="put" id="resumeQueue" class="hide">
+                <button type="submit" class="btn btn-outlined">
+                  <svg class="icon-warning" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6.5 4.5l9 5.5-9 5.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                  Resume queue
+                </button>
+              </form>
+              <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
+            </div>
+            <div class="actionbar-box">
+              <form method="delete" id="purgeQueue">
+                <div class="actionbar-purge">
+                  <label>
+                    <span>Purge</span>
+                    <input type="number" name="count" min="1" placeholder="All" aria-label="Number of messages to purge">
+                  </label>
+                  <button type="submit" class="btn btn-outlined">
+                    <img src="img/icons/icon-purge-lg.svg" width="20" height="20" alt="">
+                    Purge
+                  </button>
+                </div>
+              </form>
+              <p class="card-desc">Number of messages to purge.</p>
+            </div>
+            <div class="actionbar-box">
+              <form method="delete" id="deleteQueue">
+                <button type="submit" class="btn btn-outlined">
+                  <img src="img/icons/icon-delete-lg.svg" width="20" height="20" alt="">
+                  Delete queue
+                </button>
+              </form>
+              <p class="card-desc">Deleting a queue can not be undone.</p>
+            </div>
+          </div>
         </section>
       </div>
       <div data-tab-bar="tab" data-tab-content="consumers">
@@ -201,7 +217,7 @@
         </dialog>
       </div>
       <div data-tab-bar="tab" data-tab-content="messages">
-        <form method="post" id="publishMessage" class="form card cols-6">
+        <form method="post" id="publishMessage" class="form card tb-card tb-card-padded cols-6">
           <h3 class="with-desc">Publish message</h3>
           <p class="card-desc pre-form">
             Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
@@ -270,7 +286,7 @@
           </label>
           <button type="submit" class="btn btn-outlined">Publish message</button>
         </form>
-        <section class="card cols-6">
+        <section class="card tb-card tb-card-padded cols-6">
           <form method="post" id="getMessages" class="form">
             <h3>Get messages</h3>
             <label>
@@ -296,7 +312,7 @@
             <button type="submit" class="btn btn-outlined">Get message(s)</button>
           </form>
         </section>
-        <form method="post" id="moveMessages" class="form card cols-6">
+        <form method="post" id="moveMessages" class="form card tb-card tb-card-padded cols-6">
           <h3>Move messages</h3>
           <label>
             <span>Destination queue</span>
