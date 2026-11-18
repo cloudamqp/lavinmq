@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A clustered follower that was stopped while waiting to get back in sync logged a fatal error and exited with code 3, as if its etcd lease had expired. It now stops normally [#2776](https://github.com/cloudamqp/lavinmq/pull/2776)
 - A leader stopped gracefully could remove every follower from the in-sync replica set on its way out, so the survivors won the election, found they weren't in the ISR and exited, leaving the cluster down until the old leader came back. The etcd lease is now revoked before the shutdown goes on, so the ISR writes from the disconnecting followers are refused [#2500](https://github.com/cloudamqp/lavinmq/pull/2500)
 - Followers in a cluster now accept AMQPS, MQTTS and HTTPS connections and pass them on to the leader, which terminates TLS. Previously the TLS ports were only bound on the leader, so clients that reached a follower were refused [#2475](https://github.com/cloudamqp/lavinmq/issues/2475)
 - A `SIGHUP` config reload resets a setting removed from the config file to its default, instead of keeping its previous value. Command line arguments and environment variables also keep taking precedence over the config file after a reload, as they do at startup [#2458](https://github.com/cloudamqp/lavinmq/pull/2458)
