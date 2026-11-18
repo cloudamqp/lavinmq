@@ -564,6 +564,23 @@ describe "Retry Queue" do
       end
     end
 
+    it "gives up every segment that couldn't be indexed when all is purged" do
+      with_datadir do |dir|
+        # Of another schema version, with a count that one ack doesn't reach
+        2.times do |i|
+          record = corrupt_segment.call[4..]
+          File.write(File.join(dir, "msgs.000000000#{i + 1}"), "\x09\x00\x00\x00".to_slice + record + record + record)
+          File.open(File.join(dir, "meta.000000000#{i + 1}"), "w", &.write_bytes(2_u32))
+        end
+        File.write(File.join(dir, "msgs.0000000003"), "\x04\x00\x00\x00")
+        store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil)
+        store.size.should eq 2
+        store.purge_all
+        store.@segments.keys.should eq [3u32]
+        store.close
+      end
+    end
+
     it "gives up a segment that couldn't be indexed by a purge with a count" do
       with_datadir do |dir|
         File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)

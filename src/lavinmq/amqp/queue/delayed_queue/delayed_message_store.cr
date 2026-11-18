@@ -132,7 +132,8 @@ module LavinMQ::AMQP
         end
         # An ack of data that can't be decoded doesn't let a load skip it, so
         # its segment is removed
-        @unreadable_entries.each { |entry| drop_segment(entry.segment) }
+        # A copy, #drop_segment removes the entries
+        @unreadable_entries.map(&.segment).each { |seg| drop_segment(seg) }
         @unreadable_entries.clear
         @empty.set true
         count
