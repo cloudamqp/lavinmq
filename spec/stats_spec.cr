@@ -1,5 +1,27 @@
 require "./spec_helper"
 
+# Seeded pseudo-random numbers (xorshift32) for the randomized specs below: the same seed
+# always gives the same cases, so a failure can be replayed. Random.new(seed) doesn't
+# promise that across Crystal versions. u32 is the next number, below(n) one in 0...n
+private class Xorshift
+  def initialize(seed : UInt32)
+    @s = seed.zero? ? 0x9e3779b9_u32 : seed
+  end
+
+  def u32 : UInt32
+    x = @s
+    x ^= x << 13
+    x ^= x >> 17
+    x ^= x << 5
+    @s = x
+    x
+  end
+
+  def below(n : Int32) : Int32
+    (u32 % n.to_u32).to_i
+  end
+end
+
 # A window of *cap* samples with the Deque semantics of the old update_rates: shift until
 # size < cap, then push. An object's first tick is no sample
 private class Oracle(T)
