@@ -692,6 +692,14 @@ describe LavinMQ::HTTP::ParametersController do
       end
     end
 
+    it "should accept keys it doesn't support, of any type" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"ha-mode": "exactly", "ha-params": 2, "ha-sync-batch-size": 5}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+      end
+    end
+
     it "should validate every delayed retry key" do
       with_http_server do |http, s|
         {"\"0\"", "0", "-1"}.each do |value|

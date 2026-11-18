@@ -186,7 +186,8 @@ module LavinMQ
                 bad_request(context, "Policy definition '#{k}' should be an Int of at least 1") unless definition[k].as_i64?.try &.>= 1
               when "delayed-retry-multiplier"
                 bad_request(context, "Policy definition '#{k}' should be an Int between 1 and #{Int32::MAX}") unless definition[k].as_i64?.try { |v| 1 <= v <= Int32::MAX }
-              else
+              when "overflow", "dead-letter-exchange", "dead-letter-routing-key", "federation-upstream",
+                   "federation-upstream-set", "max-age", "alternate-exchange"
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
             end
@@ -244,7 +245,8 @@ module LavinMQ
               case k
               when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              else
+              when "overflow", "dead-letter-exchange", "dead-letter-routing-key", "federation-upstream",
+                   "federation-upstream-set", "max-age", "alternate-exchange"
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
             end
