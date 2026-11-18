@@ -1346,7 +1346,9 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @msg_store_lock.synchronize do
-        @deliveries.delete(sp) if settings.counts_deliveries?
+        # The message may have been counted before its delivery-limit
+        # policy was removed
+        @deliveries.delete(sp) unless @deliveries.empty?
         @msg_store.delete(sp)
       end
     end
@@ -1482,7 +1484,19 @@ module LavinMQ::AMQP
       elsif now_empty
         # Check if fiber needs to restart for message expiration
         ensure_expire_fiber
+        release_idle_memory
       end
+    end
+
+    # Called when nothing is expected to read the queue soon: a consumer's
+    # deliver loop idled out on the empty queue, or the last consumer left.
+    # Not per message: a caught-up consumer empties the queue on every take.
+    def release_idle_memory : Nil
+      @msg_store_lock.synchronize do
+        @msg_store.release_idle_pages unless @closed
+      end
+    rescue ex : IO::Error
+      @log.warn(exception: ex) { "Releasing idle pages failed" }
     end
 
     private def notify_consumers_empty(is_empty)
@@ -1499,10 +1513,10 @@ module LavinMQ::AMQP
         if unacked_count == 0 && max_count >= @msg_store.size
           # If there's no unacked and we're purging all messages, we can purge faster by deleting files
           count = @msg_store.size
-          @msg_store.purge_all
+          @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
           count
         else
-          @msg_store.purge(max_count)
+          @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
         end
       end
       @log.info { "Purged #{delete_count} messages" }

@@ -115,7 +115,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       @repli_client.swap(nil)
     end
     client.try &.close
-    leader_host_changed # connections wait for this node to serve
+    leader_changed # connections wait for this node to serve
   end
 
   # Follows whoever leads until this node is elected in the term of
@@ -129,14 +129,14 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         else
           repli_client.close
           @repli_client.compare_and_set(repli_client, nil)
-          leader_host_changed
+          leader_changed
         end
       end
       if uri.nil? # no leader yet
         Log.warn { "No leader available" }
         next
       end
-      if uri == @advertised_uri # if this instance has become leader
+      if same_node?(uri, @advertised_uri) # if this instance has become leader
         select
         when elected.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
@@ -168,7 +168,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     r = @follow_lock.synchronize do
       next if elected.value || @stopping.get
       client = Clustering::Client.new(@config, @id, secret)
-      client.on_host_change = ->leader_host_changed
+      client.on_leader_change = ->leader_changed
       @repli_client.set(client)
       client
     end

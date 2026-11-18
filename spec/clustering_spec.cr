@@ -68,6 +68,88 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
+describe LavinMQ::Clustering::Controller do
+  describe ".advertised_uri" do
+    it "advertises the client ports the node listens on" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.amqp_port = 5682
+      config.mqtt_port = 1884
+      config.http_port = 15682
+      uri = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config))
+      uri.host.should eq "leader"
+      uri.port.should eq 5679
+      uri.query_params.to_h.should eq({"amqp" => "5682", "mqtt" => "1884", "http" => "15682"})
+    end
+
+    it "advertises TLS ports only when TLS is configured" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.tls_cert_path = "spec/resources/server_certificate.pem"
+      config.amqps_port = 5681
+      config.mqtts_port = 0 # disabled
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params["amqps"].should eq "5681"
+      params["https"].should eq config.https_port.to_s
+      params.has_key?("mqtts").should be_false
+    end
+
+    it "keeps ports given in the configured advertised_uri" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679?amqp=30672"
+      config.amqp_port = 5672
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.fetch_all("amqp").should eq ["30672"]
+      params["http"].should eq config.http_port.to_s
+    end
+
+    it "skips disabled ports" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.mqtt_port = -1
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.has_key?("mqtt").should be_false
+    end
+  end
+end
+
+describe LavinMQ::Clustering::Client do
+  describe "Leader" do
+    it "reads the client ports a leader advertises" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader:5680?amqp=5682&https=15681&foo=1&mqtt=x&http=0"))
+      leader.host.should eq "leader"
+      leader.port.should eq 5680
+      leader.forward_port("amqp", 5672).should eq 5682
+      leader.forward_port("https", 15671).should eq 15681
+      leader.forward_port("mqtt", 1883).should eq 1883   # invalid, the follower's own port
+      leader.forward_port("http", 15672).should eq 15672 # out of range, the follower's own port
+      leader.ports.has_key?("foo").should be_false
+    end
+
+    it "forwards to the follower's own ports for a leader that doesn't advertise them" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader"))
+      leader.port.should eq 5679
+      leader.forward_port("amqp", 5672).should eq 5672
+    end
+  end
+
+  it "stops following a leader that advertises other ports" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      spawn client.follow("tcp://127.0.0.1:1?amqp=5682") # no leader there, keeps retrying
+      # The follow fiber may not have run yet, e.g. on another thread
+      wait_for { client.follows?("tcp://127.0.0.1:1?amqp=5682") }
+      client.follows?("tcp://127.0.0.1:1?amqp=5683").should be_false
+      client.follows?("tcp://127.0.0.1:1").should be_false
+      client.follows?("127.0.0.1", 1).should be_true
+    ensure
+      client.try &.close
+    end
+  end
+end
+
 describe LavinMQ::Clustering::Client, tags: "slow" do
   it "can stream changes" do
     with_clustering do |cluster|
@@ -283,19 +365,19 @@ describe LavinMQ::Clustering::Client, tags: "slow" do
     end
   end
 
-  it "names the leader's host, for forwarding clients, only while connected to it" do
+  it "names the leader, for forwarding clients, only while connected to it" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.instance.dup.tap &.data_dir = data_dir
       repli = LavinMQ::Clustering::Client.new(config, 1, "secret")
-      spawn(name: "follow unreachable spec") { repli.follow("localhost", free_port) }
+      spawn(name: "follow unreachable spec") { repli.follow("tcp://localhost:#{free_port}?amqp=5682") }
       sleep 100.milliseconds # retrying the refused connection
-      repli.host.should be_nil
+      repli.leader.should be_nil
       repli.close
     end
     with_clustering do |cluster|
-      wait_for { cluster.repli.host == "localhost" }
+      wait_for { cluster.repli.leader.try(&.host) == "localhost" }
       cluster.replicator.close
-      wait_for { cluster.repli.host.nil? }
+      wait_for { cluster.repli.leader.nil? }
     end
   end
 

@@ -17,6 +17,11 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
+    # segment_id => position of every 64th message, so an offset lookup needn't scan from the segment start
+    @offset_index = Hash(UInt32, Array(UInt32)).new
+    OFFSET_INDEX_INTERVAL = 64
+    # Segment, position and count of the last lookup, so requeues in delivery order only scan forward
+    @offset_cursor = {0u32, 0u32, 0i64}
 
     def initialize(*args, **kwargs)
       super
@@ -120,18 +125,29 @@ module LavinMQ::AMQP
       mfile = @segments[seg]? || return
       return if mfile == @wfile
       mfile.dontneed
+      @offset_index.delete(seg)
     end
 
+    # Scans from the nearest indexed position or the last lookup before `pos`
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
-      mfile.pos = 4
+      index = @offset_index.put_if_absent(seg) { [4u32] }
+      i = (index.bsearch_index { |p| p > pos } || index.size) - 1
+      count = i.to_i64 * OFFSET_INDEX_INTERVAL
+      mfile.pos = index[i]
+      cursor_seg, cursor_pos, cursor_count = @offset_cursor
+      if cursor_seg == seg && index[i] < cursor_pos && cursor_pos <= pos
+        mfile.pos = cursor_pos
+        count = cursor_count
+      end
       while mfile.pos < pos
         BytesMessage.skip(mfile)
-        offset += 1
+        count += 1
+        index << mfile.pos.to_u32 if count == index.size * OFFSET_INDEX_INTERVAL
       end
-      {offset, seg, pos}
+      @offset_cursor = {seg, pos, count}
+      {@segment_first_offset[seg] + count, seg, pos}
     rescue ex : IndexError # first segment can be empty if message size >= segment size
       return offset_at(seg + 1, 4_u32, true) unless retried
       raise ex
@@ -400,6 +416,8 @@ module LavinMQ::AMQP
         @segment_last_ts.delete(seg_id)
         @segment_first_offset.delete(seg_id)
         @segment_first_ts.delete(seg_id)
+        @offset_index.delete(seg_id)
+        @offset_cursor = {0u32, 0u32, 0i64} if @offset_cursor[0] == seg_id
         @bytesize -= mfile.size - 4
         delete_file(mfile, including_meta: true)
         true

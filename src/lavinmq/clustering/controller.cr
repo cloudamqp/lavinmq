@@ -21,8 +21,8 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   @stopping = Atomic(Bool).new(false)
   # Stops serving as the leader, see #on_demote
   @demote : (Proc(Nil)? ->)? = nil
-  # See #on_leader_host_change, set before #run
-  @leader_host_change : Proc(Nil)? = nil
+  # See #on_leader_change, set before #run
+  @leader_change : Proc(Nil)? = nil
 
   # How long stopping to serve, or a startup that lost leadership, may take
   # before the process exits instead, so a node that isn't the leader anymore
@@ -32,14 +32,37 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # *id*: this node's unique id, for tracking the ISR, e.g. the one in
   # .clustering_id, see .clustering_id
   def initialize(@config : Config, @id : Int32)
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @advertised_uri = Controller.advertised_uri(@config)
   end
 
   abstract def coordinator : Coordinator
 
   def new_replicator : Server?
     Server.new(@config, coordinator, @id)
+  end
+
+  # The URI this node campaigns with, which followers read to find the leader:
+  # its replication address, and in the query the client ports it listens on,
+  # so followers forward to them even when their own ports differ. Ports given
+  # in the configured advertised_uri's query win, for when the leader is reached
+  # through other ports than it binds (NAT, container port mappings).
+  def self.advertised_uri(config : Config) : String
+    uri = URI.parse(config.clustering_advertised_uri ||
+                    "tcp://#{System.hostname}:#{config.clustering_port}")
+    params = uri.query_params
+    tls = config.tls_configured?
+    {
+      "amqp"  => config.amqp_port,
+      "amqps" => tls ? config.amqps_port : 0,
+      "mqtt"  => config.mqtt_port,
+      "mqtts" => tls ? config.mqtts_port : 0,
+      "http"  => config.http_port,
+      "https" => tls ? config.https_port : 0,
+    }.each do |protocol, port|
+      params[protocol] = port.to_s if port > 0 && !params.has_key?(protocol)
+    end
+    uri.query_params = params
+    uri.to_s
   end
 
   # This method is called by the Launcher#run.
@@ -104,6 +127,14 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
     end
   end
 
+  # Two nodes advertising the same replication address are the same node, even
+  # if they advertise different client ports
+  private def same_node?(a : String, b : String) : Bool
+    a = URI.parse(a)
+    b = URI.parse(b)
+    a.hostname == b.hostname && (a.port || 5679) == (b.port || 5679)
+  end
+
   # The id in .clustering_id, generated if there's none
   protected def self.clustering_id(config : Config) : Int32
     stored_clustering_id(config) || begin
@@ -135,17 +166,17 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   end
 
   # The leader it replicates from, which client connections are forwarded to
-  def leader_host : String?
-    @repli_client.get.try &.host
+  def leader : Client::Leader?
+    @repli_client.get.try &.leader
   end
 
-  def on_leader_host_change(&block : ->) : Nil
-    @leader_host_change = block
+  def on_leader_change(&block : ->) : Nil
+    @leader_change = block
   end
 
   # After a change of the replication client, or of its leader host
-  private def leader_host_changed : Nil
-    @leader_host_change.try &.call
+  private def leader_changed : Nil
+    @leader_change.try &.call
   end
 
   # The replication client's while following
