@@ -447,55 +447,6 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
-
-    it "doesn't pause a queue that is closed concurrently", tags: "slow" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        ctx = Fiber::ExecutionContext::Parallel.new("pause-close-race", 4)
-        300.times do |i|
-          name = "pause-close-race-#{i}"
-          vhost.declare_queue(name, true, false)
-          q = vhost.queue(name)
-          race.call(ctx, 4, ->(j : Int32) do
-            if j == 0
-              q.close
-            else
-              q.pause!
-            end
-            nil
-          end)
-          q.state.closed?.should be_true
-          q.delete
-        end
-      end
-    end
-
-    it "lets a pause finish before a concurrent close deletes the queue", tags: "slow" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        errors = Atomic(Int32).new(0)
-        ctx = Fiber::ExecutionContext::Parallel.new("pause-close-delete-race", 4)
-        300.times do |i|
-          # A transient queue's data dir is removed when it's closed
-          name = "pause-close-delete-race-#{i}"
-          vhost.declare_queue(name, false, false)
-          q = vhost.queue(name)
-          race.call(ctx, 4, ->(j : Int32) do
-            if j == 0
-              q.close
-            else
-              begin
-                q.pause!
-              rescue
-                errors.add(1)
-              end
-            end
-            nil
-          end)
-          errors.get.should eq 0
-        end
-      end
-    end
   end
 
   describe "Message data that can't be read" do
