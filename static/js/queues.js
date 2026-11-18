@@ -92,6 +92,16 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
       internal.textContent = 'I'
       internal.title = 'Internal'
       features.appendChild(internal)
+      if (item.primary_queue) {
+        const primaryLink = document.createElement('a')
+        primaryLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.primary_queue}`
+        primaryLink.textContent = 'R'
+        const primary = document.createElement('span')
+        primary.className = 'retry-queue-of'
+        primary.title = `Retry queue of ${item.primary_queue}`
+        primary.appendChild(primaryLink)
+        features.appendChild(primary)
+      }
     } else {
       if (item.durable) {
         const durable = document.createElement('span')
@@ -110,6 +120,13 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
         exclusive.textContent = 'E '
         exclusive.title = 'Exclusive'
         features.appendChild(exclusive)
+      }
+      if (item.delayed_retry) {
+        const retry = document.createElement('span')
+        retry.textContent = 'R '
+        retry.className = 'delayed-retry'
+        retry.title = 'Automatic retries'
+        features.appendChild(retry)
       }
       if (Object.keys(item.arguments).length > 0) {
         const argsTooltip = Object.entries(item.arguments)

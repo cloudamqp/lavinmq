@@ -600,6 +600,8 @@ module LavinMQ::AMQP
           settings.enforce_limits = true
           return true
         end
+      when "delayed-retry-min", "delayed-retry-multiplier", "delayed-retry-max"
+        return apply_delayed_retry_policy(key, value.as_i64)
       when "federation-upstream"
         settings.federation_upstream = value.as_s
         return true
@@ -614,6 +616,29 @@ module LavinMQ::AMQP
         end
       end
       false
+    end
+
+    # A policy only tunes the retries of a queue declared with
+    # x-delayed-retry-min; it never enables or disables them, so the retry
+    # queue is created and deleted with the queue only
+    private def apply_delayed_retry_policy(key : String, value : Int64) : Bool
+      settings = @staged_settings
+      return false unless settings.delayed_retry_min
+      return false if value < 1
+      case key
+      when "delayed-retry-min"
+        return false if settings.delayed_retry_min.try &.< value
+        settings.delayed_retry_min = value
+      when "delayed-retry-multiplier"
+        return false if value > Int32::MAX
+        return false if settings.delayed_retry_multiplier.try &.< value
+        settings.delayed_retry_multiplier = value.to_i32
+      when "delayed-retry-max"
+        return false if settings.delayed_retry_max.try &.< value
+        settings.delayed_retry_max = value
+      end
+      settings.effective_args.delete("x-#{key}")
+      true
     end
 
     private def clear_policy_arguments
@@ -937,6 +962,26 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        delayed_retry:                delayed_retry_details,
+        primary_queue:                primary_queue_name,
+      }
+    end
+
+    def primary_queue_name : String?
+    end
+
+    private def delayed_retry_details
+      settings = self.settings
+      return unless min = settings.delayed_retry_min
+      # Nil when the retry queue couldn't be created, e.g. a name too long
+      retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
+      {
+        min:              min,
+        multiplier:       settings.delayed_retry_multiplier,
+        max:              settings.delayed_retry_max,
+        delivery_limit:   settings.delivery_limit,
+        messages_delayed: retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:      retry_queue.try(&.name),
       }
     end
 
