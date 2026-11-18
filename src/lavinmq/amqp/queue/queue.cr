@@ -1393,7 +1393,8 @@ module LavinMQ::AMQP
               @unacked_count.sub(1, :relaxed)
               @unacked_bytesize.sub(sp.bytesize, :relaxed)
               uncount_delivery(sp) if settings.counts_deliveries?
-              redeliver_message(sp, route_to_retry: false)
+              # A store error mustn't replace this one
+              keep_on_store_error(sp) { redeliver_message(sp, route_to_retry: false) }
               raise ex
             end
             # requeuing of other failed deliveries is up to the consumer
