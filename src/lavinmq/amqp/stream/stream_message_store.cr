@@ -25,16 +25,27 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      # A segment that failed to load closed the store and unmapped its
-      # segments, so they can't be read for the last offset
-      @last_offset = @closed ? 0i64 : get_last_offset
+      # The last offset isn't known if a segment failed to load, and nothing
+      # is dropped from a store that isn't counted
+      @last_offset = load_stopped? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
-      drop_overflow
+      drop_overflow unless failed?
     end
 
-    # A stream with a segment that can't be loaded is closed
-    private def load_failed : Nil
-      close_store
+    # Starts from scratch, after the offsets it had if they are known.
+    # Consumers continue with what is published next.
+    def wipe : UInt32
+      count = super
+      seg = @wfile_id
+      @segment_first_offset.clear
+      @segment_first_ts.clear
+      @segment_last_ts.clear
+      @segment_first_offset[seg] = @last_offset + 1
+      @segment_first_ts[seg] = RoughTime.unix_ms
+      @offset_index.clear
+      @offset_cursor = {0u32, 0u32, 0i64}
+      @segment_readers.clear
+      count
     end
 
     def close : Nil
@@ -65,6 +76,7 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
+      return last_offset_seg_pos if failed? # nothing is read until it's wiped
       if track_offset
         consumer_last_offset = last_offset_by_consumer_tag(tag)
         return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
@@ -252,6 +264,7 @@ module LavinMQ::AMQP
 
     def read(segment : UInt32, position : UInt32) : Envelope?
       return if @closed
+      raise Error.new(@wfile) if failed?
       rfile = @segments[segment]? || return # dropped by retention
       return if position == rfile.size
       begin
@@ -259,13 +272,13 @@ module LavinMQ::AMQP
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        puts "read segment=#{segment} position=#{position}"
-        raise Error.new(rfile, cause: ex)
+        raise read_failed(rfile, ex)
       end
     end
 
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
+      raise Error.new(@wfile) if failed?
 
       if env = shift_requeued(consumer)
         return env
@@ -286,7 +299,7 @@ module LavinMQ::AMQP
         return unless consumer.filter_match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        raise read_failed(rfile, ex)
       end
     end
 
@@ -300,7 +313,7 @@ module LavinMQ::AMQP
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
-            raise Error.new(segment, cause: ex)
+            raise read_failed(segment, ex)
           end
         end
       end
@@ -320,6 +333,8 @@ module LavinMQ::AMQP
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
         fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
+        # Its segment is gone, so it continues from the first offset of this one
+        consumer.offset = @segment_first_offset[seg_id] unless @segments.has_key?(consumer.segment)
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
@@ -362,15 +377,17 @@ module LavinMQ::AMQP
       io.write_bytes @segment_last_ts[seg]
     end
 
+    # Nothing is dropped from a store with data it can't read: its segments
+    # aren't counted
     def drop_overflow
-      return if @closed
+      return if @closed || failed?
       drop_overflow_by_length
       drop_overflow_by_age
       cleanup_consumer_offsets
     end
 
     def drop_expired : Nil
-      return if @closed
+      return if @closed || failed?
       cleanup_consumer_offsets if drop_overflow_by_age
     end
 

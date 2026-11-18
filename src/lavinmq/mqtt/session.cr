@@ -52,6 +52,8 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
+      # False while the store has data it can't read, until it's purged
+      @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
@@ -113,6 +115,7 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
+        @store_readable.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -149,6 +152,10 @@ module LavinMQ
             client.flush
             next @has_capacity.when_true.receive?
           end
+          unless @store_readable.value
+            client.flush
+            next @store_readable.when_true.receive?
+          end
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet, flush: false)
             delivered_bytes &+= bytesize
@@ -159,12 +166,27 @@ module LavinMQ
             Fiber.yield
           end
         rescue ex
+          # The client stays connected: it would only reconnect to the same data
+          next if ex.is_a?(MessageStore::Error) && stop_deliveries(ex)
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           if client
             client.close("Server force closed client")
             detach(client)
           end
         end
+      end
+
+      # Nothing is delivered from a store with data it can't read, until a
+      # purge has removed all of it. Returns false if the store can be read.
+      # Decided under the lock a purge holds, so that it isn't undone.
+      private def stop_deliveries(ex : Exception) : Bool
+        stopped = @msg_store_lock.synchronize do
+          next false if closed? || !@msg_store.failed?
+          @store_readable.set(false)
+          true
+        end
+        @log.error(exception: ex) { "Message data can't be read, nothing is delivered until the session is purged" } if stopped
+        stopped
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -390,9 +412,16 @@ module LavinMQ
         end
         false
       rescue ex : MessageStore::Error
+        raise store_error(ex)
+      end
+
+      # A store with data it can't read stops the deliveries until a purge, see
+      # #deliver_loop. Another store error closes the session.
+      private def store_error(ex : MessageStore::Error) : Exception
+        return ex if @msg_store.failed?
         @log.error(ex) { "Queue closed due to error" }
         close
-        raise ClosedError.new(cause: ex)
+        ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -471,6 +500,7 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        return if @msg_store.failed? # nothing can be read, until a purge
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -514,7 +544,12 @@ module LavinMQ
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
-        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        count = @msg_store_lock.synchronize do
+          # All of it goes if it has data that can't be read
+          next @msg_store.purge(max_count) unless @msg_store.failed?
+          # What the client has in flight stays booked, its acks are ignored
+          @msg_store.wipe.tap { @store_readable.set(true) unless closed? }
+        end
         @log.info { "Purged #{count} messages" }
         count
       end

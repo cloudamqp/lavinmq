@@ -25,9 +25,8 @@ module LavinMQ
         forget_packet_id(sp)
       end
 
-      # A session with a segment that can't be loaded is closed
-      private def load_failed : Nil
-        close_store
+      def wipe : UInt32
+        super.tap { @packet_ids.clear }
       end
     end
   end
