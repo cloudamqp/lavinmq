@@ -66,7 +66,7 @@ module LavinMQ
       end
       setup_sni_callbacks
       setup_signal_traps
-      SystemD::MemoryPressure.monitor { GC.collect }
+      GCPauseRecorder.install
     end
 
     private def start : self
@@ -130,6 +130,9 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       Log.info { "Parallelism: #{Fiber::ExecutionContext.default.capacity}" }
+      {% if flag?(:patched_libgc) %}
+        Log.info { "libgc #{GC::LIBGC_VERSION}, mark stack growth: #{LibGC.get_grow_mark_stack == 1 ? "on" : "off"}" }
+      {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
       Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
@@ -452,42 +455,24 @@ module LavinMQ
     end
 
     private def setup_sni_callbacks
-      # Set up SNI callback for AMQP TLS context
-      if amqp_tls = @amqp_tls_context
-        amqp_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
-            sni_host.amqp_tls_context
-          else
-            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
+      setup_sni_callbacks_for(@amqp_tls_context, :amqp, "AMQP")
+      setup_sni_callbacks_for(@mqtt_tls_context, :mqtt, "MQTT")
+      setup_sni_callbacks_for(@http_tls_context, :http, "HTTP")
+    end
 
-      # Set up SNI callback for MQTT TLS context
-      if mqtt_tls = @mqtt_tls_context
-        mqtt_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
-            sni_host.mqtt_tls_context
-          else
-            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
-      end
-
-      # Set up SNI callback for HTTP TLS context
-      if http_tls = @http_tls_context
-        http_tls.on_server_name do |hostname|
-          if sni_host = @config.sni_manager.get_host(hostname)
-            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
-            sni_host.http_tls_context
-          else
-            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
+    # The servername callback swaps in the SNI host's context, which carries
+    # the certificate and mTLS settings. The TLS version comes from the
+    # listener, and the listener's cipher settings are set when Config builds
+    # the SNI contexts, so the listener's TLS settings apply to every SNI host.
+    private def setup_sni_callbacks_for(ctx : OpenSSL::SSL::Context::Server?, protocol : Symbol, label : String) : Nil
+      return unless ctx
+      ctx.on_server_name do |hostname|
+        if sni_host = @config.sni_manager.get_host(hostname)
+          Log.debug { "SNI (#{label}): Using certificate for hostname '#{hostname}'" }
+          sni_host.tls_context(protocol)
+        else
+          Log.debug { "SNI (#{label}): No specific certificate for '#{hostname}', using default" }
+          nil
         end
       end
     end

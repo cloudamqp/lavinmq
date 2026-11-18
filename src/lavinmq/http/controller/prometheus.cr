@@ -4,18 +4,61 @@ require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
 require "../../../stdlib/io_buffered"
+require "../../gc_pause"
 
 module LavinMQ
   module HTTP
+    # Formats into a buffer, whose writes are direct calls, and hands the
+    # output full buffers: the output is typed `IO`, so every write through it
+    # is a type switch, paid once per buffer instead of once per token.
     class PrometheusWriter
+      BUFFER_SIZE = 32 * 1024
+
+      private class Buffer < IO
+        def initialize(@output : IO)
+          @buffer = Bytes.new(BUFFER_SIZE)
+          @pos = 0
+        end
+
+        def read(slice : Bytes) : NoReturn
+          raise IO::Error.new("Write-only")
+        end
+
+        def write(slice : Bytes) : Nil
+          if slice.size > @buffer.size - @pos
+            flush
+            return @output.write(slice) if slice.size > @buffer.size
+          end
+          slice.copy_to(@buffer.to_unsafe + @pos, slice.size)
+          @pos += slice.size
+        end
+
+        def write_string(slice : Bytes) : Nil
+          write(slice)
+        end
+
+        def write_byte(byte : UInt8) : Nil
+          flush if @pos == @buffer.size
+          @buffer.to_unsafe[@pos] = byte
+          @pos += 1
+        end
+
+        def flush : Nil
+          @output.write(@buffer[0, @pos]) if @pos > 0
+          @pos = 0
+        end
+      end
+
       alias MetricValue = UInt16 | Int32 | UInt32 | UInt64 | Int64 | Float64
       alias MetricLabels = Hash(String, String) |
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(le: String) |
                            NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(dead_letter_strategy: String) |
+                           NamedTuple(qos: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
                            NamedTuple(channel: String, vhost: String, connection: String)
@@ -26,9 +69,23 @@ module LavinMQ
                      NamedTuple(name: String, value: MetricValue, help: String, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, type: String, help: String, labels: MetricLabels)
 
-      getter prefix
+      property prefix : String
 
-      def initialize(@io : IO, @prefix : String)
+      private def initialize(output : IO, @prefix : String)
+        @io = Buffer.new(output)
+      end
+
+      def self.open(output : IO, prefix : String, & : PrometheusWriter ->) : Nil
+        writer = new(output, prefix)
+        begin
+          yield writer
+        ensure
+          writer.flush
+        end
+      end
+
+      def flush : Nil
+        @io.flush
       end
 
       private def write_labels(io, labels)
@@ -93,24 +150,26 @@ module LavinMQ
     end
 
     module Prometheus
-      def report(io, &)
-        mem = 0
-        elapsed = Time.measure do
-          mem = Benchmark.memory do
-            yield
-          rescue ex
-            Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+      def report(output : IO, prefix : String, & : PrometheusWriter ->)
+        PrometheusWriter.open(output, prefix) do |writer|
+          mem = 0
+          elapsed = Time.measure do
+            mem = Benchmark.memory do
+              yield writer
+            rescue ex
+              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+            end
           end
+          writer.prefix = "telemetry"
+          writer.write({name:  "scrape_duration_seconds",
+                        type:  "gauge",
+                        value: elapsed.total_seconds,
+                        help:  "Duration for metrics collection in seconds"})
+          writer.write({name:  "scrape_mem",
+                        type:  "gauge",
+                        value: mem,
+                        help:  "Memory used for metrics collections in bytes"})
         end
-        writer = PrometheusWriter.new(io, "telemetry")
-        writer.write({name:  "scrape_duration_seconds",
-                      type:  "gauge",
-                      value: elapsed.total_seconds,
-                      help:  "Duration for metrics collection in seconds"})
-        writer.write({name:  "scrape_mem",
-                      type:  "gauge",
-                      value: mem,
-                      help:  "Memory used for metrics collections in bytes"})
       end
 
       def gc_metrics(writer)
@@ -163,6 +222,19 @@ module LavinMQ
         writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
                       type: "counter",
                       help: "Total amount of memory obtained from OS, in bytes"})
+
+        gc_pause_metrics(writer)
+      end
+
+      private def gc_pause_metrics(writer)
+        writer.write_header("gc_pause_seconds", "histogram", "Stop-the-world GC pause durations in seconds")
+        count = 0_u64
+        LavinMQ::GCPauseRecorder.each_bucket do |le, cumulative|
+          writer.write_value("gc_pause_seconds_bucket", cumulative, {le: le.nil? ? "+Inf" : le.to_s})
+          count = cumulative
+        end
+        writer.write({name: "gc_pause_seconds_sum", value: LavinMQ::GCPauseRecorder.sum})
+        writer.write({name: "gc_pause_seconds_count", value: count})
       end
     end
 
@@ -186,8 +258,7 @@ module LavinMQ
             raise Controller::HaltRequest.new(reason)
           end
 
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             gc_metrics(writer)
             cluster_metrics(writer)
           end
@@ -198,7 +269,7 @@ module LavinMQ
         # scrape telemetry so Prometheus doesn't mark `/metrics/detailed` targets as failed.
         get "/metrics/detailed" do |context, _|
           context.response.content_type = "text/plain"
-          report(context.response) { }
+          report(context.response.output, "lavinmq") { }
           context
         end
       end
@@ -239,8 +310,7 @@ module LavinMQ
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           vhosts = target_vhosts(context)
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
@@ -257,8 +327,7 @@ module LavinMQ
           bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           families = context.request.query_params.fetch_all("family")
           vhosts = target_vhosts(context)
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
+          report(context.response.output, prefix) do |writer|
             families.each do |family|
               case family
               when "connection_churn_metrics"
@@ -372,6 +441,20 @@ module LavinMQ
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
         dead_lettered_metrics(writer, deleted_stats)
+        mqtt_published_metrics(writer, deleted_stats)
+      end
+
+      # Written from the first MQTT connection on, zeros included, so rate() sees each counter start
+      private def mqtt_published_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        return unless vhosts.mqtt_client_connected?
+        writer.write_header("global_mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
+        {% for qos in {0, 1, 2} %}
+          writer.write_value("global_mqtt_messages_published_total",
+            deleted_stats.mqtt_published_qos{{ qos }} +
+            vhosts.sum { |_, v| v.mqtt_published_qos{{ qos }}_count },
+            {qos: "{{ qos }}"})
+        {% end %}
       end
 
       DEAD_LETTER_REASONS = {
@@ -396,12 +479,14 @@ module LavinMQ
 
       private def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
+        mqtt_connections = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections_size
           vhost.each_connection do |conn|
+            mqtt_connections += 1 if conn.is_a?(MQTT::Client)
             channels += conn.channel_count
             conn.each_channel do |ch|
               consumers += ch.consumers_size
@@ -414,6 +499,12 @@ module LavinMQ
                       value: connections,
                       type:  "gauge",
                       help:  "Connections currently open"})
+        if @server.vhosts.mqtt_client_connected?
+          writer.write({name:  "mqtt_connections",
+                        value: mqtt_connections,
+                        type:  "gauge",
+                        help:  "MQTT connections currently open"})
+        end
         writer.write({name:  "channels",
                       value: channels,
                       type:  "gauge",

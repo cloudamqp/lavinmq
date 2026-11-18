@@ -1,4 +1,3 @@
-require "../filesystem"
 require "digest/sha1"
 require "./protocol"
 require "../mqtt"
@@ -41,6 +40,7 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      @client_lock = Mutex.new
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
@@ -69,7 +69,11 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        FileSystem.mkdir_p(data_dir)
+        created = durable? && !Dir.exists?(data_dir)
+        Dir.mkdir_p(data_dir)
+        # Like a queue's, the directory's entry is fsynced with the next
+        # confirm, see Queue#make_data_dir
+        @vhost.persister.mark_dirty(@vhost.data_dir) if created
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         @metadata_file = File.join(data_dir, ".metadata")
@@ -135,22 +139,31 @@ module LavinMQ
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
           client = @client
+          if @msg_store.empty?
+            client.try &.flush
+            next @msg_store.empty.when_false.receive?
+          end
           next @has_client.when_true.receive? if client.nil?
-          next @has_capacity.when_true.receive? unless @has_capacity.value
+          unless @has_capacity.value
+            client.flush
+            next @has_capacity.when_true.receive?
+          end
           get_packet do |pub_packet, bytesize|
-            client.send(pub_packet)
+            client.send(pub_packet, flush: false)
             delivered_bytes &+= bytesize
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
+            client.flush
             Fiber.yield
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          if client
+            client.close("Server force closed client")
+            detach(client)
+          end
         end
       end
 
@@ -180,6 +193,17 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
+        @client_lock.synchronize { attach(client) }
+      end
+
+      # Detaches *client*, unless another connection has replaced it
+      def detach(client : MQTT::Client) : Nil
+        @client_lock.synchronize do
+          attach(nil) if @client.same?(client)
+        end
+      end
+
+      private def attach(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
 
@@ -225,13 +249,21 @@ module LavinMQ
         nil
       end
 
-      # Written to a temporary file and renamed into place, so a crash
-      # mid-write leaves the previous file rather than a truncated one.
+      # Written to a temporary file and renamed into place, so it's never read
+      # half written. A crash before the next confirm can lose it, which leaves
+      # the user unknown until a client connects, as with an unreadable file.
       private def write_metadata_file(username : String?) : Nil
-        FileSystem.replace(@metadata_file) do |f|
-          {name: @name, client_id: @client_id, username: username}.to_json(f)
+        tmp = "#{@metadata_file}.tmp"
+        begin
+          File.write(tmp, {name: @name, client_id: @client_id, username: username}.to_json)
+          File.rename(tmp, @metadata_file)
+        ensure
+          File.delete?(tmp)
         end
+        return unless durable?
         @replicator.try &.replace_file(@metadata_file)
+        @vhost.persister.mark_dirty(@metadata_file)
+        @vhost.persister.mark_dirty(File.dirname(@metadata_file))
       end
 
       # A concurrent API deletion can make the bind fail.
@@ -265,6 +297,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
+          # Again under the lock: the fiber that held it can close the session
+          # before this one runs, and raising here would fail the whole fan-out
+          return false if closed?
           @msg_store.push(msg)
           drop_overflow
         end
@@ -308,6 +343,7 @@ module LavinMQ
               end
               delete_message(sp)
             else
+              booked = false
               begin
                 id = delivery_id(sp)
                 unless id
@@ -320,6 +356,11 @@ module LavinMQ
                   return false
                 end
                 packet = build_packet(env, id)
+                # Booked before the send, which yields: the client can ack
+                # before it returns, and an ack that finds no entry closes the
+                # connection.
+                @unacked[id] = sp
+                booked = true
                 @unacked_count.add(1, :relaxed)
                 @unacked_bytesize.add(sp.bytesize, :relaxed)
                 yield packet, sp.bytesize
@@ -329,13 +370,18 @@ module LavinMQ
                   @deliver_count.add(1, :relaxed)
                   @deliver_get_count.add(1, :relaxed)
                 end
-                @unacked[id] = sp
                 @msg_store.forget_packet_id(sp)
                 refresh_capacity
               rescue ex # requeue failed delivery
-                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                @unacked_count.sub(1, :relaxed)
-                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                # Nothing to unbook if the client already acked it: the message
+                # is deleted and the counters are settled.
+                if !booked
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                elsif @unacked.delete(id)
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  @unacked_count.sub(1, :relaxed)
+                  @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                end
                 raise ex
               end
             end

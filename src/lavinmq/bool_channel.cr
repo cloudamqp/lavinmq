@@ -40,6 +40,8 @@ class BoolChannel
   # Makes updating the value and switching the active channel one step, so
   # concurrent sets can't leave them disagreeing
   @lock = Mutex.new
+  # Turn channels of the fibers in #wait_until, first in line first
+  @line = Deque(::Channel(Nil)).new
 
   def initialize(value : Bool)
     @value = Atomic.new(value)
@@ -78,8 +80,53 @@ class BoolChannel
       @when_true.deactivate
       @when_false.activate
     end
+    wake_first_in_line
   end
 
+  # Blocks until the value is *target* and this fiber is first in line. Only
+  # the first is woken, and it wakes the next as it leaves. All waiters on
+  # one BoolChannel must wait for the same value, or one can block the line.
+  # Returns false when aborted or after *timeout* without a turn.
+  def wait_until(target : Bool, turn : ::Channel(Nil), abort : ::Channel,
+                 timeout : Time::Span? = nil, & : ->) : Bool
+    @lock.synchronize { @line.push turn }
+    loop do
+      return true if @lock.synchronize { value == target && @line.first? == turn }
+      yield
+      if timeout
+        select
+        when turn.receive
+        when abort.receive?
+          return false
+        when timeout(timeout)
+          return false
+        end
+      else
+        select
+        when turn.receive
+        when abort.receive?
+          return false
+        end
+      end
+    end
+  ensure
+    @lock.synchronize do
+      @line.first? == turn ? @line.shift : @line.delete(turn)
+      wake_first_in_line if value == target
+    end
+  end
+
+  private def wake_first_in_line : Nil
+    if turn = @line.first?
+      select
+      when turn.send(nil)
+      else
+      end
+    end
+  end
+
+  # Doesn't release fibers in #wait_until, they leave through their
+  # abort channel
   def close
     @when_true.close
     @when_false.close

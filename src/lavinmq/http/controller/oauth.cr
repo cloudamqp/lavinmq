@@ -73,7 +73,7 @@ module LavinMQ
 
       private def handle_enabled(context) : ::HTTP::Server::Context
         context.response.content_type = "application/json"
-        {enabled: Config.instance.oauth_mgmt_ui_enabled? && !oauth_authenticator.nil?}.to_json(context.response)
+        {enabled: Config.instance.oauth_mgmt_ui_enabled? && !oauth_authenticator.nil?}.to_json(context.response.output)
         context
       end
 
@@ -105,7 +105,7 @@ module LavinMQ
         end
 
         context.response.content_type = "application/json"
-        {authorize_url: "#{auth_ep}?#{params}"}.to_json(context.response)
+        {authorize_url: "#{auth_ep}?#{params}"}.to_json(context.response.output)
         context
       rescue OAuthError
         context
@@ -113,7 +113,7 @@ module LavinMQ
         Log.error(exception: ex) { "OAuth authorize failed (#{ex.class})" }
         context.response.status_code = 502
         context.response.content_type = "application/json"
-        {reason: "OAuth authorization failed"}.to_json(context.response)
+        {reason: "OAuth authorization failed"}.to_json(context.response.output)
         context
       end
 
@@ -210,7 +210,7 @@ module LavinMQ
       private def oauth_error(context, status_code, message) : NoReturn
         context.response.status_code = status_code
         context.response.content_type = "application/json"
-        {reason: message}.to_json(context.response)
+        {reason: message}.to_json(context.response.output)
         raise OAuthError.new
       end
 

@@ -4,11 +4,13 @@ require "option_parser"
 require "ini"
 require "./version"
 require "./log_formatter"
+require "./log_backend"
 require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
 require "./config/oauth_provider_config"
+require "./filesystem"
 
 module LavinMQ
   class Config
@@ -21,18 +23,23 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    # The command line arguments given to #parse, replayed by #reload
+    @argv = Array(String).new
+    @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize(@io : IO = STDERR)
+    # Protected rather than private so #reload can build a fresh config
+    protected def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      @argv = argv.dup
       parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
@@ -120,6 +127,28 @@ module LavinMQ
       if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
         raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
       end
+      unless @clustering_etcd_lease_ttl.positive?
+        raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
+      end
+      validate_sni_tls!
+    end
+
+    # Builds every SNI host's TLS contexts, so an unreadable certificate or
+    # key fails startup with a clear error, and is refused on reload with the
+    # running configuration kept, instead of failing that host's handshakes
+    # later. This is the only place that builds them, so the servername
+    # callback always reads contexts that carry the listener's ciphers.
+    # Without a TLS listener no SNI host is used, so a bad one only warns.
+    private def validate_sni_tls!
+      @sni_manager.hosts.each_value { |host| validate_sni_host!(host) }
+      @sni_manager.wildcard_hosts.each_value { |host| validate_sni_host!(host) }
+    end
+
+    private def validate_sni_host!(host : SNIHost) : Nil
+      host.build_tls_contexts(@tls_ciphers, @tls_ciphersuites)
+    rescue ex
+      raise Error.new("Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}") if tls_configured?
+      @io.puts "WARNING: Invalid TLS settings for SNI host '#{host.hostname}': #{ex.message}"
     end
 
     private def parse_config_from_cli(argv)
@@ -244,45 +273,36 @@ module LavinMQ
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"                  then host.tls_cert = v
-        when "tls_key"                   then host.tls_key = v
-        when "tls_min_version"           then host.tls_min_version = v
-        when "tls_ciphers"               then host.tls_ciphers = v
-        when "tls_ciphersuites"          then host.tls_ciphersuites = v
-        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
-        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"               then host.tls_ca_cert = v
-        when "tls_keylog_file"           then host.tls_keylog_file = v
+        when "tls_cert"        then host.tls_cert = v
+        when "tls_key"         then host.tls_key = v
+        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"     then host.tls_ca_cert = v
+        when "tls_keylog_file" then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
-        when "amqp_tls_key"                   then host.amqp_tls_key = v
-        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
-        when "amqp_tls_ciphersuites"          then host.amqp_tls_ciphersuites = v
-        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
-        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"        then host.amqp_tls_cert = v
+        when "amqp_tls_key"         then host.amqp_tls_key = v
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_ciphersuites"          then host.mqtt_tls_ciphersuites = v
-        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
-        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"         then host.mqtt_tls_key = v
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"                  then host.http_tls_cert = v
-        when "http_tls_key"                   then host.http_tls_key = v
-        when "http_tls_min_version"           then host.http_tls_min_version = v
-        when "http_tls_ciphers"               then host.http_tls_ciphers = v
-        when "http_tls_ciphersuites"          then host.http_tls_ciphersuites = v
-        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
-        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
+        when "http_tls_cert"        then host.http_tls_cert = v
+        when "http_tls_key"         then host.http_tls_key = v
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
+             .ends_with?("tls_ciphersuites"), .ends_with?("tls_prefer_server_ciphers")
+          # Removed in 2.11: a per-host tls_min_version never took effect,
+          # but TLS 1.2 picks its cipher from the swapped-in context, so
+          # per-host cipher settings did apply to TLS 1.2 until 2.10.x
+          @io.puts "WARNING: 'sni:#{hostname}/#{config}' is not supported, " \
+                   "the listener's TLS version and cipher settings apply to all SNI hosts"
         else
           @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
@@ -377,17 +397,51 @@ module LavinMQ
       @mqtt_bind = value
     end
 
-    # Re-read the config file into a fresh copy and swap it in only if parsing
-    # and validation fully succeed. On failure the running config is untouched
-    # and it raises, so the SIGHUP handler can log and keep serving.
+    # Rebuild the config the way #parse built it, starting from the defaults,
+    # and swap it in only if parsing and validation fully succeed. A setting
+    # removed from the config file therefore goes back to its default, and
+    # environment variables and command line arguments still take precedence
+    # over the file. Values set in code after #parse are not kept. On failure
+    # the running config is untouched and it raises, so the SIGHUP handler can
+    # log and keep serving.
     def reload
-      new_config = dup
-      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
-      new_config.parse_ini(@config_file)
-      new_config.validate!
-      new_config.try_to_open_log_file
+      new_config = Config.new(@io)
+      new_config.parse_for_reload(@config_file, @argv)
+      sync_was = sync?
+      # The fresh config has no log backend; keep the running one so
+      # setup_logger can close it
+      log_backend = @log_backend
       apply(new_config)
+      @log_backend = log_backend
       setup_logger
+      sync_data_dir_after_enabled if sync? && !sync_was
+    end
+
+    # What was written while sync was disabled is in the page cache only, and
+    # the syncs that follow cover only newer writes, so the data dir is synced
+    # once. It can take seconds under load, and until it's done a follower can
+    # ack that older data as durable.
+    private def sync_data_dir_after_enabled : Nil
+      sync_data_dir
+      Log.info { "Synced the data dir after sync was enabled" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
+    end
+
+    private def sync_data_dir : Nil
+      File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
+    end
+
+    # The config file path is passed in, as #parse may have found it in the
+    # configuration directory rather than in the command line arguments
+    protected def parse_for_reload(config_file : String, argv : Array(String)) : Nil
+      @config_file = config_file
+      @argv = argv
+      parse_ini(config_file)
+      parse_env
+      parse_cli(argv)
+      validate!
+      try_to_open_log_file
     end
 
     # Try to open and immediately close the configured log file so an unopenable
@@ -400,10 +454,6 @@ module LavinMQ
       raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
     end
 
-    protected def fresh_sni_manager
-      @sni_manager = SNIManager.new
-    end
-
     # Copy every instance variable from the parsed config in one non-yielding
     # loop, so no fiber sees a half-applied state. @@instance is a class
     # variable and is untouched, keeping `Config.instance` references valid.
@@ -414,13 +464,14 @@ module LavinMQ
     end
 
     private def setup_logger
-      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if journald_stream?
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+      backend = if path = @log_file
+                  LogBackend.new(path, formatter: StdoutLogFormat)
+                elsif journald_stream?
+                  LogBackend.new(formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  LogBackend.new(formatter: StdoutLogFormat)
                 end
+      broadcast_backend = ::Log::BroadcastBackend.new
 
       broadcast_backend.append(backend, @log_level)
 
@@ -435,6 +486,9 @@ module LavinMQ
       # federation/shovel layers (lmq.*), so keep the library's redundant
       # connection log out of the broker log.
       ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
+      # Closed once the new backend is bound so no entry in flight is lost
+      @log_backend.try &.close
+      @log_backend = backend
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
@@ -460,6 +514,24 @@ module LavinMQ
 
     def tls_configured?
       !@tls_cert_path.empty?
+    end
+
+    # Whether a PROXY header from *address* is trusted. With no trusted sources
+    # configured all sources are trusted, for backward compatibility
+    def trusted_proxy_source?(address : String) : Bool
+      sources = proxy_protocol_trusted_sources # read once, it can be replaced by a reload
+      return true if sources.empty?
+      sources.any?(&.matches?(address))
+    end
+
+    # The configured TCP keepalive, if any, on a connection
+    def apply_tcp_keepalive(socket : TCPSocket) : Nil
+      if keepalive = tcp_keepalive
+        socket.keepalive = true
+        socket.tcp_keepalive_idle = keepalive[0]
+        socket.tcp_keepalive_interval = keepalive[1]
+        socket.tcp_keepalive_count = keepalive[2]
+      end
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?

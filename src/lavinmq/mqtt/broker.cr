@@ -105,12 +105,15 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish, ctx : PublishContext) : Nil
+      # Returns false, without storing or routing the packet, during a disk alarm
+      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
         if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
           raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
         end
+        return false unless @vhost.flow?
         @retain_store.retain(packet) if packet.retain?
         @exchange.publish(packet, ctx)
+        true
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
