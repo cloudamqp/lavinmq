@@ -665,7 +665,7 @@ class LavinMQCtl
     output(status_obj)
   end
 
-  @[Cmd("Display cluster status", "", section: "Server")]
+  @[Cmd("Display cluster status", "", section: "Cluster")]
   private def cluster_status
     # The raft backend has members, leader and replication progress to show.
     # Without it the answer is 400, or 404 without clustering or from a

@@ -313,7 +313,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # back to following whoever leads next.
   private def follow_leader_changes
     loop do
-      if follow(leadership) == :elected
+      if follow(leadership).elected?
         select
         when serving.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }
@@ -337,18 +337,27 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @node.serving
   end
 
-  private def follow(leadership : Raft::Node::Leadership) : Symbol?
+  # What #follow found the leadership to be
+  private enum Followed
+    # Another node leads, and this one replicates from it
+    Leader
+    NoLeader
+    # This node leads, so there's nobody to follow
+    Elected
+  end
+
+  private def follow(leadership : Raft::Node::Leadership) : Followed
     uri = leadership.uri
     if repli_client = @repli_client.get # is currently following a leader
-      return if repli_client.follows? uri
+      return Followed::Leader if repli_client.follows? uri
       stop_following
     end
     if uri.nil?
       Log.warn { "No leader available" }
-      return
+      return Followed::NoLeader
     end
     if same_node?(uri, @advertised_uri)
-      return :elected if leadership.leader
+      return Followed::Elected if leadership.leader
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
@@ -358,7 +367,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @repli_client.set(r)
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
-    nil
+    Followed::Leader
   end
 
   private def stop_following : Nil
