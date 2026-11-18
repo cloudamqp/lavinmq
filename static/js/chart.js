@@ -237,7 +237,20 @@ function xAxisValues (u, vals) {
 
 function initChart (handle) {
   const { el, config, seriesKeys, data } = handle
-  const width = el.clientWidth || 400
+  // The plot gets its own element so the legend can sit beside it (see
+  // .chart-legend-right) and the plot is sized from its own width.
+  const plotEl = document.createElement('div')
+  plotEl.classList.add('graph-plot')
+  el.append(plotEl)
+  handle.plotEl = plotEl
+  // The legend goes in before the plot is measured, so a legend beside the
+  // plot has already taken its width.
+  buildLegend(handle)
+  for (let i = 1; i <= seriesKeys.length; i++) {
+    addLegendItem(handle, i, seriesColor(i))
+  }
+  el.append(handle.legendEl)
+  const width = plotEl.clientWidth || 400
   const height = chartHeight(width)
 
   const series = [{}]
@@ -297,22 +310,16 @@ function initChart (handle) {
     }
   }
 
-  buildLegend(handle)
-  for (let i = 1; i <= seriesKeys.length; i++) {
-    addLegendItem(handle, i, seriesColor(i))
-  }
-
-  handle.uplot = new UPlot(opts, data, el)
-  el.append(handle.legendEl)
-  // uPlot's first legend update ran before the legend was in the page,
-  // too early to measure the value column.
+  handle.uplot = new UPlot(opts, data, plotEl)
+  // uPlot's first legend update ran before the plot existed, too early to
+  // measure the value column.
   updateLegend(handle, null)
   alignLegend(handle)
   initChartObservers(handle)
 }
 
 function initChartObservers (handle) {
-  const el = handle.el
+  const el = handle.plotEl
   let lastWidth = el.clientWidth
   const ro = new ResizeObserver(() => {
     const newWidth = el.clientWidth

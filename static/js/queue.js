@@ -79,7 +79,11 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
 })
 
 function handleQueueState (state) {
-  document.getElementById('q-state').textContent = state
+  const stateEl = document.getElementById('q-state')
+  const badge = document.createElement('span')
+  badge.className = `state-badge state-badge-${state}`
+  badge.textContent = state.charAt(0).toUpperCase() + state.slice(1)
+  stateEl.replaceChildren(badge)
   switch (state) {
     case 'paused':
       restartQueueForm.classList.add('hide')
