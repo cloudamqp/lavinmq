@@ -481,7 +481,7 @@ describe LavinMQ::Clustering::RaftController do
     with_controllers(size: 1) do |cluster|
       controller = cluster.controllers.first
       changed = Atomic(Bool).new(false)
-      controller.on_leader_host_change { changed.set(true) }
+      controller.on_leader_change { changed.set(true) }
       told = Channel(Bool).new(1)
       cluster.start(controller, -> { told.send changed.get })
       cluster.next_leader

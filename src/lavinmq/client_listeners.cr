@@ -6,6 +6,7 @@ require "./amqp/server"
 require "./mqtt/server"
 require "./http/http_server"
 require "./bool_channel"
+require "./clustering/client"
 
 module LavinMQ
   # The client ports (AMQP, MQTT and HTTP, with TLS and on unix sockets),
@@ -25,12 +26,18 @@ module LavinMQ
       HTTP
     end
 
-    # *target_port* is where it's forwarded to on the leader, nil when there
-    # is no such port (a unix socket without the plain TCP port). With
+    # It's forwarded to the leader's port for *target_protocol* ("amqp",
+    # "amqps" etc, see Clustering::Client::Leader), or to *target_port*, this
+    # node's own port for it, if the leader doesn't advertise it. Nil when
+    # there is no such port (a unix socket without the plain TCP port). With
     # *tls_passthrough* TLS is forwarded unterminated, to the leader's TLS
     # port, as there's no plain one to forward the plaintext to.
     private record Listener, kind : Kind, server : Socket::Server, address : String,
-      tls : OpenSSL::SSL::Context::Server?, target_port : Int32?, tls_passthrough : Bool = false
+      tls : OpenSSL::SSL::Context::Server?, target_port : Int32?, tls_passthrough : Bool = false do
+      def target_protocol : String
+        tls_passthrough ? "#{kind.to_s.downcase}s" : kind.to_s.downcase
+      end
+    end
 
     # Where connections go while this node serves
     record Brokers, amqp : AMQP::Server, mqtt : MQTT::Server, http : HTTP::Server
@@ -48,9 +55,9 @@ module LavinMQ
     # to see that.
     @accepting = BoolChannel.new(false)
 
-    # *leader_host* is where connections are forwarded while not serving, see
-    # Runner#leader_host
-    def initialize(@config : Config, @leader_host : Proc(String?))
+    # *leader* is where connections are forwarded while not serving, see
+    # Runner#leader
+    def initialize(@config : Config, @leader : Proc(Clustering::Client::Leader?))
     end
 
     # Raises Socket::BindError if a port is in use
@@ -98,7 +105,7 @@ module LavinMQ
     end
 
     # Starts accepting, while this node serves or knows the leader, see
-    # #leader_host_changed. #serve also starts it.
+    # #leader_changed. #serve also starts it.
     def listen : Nil
       return if @listening.swap(true)
       destination
@@ -139,21 +146,21 @@ module LavinMQ
       forwarded.each { |io| io.close rescue nil }
     end
 
-    # Called after what *leader_host* returns may have changed, see
-    # Runner#on_leader_host_change
-    def leader_host_changed : Nil
+    # Called after what *leader* returns may have changed, see
+    # Runner#on_leader_change
+    def leader_changed : Nil
       destination
     end
 
     # Where what's accepted goes now, nil when nowhere. Opens or shuts
     # @accepting in the same step, so that a change notified meanwhile isn't
     # lost.
-    private def destination : (Brokers | String)?
+    private def destination : (Brokers | Clustering::Client::Leader)?
       @lock.synchronize { destination_locked }
     end
 
-    private def destination_locked : (Brokers | String)?
-      dest = @closed ? nil : (@brokers || @leader_host.call)
+    private def destination_locked : (Brokers | Clustering::Client::Leader)?
+      dest = @closed ? nil : (@brokers || @leader.call)
       open = @closed || !dest.nil?
       @accepting.set(open) unless @accepting.value == open
       dest
@@ -178,9 +185,9 @@ module LavinMQ
           in .http? then dest.http.accept(client, l.tls)
           end
           return
-        in String
-          host = dest
-          spawn(name: "Forward #{l.kind} to the leader") { forward(l, client, host) }
+        in Clustering::Client::Leader
+          leader = dest
+          spawn(name: "Forward #{l.kind} to the leader") { forward(l, client, leader) }
           return
         in Nil
           # Accepted just as there stopped being anywhere to send it, it
@@ -191,8 +198,9 @@ module LavinMQ
       end
     end
 
-    private def forward(l : Listener, client : Socket, host : String) : Nil
-      unless port = leader_port(l)
+    private def forward(l : Listener, client : Socket, leader : Clustering::Client::Leader) : Nil
+      host = leader.host
+      unless port = leader_port(l, leader)
         Log.debug { "Closing a #{l.kind} connection to #{l.address}, no port to forward it to" }
         return client.close
       end
@@ -290,10 +298,10 @@ module LavinMQ
       end
     end
 
-    # The leader's port of the same kind and TLS as *l*, it uses the same
-    # ports as this node
-    private def leader_port(l : Listener) : Int32?
-      l.target_port
+    # The leader's port of the same kind and TLS as *l*: the one it
+    # advertises, else the same as this node's
+    private def leader_port(l : Listener, leader : Clustering::Client::Leader) : Int32?
+      l.target_port.try { |own| leader.forward_port(l.target_protocol, own) }
     end
 
     # False if closed or serving meanwhile

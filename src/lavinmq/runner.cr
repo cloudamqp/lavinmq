@@ -27,13 +27,13 @@ module LavinMQ
     def cluster_admin : Clustering::ClusterAdmin?
     end
 
-    # The leader's host, which client connections are forwarded to while this
-    # node doesn't serve, nil when there's none to forward to
-    def leader_host : String?
+    # The leader, which client connections are forwarded to while this node
+    # doesn't serve, nil when there's none to forward to
+    def leader : Clustering::Client::Leader?
     end
 
-    # Registers what to call after what #leader_host returns may have changed
-    def on_leader_host_change(&_block : ->) : Nil
+    # Registers what to call after what #leader returns may have changed
+    def on_leader_change(&_block : ->) : Nil
     end
 
     # This node's view of the cluster, which the lavinmqctl socket answers

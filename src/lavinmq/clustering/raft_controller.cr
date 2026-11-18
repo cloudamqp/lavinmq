@@ -347,14 +347,14 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       Log.warn { "No leader available" }
       return
     end
-    if uri == @advertised_uri
+    if same_node?(uri, @advertised_uri)
       return :elected if leadership.leader
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
     r = Clustering::Client.new(@config, @id, @coordinator.password)
     r.member_check = -> { @node.self_member? }
-    r.on_host_change = ->leader_host_changed
+    r.on_leader_change = ->leader_changed
     @repli_client.set(r)
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
@@ -363,7 +363,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def stop_following : Nil
     @repli_client.swap(nil).try &.close
-    leader_host_changed
+    leader_changed
   end
 
   private def current_leader_uri : String?
