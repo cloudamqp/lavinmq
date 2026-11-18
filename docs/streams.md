@@ -25,6 +25,8 @@ Each consumer can specify where to start reading from using the `x-stream-offset
 | (integer) | Start from a specific offset number |
 | (negative integer) | Start `N` messages before the end of the stream (e.g. `-100` reads the last 100 messages). Clamped to the oldest available message when fewer than `N` are stored. `0` retains its meaning of "start from the beginning". |
 
+The management UI and the HTTP API (`POST /api/queues/{vhost}/{name}/stream`, `offset` field) accept the same values; integers can be given as JSON numbers or strings, and timestamps as ISO 8601 strings (e.g. `2026-11-17T15:04:38Z`).
+
 Delivered messages include an `x-stream-offset` header with the current offset position.
 
 When no `x-stream-offset` is specified, the consumer resumes from its last tracked offset (or starts from the beginning if no offset has been stored). If the consumer tag is not auto-generated (does not start with `amq.ctag-`), future acks also persist new offset positions.

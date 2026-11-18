@@ -2099,12 +2099,19 @@ describe LavinMQ::AMQP::StreamOffset do
       LavinMQ::AMQP::StreamOffset.parse(12i64).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(12)
     end
 
+    it "parses ISO 8601 timestamps" do
+      time = Time.utc(2026, 11, 17, 15, 4, 38)
+      ["2026-11-17T15:04:38Z", "2026-11-17T16:04:38+01:00"].each do |value|
+        LavinMQ::AMQP::StreamOffset.parse(value).should eq LavinMQ::AMQP::StreamOffset::Timestamp.new(time)
+      end
+    end
+
     it "defaults to first" do
       LavinMQ::AMQP::StreamOffset.parse(nil).should eq LavinMQ::AMQP::StreamOffset::First.new
     end
 
     it "rejects anything else" do
-      ["foo", "1.5", "", "-", "99999999999999999999", 1.5, true, [1]].each do |value|
+      ["foo", "1.5", "", "-", "99999999999999999999", "2026-13-45T00:00:00Z", 1.5, true, [1]].each do |value|
         expect_raises(LavinMQ::AMQP::StreamOffset::Error, "invalid offset #{value}") do
           LavinMQ::AMQP::StreamOffset.parse(value)
         end

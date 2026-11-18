@@ -299,8 +299,9 @@ module LavinMQ
           rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
           rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError
-            # Once flushed the response can't become an error, so let the
-            # connection drop with the JSON array unterminated
+            # Once flushed the response can't become an error: it stays a 200
+            # and ends with the JSON array unterminated, so the client fails
+            # when parsing it
             raise e if context.response.wrote_headers?
             # Discard the buffered partial array but keep the default headers
             headers = context.response.headers.dup

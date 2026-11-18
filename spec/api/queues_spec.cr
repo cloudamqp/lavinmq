@@ -1051,6 +1051,46 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "reads from an ISO 8601 timestamp offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          2.times { |i| q.publish_confirm "m#{i}" }
+          sleep 50.milliseconds
+          time = Time.utc
+          sleep 50.milliseconds
+          2.times { |i| q.publish_confirm "m#{i + 2}" }
+          body = {count: 10, offset: time.to_rfc3339(fraction_digits: 3)}.to_json
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+          response.status_code.should eq 200
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+        end
+      end
+    end
+
+    it "ends the response with invalid JSON when the stream closes after the first flush" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          body = "a" * 1024
+          200.times { q.publish_confirm body }
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          # Corrupt the last message: its body and the body size before it
+          File.open(mfile.path, "r+") do |f|
+            f.seek(mfile.size - body.bytesize - 8)
+            f.write(Bytes.new(body.bytesize + 8, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": 200}))
+          response.status_code.should eq 200
+          expect_raises(JSON::ParseException) { JSON.parse(response.body) }
+          response.body.should contain %("payload":"#{body}")
+          iq.state.closed?.should be_true
+        end
+      end
+    end
+
     it "refuses an invalid offset" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

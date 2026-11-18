@@ -312,7 +312,7 @@ StreamQueueMessagesRequestBody:
           format: int64
         - type: string
       default: first
-      description: Where to start reading. Accepts "first", "next", "last", a numeric offset (as a JSON number or string), or a negative number N to start N messages before the end.
+      description: Where to start reading. Accepts "first", "next", "last", a numeric offset (as a JSON number or string), a negative number N to start N messages before the end, or an ISO 8601 timestamp (e.g. "2026-11-17T15:04:38Z") to start at the first message published at or after it.
     encoding:
       type: string
       default: auto

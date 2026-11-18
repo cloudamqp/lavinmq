@@ -58,8 +58,10 @@ module LavinMQ::AMQP
       when "last"    then Last.new
       when "next"    then Next.new
       when /^-?\d+$/ then from_int(value.to_i64? || raise Error.new(value))
-      else                raise Error.new(value)
+      else                Timestamp.new(Time.parse_iso8601(value))
       end
+    rescue Time::Format::Error | ArgumentError
+      raise Error.new(value)
     end
 
     def self.parse(value : Int) : Any
