@@ -50,9 +50,18 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
       return if @stopping.get
       Log.warn { "Lost leadership, continuing as a follower" }
-      # Stops its keepalive, in case leadership was lost some other way
-      lease.release rescue nil
+      # Revoked to stop its keepalive, in case leadership was lost some other
+      # way, while this node stops serving: revoking retries while etcd is
+      # unavailable, which is when leases get lost. The next term's lease has
+      # the same id, so it's granted once this one is gone.
+      released = Channel(Nil).new
+      spawn(name: "Revoke lost lease") do
+        lease.release rescue nil
+      ensure
+        released.close
+      end
       demote(nil)
+      released.receive?
     end
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
