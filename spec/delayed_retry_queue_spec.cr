@@ -436,6 +436,29 @@ describe "Retry Queue" do
       end
     end
 
+    it "pauses the queue when an ack can't be written, until it's resumed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ack-delete-error")
+          queue = s.vhosts["/"].queue("ack-delete-error")
+          2.times { |i| q.publish_confirm "m#{i}" }
+          msg = wait_for { q.get(no_ack: false) }
+          LavinMQ::MessageStore.fail_next_delete = true
+          msg.ack
+          wait_for { queue.state.paused? }
+          queue.unacked_count.should eq 0
+          queue.message_count.should eq 1
+          ch.closed?.should be_false
+          q.get(no_ack: true).should be_nil
+          queue.resume!
+          queue.state.running?.should be_true
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "m1"
+        end
+      ensure
+        LavinMQ::MessageStore.fail_next_delete = false
+      end
+    end
+
     it "keeps the retry queue paused by an operator when its queue is resumed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

@@ -711,14 +711,14 @@ module LavinMQ::AMQP
       true
     end
 
-    # Deletes a message that is stored where it was moved to, the retry queue
-    # or the queues it was dead-lettered to, or that was dropped. If the delete
+    # Deletes a message that is acked, dropped, or stored where it was moved
+    # to: the retry queue or the queues it was dead-lettered to. If the delete
     # fails the message isn't put back, which would deliver it again. It's
     # still in its segment, so it can come back after a restart.
     private def delete_moved(sp : SegmentPosition) : Nil
       delete_message(sp)
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Failed to delete #{sp} after it was moved" }
+      @log.error(ex) { "Failed to delete #{sp}" }
       pause_on_store_error(ex)
     end
 
@@ -1372,7 +1372,7 @@ module LavinMQ::AMQP
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
+      delete_moved(sp)
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
