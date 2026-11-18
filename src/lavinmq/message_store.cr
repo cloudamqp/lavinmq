@@ -60,15 +60,15 @@ module LavinMQ
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
       close_on_error do
-        load_stats_from_segments unless load_stopped?
-        unless load_stopped?
+        load_stats_from_segments unless failed?
+        unless failed?
           prune_orphaned_acks
           delete_unused_segments
         end
         # Publishes go to a new segment, the last one may not be loaded to its end
-        open_new_segment if failed? && !@closed
-        readahead_for_writes(@wfile) unless @closed
-        @empty.set empty? unless @closed
+        open_new_segment if failed? && !empty_write_segment?
+        readahead_for_writes(@wfile)
+        @empty.set empty?
       end
     end
 
@@ -78,20 +78,36 @@ module LavinMQ
     end
 
     # A segment can't be loaded. The store stays open with its files as they
-    # are, so that the queue can be purged, see #wipe. Overridden by stores
-    # that close instead.
+    # are, so that the queue can be purged, see #wipe.
     private def load_failed : Nil
       @failed.set(true, :relaxed)
     end
 
-    private def load_stopped? : Bool
-      @closed || failed?
+    # The segment an earlier failed load opened for publishes, if nothing was
+    # written to it, so that every start doesn't add a segment
+    private def empty_write_segment? : Bool
+      @wfile.size == 4 && SchemaVersion.verify(@wfile, :message) == Schema::VERSION
+    rescue
+      false
     end
 
-    # The error for a read that failed on data that can't be decoded
+    # The error for a read that failed. The store is only failed if it was on
+    # data that can't be decoded: another error can pass, or be fixed by the
+    # recount of a restart, and mustn't need a purge of all the messages.
     private def read_failed(mfile : MFile, cause : Exception) : Error
-      @failed.set(true, :relaxed)
+      @failed.set(true, :relaxed) if undecodable?(cause)
       Error.new(mfile, cause: cause)
+    end
+
+    private def undecodable?(ex : Exception) : Bool
+      case ex
+      when NoMessage
+        false
+      when OverflowError, IndexError, ArgumentError, IO::EOFError, AMQ::Protocol::Error::FrameDecode
+        true
+      else
+        false
+      end
     end
 
     # Unmaps the segments and ack files opened before a failure while
@@ -152,7 +168,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+        raise NoMessage.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
@@ -220,7 +236,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+        raise NoMessage.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
@@ -439,7 +455,7 @@ module LavinMQ
       @segments.each do |seg, mfile|
         read_pos = mfile.pos
         count_messages(seg, mfile)
-        raise Error.new(mfile) if load_stopped? # a corrupt segment
+        raise Error.new(mfile) if failed? # a corrupt segment
         mfile.pos = read_pos
       end
       readahead_for_writes(@wfile) # count_messages left it advised for random access
@@ -782,16 +798,6 @@ module LavinMQ
             @log.error { "Could not initialize segment #{seg}: #{ex.message}" }
             @segments[seg] = file
             load_failed
-            if @closed
-              # Register remaining segments by path so the replicator knows about
-              # all files on disk even though we won't load them due to the abort.
-              if replicator = @replicator
-                ids[(idx + 1)..].each do |remaining_seg|
-                  replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
-                end
-              end
-              break
-            end
           end
         end
         file.pos = 4
@@ -827,7 +833,7 @@ module LavinMQ
         else
           count_messages(seg, mfile)
         end
-        break if load_stopped? # a corrupt segment
+        break if failed? # a corrupt segment
 
         counter &+= 1
         if is_long_queue
@@ -846,7 +852,7 @@ module LavinMQ
     # it gets no metadata file.
     private def count_messages(seg, mfile)
       with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
-      return if load_stopped? # a corrupt segment
+      return if failed? # a corrupt segment
       write_metadata_file(seg, mfile) unless seg == @segments.last_key
     end
 
@@ -1075,6 +1081,9 @@ module LavinMQ
     class ClosedError < ::Channel::ClosedError; end
 
     class MetadataError < Exception; end
+
+    # Counted but not there: the counters are ahead of the segments
+    class NoMessage < IndexError; end
 
     # The segment of a message is gone, and the message with it, see #wipe
     class MissingSegment < KeyError

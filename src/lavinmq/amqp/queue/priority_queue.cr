@@ -60,6 +60,7 @@ module LavinMQ::AMQP
         end
 
         @empty = BoolChannel.new(empty?)
+        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
       end
 
       private def init_sub_stores(stores)
@@ -160,40 +161,53 @@ module LavinMQ::AMQP
         @empty.set false if was_empty && !size.zero?
       end
 
-      # Raises if a sub store can't be read: none of them is read until all
-      # are wiped
+      # Raises the error of the sub store that can't be read: none of them
+      # is read until all are wiped
       private def raise_if_failed : Nil
-        @stores.each { |s| s.first? if s.failed? }
+        @stores.each { |s| s.first? if s.failed? } if failed?
+      end
+
+      # Notes that a sub store has failed, so that #failed? is one load on the
+      # publish and delivery paths
+      private def note_failure(&)
+        yield
+      rescue ex : Error
+        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
+        raise ex
       end
 
       def first? : Envelope?
         raise ClosedError.new if @closed
         raise_if_failed
-        @stores.reverse_each do |s|
-          envelope = s.first?
-          return envelope unless envelope.nil?
+        note_failure do
+          @stores.reverse_each do |s|
+            envelope = s.first?
+            return envelope unless envelope.nil?
+          end
         end
       end
 
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         raise_if_failed
-        @stores.reverse_each do |s|
-          if envelope = s.shift?(consumer)
-            @empty.set true if size.zero?
-            return envelope
+        note_failure do
+          @stores.reverse_each do |s|
+            if envelope = s.shift?(consumer)
+              @empty.set true if size.zero?
+              return envelope
+            end
           end
         end
       end
 
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
-        store_for sp, &.[sp]
+        note_failure { store_for sp, &.[sp] }
       end
 
       def envelope(sp : SegmentPosition, redelivered = false) : Envelope
         raise ClosedError.new if @closed
-        store_for sp, &.envelope(sp, redelivered)
+        note_failure { store_for sp, &.envelope(sp, redelivered) }
       end
 
       def delete(sp) : Nil
@@ -230,14 +244,11 @@ module LavinMQ::AMQP
         @empty.set true
       end
 
-      def failed? : Bool
-        @stores.any?(&.failed?)
-      end
-
       def wipe : UInt32
         raise ClosedError.new if @closed
         count = @stores.sum(0u32, &.wipe)
         @empty.set true
+        @failed.set(false, :relaxed)
         count
       end
 

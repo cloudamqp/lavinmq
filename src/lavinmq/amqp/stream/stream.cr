@@ -121,6 +121,7 @@ module LavinMQ::AMQP
       if @msg_store.closed
         !close
       else
+        restore_paused
         if @msg_store.failed?
           @log.error { "Paused, message data can't be loaded. Purge the stream to remove all its messages, or delete it" }
           @state_lock.synchronize { set_paused }

@@ -1124,6 +1124,20 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "keeps a stream paused over a restart of the broker" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("paused-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        end
+        s.vhosts["/"].queue("paused-stream").pause!
+        restart_server(s)
+        stream = s.vhosts["/"].queue("paused-stream")
+        stream.state.paused?.should be_true
+        stream.resume!
+        stream.state.running?.should be_true
+      end
+    end
+
     it "starts with a stream whose segment is corrupt paused, and a purge makes it usable again" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
