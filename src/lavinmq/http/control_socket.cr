@@ -11,7 +11,7 @@ module LavinMQ
     # The internal UNIX socket used by lavinmqctl. The Launcher binds it once
     # for the process and keeps it through the node's role changes: while the
     # node serves, requests go to the broker's HTTP API (#api=). Otherwise
-    # they get a 503 saying it's a follower.
+    # they get a 503 saying it's starting (#starting) or a follower.
     class ControlSocket
       Log = LavinMQ::Log.for "http.control_socket"
 
@@ -39,6 +39,8 @@ module LavinMQ
 
       getter path : String
       @api : ::HTTP::Handler? = nil
+      # Set while this node starts to serve, until #api= gives it the API
+      @starting = false
       @api_lock = Mutex.new
       @bound = false
 
@@ -79,7 +81,15 @@ module LavinMQ
 
       # Where requests go while this node serves, nil when it doesn't
       def api=(handler : ::HTTP::Handler?) : Nil
-        @api_lock.synchronize { @api = handler }
+        @api_lock.synchronize do
+          @api = handler
+          @starting = false
+        end
+      end
+
+      # This node starts to serve, e.g. loads its data, until #api= is called
+      def starting : Nil
+        @api_lock.synchronize { @starting = true }
       end
 
       def close : Nil
@@ -89,12 +99,15 @@ module LavinMQ
       end
 
       private def handle(context : ::HTTP::Server::Context) : Nil
-        if api = @api_lock.synchronize { @api }
-          return api.call(context)
-        end
+        api, starting = @api_lock.synchronize { {@api, @starting} }
+        return api.call(context) if api
         context.response.status_code = 503
-        context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
-                               "Please connect to the leader node by using the --host option."
+        if starting
+          context.response.print "This node is starting and does not handle lavinmqctl commands yet, try again shortly."
+        else
+          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
+                                 "Please connect to the leader node by using the --host option."
+        end
       end
     end
   end
