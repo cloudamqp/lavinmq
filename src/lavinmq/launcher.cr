@@ -85,6 +85,7 @@ module LavinMQ
       # definitions exits 1, and #run closes it once the runner returns.
       return self unless @role_lock.synchronize { @starting = !@closed }
       started_at = Time.instant
+      @control_socket.starting
       # A fresh replicator for each term this node leads, see #demote
       @replicator = @runner.new_replicator
       @server = server = new_server
