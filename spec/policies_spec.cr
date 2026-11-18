@@ -361,8 +361,7 @@ describe LavinMQ::VHost do
                               "message-ttl", "expires", "overflow",
                               "dead-letter-exchange", "dead-letter-routing-key",
                               "federation-upstream", "federation-upstream-set",
-                              "delivery-limit", "max-age", "alternate-exchange",
-                              "delayed-message"}
+                              "delivery-limit", "max-age", "alternate-exchange"}
         vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "test").as(LavinMQ::AMQP::Queue))
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
         sleep 10.milliseconds
