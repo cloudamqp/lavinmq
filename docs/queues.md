@@ -112,7 +112,7 @@ A purge of a queue with data it can't read removes all of the queue's messages, 
 
 A queue's retry queue and the queue of a delayed exchange are paused the same way. Purging a queue also purges its retry queue.
 
-Streams follow the same rule. A purge of a stream with data it can't read removes all its segments, and its consumers continue with what is published next, at the offsets that follow the last one known.
+Streams follow the same rule. A purge of a stream with data it can't read removes all its segments, and its consumers continue with what is published next. Offsets are never reused: if the last offset can't be read from the data, the new ones start well above it.
 
 MQTT sessions can't be paused. A session with data it can't read delivers nothing, with its client still connected, and logs an error. Purge the session through the HTTP API or the management UI, which removes all its messages, or delete it.
 
