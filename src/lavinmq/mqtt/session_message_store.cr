@@ -24,6 +24,11 @@ module LavinMQ
         super
         forget_packet_id(sp)
       end
+
+      # A session with a segment that can't be loaded is closed
+      private def load_failed : Nil
+        close_store
+      end
     end
   end
 end

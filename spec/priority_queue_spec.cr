@@ -323,6 +323,29 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#wipe" do
+      it "removes the messages of every priority when one sub store can't be read" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 2u8)
+          store.push LavinMQ::Message.new("ex", "rk", "high", properties: props)
+          store.push LavinMQ::Message.new("ex", "rk", "low")
+          segment = store.@stores[2].@segments.first_value
+          # The body size of the first message
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + props.bytesize, UInt64::MAX)
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.failed?.should be_true
+
+          store.wipe.should eq 2
+          store.failed?.should be_false
+          store.size.should eq 0
+          store.empty.value.should be_true
+          store.push LavinMQ::Message.new("ex", "rk", "new", properties: props)
+          env = store.shift?.should_not be_nil
+          String.new(env.message.body).should eq "new"
+        end
+      end
+    end
+
     describe "#[]" do
       it "returns messages with priority above max" do
         with_prio_store(5) do |store|

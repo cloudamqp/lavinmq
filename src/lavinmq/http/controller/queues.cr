@@ -118,22 +118,6 @@ module LavinMQ
           end
         end
 
-        put "/api/queues/:vhost/:name/restart" do |context, params|
-          with_vhost(context, params) do |vhost|
-            user = user(context)
-            refuse_unless_management(context, user, vhost)
-            q = find_queue(context, params, vhost)
-            unless user.can_config?(q.vhost.name, q.name)
-              access_refused(context, "User doesn't have permissions to restart queue '#{q.name}'")
-            end
-            if q.restart!
-              context.response.status_code = 204
-            else
-              bad_request(context, "Queue was not restarted")
-            end
-          end
-        end
-
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)

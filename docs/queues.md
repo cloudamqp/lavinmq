@@ -92,12 +92,25 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
+| `closed` | Queue is being shut down, with the broker or before it is deleted |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`. The three routes need `configure` permission on the queue, and are refused with 403 without it.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. Both routes need `configure` permission on the queue, and are refused with 403 without it. A pause is kept when the broker restarts.
 
-The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=closed` or `?state=paused,closed`.
+The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=paused` or `?state=running,paused`.
+
+### Message store errors
+
+A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, `basic.get` returns empty, and publishes are still confirmed and stored. The log has an error from the queue that says which of the two cases below it is. This pause isn't stored: a restart of the broker loads the queue's data again.
+
+| Cause | What to do |
+|-------|------------|
+| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | Fix the cause and resume the queue. |
+| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | Purge the queue, or delete it. Resuming it doesn't help, it stays paused. In a cluster, a failover to a node with a good copy of the data also works. |
+
+A purge of a queue with data it can't read removes all of the queue's messages, whatever count is given, and resumes the queue unless it was also paused through the API. That includes the messages that can still be read and those that are delivered but not acked, whose acks and rejects are then ignored. While the queue waits for the purge, `max-length`, `max-length-bytes`, `delivery-limit` and message TTL aren't applied, so a queue with publishers keeps growing.
+
+A queue's retry queue and the queue of a delayed exchange are paused the same way. Purging a queue also purges its retry queue. Streams and MQTT sessions are closed when their data can't be read, and are available again after a restart of the broker that can read it.
 
 ## Reserved Queue Name Prefixes
 

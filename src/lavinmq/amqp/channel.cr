@@ -788,10 +788,15 @@ module LavinMQ
               handed_over += 1
               unack.queue.requeue(unack.sp)
             else
-              unack.queue.read(unack.sp) do |env|
+              read = unack.queue.read(unack.sp) do |env|
                 # deliver records it in @unacked again, or requeues it if the channel closed
                 handed_over += 1
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
+              end
+              unless read # it can't be read, which paused the queue
+                handed_over += 1
+                consumer.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
               end
             end
           end

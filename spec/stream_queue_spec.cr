@@ -866,12 +866,9 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
           q.message_count.should eq 3
-
-          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          stream.close
-          stream.restart!
-          stream.message_count.should eq 3
         end
+        restart_server(s)
+        s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).message_count.should eq 3
       end
     end
   end
@@ -1491,25 +1488,20 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "Restarting stream" do
+  describe "Restarting the broker" do
     queue_name = Random::Secure.hex
-    it "should restart a closed stream" do
+    it "should load a stream" do
       with_amqp_server do |s|
+        args = {"x-queue-type": "stream"}
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          q.publish_confirm "test message"
+        end
+        restart_server(s)
         with_channel(s) do |ch|
           ch.prefetch 1
-          args = {"x-queue-type": "stream"}
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
           stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          q.publish_confirm "test message"
-          stream.message_count.should eq 1
-
-          # Close the stream
-          stream.close
-          stream.closed?.should be_true
-
-          # Restart the stream & verify
-          stream.restart!
-          stream.closed?.should be_false
           stream.message_count.should eq 1
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
@@ -1520,7 +1512,7 @@ describe LavinMQ::AMQP::Stream do
           if msg = msgs.receive
             msg.body_io.to_s.should eq "test message"
           else
-            fail("Did not receive message after stream restart")
+            fail("Did not receive message after the restart")
           end
         end
       end
@@ -1538,11 +1530,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.close
-        stream.closed?.should be_true
-        stream.restart!
-        stream.closed?.should be_false
+        restart_server(s)
 
         # should continue from tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)

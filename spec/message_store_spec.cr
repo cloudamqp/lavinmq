@@ -359,6 +359,93 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "data that can't be read" do
+    # The body size of the message at *pos*, published to "ex" with "rk"
+    bodysize_pos = ->(pos : Int32) { pos + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize }
+
+    it "fails the store, which isn't read until it's wiped" do
+      with_store do |store|
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        segment = store.@segments.first_value
+        write_at(segment.path, bodysize_pos.call(4), UInt64::MAX)
+        2.times do
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
+        end
+        store.failed?.should be_true
+        store.push(LavinMQ::Message.new("ex", "rk", "body2"))
+
+        store.wipe.should eq 3
+        store.failed?.should be_false
+        store.size.should eq 0
+        store.bytesize.should eq 0
+        store.empty.value.should be_true
+        store.@segments.size.should eq 1
+        store.@segments.first_value.should_not eq segment
+        store.shift?.should be_nil
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        shift_body(store).should eq "new"
+      end
+    end
+
+    it "ignores acks and requeues of messages that a wipe removed" do
+      with_store do |store|
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        unacked = store.shift?.should_not be_nil
+        sp = unacked.segment_position
+        write_at(store.@segments.first_value.path, bodysize_pos.call(store.@segments.first_value.pos.to_i32), UInt64::MAX)
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.wipe.should eq 1
+
+        store.delete(sp)
+        store.requeue(sp)
+        store.size.should eq 0
+        expect_raises(LavinMQ::MessageStore::MissingSegment) { store[sp] }
+        expect_raises(LavinMQ::MessageStore::MissingSegment) { store.envelope(sp) }
+        store.failed?.should be_false
+      end
+    end
+
+    it "loads as failed with every segment kept, and writes to a new one" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position) # an ack file for the first segment
+        store.@segments.keys.should eq [1u32, 2u32]
+        store.close
+        files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        sizes = files.map { |f| File.size(File.join(dir, f)) }
+        write_at(File.join(dir, files[1]), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.failed?.should be_true
+        store.closed.should be_false
+        store.@segments.keys.should eq [1u32, 2u32, 3u32]
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        # Nothing of what couldn't be loaded is removed or rewritten
+        File.size(File.join(dir, files[0])).should eq sizes[0]
+        File.size(File.join(dir, files[1])).should be >= sizes[1]
+        File.exists?(File.join(dir, "meta.0000000002")).should be_false
+        store.close
+
+        # Still failed after another load, until it's wiped
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.failed?.should be_true
+        store.wipe
+        store.push(LavinMQ::Message.new("ex", "rk", "after"))
+        store.close
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.failed?.should be_false
+        shift_body(store).should eq "after"
+        store.shift?.should be_nil
+        store.close
+      end
+    end
+  end
+
   describe "a message that isn't completely written" do
     it "isn't loaded after a crash while its body was written" do
       mktmpdir do |dir|
@@ -781,7 +868,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
+  it "loads as failed when a segment has a corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
@@ -793,12 +880,12 @@ describe LavinMQ::MessageStore do
         seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
         File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
 
-        # With a replicator (no followers), close spawns a fiber that races
-        # with the constructor — this should close gracefully, not crash
+        # The store stays open, to be purged
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
-          store.closed.should be_true
+          store.failed?.should be_true
+          store.closed.should be_false
         ensure
           replicator.close
         end
@@ -806,7 +893,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when a middle segment is corrupt with replicator", tags: "etcd" do
+  it "loads as failed when a middle segment is corrupt with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
@@ -821,12 +908,12 @@ describe LavinMQ::MessageStore do
         seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
         File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
 
-        # With a replicator (no followers), this should close gracefully
-        # even though valid segments before the corrupt one were already loaded
+        # The store stays open, to be purged
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
-          store.closed.should be_true
+          store.failed?.should be_true
+          store.closed.should be_false
         ensure
           replicator.close
         end
@@ -1000,7 +1087,8 @@ describe LavinMQ::MessageStore do
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator)
         sleep 1.millisecond
-        store.closed.should be_true
+        store.failed?.should be_true
+        store.closed.should be_false
         registered = replicator.registered_files.keys.map { |p| File.basename(p) }
         ack_files.each { |f| registered.should contain(f) }
         replicator.deleted_files.should contain(orphan_ack)
@@ -1030,7 +1118,8 @@ describe LavinMQ::MessageStore do
           replicator = SpyReplicator.new
           store = LavinMQ::MessageStore.new(dir, replicator)
           sleep 1.millisecond
-          store.closed.should be_true
+          store.failed?.should be_true
+          store.closed.should be_false
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
           (seg_files + ack_files).each { |f| registered.should contain(f) }
         end
@@ -1393,7 +1482,7 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      it "loads a segment with acks and a corrupt record as closed instead of raising" do
+      it "loads a segment with acks and a corrupt record as failed instead of raising" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
           body = "x" * (LavinMQ::Config.instance.segment_size // 4)
@@ -1407,7 +1496,8 @@ describe LavinMQ::MessageStore do
           bodysize_pos = 4 + 8 + 1 + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize
           File.open(first, "r+") { |f| f.seek(bodysize_pos); f.write_bytes(UInt64::MAX) }
           store = LavinMQ::MessageStore.new(dir, nil)
-          store.closed.should be_true
+          store.failed?.should be_true
+          store.closed.should be_false
         end
       end
 

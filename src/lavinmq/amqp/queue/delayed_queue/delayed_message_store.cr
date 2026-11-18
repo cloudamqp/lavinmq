@@ -25,9 +25,9 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        # A segment that failed to load closed the store and unmapped its
-        # segments, so they can't be indexed
-        close_on_error { build_index } unless @closed
+        # Not indexed if a segment failed to load: nothing is read from the
+        # store until it's wiped
+        close_on_error { build_index } unless load_stopped?
       end
 
       def build_index
@@ -59,8 +59,8 @@ module LavinMQ::AMQP
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             # Like a record the load can't decode, see MessageStore#produce_metadata.
             # A segment with a meta file isn't read record by record at load.
-            @log.error { "Could not index segment #{seg_id} at pos #{pos}, closing message store: #{ex}" }
-            close_store
+            @log.error { "Could not index segment #{seg_id} at pos #{pos}: #{ex}" }
+            load_failed
             return
           end
         end
@@ -75,18 +75,20 @@ module LavinMQ::AMQP
 
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
+        raise MessageStore::Error.new(@rfile) if failed?
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
           Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
-          raise MessageStore::Error.new(seg, cause: ex)
+          raise read_failed(seg, ex)
         end
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
+        raise MessageStore::Error.new(@rfile) if failed?
         sp = @requeued.shift? || return
         segment = @segments[sp.segment]
         begin
@@ -96,7 +98,7 @@ module LavinMQ::AMQP
           @empty.set true if @size.zero?
           Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
-          raise MessageStore::Error.new(segment, cause: ex)
+          raise read_failed(segment, ex)
         end
       end
 

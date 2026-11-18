@@ -502,27 +502,6 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "reloads a restarted queue's store only after its emptied segments are unlinked" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        src = declare_dead_lettering(ch)
-        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
-        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
-        restarted = Channel(Bool).new
-        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
-          8.times { src.publish "x" * 100_000 }
-          wait_for { message_count(s, "dst") == 8 }
-          queue.close
-          spawn { restarted.send queue.restart! }
-          sleep 50.milliseconds
-          queue.closed?.should be_true
-        end
-        restarted.receive.should be_true
-        queue.@msg_store.@segments.has_key?(1u32).should be_false
-      end
-    end
-  end
-
   it "syncs nothing before the unlink when the dead-letter exchange routes nowhere" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

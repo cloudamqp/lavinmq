@@ -221,6 +221,17 @@ module LavinMQ::AMQP
         @empty.set true
       end
 
+      def failed? : Bool
+        @stores.any?(&.failed?)
+      end
+
+      def wipe : UInt32
+        raise ClosedError.new if @closed
+        count = @stores.sum(0u32, &.wipe)
+        @empty.set true
+        count
+      end
+
       def delete
         @closed = true
         @empty.close

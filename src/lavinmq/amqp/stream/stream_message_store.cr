@@ -32,6 +32,11 @@ module LavinMQ::AMQP
       drop_overflow
     end
 
+    # A stream with a segment that can't be loaded is closed
+    private def load_failed : Nil
+      close_store
+    end
+
     def close : Nil
       super
       @expiry_changed.close
