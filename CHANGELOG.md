@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Every clustered node binds its client ports (AMQP, MQTT, HTTP, with TLS and on unix sockets) and the lavinmqctl socket once at startup and keeps them through leadership changes, instead of followers binding proxy ports and the new leader rebinding them, so clients aren't refused while the leader changes. A standalone node binds its client ports before loading its data, and accepts once it serves. A follower now terminates TLS with its own certificate and forwards the plaintext to the leader's plain port, with the TLS version and cipher in a PROXY v2 header, so the leader no longer needs a certificate valid for every node's name. TLS is only passed through to the leader when the plain port is disabled [#2611](https://github.com/cloudamqp/lavinmq/pull/2611)
+- Every clustered node binds its client ports (AMQP, MQTT, HTTP, with TLS and on unix sockets) and the lavinmqctl socket once at startup and keeps them through leadership changes, instead of followers binding proxy ports and the new leader rebinding them, so clients aren't refused while the leader changes. A standalone node binds its client ports before loading its data, and accepts once it serves. A follower now terminates TLS with its own certificate and forwards the plaintext to the leader's plain port, with the TLS version and cipher in a PROXY v2 header, so the leader no longer needs a certificate valid for every node's name. TLS is only passed through to the leader when the plain port is disabled [#2777](https://github.com/cloudamqp/lavinmq/pull/2777)
 
 ### Removed
 
