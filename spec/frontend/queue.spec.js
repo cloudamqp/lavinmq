@@ -143,6 +143,14 @@ test.describe('queue', _ => {
       await expect(page.locator('#q-primary-queue-row')).toBeVisible()
       await expect(page.locator('#q-primary-queue a')).toHaveAttribute('href', /queue#vhost=%2F&name=orders$/)
     })
+
+    test('opens the primary queue from its retry queue', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
+      const primaryLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/orders`, Object.assign({}, queueResponse, { name: 'orders' }))
+      await page.locator('#q-primary-queue a').click()
+      await primaryLoaded
+      await expect(page.locator('#q-primary-queue-row')).toBeHidden()
+    })
   })
 
   test('consumer count stays at the total while loading more and updates on refresh', async ({ apimap, page }) => {

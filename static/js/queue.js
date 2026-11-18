@@ -14,6 +14,14 @@ Helpers.disableUserMenuVhost()
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
+
+// A link to another queue only changes the hash, and the queue is read once
+// above. The tabs also keep their state in the hash, so only reload when the
+// queue changes.
+window.addEventListener('hashchange', () => {
+  const params = new URLSearchParams(window.location.hash.substring(1))
+  if (params.get('name') !== queue || params.get('vhost') !== vhost) window.location.reload()
+})
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 const restartQueueForm = document.querySelector('#restartQueue')
