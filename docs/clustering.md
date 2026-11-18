@@ -84,21 +84,19 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 
 ## Clustering Proxy
 
-When a node is a follower, it automatically proxies client traffic to the current leader. Clients can connect to any node in the cluster on the normal protocol ports and reach the leader without needing to know which node is the leader.
+Every node binds the client ports when it starts and keeps them bound through leadership changes. A node that serves handles the connections itself, a follower forwards them to the current leader, so clients can connect to any node on the normal protocol ports without needing to know which node is the leader. Connections a node forwarded to the old leader are closed when it starts to serve itself, so their clients reconnect to it. While a node neither serves nor knows the leader, such as during an election or while a new leader loads its data, it doesn't accept connections: they wait in the listen backlog until it can serve or forward them.
 
-The proxy is transparent and runs on every follower for:
+Forwarding is transparent and covers:
 
-- AMQP and AMQPS
-- MQTT and MQTTS
-- HTTP/management and HTTPS
+- AMQP and AMQPS (TCP and Unix socket)
+- MQTT and MQTTS (TCP and Unix socket)
+- HTTP/management, HTTPS and WebSockets (TCP and Unix socket)
 
-The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
+The TLS ports (`amqps_port`, `mqtts_port`, `https_port`) are bound when TLS is configured (`tls_cert_path` is set) and the port is above 0. A follower terminates TLS itself, with its own certificate and TLS settings (including SNI), and forwards the plaintext to the leader's plain port of the same protocol, so each node only needs a certificate for its own name. The connection between the follower and the leader is then unencrypted, like the replication traffic, so the nodes should be on a trusted network. Only if the plain port is disabled (0 or below) is TLS forwarded unterminated, to the leader's TLS port, and the leader's certificate then has to be valid for the follower's name. Unix-socket forwarding activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`, and goes to the leader's TCP port of that protocol; Unix sockets are always plaintext. Connections go to the same ports on the leader, so the client ports should be the same on all nodes.
 
-TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+For AMQP and MQTT the follower sends a PROXY protocol header first, so the leader sees the original client address: v1 for plaintext, and v2 with the TLS version and cipher in an SSL TLV when the follower terminated TLS, so the leader lists the connection as TLS. When TLS is forwarded unterminated the leader reads the header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed.
 
-For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
-
-A load balancer in front of every node can send its own PROXY header (e.g. HAProxy's `send-proxy`) when `tcp_proxy_protocol` is enabled. A follower then reads that header and forwards a single header to the leader. If the load balancer is one of the `proxy_protocol_trusted_sources`, its header is forwarded as is: a v1 header with the same addresses, a v2 header byte for byte, TLVs included. Otherwise, or for a v2 `LOCAL` header, the follower's own header is forwarded, with the load balancer's address. The leader always accepts the header from a follower, whether or not the follower is listed in `proxy_protocol_trusted_sources`.
+A load balancer in front of every node can send its own PROXY header (e.g. HAProxy's `send-proxy`) when `tcp_proxy_protocol` is enabled. A follower then reads that header and forwards a single header to the leader. The load balancer's header comes before TLS. If the load balancer is one of the `proxy_protocol_trusted_sources`, its header is forwarded as is: a v1 header with the same addresses, a v2 header byte for byte, TLVs included. When the follower terminated TLS it's forwarded as a v2 header, with the follower's SSL TLV in place of any the load balancer sent. Otherwise, or for a v2 `LOCAL` header, the follower's own header is forwarded, with the load balancer's address. The leader always accepts the header from a follower, whether or not the follower is listed in `proxy_protocol_trusted_sources`.
 
 ## Security
 

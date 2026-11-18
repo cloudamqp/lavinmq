@@ -16,6 +16,8 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
     super(config, Controller.clustering_id(config))
     @elected_leader = BoolChannel.new(false)
+    # Closed by #stop
+    @stopped = Channel(Nil).new
   end
 
   def run(&)
@@ -23,11 +25,12 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     return if @stopping.get
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
+    return unless campaign # blocks until becoming leader, or stopped
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.swap(nil).try &.close
+    leader_host_changed # connections wait for this node to serve
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -48,8 +51,29 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
 
   def stop
     @stopping.set(true)
+    @stopped.close
     @repli_client.get.try &.close
     @lease.try &.release
+  end
+
+  # Captures the fencing token. False if stopped first: the campaign is a
+  # long poll that releasing the lease doesn't end, as etcd waits for the
+  # current leader's key, not ours. The process exits after #run returns.
+  private def campaign : Bool
+    result = Channel(Exception?).new(1)
+    spawn(name: "Leader campaign") do
+      @coordinator.campaign(@advertised_uri, @id)
+      result.send nil
+    rescue ex
+      result.send ex
+    end
+    select
+    when ex = result.receive
+      raise ex if ex
+      true
+    when @stopped.receive?
+      false
+    end
   end
 
   # Listens for leader change events
@@ -61,6 +85,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         else
           repli_client.close
           @repli_client.set(nil)
+          leader_host_changed
         end
       end
       if uri.nil? # no leader yet
@@ -88,6 +113,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         end
       end
       r = Clustering::Client.new(@config, @id, secret)
+      r.on_host_change = ->leader_host_changed
       @repli_client.set(r)
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready

@@ -129,7 +129,26 @@ module LavinMQ
       end
 
       # A type-length-value field, kept as read so that it's written back unchanged
-      record TLV, type : UInt8, value : Bytes
+      record TLV, type : UInt8, value : Bytes do
+        def ssl? : Bool
+          type == TLVType::SSL.value
+        end
+      end
+
+      # For a TLS session the sender terminated: the client connected over
+      # TLS, with *version* and *cipher*. No client certificate is vouched
+      # for, verify is non-zero.
+      def self.ssl_tlv(version : String, cipher : String) : TLV
+        value = IO::Memory.new(5 + 3 + version.bytesize + 3 + cipher.bytesize)
+        value.write_byte PP2_CLIENT_SSL
+        value.write_bytes 1u32, IO::ByteFormat::NetworkEndian
+        {SSLSubType::VERSION, SSLSubType::CIPHER}.zip({version, cipher}) do |type, str|
+          value.write_byte type.value
+          value.write_bytes str.bytesize.to_u16, IO::ByteFormat::NetworkEndian
+          value.write str.to_slice
+        end
+        TLV.new(TLVType::SSL.value, value.to_slice)
+      end
 
       getter command : Command
       # Nil when the address family is UNSPEC

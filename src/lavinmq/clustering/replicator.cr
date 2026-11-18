@@ -36,6 +36,13 @@ module LavinMQ
       abstract def request_fsync(paths : Enumerable(String)) : Nil
       abstract def request_syncfs : Nil
       abstract def all_followers : Array(Follower)
+
+      # Whether a follower that has authenticated is connected from *address*,
+      # registered or not yet. Its PROXY headers are trusted, see ClientListeners.
+      def follower_address?(address : String) : Bool
+        all_followers.any? { |f| f.remote_address.address == address }
+      end
+
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear
