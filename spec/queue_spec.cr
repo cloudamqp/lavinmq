@@ -454,6 +454,27 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "keeps the error of a delivery that reached no client when a purge removed the message meanwhile" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          expect_raises(LavinMQ::AMQP::Channel::UnrecordedError) do
+            queue.basic_get(no_ack: false) do |_env|
+              # As a purge of a store that can't be read, between the shift and
+              # the channel refusing the delivery
+              queue.@msg_store_lock.synchronize { queue.@msg_store.wipe }
+              raise LavinMQ::AMQP::Channel::UnrecordedError.new("Channel is closed")
+            end
+          end
+          queue.unacked_count.should eq 0
+          queue.message_count.should eq 0
+          queue.state.running?.should be_true
+        end
+      end
+    end
+
     it "stays paused after a purge if an operator paused it too" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
