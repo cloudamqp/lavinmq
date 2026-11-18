@@ -138,6 +138,11 @@ module LavinMQ::AMQP
         count
       end
 
+      private def drop_segment(seg : UInt32) : Nil
+        super
+        @unreadable_entries.reject! { |entry| entry.segment == seg }
+      end
+
       def requeue(sp : SegmentPosition)
         raise "BUG: messages should never be requeued to DelayedMessageStore"
       end

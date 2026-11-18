@@ -564,6 +564,18 @@ describe "Retry Queue" do
       end
     end
 
+    it "gives up a segment that couldn't be indexed by a purge with a count" do
+      with_datadir do |dir|
+        File.write(File.join(dir, "msgs.0000000001"), corrupt_segment.call)
+        store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil)
+        store.purge(1).should eq 0
+        store.size.should eq 0
+        store.@segments.has_key?(1u32).should be_false
+        store.@unreadable_entries.should be_empty
+        store.close
+      end
+    end
+
     it "starts with a retry queue whose segment is corrupt, and pauses that queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

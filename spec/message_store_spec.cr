@@ -477,7 +477,9 @@ describe LavinMQ::MessageStore do
 
     it "counts what's left right after a purge with a count gave it up" do
       with_store do |store|
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        3.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        store.shift?.should_not be_nil
+        # Not the first of the segment, whose read checks the schema version
         unacked = store.shift?.should_not be_nil
         store.requeue(unacked.segment_position)
         write_at(store.@segments.first_value.path, 0, 0x64636261) # schema version
@@ -496,6 +498,29 @@ describe LavinMQ::MessageStore do
         shift_body(store).should eq "new2"
         store.shift?.should be_nil
         store.empty.value.should be_true
+      end
+    end
+
+    it "counts a later segment of another schema version as a load does, after a purge gave one up" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+        9.times { store.push(LavinMQ::Message.new("", "rk", body)) }
+        store.@segments.keys.should eq [1u32, 2u32, 3u32]
+        8.times { store.shift? }
+        last = store.shift?.should_not be_nil
+        store.delete(last.segment_position) # an ack in the last segment
+        store.close
+        File.delete(File.join(dir, "meta.0000000001"))
+        write_at(File.join(dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+        write_at(File.join(dir, "msgs.0000000003"), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        size = store.size
+        # The first segment is given up, and a message of the second is purged
+        store.purge(1).should eq 1
+        store.size.should eq size - 2
+        store.close
       end
     end
 

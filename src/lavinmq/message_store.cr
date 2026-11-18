@@ -409,6 +409,12 @@ module LavinMQ
           @bytesize += mfile.size - 4
           next
         end
+        if @counted_unreadable.includes?(seg) && !schema_ok?(mfile)
+          # As a load counts it, its records aren't in this version's format
+          @size += 1
+          @bytesize += mfile.size - 4
+          next
+        end
         read_pos = mfile.pos
         begin
           mfile.pos = 4 unless seg == @rfile_id
@@ -933,9 +939,7 @@ module LavinMQ
           rescue MetadataError
             schema_ok?(mfile) ? count_messages(seg, mfile) : count_unreadable(seg, mfile, 4)
           end
-          # The last segment has a meta file after a crash between sealing it
-          # and opening the next one
-          @wfile_unreadable = true if seg == @wfile_id && !schema_ok?(mfile)
+          stop_writes_to_unknown_schema(seg, mfile)
         elsif !schema_ok?(mfile)
           count_unreadable(seg, mfile, 4)
         else
@@ -975,6 +979,12 @@ module LavinMQ
       @wfile_unreadable = true if seg == @wfile_id
       @bytesize += mfile.size - pos
       @size += 1
+    end
+
+    # The last segment has a meta file after a crash between sealing it and
+    # opening the next one
+    private def stop_writes_to_unknown_schema(seg : UInt32, mfile : MFile) : Nil
+      @wfile_unreadable = true if seg == @wfile_id && !schema_ok?(mfile)
     end
 
     # Advises *mfile* for the block, then back to random access (see
