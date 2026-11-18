@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
+
 ### Removed
 
 - Migration of data directories created by LavinMQ < 1.0 (schema versions 1-3). Such a data directory is now refused at startup; upgrade it with LavinMQ 2.11 first [#2482](https://github.com/cloudamqp/lavinmq/pull/2482)
