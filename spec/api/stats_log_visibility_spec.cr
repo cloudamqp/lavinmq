@@ -50,12 +50,13 @@ describe "rate-history log visibility" do
     end
   end
 
-  # The stats loop sleeps an hour after its first sweep; the specs drive the sweeps themselves.
+  # The stats loop sleeps an hour after its first sweep; the specs wait for that sweep, then drive the rest.
   describe "log contents" do
     it "serves a queue's publish rate history in order" do
       with_stats_interval(3_600_000) do
         with_http_server do |http, s|
           with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
             cq = ch.queue("logq")
             q = s.vhosts["/"].queue("logq")
             [5, 5, 10, 0].each do |n|
@@ -74,6 +75,7 @@ describe "rate-history log visibility" do
       with_stats_interval(3_600_000) do
         with_http_server do |http, s|
           with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
             old = ch.queue("old-q")
             s.update_stats_rates(1.0)
             2.times { old.publish_confirm "m"; s.update_stats_rates(1.0) }
