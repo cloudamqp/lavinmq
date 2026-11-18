@@ -324,6 +324,17 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
 
     describe "#wipe" do
+      it "stays empty when a message it removed is requeued" do
+        with_prio_store(5) do |store|
+          store.push LavinMQ::Message.new("ex", "rk", "body")
+          env = store.shift?.should_not be_nil
+          store.wipe
+          store.requeue(env.segment_position)
+          store.size.should eq 0
+          store.empty.value.should be_true
+        end
+      end
+
       it "removes the messages of every priority when one sub store can't be read" do
         with_prio_store(5) do |store|
           props = AMQP::Client::Properties.new(priority: 2u8)
