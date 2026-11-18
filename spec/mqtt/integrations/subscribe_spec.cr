@@ -297,5 +297,35 @@ module MqttSpecs
         end
       end
     end
+
+    it "grants SUBSCRIBE to a clean session that reconnects while its previous session is being deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        with_client_io(server) do |prev_io|
+          connect(prev_io, client_id: "reconnect", clean_session: true)
+          subscribe(prev_io, topic_filters: mk_topic_filters({"r/a", 0u8}))
+          previous = vhost.session("mqtt.reconnect")
+          with_client_io(server) do |io|
+            # Holding the definitions lock stalls the previous session's delete
+            # after it has closed but before it leaves the vhost, as another
+            # client's session declare holding the lock does
+            vhost.synchronize_definitions do
+              disconnect(prev_io)
+              wait_for { previous.closed? }
+              connect(io, client_id: "reconnect", clean_session: true, expect_response: false)
+              subscribe(io, topic_filters: mk_topic_filters({"r/b", 0u8}), expect_response: false)
+              sleep 0.1.seconds # lets the CONNECT and SUBSCRIBE reach the broker
+            end
+            read_packet(io).should be_a(MQTT::Protocol::Connack)
+            suback = read_packet(io).as(MQTT::Protocol::SubAck)
+            suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+            session = vhost.session("mqtt.reconnect")
+            session.should_not be previous
+            session.bindings.map(&.binding_key.routing_key).should contain "r/b"
+            disconnect(io)
+          end
+        end
+      end
+    end
   end
 end

@@ -38,7 +38,9 @@ module LavinMQ
       @msg_store : SessionMessageStore
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
-      @deleted = false
+      @deleted = Atomic(Bool).new(false)
+      # Closed once a delete has removed the session from the vhost
+      @deletion_done = ::Channel(Nil).new
       @client : MQTT::Client? = nil
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
@@ -123,15 +125,27 @@ module LavinMQ
       end
 
       def delete : Bool
-        return false if @deleted
-        @deleted = true
-        close
-        @msg_store_lock.synchronize do
-          @msg_store.delete
+        return false if @deleted.swap(true)
+        begin
+          close
+          @msg_store_lock.synchronize do
+            @msg_store.delete
+          end
+          @replicator.try &.delete_file(@metadata_file)
+          @vhost.delete_queue(@name)
+        ensure
+          @deletion_done.close
         end
-        @replicator.try &.delete_file(@metadata_file)
-        @vhost.delete_queue(@name)
         true
+      end
+
+      def deleting? : Bool
+        @deleted.get
+      end
+
+      # Returns once a delete in progress has removed the session from the vhost
+      def wait_for_deletion : Nil
+        @deletion_done.receive?
       end
 
       def clean_session?
@@ -303,7 +317,7 @@ module LavinMQ
           return false
         end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
-        return false if @deleted || closed?
+        return false if deleting? || closed?
         @msg_store_lock.synchronize do
           @msg_store.push(msg)
           drop_overflow
