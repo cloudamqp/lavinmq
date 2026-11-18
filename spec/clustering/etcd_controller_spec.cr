@@ -62,6 +62,16 @@ end
 
 # No follower monitor: a replication client set with #following_for_spec is
 # left to #run, as when this node is elected before the monitor sees it
+# Revoking a lease hangs, as while etcd is unavailable, until *gate* is closed
+private class HangingRevokeEtcd < LavinMQ::Etcd
+  getter gate = Channel(Nil).new
+
+  def lease_revoke(id) : Nil
+    @gate.receive?
+    super
+  end
+end
+
 private class UnmonitoredController < LavinMQ::Clustering::EtcdController
   def following_for_spec(client : LavinMQ::Clustering::Client) : Nil
     @repli_client.set(client)
@@ -258,6 +268,41 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       when timeout(5.seconds)
         fail "run didn't return after stop"
       end
+    end
+  end
+
+  # Revoking the lost lease retries while etcd is unavailable, which is when
+  # leases are lost, and a node that isn't the leader must not keep serving
+  it "stops serving when its lease expires, also while the lease can't be revoked" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5696"
+      config.clustering_etcd_lease_ttl = 3 # keepalive every second
+      etcd = HangingRevokeEtcd.new("localhost:12379")
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      demoted = Channel(Nil).new(1)
+      controller.on_demote { demoted.send nil }
+      served = Channel(Nil).new(2)
+      spawn(name: "hanging revoke controller") do
+        controller.run { served.send nil }
+      rescue SpecExit
+      end
+      select
+      when served.receive
+      when timeout(10.seconds)
+        fail "wasn't elected"
+      end
+      LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
+      select
+      when demoted.receive
+      when timeout(10.seconds)
+        fail "kept serving while revoking the lost lease"
+      end
+    ensure
+      etcd.try &.gate.close
+      controller.try &.stop rescue nil # the lease is gone
     end
   end
 
