@@ -204,7 +204,8 @@ describe LavinMQ::Etcd, tags: "etcd" do
 
         # The stale coordinator's election key is gone, so its fenced ISR write
         # is rejected and the ISR the current node will write is left intact.
-        expect_raises(LavinMQ::Etcd::StaleLeadership) do
+        # As a Coordinator::StaleLeadership, so the replication server fences
+        expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) do
           stale_coordinator.update_isr(Set{1})
         end
         stale_etcd.get(isr_key).should eq "1,2"

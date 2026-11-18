@@ -4,7 +4,7 @@ module LavinMQ
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner
-    # Yields once this node is to start serving. Blocks until #stop.
+    # Yields whenever this node is to start serving. Blocks until #stop.
     abstract def run(&)
 
     abstract def stop
@@ -13,7 +13,12 @@ module LavinMQ
     def stopping : Nil
     end
 
-    # The replication server for when this node leads
+    # How the Launcher stops serving when this node stops leading, while the
+    # process keeps running, see Clustering::Controller#on_demote
+    def on_demote(&_block : Proc(Nil)? ->) : Nil
+    end
+
+    # The replication server for a term this node leads
     def new_replicator : Clustering::Server?
     end
 

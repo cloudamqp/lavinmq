@@ -46,6 +46,11 @@ module LavinMQ
         @source.leader = PrometheusController.new(server, require_authentication: false, metrics: @metrics)
       end
 
+      # Back to reporting as a follower, once this node stopped serving
+      def stop_reporting_broker : Nil
+        @source.leader = nil
+      end
+
       def bind_tcp(address, port)
         tcp = HTTP.tcp_listener(address, port) { |socket| @http.bind(socket) }
         Log.info { "Bound to #{tcp.local_address}" }
