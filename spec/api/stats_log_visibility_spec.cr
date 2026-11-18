@@ -50,12 +50,32 @@ describe "rate-history log visibility" do
     end
   end
 
-  describe "overview log contents" do
-    # The stats loop sleeps an hour after its first sweep; the spec drives the sweeps itself.
+  # The stats loop sleeps an hour after its first sweep; the specs wait for that sweep, then drive the rest.
+  describe "log contents" do
+    it "serves a queue's publish rate history in order" do
+      with_stats_interval(3_600_000) do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
+            cq = ch.queue("logq")
+            q = s.vhosts["/"].queue("logq")
+            [5, 5, 10, 0].each do |n|
+              n.times { cq.publish_confirm "m" }
+              q.update_rates(1.0)
+            end
+            details = JSON.parse(http.get("/api/queues/%2f/logq").body)
+            # The first tick spans a partial interval and is no sample
+            details["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 10.0, 0.0]
+          end
+        end
+      end
+    end
+
     it "logs the messages of all queues in the overview, also of since deleted ones" do
       with_stats_interval(3_600_000) do
         with_http_server do |http, s|
           with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
             old = ch.queue("old-q")
             s.update_stats_rates(1.0)
             2.times { old.publish_confirm "m"; s.update_stats_rates(1.0) }
