@@ -19,7 +19,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 ## Boolean Values
 
-Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `false`, `no`, `off` or `n` for false, in any case. This applies in the INI file, including `[sni:]` sections, in environment variables and in CLI flags that take a value. Any other value stops LavinMQ from starting, or fails a reload, with an error naming the setting. The exception is `tcp_proxy_protocol`, which also accepts `2` and reads any other value as false.
+Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `false`, `no`, `off` or `n` for false, in any case. This applies in the INI file, including `[sni:]` sections, in environment variables and in CLI flags that take a value. Any other value stops LavinMQ from starting, or fails a reload, with an error naming the setting. This includes an empty value and a value followed by a comment on the same line, e.g. `sync = false # note`. The exception is `tcp_proxy_protocol`, which also accepts `2` and reads any other value as false.
 
 ## Reloading
 
