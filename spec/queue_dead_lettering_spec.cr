@@ -670,6 +670,85 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression: a queue dropping overflow held its lock while dead
+      # lettering into the other queue, which needs that queue's lock, so
+      # two queues dead lettering into each other at the same time deadlocked
+      it "should not deadlock with two mutually dead-lettering queues on several threads", tags: "slow" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          {"dlx_dl_a" => "dlx_dl_b", "dlx_dl_b" => "dlx_dl_a"}.each do |name, other|
+            vhost.declare_queue(name, durable: true, auto_delete: false,
+              arguments: LavinMQ::AMQP::Table.new({
+                "x-max-length"              => 1,
+                "x-dead-letter-exchange"    => "",
+                "x-dead-letter-routing-key" => other,
+              }))
+          end
+          queues = {vhost.queue("dlx_dl_a"), vhost.queue("dlx_dl_b")}
+          ctx = Fiber::ExecutionContext::Parallel.new("dlx-deadlock", 2)
+          wg = WaitGroup.new(2)
+          queues.each do |q|
+            q = q.should_not be_nil
+            ctx.spawn do
+              20_000.times { q.publish(LavinMQ::Message.new("", q.name, "body")) }
+            ensure
+              wg.done
+            end
+          end
+          done = Channel(Nil).new
+          spawn { wg.wait; done.close }
+          select
+          when done.receive?
+          when timeout(10.seconds)
+            fail "deadlocked"
+          end
+          queues.each &.should_not(be_nil).message_count.should eq 1
+        end
+      end
+
+      # Publishers on several threads push into the queue in order, and the
+      # drops their publishes cause must dead letter in that order too, even
+      # when a drop that shifted a message is slower to publish it than a
+      # concurrent drop that shifted a later one
+      it "should dead letter overflow from concurrent publishers in queue order", tags: "slow" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          vhost.declare_queue("dlx_order_dlq", durable: false, auto_delete: false)
+          vhost.declare_queue("dlx_order_q", durable: false, auto_delete: false,
+            arguments: LavinMQ::AMQP::Table.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlx_order_dlq",
+            }))
+          q = vhost.queue("dlx_order_q").should_not be_nil
+          dlq = vhost.queue("dlx_order_dlq").should_not be_nil
+          publishers = 4
+          n = 5_000
+          ctx = Fiber::ExecutionContext::Parallel.new("dlx-order", publishers)
+          wg = WaitGroup.new(publishers)
+          publishers.times do |p|
+            ctx.spawn do
+              n.times { |i| q.publish(LavinMQ::Message.new("", q.name, "#{p}:#{i}")) }
+            ensure
+              wg.done
+            end
+          end
+          wg.wait
+          dlq.message_count.should eq publishers * n - 1
+          bodies = [] of String
+          loop do
+            got = dlq.basic_get(true) { |env| bodies << String.new(env.message.body) }
+            break unless got
+          end
+          last = Array.new(publishers, -1)
+          bodies.each do |body|
+            p, i = body.split(':').map(&.to_i)
+            i.should be > last[p]
+            last[p] = i
+          end
+        end
+      end
+
       it "should not stack overflow with a long chain" do
         with_amqp_server do |s|
           with_channel(s) do |ch|

@@ -171,6 +171,21 @@ module LavinMQ::AMQP
           ex
         end
 
+        # Yields the tasks of a dead lettering chain for #route to queue the
+        # copies in. Without dlx_tasks, a chain of its own, published once the
+        # block returns or raises, so the block can route while it holds a
+        # queue's lock: the copies are published into the destinations, and
+        # their locks taken, only after it has returned.
+        def chain(dlx_tasks : Tasks?, & : Tasks -> _)
+          return yield dlx_tasks if dlx_tasks
+          tasks = take_tasks
+          begin
+            yield tasks
+          ensure
+            drain_chain(tasks)
+          end
+        end
+
         private def take_tasks : Tasks
           @free_tasks.lock(&.pop?) || Tasks.new
         end
