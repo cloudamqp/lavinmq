@@ -514,6 +514,23 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "isn't written after at load either, when the segment written to has a meta file" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        store.close
+        File.open(File.join(dir, "meta.0000000001"), "w", &.write_bytes(2_u32))
+        write_at(File.join(dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        store.@segments.keys.should eq [1u32, 2u32]
+        store.@segments[1u32].size.should eq File.size(File.join(dir, "msgs.0000000001"))
+        store.size.should eq 3
+        store.close
+      end
+    end
+
     it "keeps the count of a segment with an unsupported schema version that has a meta file" do
       mktmpdir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil)

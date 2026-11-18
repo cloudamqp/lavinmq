@@ -932,6 +932,9 @@ module LavinMQ
           rescue MetadataError
             schema_ok?(mfile) ? count_messages(seg, mfile) : count_unreadable(seg, mfile, 4)
           end
+          # The last segment has a meta file after a crash between sealing it
+          # and opening the next one
+          @wfile_unreadable = true if seg == @wfile_id && !schema_ok?(mfile)
         elsif !schema_ok?(mfile)
           count_unreadable(seg, mfile, 4)
         else
