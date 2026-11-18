@@ -1,5 +1,7 @@
+require "./runner"
+
 module LavinMQ
-  class StandaloneRunner
+  class StandaloneRunner < Runner
     # Yields to the block immediately, then blocks until stop is called.
     def run(&)
       yield
