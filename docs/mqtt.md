@@ -113,10 +113,13 @@ queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+
 Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
+- It only routes MQTT publishes. A message dead-lettered into it, as into `mqtt.default`, is dropped, and the queue logs a warning
+- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, a definitions import containing it is refused as a whole, and a `delayed-message` policy has no effect
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
-- The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
+- An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to it needs read permission on the exchange and write permission on the queue. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read on an `x-mqtt-topic` exchange gives all MQTT topics in the vhost, so grant it with care
 - [Retained messages](#retained-messages) are not replayed when a binding is created
 - Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
+- `mqtt.default`, the exchange MQTT publishes go through, can't be the source or destination of an exchange-to-exchange binding. Such a bind, or an unbind with `mqtt.default` as source, is refused with `ACCESS_REFUSED` over AMQP, which closes the channel, and `403` over the HTTP API. Bind an `x-mqtt-topic` exchange instead
 
 ## Configuration
 

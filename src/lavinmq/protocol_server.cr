@@ -232,8 +232,7 @@ module LavinMQ
         remote_addr = client.remote_address
         set_socket_options(client)
         set_tls_tcp_read_buffer(client)
-        # A PROXY header comes before TLS, e.g. from a follower forwarding
-        # the connection, see ClientListeners
+        # The PROXY header, from a follower or a load balancer, comes before the TLS handshake
         conn_info = extract_conn_info(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{conn_info.remote_address} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
@@ -257,33 +256,22 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      # A follower's whatever the trusted sources are, they may list only the
-      # load balancers in front of the nodes
-      from_follower(client).try { |parsed_proxy| return parsed_proxy }
-      if @config.tcp_proxy_protocol?
-        parsed_proxy = ProxyProtocol.parse(client)
-        if trusted_proxy_source?(remote_address.address)
-          return parsed_proxy if parsed_proxy
-        else
-          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
+
+      # Followers send a PROXY header in front of connections they proxy to the
+      # leader. It's trusted even if the follower isn't listed in
+      # proxy_protocol_trusted_sources, else the client address would be lost
+      from_follower = from_follower?(remote_address)
+      if from_follower || @config.tcp_proxy_protocol?
+        if (header = ProxyProtocol.read_trusted(client, remote_address, @config, Log, trusted: from_follower)) &&
+           (conn_info = header.to_conn_info)
+          return conn_info
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)
     end
 
-    # The client's addresses from the PROXY header of a follower forwarding
-    # its connection, see ClientListeners
-    private def from_follower(client : TCPSocket) : ConnectionInfo?
-      return unless @config.clustering?
-      address = client.remote_address.address
-      return unless @server.all_followers.any? { |f| f.remote_address.address == address }
-      ProxyProtocol.parse(client)
-    end
-
-    private def trusted_proxy_source?(address : String) : Bool
-      # If no trusted sources are configured, accept from all sources for backward compatibility
-      return true if @config.proxy_protocol_trusted_sources.empty?
-      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
+    private def from_follower?(remote_address) : Bool
+      @config.clustering? && @server.follower_address?(remote_address.address)
     end
 
     private def set_socket_options(socket)

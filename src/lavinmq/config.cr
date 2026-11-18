@@ -5,10 +5,12 @@ require "option_parser"
 require "ini"
 require "./version"
 require "./log_formatter"
+require "./log_backend"
 require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
+require "./filesystem"
 
 module LavinMQ
   class Config
@@ -21,6 +23,7 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -502,8 +505,25 @@ module LavinMQ
       new_config.parse_ini(@config_file)
       new_config.validate!
       new_config.try_to_open_log_file
+      sync_was = sync?
       apply(new_config)
       setup_logger
+      sync_data_dir_after_enabled if sync? && !sync_was
+    end
+
+    # What was written while sync was disabled is in the page cache only, and
+    # the syncs that follow cover only newer writes, so the data dir is synced
+    # once. It can take seconds under load, and until it's done a follower can
+    # ack that older data as durable.
+    private def sync_data_dir_after_enabled : Nil
+      sync_data_dir
+      Log.info { "Synced the data dir after sync was enabled" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to sync the data dir after sync was enabled" }
+    end
+
+    private def sync_data_dir : Nil
+      File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
     end
 
     # Try to open and immediately close the configured log file so an unopenable
@@ -530,13 +550,14 @@ module LavinMQ
     end
 
     private def setup_logger
-      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if journald_stream?
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+      backend = if path = @log_file
+                  LogBackend.new(path, formatter: StdoutLogFormat)
+                elsif journald_stream?
+                  LogBackend.new(formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  LogBackend.new(formatter: StdoutLogFormat)
                 end
+      broadcast_backend = ::Log::BroadcastBackend.new
 
       broadcast_backend.append(backend, @log_level)
 
@@ -551,6 +572,9 @@ module LavinMQ
       # federation/shovel layers (lmq.*), so keep the library's redundant
       # connection log out of the broker log.
       ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
+      # Closed once the new backend is bound so no entry in flight is lost
+      @log_backend.try &.close
+      @log_backend = backend
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
@@ -576,6 +600,14 @@ module LavinMQ
 
     def tls_configured?
       !@tls_cert_path.empty?
+    end
+
+    # Whether a PROXY header from *address* is trusted. With no trusted sources
+    # configured all sources are trusted, for backward compatibility
+    def trusted_proxy_source?(address : String) : Bool
+      sources = proxy_protocol_trusted_sources # read once, it can be replaced by a reload
+      return true if sources.empty?
+      sources.any?(&.matches?(address))
     end
 
     # The configured TCP keepalive, if any, on a connection

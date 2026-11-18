@@ -372,6 +372,8 @@ module MqttSpecs
         with_client_io(server) do |publisher_io|
           connect(publisher_io, client_id: "publisher")
           publish(publisher_io, topic: "a/b", qos: 0u8)
+          # Publishes are routed in order, so once this is acked the QoS 0 one has been routed
+          publish(publisher_io, topic: "sync", qos: 1u8)
           disconnect(publisher_io)
         end
 

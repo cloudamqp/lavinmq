@@ -34,6 +34,9 @@ module LavinMQ
       @broker_closing = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
+      # Connections from authenticated followers by address, from the moment
+      # they authenticate, before they're registered (see #follower_address?)
+      @follower_addresses = Hash(String, Int32).new(0)
       @password : String
       @dirty_isr = true
       @id : Int32
@@ -373,8 +376,13 @@ module LavinMQ
 
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
+        authenticated = false
+        address = socket.remote_address.address
         follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
+        # Before the follower hears that it authenticated, as it starts to
+        # forward client connections then, which the full sync of another
+        # follower, under @sync_lock, mustn't hold up
+        follower.negotiate!(@password, -> { authenticated = add_follower_address(address) })
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
@@ -403,7 +411,25 @@ module LavinMQ
       rescue Coordinator::StaleLeadership
         Log.info { "Not the leader anymore, disconnecting the follower" }
       ensure
+        remove_follower_address(address) if authenticated && address
         follower.try &.close
+      end
+
+      def follower_address?(address : String) : Bool
+        @lock.synchronize { @follower_addresses.has_key?(address) }
+      end
+
+      private def add_follower_address(address : String) : Bool
+        @lock.synchronize { @follower_addresses[address] += 1 }
+        true
+      end
+
+      private def remove_follower_address(address : String) : Nil
+        @lock.synchronize do
+          if (@follower_addresses[address] -= 1) <= 0
+            @follower_addresses.delete(address)
+          end
+        end
       end
 
       # Full-sync an already-registered follower into the Synced state, then
