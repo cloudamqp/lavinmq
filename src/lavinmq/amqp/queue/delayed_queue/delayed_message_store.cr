@@ -27,7 +27,7 @@ module LavinMQ::AMQP
         super
         # Not indexed if a segment failed to load: nothing is read from the
         # store until it's wiped
-        close_on_error { build_index } unless load_stopped?
+        close_on_error { build_index } unless failed?
       end
 
       def build_index

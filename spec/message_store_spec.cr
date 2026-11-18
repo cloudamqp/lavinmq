@@ -388,6 +388,21 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "isn't failed by a read error that isn't from data it can't decode" do
+      with_store do |store|
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        env = store.shift?.should_not be_nil
+        store.requeue(env.segment_position)
+        # As a requeued message whose segment has gone meanwhile
+        gone = LavinMQ::SegmentPosition.new(99u32, 4u32, env.segment_position.bytesize)
+        store.@requeued.shift?
+        store.@requeued.insert(gone)
+        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.failed?.should be_false
+        shift_body(store).should eq "body1"
+      end
+    end
+
     it "ignores acks and requeues of messages that a wipe removed" do
       with_store do |store|
         2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
@@ -434,6 +449,12 @@ describe LavinMQ::MessageStore do
         # Still failed after another load, until it's wiped
         store = LavinMQ::MessageStore.new(dir, nil)
         store.failed?.should be_true
+        store.@segments.keys.should eq [1u32, 2u32, 3u32, 4u32]
+        store.close
+        # A load doesn't add a segment if nothing was published since the last one
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.failed?.should be_true
+        store.@segments.keys.should eq [1u32, 2u32, 3u32, 4u32]
         store.wipe
         store.push(LavinMQ::Message.new("ex", "rk", "after"))
         store.close

@@ -430,6 +430,30 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "is removed by the purge that reaches it, with or without a count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          [nil, 1].each_with_index do |count, i|
+            name = "#{q_name}-#{i}"
+            q = ch.queue(name, durable: true)
+            queue = s.vhosts["/"].queue(name).as(LavinMQ::AMQP::DurableQueue)
+            3.times { |n| q.publish_confirm "msg#{n}" }
+            segment = queue.@msg_store.@segments.first_value
+            write_at(segment.path, unreadable_flags_pos(4, name), 0x0003u16)
+
+            count ? queue.purge(count) : queue.purge
+            queue.@msg_store.failed?.should be_false
+            queue.state.running?.should be_true
+            queue.message_count.should eq 0
+            queue.@msg_store.@segments.first_value.should_not eq segment
+            ch.closed?.should be_false
+            q.publish_confirm "new"
+            q.get(no_ack: true).try(&.body_io.to_s).should eq "new"
+          end
+        end
+      end
+    end
+
     it "stays paused after a purge if an operator paused it too" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

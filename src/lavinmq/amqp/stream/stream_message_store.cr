@@ -26,13 +26,7 @@ module LavinMQ::AMQP
     def initialize(*args, **kwargs)
       super
       # Nothing is dropped from a store that failed to load, it isn't counted
-      @last_offset = if @closed
-                       0i64
-                     elsif failed?
-                       last_offset_upper_bound
-                     else
-                       get_last_offset
-                     end
+      @last_offset = failed? ? last_offset_upper_bound : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow unless failed?
     end

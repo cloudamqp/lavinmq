@@ -545,13 +545,22 @@ module LavinMQ
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize do
-          # All of it goes if it has data that can't be read
-          next @msg_store.purge(max_count) unless @msg_store.failed?
+          purged = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
+          # All of it goes if it has data that can't be read, also when it was
+          # this purge that reached it
+          next purged unless @msg_store.failed?
           # What the client has in flight stays booked, its acks are ignored
-          @msg_store.wipe.tap { @store_readable.set(true) unless closed? }
+          purged + @msg_store.wipe.tap { @store_readable.set(true) unless closed? }
         end
         @log.info { "Purged #{count} messages" }
         count
+      end
+
+      private def purge_readable(max_count) : UInt32
+        @msg_store.purge(max_count)
+      rescue ex : MessageStore::Error
+        raise ex unless @msg_store.failed?
+        0_u32
       end
 
       def in_use? : Bool

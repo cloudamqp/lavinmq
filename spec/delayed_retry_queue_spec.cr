@@ -637,6 +637,32 @@ describe "Retry Queue" do
       end
     end
 
+    it "recovers a retry queue with data it can't read when its queue is purged with a count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("retry-failed", durable: true, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          q.publish_confirm "x"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-retry-failed").message_count == 1 }
+        end
+        segment = File.join(s.vhosts["/"].queue("amq.retry-retry-failed").@data_dir, "msgs.0000000001")
+        write_at(segment, 0, 9_u32) # an unsupported schema version
+        restart_server(s)
+        retry_q = s.vhosts["/"].queue("amq.retry-retry-failed")
+        primary = s.vhosts["/"].queue("retry-failed")
+        retry_q.state.paused?.should be_true
+        with_channel(s) do |ch|
+          q = ch.queue("retry-failed", durable: true, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
+          2.times { q.publish_confirm "ready" }
+          # The count is used up by the queue's own messages
+          primary.purge(1).should eq 1
+          primary.message_count.should eq 1
+          retry_q.state.running?.should be_true
+          retry_q.message_count.should eq 0
+        end
+      end
+    end
+
     it "should purge delayed messages with the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

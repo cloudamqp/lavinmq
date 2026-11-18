@@ -1562,22 +1562,16 @@ module LavinMQ::AMQP
       delete_count = @msg_store_lock.synchronize do
         # A close that took the lock first closed the store after the check above
         next 0_u32 if @msg_store.closed
-        # Checked under the lock, so that a message published or shifted for
-        # delivery between the check and the purge isn't purged uncounted
+        count = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
+        # Also when it was this purge that reached the data that can't be read
         if @msg_store.failed?
           # All of it goes, also what is delivered but not acked: what can be
           # read can't be told from what can't
           wiped = true
           @deliveries.clear
-          @msg_store.wipe
-        elsif unacked_count == 0 && max_count >= @msg_store.size
-          # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-          count = @msg_store.size
-          @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
-          count
-        else
-          @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+          count += @msg_store.wipe
         end
+        count
       end
       @log.info { "Purged #{delete_count} messages" }
       resume_after_wipe if wiped
@@ -1596,11 +1590,34 @@ module LavinMQ::AMQP
       raise ex
     end
 
+    # Under @msg_store_lock. A store error is left for the caller if the store
+    # hasn't failed, else the store is wiped.
+    private def purge_readable(max_count) : UInt32
+      # Checked under the lock, so that a message published or shifted for
+      # delivery between the check and the purge isn't purged uncounted
+      if unacked_count == 0 && max_count >= @msg_store.size
+        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+        count = @msg_store.size
+        @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+        count
+      else
+        @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+      end
+    rescue ex : MessageStore::Error
+      raise ex unless @msg_store.failed?
+      0_u32
+    end
+
+    protected def store_failed? : Bool
+      @msg_store.failed?
+    end
+
     # Delayed messages would otherwise be republished after their backoff,
-    # resurrecting messages the user just purged
+    # resurrecting messages the user just purged. A retry queue with data it
+    # can't read is purged whatever is left of the count, to get it usable.
     private def purge_delayed(max_count) : UInt32
       retry_queue = @delayed_retry_queue
-      return 0_u32 unless retry_queue && max_count > 0
+      return 0_u32 unless retry_queue && (max_count > 0 || retry_queue.store_failed?)
       retry_queue.purge(max_count)
     rescue ex : MessageStore::Error
       @log.error(ex) { "Failed to purge retry queue" }
