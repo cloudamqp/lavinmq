@@ -511,6 +511,29 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "can delete a queue whose segment can't be loaded" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "first"
+        end
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        data_dir = queue.@data_dir
+        write_at(queue.@msg_store.@segments.first_value.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+        restart_server(s)
+        s.vhosts["/"].queue(q_name).state.paused?.should be_true
+        with_channel(s) do |ch|
+          ch.queue_delete(q_name)
+          s.vhosts["/"].queue?(q_name).should be_nil
+          wait_for { !Dir.exists?(data_dir) }
+          # Declared again, it starts empty and running
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "new"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "new"
+        end
+      end
+    end
+
     it "pauses a queue with a segment of an unsupported schema version at load" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
