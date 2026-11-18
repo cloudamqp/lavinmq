@@ -962,6 +962,26 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        delayed_retry:                delayed_retry_details,
+        primary_queue:                primary_queue_name,
+      }
+    end
+
+    def primary_queue_name : String?
+    end
+
+    private def delayed_retry_details
+      settings = self.settings
+      return unless min = settings.delayed_retry_min
+      # Nil when the retry queue couldn't be created, e.g. a name too long
+      retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
+      {
+        min:              min,
+        multiplier:       settings.delayed_retry_multiplier,
+        max:              settings.delayed_retry_max,
+        delivery_limit:   settings.delivery_limit,
+        messages_delayed: retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:      retry_queue.try(&.name),
       }
     end
 
