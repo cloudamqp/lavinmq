@@ -11,11 +11,11 @@
     <script type="module" src="js/login.js"></script>
     <script>
       try {
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.classList.add('theme-dark')
-        } else {
-          document.documentElement.classList.add('theme-light')
+        const classes = (window.localStorage.getItem('lmq.stateclasses') || '').split(' ').filter(Boolean)
+        if (!classes.some(c => c.startsWith('theme-'))) {
+          classes.push(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'theme-dark' : 'theme-light')
         }
+        document.documentElement.classList.add(...classes)
       } catch(e) { console.warn(e) }
     </script>
   </head>
