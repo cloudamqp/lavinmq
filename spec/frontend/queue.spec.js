@@ -116,6 +116,27 @@ test.describe('queue', _ => {
       await expect(page.locator('#q-retry-queue a')).toHaveCount(0)
     })
 
+    test('updates the retry settings on poll when a policy changes them', async ({ apimap, page }) => {
+      await page.clock.install()
+      let delayedRetry = { min: 500, multiplier: 2, max: 30000, delivery_limit: 5, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+      await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/orders`, async route => {
+        await route.fulfill({ json: { ...queueResponse, name: 'orders', delayed_retry: delayedRetry } })
+      })
+      const bindingsLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/orders/bindings`, bindingResponse)
+      await page.goto(retryQueueUrl('orders'))
+      await bindingsLoaded
+      await expect(page.locator('#q-retry-min')).toHaveText('500 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Exponential x2')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('5')
+
+      delayedRetry = { ...delayedRetry, min: 2000, multiplier: null, delivery_limit: null }
+      await helpers.pollerSettled(page)
+      await page.clock.runFor(5000)
+      await expect(page.locator('#q-retry-min')).toHaveText('2,000 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Linear')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('None')
+    })
+
     test('links a retry queue back to its primary queue', async ({ apimap, page }) => {
       await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
       await expect(page.locator('#q-delayed-retry')).toBeHidden()
