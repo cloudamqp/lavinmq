@@ -116,6 +116,30 @@ describe "control socket" do
     end
   end
 
+  it "tells that the node is starting until it serves, and that it's a follower after" do
+    socket_path = File.tempname("lavinmqctl-spec", ".sock")
+    socket = LavinMQ::HTTP::ControlSocket.new(socket_path)
+    socket.bind!
+    get = -> do
+      client = HTTP::Client.new(UNIXSocket.new(socket_path))
+      response = client.get("/api/overview")
+      client.close
+      {response.status_code, response.body}
+    end
+    get.call.should eq({503, "This node is a follower and does not handle lavinmqctl commands. \n" \
+                             "Please connect to the leader node by using the --host option."})
+    socket.starting
+    get.call.should eq({503, "This node is starting and does not handle lavinmqctl commands yet, try again shortly."})
+    with_amqp_server do |s|
+      socket.api = s.http_server.handler
+      get.call[0].should eq 401 # the broker's API, which wants credentials here
+    end
+    socket.api = nil # stopped serving, e.g. lost leadership
+    get.call[1].should start_with "This node is a follower"
+  ensure
+    socket.try &.close
+  end
+
   describe "ControlSocket#bind" do
     it "skips binding when another node serves the control socket" do
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
