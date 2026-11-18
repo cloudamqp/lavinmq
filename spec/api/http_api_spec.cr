@@ -24,7 +24,33 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "GET /api/livelog" do
+    it "sends the response headers before the event stream" do
+      with_http_server do |http, _|
+        ::HTTP::Client.new(URI.parse http.test_uri("")) do |client|
+          client.read_timeout = 5.seconds
+          client.get("/api/livelog", headers: http.test_headers) do |response|
+            response.status_code.should eq 200
+            response.headers["Content-Type"].should eq "text/event-stream"
+            entry = ::Log::Entry.new("spec", :warn, "livelog", ::Log::Metadata.empty, nil)
+            ::Log::InMemoryBackend.instance.write(entry)
+            response.body_io.read_line.should start_with "id: "
+          end
+        end
+      end
+    end
+  end
+
   describe "GET /api/overview" do
+    it "is sent with Content-Length instead of chunked" do
+      with_http_server do |http, _|
+        response = http.get("/api/overview")
+        response.status_code.should eq 200
+        response.headers["Content-Length"]?.should_not be_nil
+        response.headers["Transfer-Encoding"]?.should be_nil
+      end
+    end
+
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/api/overview")
@@ -96,6 +122,21 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "publish")
         count.should eq(before_count.as_i + 10)
+      end
+    end
+
+    it "should log queue totals over the same window as the rates" do
+      with_http_server do |http, s|
+        3.times { s.update_stats_rates }
+        with_channel(s) do |ch|
+          ch.queue("totals_q", exclusive: true)
+          s.update_stats_rates
+          body = JSON.parse(http.get("/api/overview").body)
+          rates_size = body.dig("recv_oct_details", "log").size
+          body.dig("queue_totals", "messages_ready_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_unacknowledged_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_log").size.should eq rates_size
+        end
       end
     end
 

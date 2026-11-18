@@ -1,5 +1,6 @@
 require "../http/metrics_server"
 require "../etcd"
+require "../filesystem"
 require "./client"
 require "./etcd_coordinator"
 
@@ -9,6 +10,8 @@ class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  @lease : Etcd::Lease? = nil
+  @advertised_uri : String
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -20,9 +23,32 @@ class LavinMQ::Clustering::Controller
   def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator,
                  @metrics_server : HTTP::MetricsServer? = nil)
     @id = clustering_id
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @advertised_uri = self.class.advertised_uri(@config)
     @elected_leader = BoolChannel.new(false)
+  end
+
+  # The URI this node campaigns with, which followers read to find the leader:
+  # its replication address, and in the query the client ports it listens on,
+  # so followers forward to them even when their own ports differ. Ports given
+  # in the configured advertised_uri's query win, for when the leader is reached
+  # through other ports than it binds (NAT, container port mappings).
+  def self.advertised_uri(config : Config) : String
+    uri = URI.parse(config.clustering_advertised_uri ||
+                    "tcp://#{System.hostname}:#{config.clustering_port}")
+    params = uri.query_params
+    tls = config.tls_configured?
+    {
+      "amqp"  => config.amqp_port,
+      "amqps" => tls ? config.amqps_port : 0,
+      "mqtt"  => config.mqtt_port,
+      "mqtts" => tls ? config.mqtts_port : 0,
+      "http"  => config.http_port,
+      "https" => tls ? config.https_port : 0,
+    }.each do |protocol, port|
+      params[protocol] = port.to_s if port > 0 && !params.has_key?(protocol)
+    end
+    uri.query_params = params
+    uri.to_s
   end
 
   # This method is called by the Launcher#run.
@@ -31,7 +57,7 @@ class LavinMQ::Clustering::Controller
   # The method is blocking.
 
   def run(&)
-    lease = @lease = @etcd.lease_grant(id: @id)
+    lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
@@ -65,6 +91,14 @@ class LavinMQ::Clustering::Controller
     @lease.try &.release
   end
 
+  # Two nodes advertising the same replication address are the same node, even
+  # if they advertise different client ports
+  private def same_node?(a : String, b : String) : Bool
+    a = URI.parse(a)
+    b = URI.parse(b)
+    a.hostname == b.hostname && (a.port || 5679) == (b.port || 5679)
+  end
+
   # Each node in a cluster has an unique id, for tracking ISR
   private def clustering_id : Int32
     id_file_path = File.join(@config.data_dir, ".clustering_id")
@@ -72,8 +106,8 @@ class LavinMQ::Clustering::Controller
       id = File.read(id_file_path).to_i(36)
     rescue File::NotFoundError
       id = rand(Int32::MAX)
-      Dir.mkdir_p @config.data_dir
-      File.write(id_file_path, id.to_s(36))
+      FileSystem.mkdir_p @config.data_dir
+      FileSystem.replace(id_file_path, &.print(id.to_s(36)))
       Log.info { "Generated new clustering ID" }
     end
     id
@@ -87,6 +121,8 @@ class LavinMQ::Clustering::Controller
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
+          # Waits for a close already in progress, so the ports are free before
+          # the next client binds them, but it also holds up later leader events
           repli_client.close
         end
       end
@@ -94,7 +130,7 @@ class LavinMQ::Clustering::Controller
         Log.warn { "No leader available" }
         next
       end
-      if uri == @advertised_uri # if this instance has become leader
+      if same_node?(uri, @advertised_uri) # if this instance has become leader
         select
         when @elected_leader.when_true.receive
           Log.debug { "Elected leader, don't replicate from self" }

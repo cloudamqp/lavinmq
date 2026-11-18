@@ -24,19 +24,6 @@ module StreamSpecHelpers
     end
   end
 
-  # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
-  def self.mapped_rss_kb(path : String) : Int32
-    in_mapping = false
-    File.each_line("/proc/self/smaps") do |line|
-      if line.ends_with?(path)
-        in_mapping = true
-      elsif in_mapping && line.starts_with?("Rss:")
-        return line.split[1].to_i
-      end
-    end
-    fail("No mapping found for #{path}")
-  end
-
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
@@ -60,6 +47,30 @@ describe LavinMQ::AMQP::Stream do
             }))
           end
         end
+      end
+    end
+  end
+
+  describe "Purge" do
+    it "purges nothing from a store that closed while the purge waited for the lock" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("purge-closing-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        q = s.vhosts["/"].queue("purge-closing-stream")
+        lock = q.@msg_store_lock
+        lock.lock
+        purged = Channel(UInt32 | Exception).new
+        spawn do
+          purged.send q.purge
+        rescue ex
+          purged.send ex
+        end
+        Fiber.yield
+        q.@msg_store.close
+        lock.unlock
+        purged.receive.should eq 0
       end
     end
   end
@@ -911,6 +922,46 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "redelivers requeued messages with their offset, in any order" do
+    queue_name = Random::Secure.hex
+    data = "x" * 1000
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue(queue_name, args: stream_queue_args)
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+        1500.times { stream.publish(LavinMQ::Message.new("", queue_name, data)) }
+        store.@segments.size.should be > 2
+        offsets = Hash(LavinMQ::SegmentPosition, Int64).new
+        store.@segments.each_key do |seg|
+          pos = 4u32
+          while env = store.read(seg, pos)
+            offsets[env.segment_position] = offsets.size.to_i64 + 1
+            pos += env.segment_position.bytesize
+          end
+        end
+        offsets.size.should eq 1500
+
+        ch.flow(false) # the spec drives the redeliveries
+        ch.prefetch 1
+        q.subscribe(no_ack: false) { }
+        wait_for { stream.@consumers.size == 1 }
+        consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+        {offsets.keys, offsets.keys.shuffle!}.each do |sps|
+          sps.each { |sp| stream.push_requeued(consumer, sp) }
+          sps.each do |sp|
+            env = stream.@msg_store_lock.synchronize { store.shift?(consumer) }.should_not be_nil
+            env.segment_position.should eq sp
+            headers = env.message.properties.headers.should_not be_nil
+            headers["x-stream-offset"].should eq offsets[sp]
+          end
+        end
+        # Only the segments that are read or written keep their index
+        store.@offset_index.keys.to_set.should eq Set{consumer.segment, store.@segments.last_key}
+      end
+    end
+  end
+
   it "can start consume from last segment even if queue is empty" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1014,6 +1065,54 @@ describe LavinMQ::AMQP::Stream do
         bytesize = consumer_tag.bytesize + 1 + 8
         msg_store.@consumer_offsets.size.should eq bytesize
         msg_store.close
+      end
+    end
+
+    it "unmaps the segments it opened when loading raises" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+        # MFile can't open a directory, so loading fails after segment 1 is mapped
+        Dir.mkdir(File.join(data_dir, "msgs.0000000002"))
+        count_before = MFile.mmap_count
+        expect_raises(File::Error) { LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil) }
+        MFile.mmap_count.should eq count_before
+      end
+    end
+
+    # Closing the store runs StreamMessageStore#close, which closes state
+    # that is only set up after loading, and crashed the process
+    it "closes instead of crashing when a segment has an unsupported schema version" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "msgs.0000000001"), "\x09\x00\x00\x00")
+        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+      end
+    end
+
+    it "closes instead of crashing when a record in a segment can't be decoded" do
+      with_datadir do |data_dir|
+        io = IO::Memory.new
+        io.write_bytes LavinMQ::Schema::VERSION
+        io.write_bytes 1_i64       # timestamp
+        io.write_byte 0_u8         # exchange name
+        io.write_byte 0_u8         # routing key
+        io.write_bytes 0_u16       # property flags
+        io.write_bytes UInt64::MAX # body size, overflows when skipped
+        File.write(File.join(data_dir, "msgs.0000000001"), io.to_slice)
+        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+      end
+    end
+
+    it "starts with a stream queue whose segment is corrupt, and closes that queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          q.publish_confirm "x"
+        end
+        segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
+        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        s.vhosts["/"].queue("corrupt-stream").closed?.should be_true
+        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
       end
     end
 
@@ -1757,9 +1856,9 @@ describe LavinMQ::AMQP::Stream do
             consumer.requeued.push(sp2)
 
             stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
+            mapped_rss_kb(first.path).should be > 0
             stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+            mapped_rss_kb(first.path).should eq 0
           end
         end
       end
@@ -1776,7 +1875,7 @@ describe LavinMQ::AMQP::Stream do
           end
           stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
           first = stream.stream_msg_store.@segments.first_value
-          StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+          mapped_rss_kb(first.path).should eq 0
         end
       end
 

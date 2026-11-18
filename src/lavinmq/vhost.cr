@@ -42,7 +42,8 @@ module LavinMQ
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
-    {% for key in DEAD_LETTER_KEYS %}
+    MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
+    {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
       def {{ key.id }}_count : UInt64
@@ -156,6 +157,10 @@ module LavinMQ
 
     def register_queue(queue : AMQP::Queue) : Nil
       definitions.register_queue(queue)
+    end
+
+    def synchronize_definitions(&)
+      definitions.synchronize { yield }
     end
 
     def queues_clear : Nil
@@ -495,8 +500,15 @@ module LavinMQ
 
     def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
+      previous = @parameters[p.name]?
       @parameters.create(p, save: save)
-      apply_parameters(p)
+      begin
+        apply_parameters(p)
+      rescue ex
+        # The old config still runs in memory, so put its parameter back
+        previous.try { |prev| @parameters.create(prev, save: save) }
+        raise ex
+      end
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
@@ -677,6 +689,14 @@ module LavinMQ
         dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
       when :rejected
         dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
+    def count_mqtt_published(qos : UInt8) : Nil
+      case qos
+      when 0 then @mqtt_published_qos0_count.add(1, :relaxed)
+      when 1 then @mqtt_published_qos1_count.add(1, :relaxed)
+      when 2 then @mqtt_published_qos2_count.add(1, :relaxed)
       end
     end
 

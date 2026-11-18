@@ -127,7 +127,6 @@ module LavinMQ
       end
 
       def create(name, config)
-        @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
         delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -145,6 +144,9 @@ module LavinMQ
           direct_user: @vhost.users.direct_user)
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
+        # Terminated only after the new config parsed, so a rejected update
+        # leaves the old shovel running
+        @shovels[name]?.try &.terminate
         @shovels[name] = shovel
         spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
         shovel
