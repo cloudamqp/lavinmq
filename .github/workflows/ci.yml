@@ -660,8 +660,9 @@ jobs:
     runs-on: ubuntu-26.04
     needs: compile
     env:
-      QC_VERSION: v0.2.4
+      QC_VERSION: v0.2.5
       QC_BIN: lavinmq-quickcheck-tests-x86_64-linux
+      QC_AE_MODE: per-exchange
     steps:
       - name: Install LavinMQ dependencies
         run: |
