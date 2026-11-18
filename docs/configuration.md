@@ -23,6 +23,8 @@ Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file 
 
 Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
 
+A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
+
 ## [main] Section
 
 | INI Key | CLI Flag | Env Var | Type | Default | Description |
