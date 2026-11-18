@@ -66,7 +66,7 @@ module LavinMQ
       end
       setup_sni_callbacks
       setup_signal_traps
-      SystemD::MemoryPressure.monitor { GC.collect }
+      GCPauseRecorder.install
     end
 
     private def start : self
@@ -130,6 +130,9 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       Log.info { "Parallelism: #{Fiber::ExecutionContext.default.capacity}" }
+      {% if flag?(:patched_libgc) %}
+        Log.info { "libgc #{GC::LIBGC_VERSION}, mark stack growth: #{LibGC.get_grow_mark_stack == 1 ? "on" : "off"}" }
+      {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
       Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
@@ -458,9 +461,9 @@ module LavinMQ
     end
 
     # The servername callback swaps in the SNI host's context, which carries
-    # the certificate and mTLS settings. TLS version and cipher settings
-    # cannot ride on that switch: OpenSSL selects them before the callback
-    # runs, so the listener's settings apply to every SNI host.
+    # the certificate and mTLS settings. The TLS version comes from the
+    # listener, and the listener's cipher settings are set when Config builds
+    # the SNI contexts, so the listener's TLS settings apply to every SNI host.
     private def setup_sni_callbacks_for(ctx : OpenSSL::SSL::Context::Server?, protocol : Symbol, label : String) : Nil
       return unless ctx
       ctx.on_server_name do |hostname|

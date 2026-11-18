@@ -13,7 +13,7 @@ module LavinMQ
         get "/api/vhost-limits/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            [VHostLimitsView.new(vhost).self_if_limited].compact.to_json(context.response)
+            [VHostLimitsView.new(vhost).self_if_limited].compact.to_json(context.response.output)
           end
         end
 

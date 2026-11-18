@@ -176,10 +176,11 @@ module LavinMQ
         packet
       end
 
-      def send(packet)
+      # Over WebSocket every packet is flushed, one WebSocket frame per packet like the AMQP path
+      def send(packet, flush = true)
         @lock.synchronize do
           @io.write_packet(packet)
-          @io.flush
+          @io.flush if flush || websocket?
           @send_oct_count.add(packet.bytesize, :relaxed)
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
@@ -194,6 +195,14 @@ module LavinMQ
         when Protocol::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
+      end
+
+      def flush
+        @lock.synchronize { @io.flush }
+      end
+
+      private def websocket?
+        @io.io.is_a?(LavinMQ::WebSocketIO)
       end
 
       def receive_pingreq(packet : Protocol::PingReq)

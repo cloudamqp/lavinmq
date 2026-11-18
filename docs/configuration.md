@@ -119,9 +119,10 @@ A reload reads the file on top of the running configuration, so a setting remove
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
+| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers. Defaults to `tcp://<hostname>:<port>`. The node adds the client ports it listens on to the query, e.g. `?amqp=5672&http=15672`; ports given here take precedence (see [Clustering](clustering.md)) |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
+| `etcd_lease_ttl` | `--clustering-etcd-lease-ttl` | `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL` | Int | `10` | etcd lease TTL in seconds. The leader exits if the lease isn't renewed in time, so raise it if long GC pauses cause leadership loss. Higher values also delay failover |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |
@@ -182,6 +183,16 @@ tls_ca_cert = /path/to/ca.pem
 | `-d`, `--debug` | Verbose logging (sets log_level to debug) |
 | `--build-info` | Print build information and exit |
 | `--raise-gc-warn` | Raise on GC warnings |
+
+## Garbage Collector
+
+The packages and Docker images link libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc), which grows the GC mark stack when thousands of connections and queues overflow it and lets the parallel markers share the fiber stacks. The startup log shows the libgc release and whether growth is on:
+
+```
+libgc 8.2.12-lavinmq.1, mark stack growth: on
+```
+
+Set the environment variable `GC_DISABLE_GROW_MARK_STACK=1` to switch growth off. libgc reads it at startup, like its other [environment variables](https://github.com/cloudamqp/bdwgc/blob/lavinmq/doc/README.environment) such as `GC_MARKERS`. To link the system libgc instead, build from source with `make LIBGC=`.
 
 ## Deprecated Options
 

@@ -102,6 +102,14 @@ make
 sudo make install # optional
 ```
 
+`make` builds libgc from [cloudamqp/bdwgc](https://github.com/cloudamqp/bdwgc)
+and links it statically. The fork grows the GC mark stack when thousands of
+connections and queues overflow it, which otherwise makes every collection
+several times slower. `make LIBGC=` links the system libgc instead.
+
+`make deps` downloads the shards, JS libraries and libgc source, so that a
+package build can run without network access.
+
 ## Using LavinMQ
 
 ### Getting Started

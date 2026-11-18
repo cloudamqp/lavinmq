@@ -3,8 +3,9 @@
 # verify mode, verify depth, and client CA list.
 # Without this, mTLS breaks when switching contexts via SNI.
 # The connection keeps the listener's options: OpenSSL selects the TLS
-# version and cipher before this callback runs, so option changes here
-# could only clear post-handshake hardening like the renegotiation ban.
+# version before this callback runs, so option changes here could only
+# clear post-handshake hardening like the renegotiation ban. The TLS 1.2
+# cipher is picked after it, from the swapped-in context (see SNIHost).
 
 require "openssl"
 

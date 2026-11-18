@@ -26,7 +26,7 @@ module LavinMQ
         get "/api/vhosts/:name" do |context, params|
           with_vhost(context, params, vhost_key: "name") do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            VHostView.new(vhost).to_json(context.response)
+            VHostView.new(vhost).to_json(context.response.output)
           end
         end
 
@@ -68,7 +68,7 @@ module LavinMQ
             @server.users.compact_map do |_, u|
               next if u.hidden?
               u.permissions[vhost.name]?.try { |p| u.permissions_details(vhost.name, p) }
-            end.to_json(context.response)
+            end.to_json(context.response.output)
           end
         end
       end

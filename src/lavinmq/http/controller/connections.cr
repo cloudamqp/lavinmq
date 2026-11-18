@@ -35,7 +35,7 @@ module LavinMQ
 
         get "/api/connections/:name" do |context, params|
           with_connection(context, params) do |connection|
-            connection.to_json(context.response)
+            connection.to_json(context.response.output)
           end
         end
 
