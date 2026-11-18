@@ -573,6 +573,8 @@ module LavinMQ::AMQP
           settings.enforce_limits = true
           return true
         end
+      when "delayed-retry-min", "delayed-retry-multiplier", "delayed-retry-max"
+        return apply_delayed_retry_policy(key, value.as_i64)
       when "federation-upstream"
         settings.federation_upstream = value.as_s
         return true
@@ -587,6 +589,29 @@ module LavinMQ::AMQP
         end
       end
       false
+    end
+
+    # A policy only tunes the retries of a queue declared with
+    # x-delayed-retry-min; it never enables or disables them, so the retry
+    # queue is created and deleted with the queue only
+    private def apply_delayed_retry_policy(key : String, value : Int64) : Bool
+      settings = @staged_settings
+      return false unless settings.delayed_retry_min
+      return false if value < 1
+      case key
+      when "delayed-retry-min"
+        return false if settings.delayed_retry_min.try &.< value
+        settings.delayed_retry_min = value
+      when "delayed-retry-multiplier"
+        return false if value > Int32::MAX
+        return false if settings.delayed_retry_multiplier.try &.< value
+        settings.delayed_retry_multiplier = value.to_i32
+      when "delayed-retry-max"
+        return false if settings.delayed_retry_max.try &.< value
+        settings.delayed_retry_max = value
+      end
+      settings.effective_args.delete("x-#{key}")
+      true
     end
 
     private def clear_policy_arguments
@@ -970,6 +995,26 @@ module LavinMQ::AMQP
         effective_arguments:          settings.effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        delayed_retry:                delayed_retry_details,
+        primary_queue:                primary_queue_name,
+      }
+    end
+
+    def primary_queue_name : String?
+    end
+
+    private def delayed_retry_details
+      settings = self.settings
+      return unless min = settings.delayed_retry_min
+      # Nil when the retry queue couldn't be created, e.g. a name too long
+      retry_queue = @retry_queue_lock.synchronize { @delayed_retry_queue }
+      {
+        min:              min,
+        multiplier:       settings.delayed_retry_multiplier,
+        max:              settings.delayed_retry_max,
+        delivery_limit:   settings.delivery_limit,
+        messages_delayed: retry_queue.try(&.message_count) || 0_u32,
+        retry_queue:      retry_queue.try(&.name),
       }
     end
 
@@ -1261,7 +1306,6 @@ module LavinMQ::AMQP
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
-      @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
@@ -1281,7 +1325,6 @@ module LavinMQ::AMQP
           @redeliver_count.add(1, :relaxed)
         else
           no_ack ? @deliver_no_ack_count.add(1, :relaxed) : @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
         end
       end
     end
@@ -1319,8 +1362,18 @@ module LavinMQ::AMQP
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
-            yield env # deliver the message
-            # requeuing of failed delivery is up to the consumer
+            begin
+              yield env # deliver the message
+            rescue ex : AMQP::Channel::UnrecordedError
+              # No client got it, so it's put back as if never shifted: not
+              # counted as a delivery attempt or a reject
+              @unacked_count.sub(1, :relaxed)
+              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              uncount_delivery(sp) if settings.counts_deliveries?
+              redeliver_message(sp, route_to_retry: false)
+              raise ex
+            end
+            # requeuing of other failed deliveries is up to the consumer
           end
           # Signal expire loop to recalculate wait time for next message
           @message_ttl_change.try_send? nil
@@ -1358,6 +1411,15 @@ module LavinMQ::AMQP
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
       env.message.properties.headers = headers
       delivery_count > 0 ? env.as_redelivered : env
+    end
+
+    # Undoes the count #with_delivery_count_header added
+    private def uncount_delivery(sp : SegmentPosition) : Nil
+      @msg_store_lock.synchronize do
+        if count = @deliveries[sp]?
+          count > 1 ? (@deliveries[sp] = count - 1) : @deliveries.delete(sp)
+        end
+      end
     end
 
     # See #strip_delivery_count for why the header can be trusted here

@@ -38,7 +38,9 @@ module LavinMQ
       @msg_store : SessionMessageStore
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
-      @deleted = false
+      @deleted = Atomic(Bool).new(false)
+      # Closed once a delete has removed the session from the vhost
+      @deletion_done = ::Channel(Nil).new
       @client : MQTT::Client? = nil
       @client_lock = Mutex.new
       @permission_service : PermissionService
@@ -55,6 +57,10 @@ module LavinMQ
       # False while the store has data it can't read, until it's purged
       @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
+      # This session's topic filters and their QoS, kept by the MQTT exchange
+      # as it binds and unbinds them, so finding a session's subscriptions
+      # doesn't walk every subscription in the vhost
+      @subscriptions = Hash(String, UInt8).new
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -123,15 +129,27 @@ module LavinMQ
       end
 
       def delete : Bool
-        return false if @deleted
-        @deleted = true
-        close
-        @msg_store_lock.synchronize do
-          @msg_store.delete
+        return false if @deleted.swap(true)
+        begin
+          close
+          @msg_store_lock.synchronize do
+            @msg_store.delete
+          end
+          @replicator.try &.delete_file(@metadata_file)
+          @vhost.delete_queue(@name)
+        ensure
+          @deletion_done.close
         end
-        @replicator.try &.delete_file(@metadata_file)
-        @vhost.delete_queue(@name)
         true
+      end
+
+      def deleting? : Bool
+        @deleted.get
+      end
+
+      # Returns once a delete in progress has removed the session from the vhost
+      def wait_for_deletion : Nil
+        @deletion_done.receive?
       end
 
       def clean_session?
@@ -290,19 +308,44 @@ module LavinMQ
 
       # A concurrent API deletion can make the bind fail.
       # TODO: Check session identity under the definitions lock before binding.
+      # @subscriptions is only written under the definitions lock, by the MQTT
+      # exchange, so the lookup and the bind it decides on happen under it too
       def subscribe(tf, qos) : Bool
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return true if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+        @vhost.synchronize_definitions do
+          if current = @subscriptions[tf]?
+            next true if current == qos
+            unbind(tf, MQTT.qos_arguments(current))
+          end
+          @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
       end
 
       def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
+        @vhost.synchronize_definitions do
+          if qos = @subscriptions[tf]?
+            unbind(tf, MQTT.qos_arguments(qos))
+          end
         end
+      end
+
+      # Not for binding or unbinding from the block: the MQTT exchange changes
+      # the hash as it does
+      def each_subscription(& : String, UInt8 ->) : Nil
+        @subscriptions.each { |filter, qos| yield filter, qos }
+      end
+
+      # Called by the MQTT exchange for every binding, whether from a
+      # SUBSCRIBE, the HTTP API, a definitions import or a restore at startup
+      protected def subscription_bound(filter : String, qos : UInt8) : Nil
+        @subscriptions[filter] = qos
+      end
+
+      protected def subscription_unbound(filter : String) : Nil
+        @subscriptions.delete(filter)
+      end
+
+      protected def clear_subscriptions : Nil
+        @subscriptions.clear
       end
 
       def deliver(msg : Message, filter : String, ctx : PublishContext) : Bool
@@ -317,7 +360,7 @@ module LavinMQ
           return false
         end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
-        return false if @deleted || closed?
+        return false if deleting? || closed?
         @msg_store_lock.synchronize do
           # Again under the lock: the fiber that held it can close the session
           # before this one runs, and raising here would fail the whole fan-out
@@ -331,10 +374,6 @@ module LavinMQ
 
       def bindings
         @vhost.queue_bindings(self)
-      end
-
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
       end
 
       private def unbind(rk, arguments)
@@ -357,7 +396,6 @@ module LavinMQ
                   @redeliver_count.add(1, :relaxed)
                 else
                   @deliver_no_ack_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
                 end
               rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -390,7 +428,6 @@ module LavinMQ
                   @redeliver_count.add(1, :relaxed)
                 else
                   @deliver_count.add(1, :relaxed)
-                  @deliver_get_count.add(1, :relaxed)
                 end
                 @msg_store.forget_packet_id(sp)
                 refresh_capacity
@@ -530,10 +567,6 @@ module LavinMQ
       def pause!; end
 
       def resume!; end
-
-      def restart! : Bool
-        false
-      end
 
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running

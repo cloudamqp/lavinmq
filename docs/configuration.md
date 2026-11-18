@@ -43,7 +43,7 @@ A reload reads the file on top of the running configuration, so a setting remove
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
 | `tls_ktls` | `--tls-ktls` | — | Bool | `false` | Enable kernel TLS offloading |
 | `stats_interval` | — | — | Int | `5000` | Statistics collection interval (ms) |
-| `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain |
+| `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain, must be at least `1` |
 | `set_timestamp` | — | — | Bool | `false` | Set timestamp on received messages |
 | `socket_buffer_size` | — | — | Int | `16384` | Socket buffer size (bytes) |
 | `tcp_nodelay` | — | — | Bool | `true` | Disable Nagle's algorithm |

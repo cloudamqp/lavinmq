@@ -1,5 +1,15 @@
 require "../spec_helper"
 
+class LavinMQ::MQTT::Exchange
+  # Counts walks over every subscription in the vhost
+  class_property bindings_details_calls = 0
+
+  def bindings_details : Array(SubscriptionDetails)
+    @@bindings_details_calls += 1
+    previous_def
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -247,6 +257,74 @@ module MqttSpecs
           disconnect(io)
         end
         server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
+
+    it "doesn't walk every subscription in the vhost on SUBSCRIBE, UNSUBSCRIBE or a clean disconnect" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "walker", clean_session: true)
+          LavinMQ::MQTT::Exchange.bindings_details_calls = 0
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          # Changes the QoS of an existing subscription
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"c/d", 0u8}))
+          unsubscribe(io, topics: ["c/d"])
+          disconnect(io)
+        end
+        # The clean session is deleted, unbinding what it still holds
+        wait_for { server.vhosts["/"].session?("mqtt.walker").nil? }
+        LavinMQ::MQTT::Exchange.bindings_details_calls.should eq 0
+        server.vhosts["/"].mqtt_subscription_tree.empty?.should be_true
+      end
+    end
+
+    it "lists a session's current subscriptions as its bindings" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "lister")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"c/d", 1u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          unsubscribe(io, topics: ["c/d"])
+          session = server.vhosts["/"].session("mqtt.lister")
+          subscriptions = session.bindings.compact_map do |b|
+            next if b.source.empty? # the default exchange binding
+            {b.binding_key.routing_key, LavinMQ::MQTT.qos(b.binding_key.arguments)}
+          end
+          subscriptions.should eq [{"a/b", 1u8}]
+          disconnect(io)
+        end
+      end
+    end
+
+    it "grants SUBSCRIBE to a clean session that reconnects while its previous session is being deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        with_client_io(server) do |prev_io|
+          connect(prev_io, client_id: "reconnect", clean_session: true)
+          subscribe(prev_io, topic_filters: mk_topic_filters({"r/a", 0u8}))
+          previous = vhost.session("mqtt.reconnect")
+          with_client_io(server) do |io|
+            # Holding the definitions lock stalls the previous session's delete
+            # after it has closed but before it leaves the vhost, as another
+            # client's session declare holding the lock does
+            vhost.synchronize_definitions do
+              disconnect(prev_io)
+              wait_for { previous.closed? }
+              connect(io, client_id: "reconnect", clean_session: true, expect_response: false)
+              subscribe(io, topic_filters: mk_topic_filters({"r/b", 0u8}), expect_response: false)
+              sleep 0.1.seconds # lets the CONNECT and SUBSCRIBE reach the broker
+            end
+            read_packet(io).should be_a(MQTT::Protocol::Connack)
+            suback = read_packet(io).as(MQTT::Protocol::SubAck)
+            suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+            session = vhost.session("mqtt.reconnect")
+            session.should_not be previous
+            session.bindings.map(&.binding_key.routing_key).should contain "r/b"
+            disconnect(io)
+          end
+        end
       end
     end
   end
