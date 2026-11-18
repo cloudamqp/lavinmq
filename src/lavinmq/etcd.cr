@@ -373,8 +373,8 @@ module LavinMQ
       return unless error_msg
       Log.debug { "etcd error: #{error_msg}" }
       case error_msg
-      when "error reading from server: EOF"
-        raise IO::EOFError.new(error_msg)
+      when "error reading from server: EOF" # the member is shutting down, retried like a lost connection
+        raise Error.new(error_msg)
       when "etcdserver: no leader"
         raise NoLeader.new(error_msg)
       when "etcdserver: lease already exists"
