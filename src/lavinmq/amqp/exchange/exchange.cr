@@ -53,13 +53,6 @@ module LavinMQ
             @staged_effective_args.delete("alternate-exchange")
             return true
           end
-        when "delayed-message"
-          if value.as?(Bool) == true
-            @staged_effective_args.delete("x-delayed-message")
-            @delayed = true
-            init_delayed_queue
-            return true
-          end
         when "federation-upstream"
           @staged_federation_upstream = value.as_s unless internal?
           return true

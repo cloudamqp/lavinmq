@@ -417,7 +417,6 @@ module LavinMQ
             @deliver_count.add(1, :relaxed)
             @client.vhost.event_tick(EventType::ClientDeliver)
           end
-          @deliver_get_count.add(1, :relaxed)
         end
       end
 
@@ -500,17 +499,8 @@ module LavinMQ
               @get_count.add(1, :relaxed)
               @client.vhost.event_tick(EventType::ClientGet)
             end
-            @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
-              delivery_tag = begin
-                next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-              rescue ex : ClosedError
-                # Only raised in ack mode, where requeuing is up to the caller.
-                # The channel closed after the message was shifted, so it was
-                # never recorded as unacked and close won't requeue it.
-                q.requeue(env.segment_position)
-                raise ex
-              end
+              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
                 q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
               end
@@ -867,14 +857,15 @@ module LavinMQ
         @client.close_channel(self)
       end
 
-      # Raises ClosedError if the channel is closed, so that no unacked message
-      # is recorded after #close has requeued them. An Unack recorded under
-      # the lock while the channel is still running is always requeued by close.
+      # Raises UnrecordedError if the channel is closed, so that no unacked
+      # message is recorded after #close has requeued them. An Unack recorded
+      # under the lock while the channel is still running is always requeued
+      # by close.
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
           @unack_lock.synchronize do
-            raise ClosedError.new("Channel is closed") unless @running
+            raise UnrecordedError.new("Channel is closed") unless @running
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
           end
           add = consumer ? 0u32 : 1u32
@@ -1029,6 +1020,10 @@ module LavinMQ
       end
 
       class ClosedError < Error; end
+
+      # The channel closed before it recorded a delivery as unacked, so the
+      # message never reached the client and close won't requeue it
+      class UnrecordedError < ClosedError; end
     end
   end
 end

@@ -14,6 +14,14 @@ Helpers.disableUserMenuVhost()
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
+
+// A link to another queue only changes the hash, and the queue is read once
+// above. The tabs also keep their state in the hash, so only reload when the
+// queue changes.
+window.addEventListener('hashchange', () => {
+  const params = new URLSearchParams(window.location.hash.substring(1))
+  if (params.get('name') !== queue || params.get('vhost') !== vhost) window.location.reload()
+})
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 document.title = queue + ' | LavinMQ'
@@ -94,6 +102,42 @@ function handleQueueState (state) {
   }
 }
 
+function formatDelay (ms) {
+  return Helpers.formatNumber(ms) + ' ms'
+}
+
+function retryBackoff (multiplier) {
+  if (multiplier == null) return 'Linear'
+  if (multiplier === 1) return 'Constant'
+  return `Exponential x${multiplier}`
+}
+
+function queueLink (vhost, name) {
+  const link = document.createElement('a')
+  link.href = HTTP.url`queue#vhost=${vhost}&name=${name}`
+  link.textContent = name
+  return link
+}
+
+function renderDelayedRetry (item) {
+  const retry = item.delayed_retry
+  document.getElementById('q-delayed-retry').classList.toggle('hide', !retry)
+  if (!retry) return
+  document.getElementById('q-retry-messages-delayed').textContent = Helpers.formatNumber(retry.messages_delayed)
+  document.getElementById('q-retry-min').textContent = formatDelay(retry.min)
+  document.getElementById('q-retry-backoff').textContent = retryBackoff(retry.multiplier)
+  document.getElementById('q-retry-max').textContent = retry.max == null ? 'None' : formatDelay(retry.max)
+  document.getElementById('q-retry-delivery-limit').textContent = retry.delivery_limit == null ? 'None' : Helpers.formatNumber(retry.delivery_limit)
+  const retryQueue = retry.retry_queue ? queueLink(item.vhost, retry.retry_queue) : 'None'
+  document.getElementById('q-retry-queue').replaceChildren(retryQueue)
+}
+
+function renderPrimaryQueue (item) {
+  document.getElementById('q-primary-queue-row').classList.toggle('hide', !item.primary_queue)
+  if (!item.primary_queue) return
+  document.getElementById('q-primary-queue').replaceChildren(queueLink(item.vhost, item.primary_queue))
+}
+
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 let detailsRendered = false
@@ -118,6 +162,7 @@ function updateQueue (all, signal) {
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
+      renderDelayedRetry(item)
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       // MQTT sessions are rendered through this page too but don't expose a
       // consumer_details array; guard so the rest of the page (policy, args, …)
@@ -139,6 +184,7 @@ function updateQueue (all, signal) {
         document.getElementById('q-features').innerText = features.join(', ')
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
+        renderPrimaryQueue(item)
         if (item.policy) {
           const policyLink = document.createElement('a')
           policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
