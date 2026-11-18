@@ -25,10 +25,9 @@ module LavinMQ
         forget_packet_id(sp)
       end
 
-      # A segment a purge removed for data that can't be read, with its messages
-      private def drop_segment(seg : UInt32) : Nil
-        super
-        @packet_ids.reject! { |sp, _| sp.segment == seg }
+      # A session with a segment that can't be loaded is closed
+      private def load_failed : Nil
+        close_store
       end
     end
   end

@@ -10,7 +10,6 @@ class SpyReplicator
   getter registered_files = Hash(String, Symbol).new
   getter deleted_files = Set(String).new
   getter replaced_files = Array(String).new
-  getter appended_values = Array({String, UInt32 | Int32}).new
 
   def register_file(path : String)
     @registered_files[path] = :path
@@ -36,7 +35,6 @@ class SpyReplicator
   end
 
   def append_value(path : String, value : UInt32 | Int32, offset : Int64)
-    @appended_values << {path, value}
   end
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
@@ -362,190 +360,86 @@ describe LavinMQ::MessageStore do
   end
 
   describe "data that can't be read" do
-    it "leaves a requeued message in the store when its read fails, to be read again" do
+    # The body size of the message at *pos*, published to "ex" with "rk"
+    bodysize_pos = ->(pos : Int32) { pos + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize }
+
+    it "fails the store, which isn't read until it's wiped" do
       with_store do |store|
-        store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        env = store.shift?.should_not be_nil
-        sp = env.segment_position
-        store.requeue(sp)
-        path = store.@segments[sp.segment].path
-        bodysize_pos = sp.position + sp.bytesize - "body".bytesize - sizeof(UInt64)
-        write_at(path, bodysize_pos, UInt64::MAX)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        segment = store.@segments.first_value
+        write_at(segment.path, bodysize_pos.call(4), UInt64::MAX)
         2.times do
-          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
           expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-          store.size.should eq 1
-          store.empty?.should be_false
+          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
         end
-        write_at(path, bodysize_pos, "body".bytesize.to_u64)
-        shift_body(store).should eq "body"
-        store.size.should eq 0
-      end
-    end
-
-    it "isn't written after, in the segment written to" do
-      with_store do |store|
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
-        segment = store.@segments.first_value
-        write_at(segment.path, 0, 0x64636261) # schema version
-        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.failed?.should be_true
         store.push(LavinMQ::Message.new("ex", "rk", "body2"))
-        store.@segments.keys.should eq [1u32, 2u32]
-        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-        store.size.should eq 3
-        # Readable again, e.g. by the version that wrote it
-        write_at(segment.path, 0, LavinMQ::Schema::VERSION)
-        3.times { |i| shift_body(store).should eq "body#{i}" }
-      end
-    end
 
-    it "is given up by a purge, for a requeued message" do
-      with_store do |store|
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
-        env = store.shift?.should_not be_nil
-        sp = env.segment_position
-        store.requeue(sp)
-        path = store.@segments[sp.segment].path
-        write_at(path, sp.position + sp.bytesize - "body0".bytesize - sizeof(UInt64), UInt64::MAX)
-        # Its whole segment goes, as an ack of it wouldn't let a load skip it
-        store.purge.should eq 0
+        store.wipe.should eq 3
+        store.failed?.should be_false
         store.size.should eq 0
-        store.shift?.should be_nil
-        store.push(LavinMQ::Message.new("ex", "rk", "new"))
-        shift_body(store).should eq "new"
-      end
-    end
-
-    it "is given up by a purge with its segment, also the one written to" do
-      with_store do |store|
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
-        unacked = store.shift?.should_not be_nil
-        segment = store.@segments.first_value
-        write_at(segment.path, 0, 0x64636261) # schema version
-        segment.pos = 4                       # as when a read starts the segment
-        2.times { expect_raises(LavinMQ::MessageStore::Error) { store.shift? } }
-        store.purge
-        store.size.should eq 0
+        store.bytesize.should eq 0
+        store.empty.value.should be_true
         store.@segments.size.should eq 1
         store.@segments.first_value.should_not eq segment
-        # The ack of a message that was in the segment is ignored
-        store.delete(unacked.segment_position)
+        store.shift?.should be_nil
         store.push(LavinMQ::Message.new("ex", "rk", "new"))
         shift_body(store).should eq "new"
-        store.purge_all
-        store.size.should eq 0
       end
     end
 
-    it "counts what's left right after a purge with a count gave it up" do
+    it "ignores acks and requeues of messages that a wipe removed" do
       with_store do |store|
         2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
         unacked = store.shift?.should_not be_nil
-        store.requeue(unacked.segment_position)
-        write_at(store.@segments.first_value.path, 0, 0x64636261) # schema version
-        store.@segments.first_value.pos = 4
-        store.shift?.should_not be_nil # the requeued one, read before
+        sp = unacked.segment_position
+        write_at(store.@segments.first_value.path, bodysize_pos.call(store.@segments.first_value.pos.to_i32), UInt64::MAX)
         expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-        3.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "new#{i}")) }
-        store.requeue(unacked.segment_position)
-        store.size.should eq 5 # one requeued and one unread in the segment, and 3 new
+        store.wipe.should eq 1
 
-        # The requeued one, which can be read, and after the segment the first new one
-        store.purge(2).should eq 2
-        store.size.should eq 2
-        store.bytesize.should eq 2 * LavinMQ::Message.new("ex", "rk", "new0").bytesize
-        shift_body(store).should eq "new1"
-        shift_body(store).should eq "new2"
-        store.shift?.should be_nil
-        store.empty.value.should be_true
-      end
-    end
-
-    it "stays given up when the purge's unlink of its segment is lost" do
-      mktmpdir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
-        segment = File.join(dir, "msgs.0000000001")
-        write_at(segment, 0, 0x64636261) # schema version
-        begin
-          # As a crash before the files of the segment are unlinked
-          File.fail_delete_of = segment
-          expect_raises(File::Error) { store.purge }
-        ensure
-          File.fail_delete_of = nil
-          store.close
-        end
-        File.exists?(segment).should be_true
-
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.delete(sp)
+        store.requeue(sp)
         store.size.should eq 0
-        store.shift?.should be_nil
-        File.exists?(segment).should be_false
-        store.push(LavinMQ::Message.new("ex", "rk", "new"))
-        shift_body(store).should eq "new"
-        store.close
+        expect_raises(LavinMQ::MessageStore::MissingSegment) { store[sp] }
+        expect_raises(LavinMQ::MessageStore::MissingSegment) { store.envelope(sp) }
+        store.failed?.should be_false
       end
     end
 
-    it "keeps the count of a segment with an unsupported schema version that has a meta file" do
+    it "loads as failed with every segment kept, and writes to a new one" do
       mktmpdir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil)
         body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-        5.times { store.push(LavinMQ::Message.new("", "rk", body)) }
-        counts = store.@segment_msg_count.dup
-        counts.size.should eq 2
+        5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        env = store.shift?.should_not be_nil
+        store.delete(env.segment_position) # an ack file for the first segment
+        store.@segments.keys.should eq [1u32, 2u32]
         store.close
-        write_at(File.join(dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
+        files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        sizes = files.map { |f| File.size(File.join(dir, f)) }
+        write_at(File.join(dir, files[1]), 0, LavinMQ::Schema::VERSION + 1)
 
         store = LavinMQ::MessageStore.new(dir, nil)
-        store.@segment_msg_count.should eq counts # a stream's offsets depend on it
-        store.size.should eq 5
+        store.failed?.should be_true
+        store.closed.should be_false
+        store.@segments.keys.should eq [1u32, 2u32, 3u32]
         expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-        store.close
-      end
-    end
-
-    it "replicates that a segment is given up, for a follower that is promoted before the unlink" do
-      mktmpdir do |dir|
-        replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
-        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
-        write_at(File.join(dir, "msgs.0000000001"), 0, 0x64636261) # schema version
-        store.purge(1)
-        replicator.appended_values.should contain({File.join(dir, "acks.0000000001"), UInt32::MAX})
-        store.close
-      end
-    end
-
-    it "is given up by purge_all" do
-      with_store do |store|
-        store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        segment = store.@segments.first_value
-        write_at(segment.path, 0, 0x64636261)
-        store.purge_all
-        store.size.should eq 0
-        store.@segments.first_value.should_not eq segment
         store.push(LavinMQ::Message.new("ex", "rk", "new"))
-        shift_body(store).should eq "new"
-      end
-    end
+        # Nothing of what couldn't be loaded is removed or rewritten
+        File.size(File.join(dir, files[0])).should eq sizes[0]
+        File.size(File.join(dir, files[1])).should be >= sizes[1]
+        File.exists?(File.join(dir, "meta.0000000002")).should be_false
+        store.close
 
-    it "is still there after a restart, until it's purged" do
-      mktmpdir do |dir|
+        # Still failed after another load, until it's wiped
         store = LavinMQ::MessageStore.new(dir, nil)
-        store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        path = store.@segments.first_value.path
-        store.close
-        write_at(path, 0, 0x64636261)
-        store = LavinMQ::MessageStore.new(dir, nil)
-        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+        store.failed?.should be_true
+        store.wipe
+        store.push(LavinMQ::Message.new("ex", "rk", "after"))
         store.close
         store = LavinMQ::MessageStore.new(dir, nil)
-        expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-        store.purge
-        store.close
-        store = LavinMQ::MessageStore.new(dir, nil)
-        store.size.should eq 0
+        store.failed?.should be_false
+        shift_body(store).should eq "after"
         store.shift?.should be_nil
         store.close
       end
@@ -974,7 +868,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "keeps a segment with an unsupported schema version, which a read fails on, with replicator", tags: "etcd" do
+  it "loads as failed when a segment has a corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
@@ -986,17 +880,12 @@ describe LavinMQ::MessageStore do
         seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
         File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
 
+        # The store stays open, to be purged
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
+          store.failed?.should be_true
           store.closed.should be_false
-          store.size.should eq 1 # what can't be read counts as one message
-          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-          # Nothing more is written to it
-          store.push(LavinMQ::Message.new("ex", "rk", "new"))
-          store.@segments.size.should eq 2
-          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-          store.close
         ensure
           replicator.close
         end
@@ -1004,7 +893,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "reads up to a middle segment with an unsupported schema version with replicator", tags: "etcd" do
+  it "loads as failed when a middle segment is corrupt with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
@@ -1019,15 +908,12 @@ describe LavinMQ::MessageStore do
         seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
         File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
 
+        # The store stays open, to be purged
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
+          store.failed?.should be_true
           store.closed.should be_false
-          store.size.should eq 3
-          store.shift?.should_not be_nil
-          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-          store.size.should eq 2
-          store.close
         ensure
           replicator.close
         end
@@ -1201,6 +1087,7 @@ describe LavinMQ::MessageStore do
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator)
         sleep 1.millisecond
+        store.failed?.should be_true
         store.closed.should be_false
         registered = replicator.registered_files.keys.map { |p| File.basename(p) }
         ack_files.each { |f| registered.should contain(f) }
@@ -1231,13 +1118,10 @@ describe LavinMQ::MessageStore do
           replicator = SpyReplicator.new
           store = LavinMQ::MessageStore.new(dir, replicator)
           sleep 1.millisecond
+          store.failed?.should be_true
           store.closed.should be_false
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
           (seg_files + ack_files).each { |f| registered.should contain(f) }
-          # The last segment has no meta file with its count, so it's kept
-          # until a purge gives it up. The others have, and all their msgs
-          # are acked.
-          File.exists?(File.join(dir, seg_files[corrupt_idx])).should eq(corrupt_idx == -1)
         end
       end
     end
@@ -1401,7 +1285,7 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "shift? from @requeued drops a message whose segment is gone" do
+    it "shift? from @requeued keeps @size consistent when the segment is gone" do
       with_store do |store|
         store.push(LavinMQ::Message.new("ex", "rk", "body"))
         env = store.shift?.should_not be_nil
@@ -1409,12 +1293,13 @@ describe LavinMQ::MessageStore do
         store.@size.should eq 1
 
         # Simulate a race: the requeued sp's segment was deleted by another
-        # purge before we got back to shift?. The message can never be read,
-        # so it's dropped with its accounting.
+        # purge before we got back to shift?. Without the fix, shift? bubbles
+        # an exception while the requeued entry's accounting is left behind.
         store.@segments.delete(env.segment_position.segment)
 
-        store.first?.should be_nil
-        store.shift?.should be_nil
+        expect_raises(LavinMQ::MessageStore::Error) do
+          store.shift?
+        end
         store.@size.should eq 0
         store.@bytesize.should eq 0
       end
@@ -1597,7 +1482,7 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      it "loads a segment with acks and a corrupt record, which a read fails on" do
+      it "loads a segment with acks and a corrupt record as failed instead of raising" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
           body = "x" * (LavinMQ::Config.instance.segment_size // 4)
@@ -1611,11 +1496,8 @@ describe LavinMQ::MessageStore do
           bodysize_pos = 4 + 8 + 1 + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize
           File.open(first, "r+") { |f| f.seek(bodysize_pos); f.write_bytes(UInt64::MAX) }
           store = LavinMQ::MessageStore.new(dir, nil)
+          store.failed?.should be_true
           store.closed.should be_false
-          # No number of acks deletes the segment
-          File.exists?(first).should be_true
-          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
-          store.close
         end
       end
 

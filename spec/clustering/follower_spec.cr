@@ -471,6 +471,22 @@ module FollowerSpec
       end
     end
 
+    # ack_loop flushes on each read timeout, before anything started the LZ4
+    # frame here, which liblz4 1.11 refused before lz4.cr handled it
+    it "keeps a follower that is idle before anything is written to it" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        spawn { follower.ack_loop(50.milliseconds) }
+        sleep 250.milliseconds # a couple of read timeouts
+        follower.dead?.should be_false
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "does not disconnect a follower that was idle longer than the ack deadline" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
@@ -483,8 +499,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        # A real follower's full_sync writes before ack_loop runs, which starts
-        # the LZ4 frame. Without it, the idle flush raises with liblz4 1.11.
+        # A real follower's full_sync writes before ack_loop runs
         follower.append("#{data_dir}/file", "first".to_slice)
         spawn { follower.ack_loop(50.milliseconds) }
         client_socket.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian

@@ -36,17 +36,6 @@ module LavinMQ
       @heap = Array(T).new
     end
 
-    # In no particular order
-    def each(& : T -> Nil) : Nil
-      @heap.each { |value| yield value }
-    end
-
-    def reject!(& : T -> Bool) : Nil
-      size = @heap.size
-      @heap.reject! { |value| yield value }
-      @heap.sort! unless @heap.size == size # a sorted array is a heap
-    end
-
     private def sift_up(idx : Int32) : Nil
       value = @heap[idx]
       while idx > 0

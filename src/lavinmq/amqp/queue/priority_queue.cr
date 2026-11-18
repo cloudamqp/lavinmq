@@ -192,21 +192,22 @@ module LavinMQ::AMQP
         store_for sp, &.delete(sp)
       end
 
-      # Each sub store purges its own messages, highest priority first, so
-      # that it gives up data it can't read (see MessageStore#purge)
       def purge(max_count : Int = UInt32::MAX) : UInt32
         purge(max_count) { }
       end
 
-      # Calls the block with the position of each purged message
-      def purge(max_count : Int = UInt32::MAX, &block : SegmentPosition ->) : UInt32
+      # Yields the position of each purged message
+      def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
-        @stores.reverse_each do |s|
+        while count < max_count && (env = shift?)
+          sp = env.segment_position
+          delete(sp)
+          yield sp
+          count += 1
           break if count >= max_count
-          count += s.purge(max_count - count, &block)
+          Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
-        @empty.set true if size.zero?
         count
       end
 
@@ -215,8 +216,18 @@ module LavinMQ::AMQP
         @stores.each &.release_idle_pages
       end
 
-      def purge_all(&on_requeued : SegmentPosition ->) : UInt32
-        count = @stores.sum(0u32, &.purge_all(&on_requeued))
+      def purge_all(&on_requeued : SegmentPosition ->)
+        @stores.each(&.purge_all(&on_requeued))
+        @empty.set true
+      end
+
+      def failed? : Bool
+        @stores.any?(&.failed?)
+      end
+
+      def wipe : UInt32
+        raise ClosedError.new if @closed
+        count = @stores.sum(0u32, &.wipe)
         @empty.set true
         count
       end

@@ -793,7 +793,7 @@ module LavinMQ
                 handed_over += 1
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
               end
-              unless read # it can't be read, which paused the queue, or a purge removed it
+              unless read # it can't be read, which paused the queue
                 handed_over += 1
                 consumer.reject(unack.sp, requeue: true)
                 unack.queue.requeue(unack.sp)

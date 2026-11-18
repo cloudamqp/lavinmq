@@ -22,19 +22,23 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    # The command line arguments given to #parse, replayed by #reload
+    @argv = Array(String).new
     @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize(@io : IO = STDERR)
+    # Protected rather than private so #reload can build a fresh config
+    protected def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      @argv = argv.dup
       parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
@@ -86,6 +90,8 @@ module LavinMQ
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
+    AUTH_BACKENDS = {"local", "oauth"}
+
     protected def validate!
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
@@ -99,6 +105,11 @@ module LavinMQ
       # closing the connection, forever
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
+      # Checked here, not only when the auth chain is built, so a reload with an
+      # unsupported backend keeps the running config
+      if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
+        raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
       end
       unless @clustering_etcd_lease_ttl.positive?
         raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
@@ -370,17 +381,22 @@ module LavinMQ
       @mqtt_bind = value
     end
 
-    # Re-read the config file into a fresh copy and swap it in only if parsing
-    # and validation fully succeed. On failure the running config is untouched
-    # and it raises, so the SIGHUP handler can log and keep serving.
+    # Rebuild the config the way #parse built it, starting from the defaults,
+    # and swap it in only if parsing and validation fully succeed. A setting
+    # removed from the config file therefore goes back to its default, and
+    # environment variables and command line arguments still take precedence
+    # over the file. Values set in code after #parse are not kept. On failure
+    # the running config is untouched and it raises, so the SIGHUP handler can
+    # log and keep serving.
     def reload
-      new_config = dup
-      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
-      new_config.parse_ini(@config_file)
-      new_config.validate!
-      new_config.try_to_open_log_file
+      new_config = Config.new(@io)
+      new_config.parse_for_reload(@config_file, @argv)
       sync_was = sync?
+      # The fresh config has no log backend; keep the running one so
+      # setup_logger can close it
+      log_backend = @log_backend
       apply(new_config)
+      @log_backend = log_backend
       setup_logger
       sync_data_dir_after_enabled if sync? && !sync_was
     end
@@ -400,6 +416,18 @@ module LavinMQ
       File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
     end
 
+    # The config file path is passed in, as #parse may have found it in the
+    # configuration directory rather than in the command line arguments
+    protected def parse_for_reload(config_file : String, argv : Array(String)) : Nil
+      @config_file = config_file
+      @argv = argv
+      parse_ini(config_file)
+      parse_env
+      parse_cli(argv)
+      validate!
+      try_to_open_log_file
+    end
+
     # Try to open and immediately close the configured log file so an unopenable
     # path raises a Config::Error before the config is applied
     protected def try_to_open_log_file
@@ -408,10 +436,6 @@ module LavinMQ
       end
     rescue ex : File::Error
       raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
-    end
-
-    protected def fresh_sni_manager
-      @sni_manager = SNIManager.new
     end
 
     # Copy every instance variable from the parsed config in one non-yielding

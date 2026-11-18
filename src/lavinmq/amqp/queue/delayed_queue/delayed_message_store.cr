@@ -13,9 +13,6 @@ module LavinMQ::AMQP
     class DelayedMessageStore < MessageStore
       # Redefine @requeued (defined in MessageStore)
       @requeued : RequeuedStore = DelayedRequeuedStore.new
-      # The index entries that stand in for data that couldn't be indexed,
-      # see #index_unreadable
-      @unreadable_entries = Array(SegmentPosition).new
 
       private def requeued : DelayedRequeuedStore
         @requeued.as(DelayedRequeuedStore)
@@ -28,7 +25,9 @@ module LavinMQ::AMQP
 
       def initialize(*args, **kwargs)
         super
-        close_on_error { build_index }
+        # Not indexed if a segment failed to load: nothing is read from the
+        # store until it's wiped
+        close_on_error { build_index } unless load_stopped?
       end
 
       def build_index
@@ -39,11 +38,6 @@ module LavinMQ::AMQP
         bytesize = 0u64
         @segments.each do |seg_id, mfile|
           mfile.pos = 4
-          unless schema_ok?(mfile)
-            count += 1
-            bytesize += index_unreadable(requeued, seg_id, mfile, 4u32)
-            next
-          end
           loop do
             pos = mfile.pos.to_u32
             break if pos == mfile.size
@@ -65,11 +59,9 @@ module LavinMQ::AMQP
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             # Like a record the load can't decode, see MessageStore#produce_metadata.
             # A segment with a meta file isn't read record by record at load.
-            pos ||= mfile.pos.to_u32
-            @log.error { "Segment #{seg_id} can't be read from pos #{pos}: #{ex}" }
-            count += 1
-            bytesize += index_unreadable(requeued, seg_id, mfile, pos)
-            break
+            @log.error { "Could not index segment #{seg_id} at pos #{pos}: #{ex}" }
+            load_failed
+            return
           end
         end
         @requeued = requeued
@@ -81,39 +73,33 @@ module LavinMQ::AMQP
         @log.debug { "rebuilding delayed index done" }
       end
 
-      # Every message is in the index, none is read from where the reader is
-      private def count_unread : Nil
-      end
-
-      # The rest of the segment from *pos* can't be decoded. It's indexed as
-      # one message that's due at once, so that the release loop reads it,
-      # fails and pauses the queue. Returns its bytesize.
-      private def index_unreadable(requeued, seg_id, mfile, pos : UInt32) : UInt32
-        sp = SegmentPosition.new(seg_id, pos, (mfile.size - pos).to_u32)
-        @unreadable_entries << sp
-        requeued.insert(sp, 0i64)
-        sp.bytesize
-      end
-
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
+        raise MessageStore::Error.new(@rfile) if failed?
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
         begin
-          verify_schema(seg) if sp.position == 4
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
           Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
-          raise unreadable(sp.segment, seg, ex)
+          raise read_failed(seg, ex)
         end
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
-        # A message that can't be read stays in the index, so that the read
-        # can be tried again
-        env = first_delayed? || return
-        drop_requeued
-        env
+        raise ClosedError.new if @closed
+        raise MessageStore::Error.new(@rfile) if failed?
+        sp = @requeued.shift? || return
+        segment = @segments[sp.segment]
+        begin
+          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+          @bytesize -= sp.bytesize
+          @size -= 1
+          @empty.set true if @size.zero?
+          Envelope.new(sp, msg, redelivered: true, segment: segment)
+        rescue ex
+          raise read_failed(segment, ex)
+        end
       end
 
       # Overload to add the segment position to our "index"
@@ -128,22 +114,14 @@ module LavinMQ::AMQP
         sp
       end
 
-      def purge_all(&on_requeued : SegmentPosition ->) : UInt32
-        count = 0u32
+      def purge_all(&on_requeued : SegmentPosition ->)
         while sp = @requeued.shift?
           @size -= 1
           @bytesize -= sp.bytesize
-          # Not what stands in for data that can't be read, see #index_unreadable
-          count += 1 unless @unreadable_entries.includes?(sp)
           delete(sp) if @segments.has_key?(sp.segment)
           on_requeued.call(sp)
         end
-        # An ack of data that can't be decoded doesn't let a load skip it, so
-        # its segment is removed
-        @unreadable_entries.each { |entry| drop_segment(entry.segment) }
-        @unreadable_entries.clear
         @empty.set true
-        count
       end
 
       def requeue(sp : SegmentPosition)

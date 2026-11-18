@@ -117,9 +117,13 @@ module LavinMQ::AMQP
       false
     end
 
-    private def start : Nil
-      restore_paused
-      handle_arguments
+    private def start : Bool
+      if @msg_store.closed
+        !close
+      else
+        handle_arguments
+        true
+      end
     end
 
     private def init_msg_store(data_dir)
@@ -150,6 +154,10 @@ module LavinMQ::AMQP
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
       PublishResult::Closed
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     end
 
     # Streams does not support basic_get, so always returns `false`
@@ -201,8 +209,7 @@ module LavinMQ::AMQP
 
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
-    # A consumer skips a segment it can't read, see StreamMessageStore#shift?.
-    # Any other store error pauses the stream.
+    # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a
@@ -211,8 +218,9 @@ module LavinMQ::AMQP
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
-      pause_on_store_error(ex)
-      false
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ClosedError.new(cause: ex)
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -326,12 +334,16 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       delete_count = @msg_store_lock.synchronize do
-        # Closed while the purge waited for the lock
+        # Closed by a close, or a store error, while the purge waited for the lock
         next 0_u32 if @msg_store.closed
         @msg_store.purge(max_count)
       end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     end
 
     def add_consumer(consumer : Client::Channel::Consumer) : Bool

@@ -52,8 +52,6 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
-      # False while the next message can't be read, until a purge gives it up
-      @store_readable = BoolChannel.new(true)
       @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
@@ -115,7 +113,6 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
-        @store_readable.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -152,10 +149,6 @@ module LavinMQ
             client.flush
             next @has_capacity.when_true.receive?
           end
-          unless @store_readable.value
-            client.flush
-            next @store_readable.when_true.receive?
-          end
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet, flush: false)
             delivered_bytes &+= bytesize
@@ -166,36 +159,12 @@ module LavinMQ
             Fiber.yield
           end
         rescue ex
-          # The client stays connected: disconnecting it would only make it
-          # reconnect to the same message. A restart of the broker reads it again.
-          next stop_deliveries(ex) if ex.is_a?(MessageStore::Error) && still_unreadable?
-          # Another error, or a purge removed the message meanwhile
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           if client
             client.close("Server force closed client")
             detach(client)
           end
         end
-      end
-
-      # Checked again under the lock a purge holds, which may have removed the
-      # message since the delivery failed. Deliveries are stopped under it too,
-      # so that the purge isn't undone.
-      private def still_unreadable? : Bool
-        @msg_store_lock.synchronize do
-          @msg_store.first?
-          false
-        rescue MessageStore::Error
-          @store_readable.set(false) unless closed?
-          true
-        rescue MessageStore::ClosedError
-          false
-        end
-      end
-
-      private def stop_deliveries(ex : Exception) : Nil
-        @log.error(exception: ex) { "A message can't be read, nothing is delivered until the session is purged" }
-        @store_readable.set(false) unless closed?
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -328,6 +297,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
+          # Again under the lock: the fiber that held it can close the session
+          # before this one runs, and raising here would fail the whole fan-out
+          return false if closed?
           @msg_store.push(msg)
           drop_overflow
         end
@@ -371,6 +343,7 @@ module LavinMQ
               end
               delete_message(sp)
             else
+              booked = false
               begin
                 id = delivery_id(sp)
                 unless id
@@ -383,6 +356,11 @@ module LavinMQ
                   return false
                 end
                 packet = build_packet(env, id)
+                # Booked before the send, which yields: the client can ack
+                # before it returns, and an ack that finds no entry closes the
+                # connection.
+                @unacked[id] = sp
+                booked = true
                 @unacked_count.add(1, :relaxed)
                 @unacked_bytesize.add(sp.bytesize, :relaxed)
                 yield packet, sp.bytesize
@@ -392,13 +370,18 @@ module LavinMQ
                   @deliver_count.add(1, :relaxed)
                   @deliver_get_count.add(1, :relaxed)
                 end
-                @unacked[id] = sp
                 @msg_store.forget_packet_id(sp)
                 refresh_capacity
               rescue ex # requeue failed delivery
-                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                @unacked_count.sub(1, :relaxed)
-                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                # Nothing to unbook if the client already acked it: the message
+                # is deleted and the counters are settled.
+                if !booked
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                elsif @unacked.delete(id)
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  @unacked_count.sub(1, :relaxed)
+                  @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                end
                 raise ex
               end
             end
@@ -406,6 +389,10 @@ module LavinMQ
           end || break
         end
         false
+      rescue ex : MessageStore::Error
+        @log.error(ex) { "Queue closed due to error" }
+        close
+        raise ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -484,8 +471,6 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
-        # The first message can't be read, the limit is enforced after a purge
-        return unless @store_readable.value
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -502,8 +487,6 @@ module LavinMQ
             end
           end
         end
-      rescue ex : MessageStore::Error
-        stop_deliveries(ex)
       end
 
       private def clear_policy_arguments
@@ -518,6 +501,10 @@ module LavinMQ
 
       def resume!; end
 
+      def restart! : Bool
+        false
+      end
+
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
       end
@@ -527,9 +514,7 @@ module LavinMQ
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
-        count = @msg_store_lock.synchronize do
-          @msg_store.purge(max_count).tap { @store_readable.set(true) unless closed? }
-        end
+        count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
         count
       end

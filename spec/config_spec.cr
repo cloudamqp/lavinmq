@@ -10,15 +10,20 @@ class LavinMQ::Launcher
   def reload!
     reload_server
   end
+
+  # `start` creates the server, but also binds listeners
+  def server=(@server : LavinMQ::Server)
+  end
 end
 
 # Counts the data dir syncs a reload does, see Config#sync_data_dir_after_enabled
+# Kept on the class, as #reload rebuilds the config from a fresh instance
 class LavinMQ::Config
-  getter spec_data_dir_syncs = Atomic(Int32).new(0)
+  class_getter spec_data_dir_syncs = Atomic(Int32).new(0)
 
   private def sync_data_dir : Nil
     previous_def
-    @spec_data_dir_syncs.add(1)
+    @@spec_data_dir_syncs.add(1)
   end
 end
 
@@ -160,7 +165,7 @@ describe LavinMQ::Config do
           max_deleted_definitions = 16384
           consumer_timeout = 3600
           consumer_timeout_loop_interval = 120
-          auth_backends = ldap,basic
+          auth_backends = oauth,local
           default_consumer_prefetch = 1000
           default_password_hash = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
           default_user = admin
@@ -251,7 +256,7 @@ describe LavinMQ::Config do
     config.max_deleted_definitions.should eq 16384
     config.consumer_timeout.should eq 3600
     config.consumer_timeout_loop_interval.should eq 120
-    config.auth_backends.should eq ["ldap", "basic"]
+    config.auth_backends.should eq ["oauth", "local"]
     config.default_consumer_prefetch.should eq 1000
     config.default_user.should eq "admin"
     config.default_user_only_loopback?.should be_false
@@ -492,6 +497,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
+    ENV.delete("LAVINMQ_SYNC")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
   end
 
@@ -710,6 +716,21 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "auth_backends" do
+    it "rejects an unsupported backend" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          auth_backends = local,ldap
+          CONFIG
+      end
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /auth_backends.*ldap/) do
+        config.parse(["-c", config_file.path])
+      end
+    end
+  end
+
   describe "max_inflight_messages" do
     it "rejects zero" do
       config_file = File.tempfile do |file|
@@ -756,14 +777,15 @@ describe LavinMQ::Config do
         config = LavinMQ::Config.new
         config.parse(["-c", config_file.path])
         config.sync?.should be_false
+        syncs_before = LavinMQ::Config.spec_data_dir_syncs.get
 
         config.reload # still disabled
         File.write(config_file.path, "[main]\ndata_dir = #{data_dir}\nsync = true\n")
         config.reload
         config.sync?.should be_true
-        config.spec_data_dir_syncs.get.should eq 1 # before the reload returns
-        config.reload                              # already enabled
-        config.spec_data_dir_syncs.get.should eq 1
+        LavinMQ::Config.spec_data_dir_syncs.get.should eq syncs_before + 1 # before the reload returns
+        config.reload                                                      # already enabled
+        LavinMQ::Config.spec_data_dir_syncs.get.should eq syncs_before + 1
       ensure
         File.delete?(config_file.path)
         FileUtils.rm_rf(data_dir)
@@ -836,6 +858,62 @@ describe LavinMQ::Config do
         expect_raises(LavinMQ::Config::Error) { config.reload }
         config.stats_log_size.should eq 120 # the valid value was not applied either
       ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "resets settings removed from the config file to their defaults" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_interval = 1000\n[oauth]\naudience = other-api\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.stats_interval.should eq 1000
+        config.oauth_audience.should eq "other-api"
+
+        File.write(config_file.path, "[main]\n")
+        config.reload
+        defaults = LavinMQ::Config.new
+        config.stats_interval.should eq defaults.stats_interval
+        config.oauth_audience.should be_nil
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps command line values over the config file" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.2\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path, "--amqp-bind=127.0.0.3"])
+        config.amqp_bind.should eq "127.0.0.3"
+
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.4\n")
+        config.reload
+        config.amqp_bind.should eq "127.0.0.3"
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps environment values over the config file" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        ENV["LAVINMQ_AMQP_BIND"] = "127.0.0.3"
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.2\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.amqp_bind.should eq "127.0.0.3"
+
+        File.write(config_file.path, "[amqp]\nbind = 127.0.0.4\n")
+        config.reload
+        config.amqp_bind.should eq "127.0.0.3"
+      ensure
+        ENV.delete("LAVINMQ_AMQP_BIND")
         File.delete?(config_file.path)
         Log.setup(:fatal)
       end
@@ -1065,12 +1143,14 @@ private def with_launcher(ini : String, &)
   config_file = File.tempfile("lavinmq", ".ini")
   begin
     File.write(config_file.path, ini)
+    # Passed like a real deployment would, not set in code, as #reload
+    # rebuilds the config from the file, environment and arguments
+    ENV["LAVINMQ_DATADIR"] = data_dir
     config = LavinMQ::Config.new
-    config.parse(["-c", config_file.path])
-    config.data_dir = data_dir
-    config.data_dir_lock = false
+    config.parse(["-c", config_file.path, "--no-data-dir-lock"])
     yield LavinMQ::Launcher.new(config), config, config_file
   ensure
+    ENV.delete("LAVINMQ_DATADIR")
     config_file.delete
     FileUtils.rm_rf data_dir
   end
@@ -1174,6 +1254,41 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
+      end
+    end
+
+    it "applies auth_backends changes to the running server's auth chain" do
+      with_launcher("[main]\nauth_backends = local\n") do |launcher, config, config_file|
+        server = LavinMQ::Server.new(config)
+        launcher.server = server
+        chain = server.authenticator.as(LavinMQ::Auth::Chain)
+        chain.oauth_authenticator.should be_nil
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,oauth
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        oauth = chain.oauth_authenticator.should_not be_nil
+
+        # An invalid config is rejected as a whole, the chain is unchanged
+        File.write(config_file.path, <<-INI)
+          [main]
+          auth_backends = local,ldap
+          [oauth]
+          issuer = http://127.0.0.1:1
+          INI
+        launcher.reload!
+        chain.oauth_authenticator.should be oauth
+
+        File.write(config_file.path, "[main]\nauth_backends = local\n")
+        launcher.reload!
+        chain.oauth_authenticator.should be_nil
+        chain.backends.size.should eq 1
+      ensure
+        server.try &.close
       end
     end
 

@@ -565,10 +565,14 @@ describe LavinMQ::Auth::OAuthUser do
 end
 
 describe LavinMQ::HTTP::OAuthController do
-  it "is not registered when no OAuth authenticator is configured" do
+  it "reports SSO as disabled when no OAuth authenticator is configured" do
     with_http_server do |http, _|
+      LavinMQ::Config.instance.oauth_client_id = "test-client"
+      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
+      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
       response = http.get "/oauth/enabled"
-      response.status_code.should eq 404
+      response.status_code.should eq 200
+      JSON.parse(response.body)["enabled"].as_bool.should be_false
     end
   end
 
