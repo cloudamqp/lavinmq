@@ -74,6 +74,7 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
+      @control_socket.starting
       @replicator = @runner.new_replicator
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
