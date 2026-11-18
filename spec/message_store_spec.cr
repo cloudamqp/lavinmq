@@ -524,6 +524,24 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "stays given up when it's the last segment at load, a crash before the next one was opened" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        store.close
+        segment = File.join(dir, "msgs.0000000001")
+        File.open(File.join(dir, "acks.0000000001"), "a", &.write_bytes(LavinMQ::MessageStore::GIVEN_UP))
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.size.should eq 0
+        store.shift?.should be_nil
+        store.@segments.keys.should eq [2u32]
+        store.push(LavinMQ::Message.new("ex", "rk", "new"))
+        shift_body(store).should eq "new"
+        store.close
+      end
+    end
+
     it "stays given up when the purge's unlink of its segment is lost" do
       mktmpdir do |dir|
         store = LavinMQ::MessageStore.new(dir, nil, durable: true)
