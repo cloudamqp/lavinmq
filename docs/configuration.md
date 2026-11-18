@@ -19,9 +19,11 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 ## Reloading
 
-Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
 
-Not every setting takes effect on reload. The log level and TLS certificates are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+
+A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
 
 ## [main] Section
 
@@ -117,7 +119,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
+| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers. Defaults to `tcp://<hostname>:<port>`. The node adds the client ports it listens on to the query, e.g. `?amqp=5672&http=15672`; ports given here take precedence (see [Clustering](clustering.md)) |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
 | `etcd_lease_ttl` | `--clustering-etcd-lease-ttl` | `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL` | Int | `10` | etcd lease TTL in seconds. The leader exits if the lease isn't renewed in time, so raise it if long GC pauses cause leadership loss. Higher values also delay failover |

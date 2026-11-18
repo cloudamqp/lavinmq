@@ -94,7 +94,18 @@ The proxy is transparent and runs on every follower for:
 
 The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
 
-TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+TLS is passed through unterminated: the follower forwards the encrypted bytes to the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+
+The follower forwards each connection to the port the leader listens on for that protocol, which doesn't have to be the port the follower listens on. The leader advertises its ports in the query of the URI it registers in etcd, e.g. `tcp://node1:5679?amqp=5672&mqtt=1883&http=15672`; TLS ports are included when TLS is configured. A follower forwards a protocol the leader doesn't advertise, for example when the leader runs an older version, to its own port.
+
+When clients reach the leader through other ports than it binds, for example behind NAT or a container port mapping, put the reachable ports in `advertised_uri`. Ports given there take precedence over the ones the leader listens on:
+
+```ini
+[clustering]
+advertised_uri = tcp://node1.example.com:5679?amqp=30672&https=30671
+```
+
+The advertised ports are `amqp`, `amqps`, `mqtt`, `mqtts`, `http` and `https`. If a leader restarts with other ports, followers start forwarding to the new ones.
 
 For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 
