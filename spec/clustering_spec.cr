@@ -782,6 +782,48 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "doesn't become leader if it's stopped before it starts" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5687"
+      hook_ran = File.join(data_dir, "leader_elected")
+      config.clustering_on_leader_elected = "touch #{hook_ran}"
+      controller = LavinMQ::Clustering::Controller.new(config)
+      # As a SIGTERM while it waits for the replication client to close
+      controller.stop
+
+      started = Channel(Nil).new
+      returned = Channel(Nil).new
+      spawn(name: "stopped controller") do
+        controller.run { started.close }
+        returned.close
+      rescue SpecExit
+      end
+
+      select
+      when returned.receive?
+      when started.receive?
+        fail "a stopped node became leader"
+      when timeout(5.seconds)
+        fail "Controller#run didn't return"
+      end
+
+      # The lease is released, so another node can win the election at once
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      lease = etcd.lease_grant(5)
+      elected = Channel(Nil).new
+      spawn { etcd.election_campaign("lavinmq/leader", "spec", lease.id); elected.close }
+      select
+      when elected.receive?
+      when timeout(1.seconds)
+        fail "the leader election wasn't released"
+      end
+      File.exists?(hook_ran).should be_false
+    end
+  end
+
   it "will release lease on shutdown", tags: "slow" do
     with_clustered_launcher_config("/tmp/release-lease") do |config|
       launcher = LavinMQ::Launcher.new(config)

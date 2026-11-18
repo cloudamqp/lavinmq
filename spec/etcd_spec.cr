@@ -329,6 +329,15 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
+  it "revokes on every release, and counts a lease already gone as released" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease.release
+    etcd.revoke_error = LavinMQ::Etcd::LeaseNotFound.new("etcdserver: requested lease not found")
+    lease.release
+    etcd.revokes.should eq 2
+  end
+
   it "signals expiry when the revoke fails" do
     etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
     lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
@@ -464,12 +473,15 @@ end
 private class RecordingEtcd < LavinMQ::Etcd
   property lease : LavinMQ::Etcd::Lease?
   getter expired_before_revoke : Bool?
+  getter revokes = 0
+  property revoke_error : Exception?
 
   def initialize(endpoints, @revoke_error : Exception? = nil, @keepalive : Proc(Int64, Int32)? = nil)
     super(endpoints)
   end
 
   def lease_revoke(id) : Nil
+    @revokes += 1
     @expired_before_revoke = @lease.try &.expired.closed?
     @revoke_error.try { |ex| raise ex }
   end
