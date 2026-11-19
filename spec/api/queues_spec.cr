@@ -414,10 +414,9 @@ describe LavinMQ::HTTP::QueuesController do
         # The body size of the second message, published to the default exchange
         write_at(segment.path, 4 + record_size + 8 + 1 + 1 + "unreadable_stream".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
         body = %({ "count": 3, "offset": "first" })
-        # What was read before the data is returned, and the stream is paused
+        # Refused, the read isn't returned as if it were complete, and the stream fails
         response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
-        response.status_code.should eq 200
-        JSON.parse(response.body).as_a.size.should eq 1
+        response.status_code.should eq 403
         stream.state.should eq LavinMQ::QueueState::Failed
 
         response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
@@ -770,6 +769,19 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
   describe "POST /api/queues/vhost/name/get" do
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q3")
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000, "ackmode": "reject_requeue_true"})
+            response = http.post("/api/queues/%2f/q3/get", body: body)
+            response.status_code.should eq 400
+          end
+        end
+      end
+    end
+
     it "should get plain text messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -1041,6 +1053,147 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["effective_arguments"].as_a.should contain("x-max-age")
           body["effective_arguments"].as_a.should contain("x-queue-type")
+        end
+      end
+    end
+  end
+
+  describe "POST /api/queues/vhost/name/stream" do
+    it "reads from the given offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          body = %({"count": 2, "offset": "3"})
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+          response.status_code.should eq 200
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          msgs.map(&.["properties"]["headers"]["x-stream-offset"].as_i).should eq [3, 4]
+        end
+      end
+    end
+
+    it "reads from a numeric offset, negative counting from the end" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          [%({"count": 2, "offset": 3}), %({"count": 2, "offset": -3}), %({"count": 2, "offset": "-3"})].each do |body|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 200
+            msgs = JSON.parse(response.body).as_a
+            msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          end
+        end
+      end
+    end
+
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
+          end
+        end
+      end
+    end
+
+    it "reads from an ISO 8601 timestamp offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          2.times { |i| q.publish_confirm "m#{i}" }
+          sleep 50.milliseconds
+          time = Time.utc
+          sleep 50.milliseconds
+          2.times { |i| q.publish_confirm "m#{i + 2}" }
+          body = {count: 10, offset: time.to_rfc3339(fraction_digits: 3)}.to_json
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+          response.status_code.should eq 200
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+        end
+      end
+    end
+
+    it "ends the response with invalid JSON when the stream fails after the first flush" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          body = "a" * 1024
+          200.times { q.publish_confirm body }
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          # Corrupt the last message: its body and the body size before it
+          File.open(mfile.path, "r+") do |f|
+            f.seek(mfile.size - body.bytesize - 8)
+            f.write(Bytes.new(body.bytesize + 8, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": 200}))
+          response.status_code.should eq 200
+          expect_raises(JSON::ParseException) { JSON.parse(response.body) }
+          response.body.should contain %("payload":"#{body}")
+          iq.state.failed?.should be_true
+        end
+      end
+    end
+
+    it "refuses an invalid offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          [%("foo"), "1.5", "true", "[1]"].each do |offset|
+            body = %({"offset": #{offset}})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
+            response.body.should contain "invalid offset"
+          end
+        end
+      end
+    end
+
+    it "doesn't read past count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          m1_pos = mfile.size
+          q.publish_confirm "m1"
+          # A read of m1 would fail the stream
+          File.open(mfile.path, "r+") do |f|
+            f.seek(m1_pos)
+            f.write(Bytes.new(mfile.size - m1_pos, 0xff_u8))
+          end
+          2.times do |count|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": #{count}}))
+            response.status_code.should eq 200
+            JSON.parse(response.body).as_a.map(&.["payload"].as_s).should eq ["m0"].first(count)
+          end
+        end
+      end
+    end
+
+    it "returns a JSON error when the stream fails during the read" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          File.open(mfile.path, "r+") do |f|
+            f.seek(4)
+            f.write(Bytes.new(mfile.size - 4, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"offset": "first"}))
+          response.status_code.should eq 403
+          JSON.parse(response.body)["error"].should eq "forbidden"
+          iq.state.failed?.should be_true
         end
       end
     end
