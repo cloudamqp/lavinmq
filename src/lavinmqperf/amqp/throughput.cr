@@ -338,25 +338,33 @@ module LavinMQPerf
         end
       end
 
+      # Returns the channel to publish on, a new one if a declare failed and closed it.
+      # Not inlined in the AMQP::Client.start block: nested blocks or a rescue there
+      # crash codegen when Connection has subclasses (crystal-lang/crystal#17543)
+      private def declare_publish_queues(a, queues)
+        ch = a.channel
+        queues.each do |queue_name|
+          next if queue_name.empty?
+          next if !@queue_pattern && @exchange.empty? && @routing_key != queue_name
+          q = begin
+            ch.queue queue_name, durable: true, auto_delete: false, args: @queue_args
+          rescue
+            ch = a.channel
+            ch.queue(queue_name, passive: true)
+          end
+          q.bind(@exchange, @queue_pattern ? queue_name : @routing_key) unless @exchange.empty?
+        end
+        ch
+      end
+
       private def pub(connected) # ameba:disable Metrics/CyclomaticComplexity
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         props = @properties
         props.delivery_mode = 2u8 if @persistent
         unconfirmed = ::Channel(Nil).new(@max_unconfirm)
         ::AMQP::Client.start(@uri) do |a|
-          ch = a.channel
           queues = queue_names
-          queues.each do |queue_name|
-            next if queue_name.empty?
-            next if !@queue_pattern && @exchange.empty? && @routing_key != queue_name
-            q = begin
-              ch.queue queue_name, durable: true, auto_delete: false, args: @queue_args
-            rescue
-              ch = a.channel
-              ch.queue(queue_name, passive: true)
-            end
-            q.bind(@exchange, @queue_pattern ? queue_name : @routing_key) unless @exchange.empty?
-          end
+          ch = declare_publish_queues(a, queues)
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
           wait_until_all_are_connected(connected)
