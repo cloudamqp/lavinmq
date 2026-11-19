@@ -454,6 +454,21 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "keeps a segment that lost its schema version but has messages, and closes the store" do
+    with_store do |store, dir|
+      body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+      3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+      store.close
+      segment = File.join(dir, "msgs.0000000002")
+      size = File.size(segment)
+      File.open(segment, "r+", &.write(Bytes.new(4)))
+
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.closed.should be_true
+      File.size(segment).should eq size
+    end
+  end
+
   it "advances @rfile when delete_unused_segments removes the rfile's segment" do
     mktmpdir do |dir|
       msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1

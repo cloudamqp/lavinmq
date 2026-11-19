@@ -164,6 +164,15 @@ module LavinMQ
         @recv_oct_count.add(packet.bytesize, :relaxed)
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
+        # Packet id 0 is illegal [MQTT-2.3.1-1]. Handled like a packet that
+        # can't be decoded, as there is nothing valid to acknowledge.
+        case packet
+        when Protocol::Publish, Protocol::Subscribe, Protocol::Unsubscribe
+          if packet.packet_id == 0
+            raise Protocol::Error::PacketDecode.new("#{packet.class.name} with packet id 0")
+          end
+        end
+
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
