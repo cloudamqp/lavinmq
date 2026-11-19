@@ -85,8 +85,18 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state) {
+// What the API's paused_reason means, and what to do about it
+const pausedReasons = {
+  operator: 'It was paused through the API or the management UI.',
+  store_error: 'A message store error. Resume the queue to try again.',
+  unreadable: "Its message data can't be read. Delete the queue, or fail over to a node with a good copy."
+}
+
+function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
+  const reason = state === 'paused' && pausedReason ? (pausedReasons[pausedReason] || pausedReason) : null
+  document.getElementById('q-paused-reason').textContent = reason || ''
+  document.getElementById('q-paused-reason-row').classList.toggle('hide', !reason)
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
@@ -149,7 +159,7 @@ function updateQueue (all, signal) {
         window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
       }
       Chart.update(chart, item.message_stats)
-      handleQueueState(item.state)
+      handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
       document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
@@ -414,7 +424,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue paused!')
-        handleQueueState('paused')
+        handleQueueState('paused', 'operator')
       })
       .catch(() => {})
   }

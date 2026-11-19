@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-paused-reason-row" class="hide">
+              <th>Paused because</th>
+              <td id="q-paused-reason"></td>
+            </tr>
             <tr id="q-primary-queue-row" class="hide">
               <th>Retry queue of</th>
               <td id="q-primary-queue"></td>
