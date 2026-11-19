@@ -19,7 +19,6 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
-        # Closed when the run loop has ended, nil until the link is run
         @run_loop_done : Channel(Nil)?
 
         def initialize(@upstream : Upstream)
@@ -59,9 +58,6 @@ module LavinMQ
           Fiber.yield
         end
 
-        # Waits until the run loop has ended. A stop doesn't wait for that: a
-        # link stopped while it connects only closes the connection once it
-        # has connected
         def wait_stopped : Nil
           @run_loop_done.try &.receive?
         end

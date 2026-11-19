@@ -5,9 +5,7 @@ module LavinMQ
   module Federation
     class UpstreamStore
       include Enumerable(Upstream)
-      Log = LavinMQ::Log.for "federation.upstream_store"
-      # How long #stop_all waits for links to stop and upstream cleanups to
-      # finish, e.g. for a link still connecting to an unreachable upstream
+      Log          = LavinMQ::Log.for "federation.upstream_store"
       STOP_TIMEOUT = 5.seconds
 
       # A retired exchange link, the broker and queue its delete removes, and
@@ -32,8 +30,6 @@ module LavinMQ
       @change_lock = Mutex.new
       # Upstream resource deletes in flight, by broker and queue name
       @pending_deletes = Hash({String, String}, Array(Channel(Nil))).new
-      # Link stops and deletes running in their own fibers, each closes its
-      # channel when done
       @in_flight = Array(Channel(Nil)).new
 
       def initialize(@vhost : VHost)
@@ -343,7 +339,6 @@ module LavinMQ
         end
       end
 
-      # Runs a link's stop or delete in its own fiber, which #stop_all waits for
       private def in_flight(name : String, &block : ->) : Nil
         done = Channel(Nil).new
         @change_lock.synchronize { @in_flight << done }
@@ -355,10 +350,6 @@ module LavinMQ
         end
       end
 
-      # Stops all links, and waits up to *timeout* for them and for the stops
-      # and deletes in flight, so that no upstream connection outlives a
-      # broker shutdown. A link still connecting to an unreachable upstream
-      # is left behind then.
       def stop_all(timeout : Time::Span = STOP_TIMEOUT) : Nil
         deadline = Time.instant + timeout
         links = Array(Upstream::Link).new
@@ -378,7 +369,6 @@ module LavinMQ
           when timeout({deadline - Time.instant, Time::Span.zero}.max)
             left = pending.reject(&.closed?)
             @log.warn { "Gave up waiting for #{left.size} federation link stops and upstream cleanups" }
-            # So that a later call, e.g. from VHost#close, doesn't wait for them again
             @change_lock.synchronize { left.each { |d| @in_flight.delete(d) } }
             break
           end

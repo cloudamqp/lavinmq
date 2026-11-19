@@ -2074,7 +2074,6 @@ describe LavinMQ::Federation::Upstream do
           (Time.instant - start).should be < 1.second
           link.state.terminated?.should be_false
 
-          # Let it finish before the server closes
           gate.close
           wait_for { link.state.terminated? }
         end
