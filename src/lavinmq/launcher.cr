@@ -31,6 +31,8 @@ module LavinMQ
     @closed = false
     # While #start runs, #stop leaves what it opens to it, see #start
     @starting = false
+    # Closed when #stop is done
+    @stopped = Channel(Nil).new
     @replicator : Clustering::Server?
     @runner : Runner
     # Serializes starting and stopping to serve as the leader with a shutdown
@@ -127,6 +129,9 @@ module LavinMQ
       @runner.run do
         start
       end
+      # The runner returns once a shutdown has started, e.g. when its lease
+      # expires meanwhile, and the broker may still be closing
+      @stopped.receive? if @role_lock.synchronize { @closed }
       # What a startup that #stop raced with opened, see #start
       @role_lock.synchronize do
         close_listeners
@@ -182,9 +187,10 @@ module LavinMQ
     end
 
     def stop
+      stopping = false
       @role_lock.synchronize do
         return if @closed
-        @closed = true
+        stopping = @closed = true
         Log.warn { "Stopping" }
         SystemD.notify_stopping
         @runner.stopping
@@ -196,6 +202,8 @@ module LavinMQ
         @metrics_server.try &.close rescue nil
       end
       @runner.stop
+    ensure
+      @stopped.close if stopping
     end
 
     # Exits if another process holds the lock, before the server or the

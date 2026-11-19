@@ -75,6 +75,27 @@ private def run_until_stopped(launcher : LavinMQ::Launcher) : Nil
   end
 end
 
+# Returns from #run once a shutdown starts, as when its lease expires
+# meanwhile, and takes a while to stop
+private class EarlyReturnRunner < LavinMQ::Runner
+  getter? stopped = false
+  @stopping = Channel(Nil).new
+
+  def run(&)
+    yield
+    @stopping.receive?
+  end
+
+  def stopping : Nil
+    @stopping.close
+  end
+
+  def stop
+    sleep 200.milliseconds
+    @stopped = true
+  end
+end
+
 describe LavinMQ::Launcher do
   it "doesn't start serving once stopped" do
     with_datadir do |data_dir|
@@ -167,6 +188,27 @@ describe LavinMQ::Launcher do
       File.exists?(config.control_unix_path).should be_true # left to the process serving it
     ensure
       other.try &.close
+    end
+  end
+
+  it "returns from #run only once a shutdown that started has finished" do
+    with_datadir do |data_dir|
+      launcher = LavinMQ::Launcher.new(standalone_config(data_dir))
+      runner = EarlyReturnRunner.new
+      launcher.runner_for_spec = runner
+      done = Channel(Nil).new
+      spawn(name: "launcher run") do
+        launcher.run
+        done.close
+      end
+      wait_for { launcher.@server }
+      spawn(name: "shutdown") { launcher.stop }
+      select
+      when done.receive?
+      when timeout(5.seconds)
+        fail "run didn't return"
+      end
+      runner.stopped?.should be_true
     end
   end
 
