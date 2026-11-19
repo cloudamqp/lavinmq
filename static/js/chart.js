@@ -23,8 +23,19 @@ function refreshLegend (handle) {
   updateLegend(handle, handle.uplot ? handle.uplot.legend.idx : null)
 }
 
+const COLLECTING_INTERVALS = 3
+
+function refreshCollecting (handle) {
+  if (!handle.collectingEl) return
+  handle.collectingEl.hidden = Poller.isPaused() || handle.samples >= 2 ||
+    Date.now() - handle.renderedAt >= COLLECTING_INTERVALS * statsInterval()
+}
+
 Poller.events.addEventListener('change', () => {
-  for (const h of handles) refreshLegend(h)
+  for (const h of handles) {
+    refreshLegend(h)
+    refreshCollecting(h)
+  }
 })
 
 // On an uncached load the legends can be measured before Inter has loaded.
@@ -303,6 +314,10 @@ function initChart (handle) {
   }
 
   handle.uplot = new UPlot(opts, data, el)
+  handle.collectingEl = document.createElement('div')
+  handle.collectingEl.className = 'chart-collecting'
+  handle.collectingEl.textContent = 'Collecting data'
+  handle.uplot.over.append(handle.collectingEl)
   el.append(handle.legendEl)
   // uPlot's first legend update ran before the legend was in the page,
   // too early to measure the value column.
@@ -342,6 +357,7 @@ function render (id, unit, fill = false) {
     scaleMax: 0,
     shrinkCount: 0,
     poll: 0,
+    renderedAt: Date.now(),
     config: { unit, fill }
   }
   handles.add(handle)
@@ -359,7 +375,8 @@ function rebuildFromLogs (handle, specs) {
   const now = Date.now() / 1000
   const byKey = new Map(specs.map(spec => [spec.key, spec]))
   const logs = handle.seriesKeys.map(key => (byKey.get(key) || {}).log || [])
-  const maxLen = Math.max(1, ...logs.map(log => log.length))
+  handle.samples = Math.max(0, ...logs.map(log => log.length))
+  const maxLen = Math.max(1, handle.samples)
 
   const timestamps = []
   for (let i = 0; i < maxLen; i++) {
@@ -400,6 +417,7 @@ function update (handle, data) {
     }
   }
   handle.uplot.setData(handle.data)
+  refreshCollecting(handle)
   refreshLegend(handle)
 }
 
