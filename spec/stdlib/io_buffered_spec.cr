@@ -488,7 +488,7 @@ describe IO::Buffered do
         1000.times do
           reader, writer = UNIXSocket.pair
           reader.buffer_pool = pool
-          FinalizationCycles.track(reader)
+          FinalizationCycles.tracked << reader.object_id
           done = Channel(Nil).new
           spawn do
             reader.read_byte
@@ -599,38 +599,23 @@ lib LibGC
 end
 
 module FinalizationCycles
-  WARNING = "GC Warning: Finalization cycle"
-
-  @@tracked = Array(UInt64).new
-  @@cycles = 0
-  @@previous_warn_proc : LibGC::WarnProc? = nil
-
-  def self.track(object : Reference) : Nil
-    @@tracked << object.object_id
-  end
+  class_getter tracked = Array(UInt64).new
+  @@count = 0
 
   def self.count(&) : Int32
-    @@tracked.clear
-    @@cycles = 0
-    previous = @@previous_warn_proc = LibGC.get_warn_proc
-    LibGC.set_warn_proc ->(msg : LibC::Char*, arg : LibGC::Word) do
-      prefix = Slice.new(msg, Math.min(LibC.strlen(msg), WARNING.bytesize))
-      if prefix == WARNING.to_slice && @@tracked.includes?(arg.to_u64)
-        @@cycles += 1
-      else
-        @@previous_warn_proc.try &.call(msg, arg)
-      end
+    @@count = 0
+    previous = LibGC.get_warn_proc
+    LibGC.set_warn_proc ->(_msg : LibC::Char*, arg : LibGC::Word) do
+      @@count += 1 if @@tracked.includes?(arg.to_u64)
     end
-    begin
-      yield
-      3.times do
-        GC.collect
-        Fiber.yield
-      end
-    ensure
-      LibGC.set_warn_proc previous
+    yield
+    3.times do
+      GC.collect
+      Fiber.yield
     end
-    @@cycles
+    @@count
+  ensure
+    LibGC.set_warn_proc previous if previous
   end
 end
 
