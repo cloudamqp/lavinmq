@@ -339,7 +339,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.clustering_advertised_uri = "tcp://localhost:5686"
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
       controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      client = LavinMQ::Clustering::Client.new(config, controller.id, "secret")
+      client = LavinMQ::Clustering::Client.new(config, controller.id, "secret", proxy: false)
       controller.following_for_spec(client)
       # follow was never called, satisfy close's follower-done handshake
       spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
