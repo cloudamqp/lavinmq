@@ -94,9 +94,14 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
+    # A seek that reaches data it can't read fails the stream, see
+    # #read_next, and the error is raised
     def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
                stored_offset_tag : String? = nil) : StreamCursor
       @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
+    rescue ex : MessageStore::Error
+      pause_on_store_error(ex)
+      raise ex
     end
 
     # The deliver path shifts from the cursor's requeued messages under
@@ -122,13 +127,13 @@ module LavinMQ::AMQP
       false
     end
 
-    private def start : Bool
-      if @msg_store.closed
-        !close
-      else
-        handle_arguments
-        true
-      end
+    private def start : Nil
+      restore_state
+      handle_arguments
+    end
+
+    private def unreadable_advice : String
+      MessageStore::UnreadableError.advice("stream")
     end
 
     private def init_msg_store(data_dir)
@@ -146,8 +151,9 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Closed if @state.closed?
+      return PublishResult::Closed if closed?
       @msg_store_lock.synchronize do
+        return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
@@ -155,14 +161,10 @@ module LavinMQ::AMQP
       notify_all_stream_consumers
       PublishResult::Ok
     rescue MessageStore::ClosedError
-      # Closed/deleted concurrently after the @state.closed? check; treat as
+      # Closed/deleted concurrently after the closed? check; treat as
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
       PublishResult::Closed
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     end
 
     # Streams does not support basic_get, so always returns `false`
@@ -170,11 +172,13 @@ module LavinMQ::AMQP
       false
     end
 
-    # Yields at most `limit` messages from `start` until the end of the stream
+    # Yields at most `limit` messages from `start` until the end of the stream.
+    # A store error is raised, after it paused or failed the stream, so that
+    # the read doesn't look complete.
     def each_from(start : StreamOffset::Any, limit : Int32 = Int32::MAX, & : Envelope -> _) : Nil
       cursor = self.cursor(start)
       limit.times do
-        break unless get(cursor) do |env|
+        break unless read_next(cursor) do |env|
                        @get_no_ack_count.add(1, :relaxed)
                        yield env
                      end
@@ -183,8 +187,11 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
+    # Yields the next message for the cursor, returns true if one was delivered.
+    # A store error pauses the stream, or fails it if the data can't be read,
+    # and returns false: the consumer waits for the stream to be resumed.
     def consume_get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
-      get(cursor) do |env|
+      read_next(cursor) do |env|
         yield env
         if env.redelivered
           @redeliver_count.add(1, :relaxed)
@@ -192,6 +199,8 @@ module LavinMQ::AMQP
           @deliver_count.add(1, :relaxed)
         end
       end
+    rescue MessageStore::Error
+      false
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
@@ -200,20 +209,19 @@ module LavinMQ::AMQP
       end
     end
 
-    # yield the next message in the ready queue
-    # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
-    private def get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+    # Yields the next message for the cursor, returns true if one was
+    # delivered. A store error pauses the stream, or fails it if the data
+    # can't be read, and is then raised.
+    private def read_next(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
       stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) do |env|
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ClosedError.new(cause: ex)
+      pause_on_store_error(ex)
+      raise ex
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -326,16 +334,12 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize do
-        # Closed by a close, or a store error, while the purge waited for the lock
-        next 0_u32 if @msg_store.closed
-        @msg_store.purge(max_count)
-      end
+      delete_count = purge_store { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
+      pause_on_store_error(ex)
+      raise_unreadable if @msg_store.failed?
       raise ex
     end
 

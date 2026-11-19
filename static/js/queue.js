@@ -24,7 +24,6 @@ window.addEventListener('hashchange', () => {
 })
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const restartQueueForm = document.querySelector('#restartQueue')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -86,27 +85,23 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state) {
+function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
+  Helpers.showStateReason(state, pausedReason)
+  // A failed queue can't be purged either
+  document.getElementById('purgeQueue').classList.toggle('hide', state === 'failed')
   switch (state) {
     case 'paused':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
       break
     case 'running':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.remove('hide')
       resumeQueueForm.classList.add('hide')
       break
-    case 'closed':
-      restartQueueForm.classList.remove('hide')
+    default:
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
-      break
-    default:
-      pauseQueueForm.disabled = true
-      resumeQueueForm.disabled = true
   }
 }
 
@@ -162,7 +157,7 @@ function updateQueue (all, signal) {
         { key: 'unacked', label: 'Unacknowledged', desc: 'Messages delivered but not yet acknowledged', value: item.messages_unacknowledged, log: item.messages_unacknowledged_details.log }
       ])
       Chart.update(chart, item.message_stats)
-      handleQueueState(item.state)
+      handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
       document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
@@ -427,7 +422,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue paused!')
-        handleQueueState('paused')
+        handleQueueState('paused', 'operator')
       })
       .catch(() => {})
   }
@@ -440,19 +435,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue resumed!')
-        handleQueueState('running')
-      })
-      .catch(() => {})
-  }
-})
-
-restartQueueForm.addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
-  if (window.confirm('Are you sure? This will restart the queue.')) {
-    HTTP.request('PUT', url)
-      .then(() => {
-        DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
       .catch(() => {})

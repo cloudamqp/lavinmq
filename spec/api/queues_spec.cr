@@ -44,6 +44,35 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "says why a queue is paused" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_reason", true, false)
+        queue = vhost.queue("q_reason")
+        # Left out when it isn't paused, like other fields without a value
+        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"]? }
+        reason.call.should be_nil
+        queue.pause!
+        reason.call.should eq "operator"
+        queue.resume!
+        reason.call.should be_nil
+
+        queue.publish(LavinMQ::Message.new("", "q_reason", "first"))
+        segment = queue.@msg_store.@segments.first_value
+        # The property flags of the message, with a bit that isn't defined
+        write_at(segment.path, 4 + sizeof(Int64) + 1 + 1 + "q_reason".bytesize, 0x0003u16)
+        # Failed, not paused, when its data can't be read
+        queue.basic_get(no_ack: true) { }
+        queue.state.failed?.should be_true
+        JSON.parse(http.get("/api/queues/%2f/q_reason").body)["state"].should eq "failed"
+        reason.call.should be_nil
+        # Can't be resumed, only deleted
+        response = http.put("/api/queues/%2f/q_reason/resume")
+        response.status_code.should eq 400
+        response.body.should contain "can't be resumed"
+      end
+    end
+
     it "should filter on multiple states" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
@@ -370,6 +399,28 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(http.get("/api/vhosts/%2f").body)
         body["message_stats"]["get_no_ack"].should eq 2
         body["message_stats"]["deliver_get"].should eq 2
+      end
+    end
+
+    it "refuses to read from a stream whose data can't be read, and fails the one a read finds it in" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("unreadable_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("unreadable_stream").as(LavinMQ::AMQP::Stream)
+        segment = stream.@msg_store.@segments.first_value
+        record_size = (segment.size - 4) // 3
+        # The body size of the second message, published to the default exchange
+        write_at(segment.path, 4 + record_size + 8 + 1 + 1 + "unreadable_stream".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+        body = %({ "count": 3, "offset": "first" })
+        # Refused, the read isn't returned as if it were complete, and the stream fails
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
+        stream.state.should eq LavinMQ::QueueState::Failed
+
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
       end
     end
 
@@ -1069,7 +1120,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "ends the response with invalid JSON when the stream closes after the first flush" do
+    it "ends the response with invalid JSON when the stream fails after the first flush" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
@@ -1086,7 +1137,7 @@ describe LavinMQ::HTTP::QueuesController do
           response.status_code.should eq 200
           expect_raises(JSON::ParseException) { JSON.parse(response.body) }
           response.body.should contain %("payload":"#{body}")
-          iq.state.closed?.should be_true
+          iq.state.failed?.should be_true
         end
       end
     end
@@ -1114,7 +1165,7 @@ describe LavinMQ::HTTP::QueuesController do
           mfile = iq.stream_msg_store.@segments.first_value
           m1_pos = mfile.size
           q.publish_confirm "m1"
-          # A read of m1 would close the stream
+          # A read of m1 would fail the stream
           File.open(mfile.path, "r+") do |f|
             f.seek(m1_pos)
             f.write(Bytes.new(mfile.size - m1_pos, 0xff_u8))
@@ -1128,7 +1179,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "returns a JSON error when the stream closes during the read" do
+    it "returns a JSON error when the stream fails during the read" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
@@ -1142,66 +1193,8 @@ describe LavinMQ::HTTP::QueuesController do
           response = http.post("/api/queues/%2f/read-stream/stream", body: %({"offset": "first"}))
           response.status_code.should eq 403
           JSON.parse(response.body)["error"].should eq "forbidden"
+          iq.state.failed?.should be_true
         end
-      end
-    end
-  end
-
-  describe "PUT /api/queues/vhost/name/restart" do
-    it "should restart a queue" do
-      with_http_server do |http, s|
-        with_channel(s) do |ch|
-          queue_name = "restart_queue"
-          ch.queue(queue_name)
-
-          q = s.vhosts["/"].queue(queue_name)
-          q.close
-
-          response = http.get("/api/queues/%2f/#{queue_name}")
-          response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "closed"
-
-          response = http.put("/api/queues/%2f/#{queue_name}/restart")
-          response.status_code.should eq 204
-
-          response = http.get("/api/queues/%2f/#{queue_name}")
-          response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "running"
-        end
-      end
-    end
-
-    it "should not restart if queue is still running" do
-      with_http_server do |http, s|
-        with_channel(s) do |ch|
-          queue_name = "restart_queue"
-          ch.queue(queue_name)
-
-          s.vhosts["/"].queue(queue_name)
-          response = http.put("/api/queues/%2f/#{queue_name}/restart")
-          response.status_code.should eq 400
-
-          response = http.get("/api/queues/%2f/#{queue_name}")
-          response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "running"
-        end
-      end
-    end
-
-    it "should require config access to the queue" do
-      with_http_server do |http, s|
-        s.vhosts["/"].declare_queue("restart_queue", true, false)
-        q = s.vhosts["/"].queue("restart_queue")
-        q.close
-        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
-        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
-        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-        response = http.put("/api/queues/%2f/restart_queue/restart", headers: hdrs)
-        response.status_code.should eq 403
-        q.state.should eq LavinMQ::QueueState::Closed
       end
     end
   end

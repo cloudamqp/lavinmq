@@ -69,7 +69,7 @@ The queue routes of the HTTP API check the same permissions, after the user's ta
 |-------------------|-------------------|
 | `PUT /api/queues/:vhost/:name` | `configure` on the queue |
 | `DELETE /api/queues/:vhost/:name` | `configure` on the queue |
-| `PUT /api/queues/:vhost/:name/pause`, `/resume` and `/restart` | `configure` on the queue |
+| `PUT /api/queues/:vhost/:name/pause` and `/resume` | `configure` on the queue |
 | `DELETE /api/queues/:vhost/:name/contents` | `read` on the queue |
 | `POST /api/queues/:vhost/:name/get` | `read` on the queue |
 

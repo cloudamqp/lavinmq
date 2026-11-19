@@ -175,7 +175,8 @@ module LavinMQ
       end
 
       private def wait_for_paused_queue
-        if @queue.state.paused?
+        state = @queue.state
+        if state.paused? || state.failed?
           @log.debug { "Waiting for queue not to be paused" }
           flush
           select

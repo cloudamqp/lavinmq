@@ -39,18 +39,22 @@ module LavinMQ::AMQP
     end
 
     def delay(msg : Message) : Bool
-      return false if @closed
+      return false if closed?
       @msg_store_lock.synchronize do
+        # The store has data it can't read, the message is nacked
+        return false if @msg_store.failed?
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber # restart the release fiber if it died on a transient store error
+      ensure_expire_fiber
       true
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+    rescue MessageStore::ClosedError
+      false
+    rescue ex : MessageStore::Error | IO::Error
+      # The publish is nacked
+      @log.error(ex) { "Failed to delay message" }
+      false
     end
 
     # Overload to not ruin DLX header

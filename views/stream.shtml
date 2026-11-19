@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-state-reason-row" class="hide">
+              <th>Reason</th>
+              <td id="q-state-reason"></td>
+            </tr>
             <tr>
               <th>Consumers</th>
               <td id="q-consumers"></td>
@@ -76,7 +80,7 @@
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card cols-4">
+        <section class="card cols-4" id="pause-queue-card">
           <h3>Pause Stream</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>

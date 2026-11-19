@@ -20,9 +20,18 @@ module LavinMQ
         filter = ConsumerFilter.from_arguments(frame.arguments)
         # The stored offset wins when tracking offsets or when no offset is given
         stored_offset_tag = @tag if @track_offset || start.nil?
-        @cursor = stream_queue.cursor(start || StreamOffset::Absolute.new(0), filter, stored_offset_tag)
+        @cursor = new_cursor(start || StreamOffset::Absolute.new(0), filter, stored_offset_tag)
         super
         @new_message_available = BoolChannel.new(false)
+      end
+
+      # A seek that reaches data that can't be read pauses or fails the stream,
+      # see Stream#cursor. Only this channel is closed for it, not the client's
+      # connection with its other channels.
+      private def new_cursor(start, filter, stored_offset_tag) : StreamCursor
+        stream_queue.cursor(start, filter, stored_offset_tag)
+      rescue MessageStore::Error
+        raise LavinMQ::Error::PreconditionFailed.new("Message data in stream '#{@queue.name}' can't be read, see its state")
       end
 
       private def validate_preconditions(frame)

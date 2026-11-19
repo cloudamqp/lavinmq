@@ -118,22 +118,6 @@ module LavinMQ
           end
         end
 
-        put "/api/queues/:vhost/:name/restart" do |context, params|
-          with_vhost(context, params) do |vhost|
-            user = user(context)
-            refuse_unless_management(context, user, vhost)
-            q = find_queue(context, params, vhost)
-            unless user.can_config?(q.vhost.name, q.name)
-              access_refused(context, "User doesn't have permissions to restart queue '#{q.name}'")
-            end
-            if q.restart!
-              context.response.status_code = 204
-            else
-              bad_request(context, "Queue was not restarted")
-            end
-          end
-        end
-
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
@@ -298,7 +282,7 @@ module LavinMQ
             end
           rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
-          rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError
+          rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError | LavinMQ::MessageStore::Error
             # Once flushed the response can't become an error: it stays a 200
             # and ends with the JSON array unterminated, so the client fails
             # when parsing it
@@ -307,7 +291,11 @@ module LavinMQ
             headers = context.response.headers.dup
             context.response.reset
             context.response.headers.merge!(headers)
-            forbidden(context, "Stream closed during read")
+            if e.is_a?(LavinMQ::MessageStore::Error)
+              forbidden(context, "Stream paused during read, a message store error, see its state")
+            else
+              forbidden(context, "Stream closed during read")
+            end
           end
         end
       end

@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-state-reason-row" class="hide">
+              <th>Reason</th>
+              <td id="q-state-reason"></td>
+            </tr>
             <tr id="q-primary-queue-row" class="hide">
               <th>Retry queue of</th>
               <td id="q-primary-queue"></td>
@@ -50,11 +54,6 @@
               <td id="q-effective-policy-definition"></td>
             </tr>
           </table>
-          <form method="put" id="restartQueue" class="form hide">
-            <label>
-              <button type="submit" class="btn btn-green">Restart queue</button>
-            </label>
-          </form>
         </section>
         <section class="card cols-5">
           <h3>Messages</h3>
@@ -126,7 +125,7 @@
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card cols-4">
+        <section class="card cols-4" id="pause-queue-card">
           <h3>Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>

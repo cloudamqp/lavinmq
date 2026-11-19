@@ -81,6 +81,37 @@ test.describe('queue', _ => {
     })
   })
 
+  test.describe('state reason', _ => {
+    async function loadQueue (apimap, page, overrides) {
+      const loaded = Promise.all([
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}`, Object.assign({}, queueResponse, overrides)),
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`, bindingResponse)
+      ])
+      await page.goto(queueUrl('overview'))
+      await loaded
+    }
+
+    test('is hidden for a running queue', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, {})
+      await expect(page.locator('#q-state')).toHaveText('running')
+      await expect(page.locator('#q-state-reason-row')).toBeHidden()
+    })
+
+    test('says what to do with a failed queue', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, { state: 'failed' })
+      await expect(page.locator('#q-state')).toHaveText('failed')
+      await expect(page.locator('#q-state-reason-row')).toBeVisible()
+      await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete it")
+      await expect(page.locator('#pause-queue-card')).toBeHidden()
+      await expect(page.locator('#purgeQueue')).toBeHidden()
+    })
+
+    test('says to resume a queue paused by a store error', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, { state: 'paused', paused_reason: 'store_error' })
+      await expect(page.locator('#q-state-reason')).toContainText('Resume it to try again')
+    })
+  })
+
   test.describe('automatic retries', _ => {
     const retryQueueUrl = name => `/queue#vhost=${encodeURIComponent(queueVhost)}&name=${encodeURIComponent(name)}&tab=overview`
 

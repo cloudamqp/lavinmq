@@ -26,9 +26,9 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      # A segment that failed to load closed the store and unmapped its
-      # segments, so they can't be read for the last offset
-      @last_offset = @closed ? 0i64 : get_last_offset
+      # A store that failed to load isn't counted, so its last offset isn't
+      # known and nothing is dropped from it. Nothing is published to it either.
+      @last_offset = failed? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow
     end
@@ -58,7 +58,7 @@ module LavinMQ::AMQP
     # Resolves `offset` to the {offset, segment, position} to start reading at
     def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
-      return last_offset_seg_pos if @size.zero?
+      return last_offset_seg_pos if failed? || @size.zero? # nothing can be read
       case offset
       in StreamOffset::First     then offset_at(@segments.first_key, 4u32)
       in StreamOffset::Last      then offset_at(@segments.last_key, 4u32)
@@ -188,7 +188,7 @@ module LavinMQ::AMQP
         msg_offset += 1
         pos += msg.bytesize.to_u32
       rescue ex
-        raise rfile ? Error.new(rfile, cause: ex) : ex
+        raise rfile ? read_failed(rfile, ex) : ex
       end
       {msg_offset, segment, pos}
     end
@@ -232,7 +232,7 @@ module LavinMQ::AMQP
     # The next message for `cursor`, requeued messages first. Steps one message
     # at a time, nil if it didn't match the cursor's filter.
     def shift?(cursor : StreamCursor) : Envelope?
-      raise ClosedError.new if @closed
+      check_readable(@wfile)
       return if cursor.closed?
 
       if env = shift_requeued(cursor)
@@ -254,7 +254,7 @@ module LavinMQ::AMQP
         return unless cursor.match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        raise read_failed(rfile, ex)
       end
     end
 
@@ -268,7 +268,7 @@ module LavinMQ::AMQP
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
-            raise Error.new(segment, cause: ex)
+            raise read_failed(segment, ex)
           end
         end
       end
@@ -323,21 +323,24 @@ module LavinMQ::AMQP
       io.write_bytes @segment_last_ts[seg]
     end
 
+    # Nothing is dropped from a store with data it can't read: its segments
+    # aren't counted
     def drop_overflow
-      return if @closed
+      return if @closed || failed?
       drop_overflow_by_length
       drop_overflow_by_age
       cleanup_consumer_offsets
     end
 
     def drop_expired : Nil
-      return if @closed
+      return if @closed || failed?
       cleanup_consumer_offsets if drop_overflow_by_age
     end
 
     # When the oldest segment expires, nil if no segment can be dropped
     # (no max-age, or only the write segment is left)
     def next_expiry : Time?
+      return if failed? # nothing is dropped from it, see #drop_expired
       max_age = @max_age || return
       @segments.each do |seg_id, mfile|
         return if mfile == @wfile
