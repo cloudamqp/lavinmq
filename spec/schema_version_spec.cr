@@ -14,6 +14,19 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
+    it "Doesn't read a file with a zero version but data after it as empty" do
+      with_datadir do |data_dir|
+        path = File.join(data_dir, "test_schema_version")
+        MFile.open(path, 12) do |file|
+          file.write_bytes 0
+          file.write_bytes 1i64
+          expect_raises(LavinMQ::OutdatedSchemaVersion) do
+            LavinMQ::SchemaVersion.verify(file, :message)
+          end
+        end
+      end
+    end
+
     it "Should verify schema version" do
       with_datadir do |data_dir|
         path = File.join(data_dir, "test_schema_version")
