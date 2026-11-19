@@ -237,7 +237,7 @@ module LavinMQ
             if @msg_store.failed?
               "Failed, message data can't be read. #{unreadable_advice}"
             else
-              "Paused due to a message store error, resume the session to try again"
+              "Paused due to a temporary message store error, resume the session to try again"
             end
           end
         else

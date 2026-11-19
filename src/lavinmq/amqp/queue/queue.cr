@@ -877,9 +877,10 @@ module LavinMQ::AMQP
     end
 
     # The queue is paused, not closed, when its message store fails: nothing
-    # more is delivered, publishes are still stored. This pause isn't kept over
-    # a restart of the broker, which loads the store again. If the store has
-    # data it can't read the queue is failed instead, see #set_failed.
+    # more is delivered, and publishes are still stored. This pause isn't kept
+    # over a restart of the broker, which loads the store again. If the store
+    # has data it can't read the queue is failed instead, see #set_failed, and
+    # publishes are nacked, see #publish_internal.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       @store_errors.add(1, :release)
       return if closed?
@@ -890,7 +891,7 @@ module LavinMQ::AMQP
           if failed
             "Failed, message data can't be read. #{unreadable_advice}"
           else
-            "Paused due to a message store error, resume the queue to try again"
+            "Paused due to a temporary message store error, resume the queue to try again"
           end
         end
       else
