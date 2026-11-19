@@ -8,7 +8,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          publish(io, topic: "a/b", qos: 0u8, retain: true)
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
           disconnect(io)
         end
 
@@ -45,7 +45,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          publish(io, topic: "a/b", qos: 0u8, retain: true)
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
           disconnect(io)
         end
 
