@@ -329,6 +329,8 @@ function initChartObservers (handle) {
   ro.observe(el)
 }
 
+const COLLECTING_INTERVALS = 3
+
 function render (id, unit, fill = false) {
   const el = document.getElementById(id)
   const graphContainer = document.createElement('div')
@@ -346,6 +348,7 @@ function render (id, unit, fill = false) {
     scaleMax: 0,
     shrinkCount: 0,
     poll: 0,
+    renderedAt: Date.now(),
     config: { unit, fill }
   }
   handles.add(handle)
@@ -405,7 +408,8 @@ function update (handle, data) {
     }
   }
   handle.uplot.setData(handle.data)
-  handle.collectingEl.hidden = handle.samples >= 2
+  handle.collectingEl.hidden = handle.samples >= 2 ||
+    Date.now() - handle.renderedAt >= COLLECTING_INTERVALS * statsInterval()
   refreshLegend(handle)
 }
 
