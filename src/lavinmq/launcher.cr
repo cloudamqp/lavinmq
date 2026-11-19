@@ -158,7 +158,8 @@ module LavinMQ
         return if @closed
         # Scrapes would get the closed broker's metrics until it's done
         @metrics_server.try &.stop_reporting_broker
-        close_replicator unless hand_over
+        # Stored once the broker is closed, it writes files until then
+        @replicator.try &.fence unless hand_over
         close_listeners
         if server = @server
           # Keeps the replicator's checksums, which the replication client
