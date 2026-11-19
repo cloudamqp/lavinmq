@@ -490,8 +490,9 @@ module LavinMQ
       private def next_id : UInt16?
         return if @unacked.size == Config.instance.max_inflight_messages
         next_id = @count
-        # Tries each of 1..65535 once, `@count` itself last, as it can be the
-        # only id left. Packet id 0 is illegal [MQTT-2.3.1-1].
+        # Tries each of 1..65535 once, starting after `@count`, so a non-zero
+        # `@count` comes last: it can be the only id left. Packet id 0 is
+        # illegal [MQTT-2.3.1-1].
         UInt16::MAX.times do
           next_id = next_id == UInt16::MAX ? 1u16 : next_id + 1u16
           next if @unacked.has_key?(next_id)
