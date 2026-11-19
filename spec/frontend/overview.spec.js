@@ -19,6 +19,19 @@ test.describe('overview', _ => {
     }
   })
 
+  test('counters and their footers line up across the overview card', async ({ page }) => {
+    // Narrow enough that "View queues →" and the other links wrap, while
+    // Bindings has no link and a one line footer.
+    await page.setViewportSize({ width: 1100, height: 720 })
+    await page.goto('/')
+    await expect(page.locator('#uptime')).not.toHaveText('0s')
+    const tops = sel => page.locator(sel).evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)))
+    const counters = await tops('#overview .counter:not(#uptime)')
+    const footers = await tops('#overview .overview-col-footer')
+    expect(new Set(counters).size, `counter tops ${counters}`).toBe(1)
+    expect(new Set(footers).size, `footer tops ${footers}`).toBe(1)
+  })
+
   test('legend click isolates a series', async ({ page }) => {
     await page.goto('/')
     const items = page.locator('#msgChart .u-legend-item')
@@ -137,6 +150,43 @@ test.describe('overview', _ => {
     await expect(legendTime).toContainText('Paused at')
     await page.locator('#refresh-toggle').click()
     await expect(legendTime).toHaveText(/^\d{2}:\d{2}:\d{2}$/)
+  })
+
+  function yAxisTicks (page, unit, log) {
+    return page.evaluate(async ({ url, unit, log }) => {
+      const Chart = await import(url)
+      const el = document.createElement('div')
+      el.id = 'axisChart'
+      el.style.width = '1400px'
+      document.body.append(el)
+      const chart = Chart.render(el.id, unit)
+      Chart.update(chart, [{ key: 'value', value: log.at(-1), log }])
+      await new Promise(resolve => window.requestAnimationFrame(resolve))
+      const axis = chart.uplot.axes[1]
+      return { splits: axis._splits, labels: axis._values }
+    }, { url: '/js/chart.js', unit, log })
+  }
+
+  const LABEL_SCALES = { K: 1e3, M: 1e6, G: 1e9, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3 }
+
+  function parseLabel (label) {
+    const [, digits, scale] = label.match(/^([\d.,]+)\s*(\w*)/)
+    return Number(digits.replace(/,/g, '')) * (LABEL_SCALES[scale] ?? 1)
+  }
+
+  for (const [unit, value] of [['msgs/s', 0.2], ['msgs/s', 1400], ['bytes/s', 0.2], ['bytes/s', 1.4 * 1024 ** 2]]) {
+    test(`y axis labels name their tick values exactly at ${value} ${unit}`, async ({ page }) => {
+      await page.goto('/')
+      const { splits, labels } = await yAxisTicks(page, unit, [value, value])
+      expect(splits.length).toBeGreaterThan(2)
+      expect(labels.map(parseLabel)).toEqual(splits.map(v => Number(v.toPrecision(12))))
+    })
+  }
+
+  test('y axis ticks of message counts are whole numbers', async ({ page }) => {
+    await page.goto('/')
+    const { splits } = await yAxisTicks(page, 'msgs', [1, 1])
+    expect(splits.filter(v => !Number.isInteger(v))).toEqual([])
   })
 
   test('y axis shrinks after five polls below the range, not five redraws', async ({ page }) => {

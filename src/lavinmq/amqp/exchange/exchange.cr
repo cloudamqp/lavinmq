@@ -53,13 +53,6 @@ module LavinMQ
             @staged_effective_args.delete("alternate-exchange")
             return true
           end
-        when "delayed-message"
-          if value.as?(Bool) == true
-            @staged_effective_args.delete("x-delayed-message")
-            @delayed = true
-            init_delayed_queue
-            return true
-          end
         when "federation-upstream"
           @staged_federation_upstream = value.as_s unless internal?
           return true
@@ -280,9 +273,12 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.delay(msg)
-            @publish_out_count.add(1, :relaxed)
-            return PublishResult::Routed
+            if q.delay(msg)
+              @publish_out_count.add(1, :relaxed)
+              return PublishResult::Routed
+            else # Closed, e.g. on a corrupt segment at start, so a confirm is a nack
+              return PublishResult::Rejected
+            end
           else
             @unroutable_count.add(1, :relaxed)
             return PublishResult::None

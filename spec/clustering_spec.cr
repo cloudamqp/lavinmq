@@ -156,6 +156,49 @@ describe LavinMQ::Clustering::Controller do
   ensure
     blocker.try &.close
   end
+
+  describe ".advertised_uri" do
+    it "advertises the client ports the node listens on" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.amqp_port = 5682
+      config.mqtt_port = 1884
+      config.http_port = 15682
+      uri = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config))
+      uri.host.should eq "leader"
+      uri.port.should eq 5679
+      uri.query_params.to_h.should eq({"amqp" => "5682", "mqtt" => "1884", "http" => "15682"})
+    end
+
+    it "advertises TLS ports only when TLS is configured" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.tls_cert_path = "spec/resources/server_certificate.pem"
+      config.amqps_port = 5681
+      config.mqtts_port = 0 # disabled
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params["amqps"].should eq "5681"
+      params["https"].should eq config.https_port.to_s
+      params.has_key?("mqtts").should be_false
+    end
+
+    it "keeps ports given in the configured advertised_uri" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679?amqp=30672"
+      config.amqp_port = 5672
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.fetch_all("amqp").should eq ["30672"]
+      params["http"].should eq config.http_port.to_s
+    end
+
+    it "skips disabled ports" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://leader:5679"
+      config.mqtt_port = -1
+      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params.has_key?("mqtt").should be_false
+    end
+  end
 end
 
 describe LavinMQ::Clustering::Client do
@@ -188,6 +231,41 @@ describe LavinMQ::Clustering::Client do
       end
       wg.wait
       bind_errors.should be_empty
+    end
+  end
+
+  describe "Leader" do
+    it "reads the client ports a leader advertises" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader:5680?amqp=5682&https=15681&foo=1&mqtt=x&http=0"))
+      leader.host.should eq "leader"
+      leader.port.should eq 5680
+      leader.forward_port("amqp", 5672).should eq 5682
+      leader.forward_port("https", 15671).should eq 15681
+      leader.forward_port("mqtt", 1883).should eq 1883   # invalid, the follower's own port
+      leader.forward_port("http", 15672).should eq 15672 # out of range, the follower's own port
+      leader.ports.has_key?("foo").should be_false
+    end
+
+    it "forwards to the follower's own ports for a leader that doesn't advertise them" do
+      leader = LavinMQ::Clustering::Client::Leader.parse(URI.parse("tcp://leader"))
+      leader.port.should eq 5679
+      leader.forward_port("amqp", 5672).should eq 5672
+    end
+  end
+
+  it "stops following a leader that advertises other ports" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
+      spawn client.follow("tcp://127.0.0.1:1?amqp=5682") # no leader there, keeps retrying
+      # The follow fiber may not have run yet, e.g. on another thread
+      wait_for { client.follows?("tcp://127.0.0.1:1?amqp=5682") }
+      client.follows?("tcp://127.0.0.1:1?amqp=5683").should be_false
+      client.follows?("tcp://127.0.0.1:1").should be_false
+      client.follows?("127.0.0.1", 1).should be_true
+    ensure
+      client.try &.close
     end
   end
 end
@@ -356,6 +434,24 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  it "registers the retained messages it restores, so a follower's full sync keeps them" do
+    dir = File.join(LavinMQ::Config.instance.data_dir, "retain_store")
+    store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+    store.retain(MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
+      packet_id: nil, dup: false, qos: 0u8, retain: true))
+    store.close
+    msg_file = Dir.children(dir).find!(&.ends_with?(".msg"))
+    with_clustering do |cluster|
+      store = LavinMQ::MQTT::RetainStore.new(dir, cluster.replicator)
+      files = cluster.replicator.@file_index.shared { |f, _| f.keys }
+      files.should contain "retain_store/#{msg_file}"
+    ensure
+      store.try &.close
+    end
+  ensure
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "replicates and streams retained messages to followers" do
     with_clustering do |cluster|
       replicator = cluster.replicator
@@ -482,7 +578,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     leader1 = Channel(Nil).new
     spawn(name: "elect listen spec") do
       etcd.elect_listen("lavinmq/leader") do |value|
-        leader1.send nil if value == config1.clustering_advertised_uri
+        # The leader appends its client ports to its advertised URI
+        leader1.send nil if value.try &.starts_with?("#{config1.clustering_advertised_uri}?")
       end
     rescue SpecExit
     end
@@ -574,7 +671,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       elected = Channel(Nil).new
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
       spawn do
-        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value == config.clustering_advertised_uri }
+        etcd.elect_listen("lavinmq/leader") { |value| elected.close if value.try &.starts_with?("#{config.clustering_advertised_uri}?") }
       rescue SpecExit
       end
       spawn do
@@ -632,6 +729,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       when timeout(1.seconds)
         fail("election campaign did not finish in time, leadership not released on launcher stop?")
       end
+    ensure
+      lease.try &.release
     end
   end
 
@@ -980,7 +1079,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
           # a segment file was deleted, but the queue dir exists
           Dir.exists?(repl_qdir).should be_true
-          Dir.children(repl_qdir).size.should be < files_before
+          wait_for { Dir.children(repl_qdir).size < files_before } # unlinked after the persister's sync
         end
       end
     end
@@ -1045,6 +1144,101 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         cluster.replicator.with_file(dotqfile_relative) do |f, _size|
           f.should be_nil
         end
+      end
+    end
+  end
+
+  it "replicates a durable queue's paused state" do
+    with_clustering do |cluster|
+      follower_paused = ""
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) { |ch| ch.queue("paused_q", durable: true) }
+        queue = s.vhosts["/"].queue("paused_q").as(LavinMQ::AMQP::Queue)
+        relative = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
+        follower_paused = File.join(cluster.follower_config.data_dir, relative)
+
+        queue.pause!
+        wait_for { File.exists?(follower_paused) }
+        queue.resume!
+        wait_for { !File.exists?(follower_paused) }
+
+        queue.pause!
+        wait_for { File.exists?(follower_paused) }
+        # A leader that starts with a paused queue has to offer the file in a full sync
+        restart_server(s)
+        cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
+        cluster.stop
+      end
+
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        server.vhosts["/"].queue("paused_q").state.paused?.should be_true
+      ensure
+        server.close
+      end
+    end
+  end
+
+  # An in-place upgrade: the queue and the shovel were paused by a version that
+  # didn't replicate the paused files, and left the queue's one empty
+  it "replicates paused files that exist when the leader starts" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+    follower_config = LavinMQ::Config.instance.dup.tap &.data_dir = File.tempname
+    tcp_server = TCPServer.new("localhost", 0)
+    client = nil
+    begin
+      with_amqp_server(replicator: replicator) do |s|
+        with_channel(s) { |ch| ch.queue("paused_before_upgrade", durable: true) }
+        queue = s.vhosts["/"].queue("paused_before_upgrade").as(LavinMQ::AMQP::Queue)
+        queue_paused = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
+        File.touch(File.join(s.data_dir, queue_paused))
+        shovel_paused = "shovels.#{Digest::SHA1.hexdigest "paused_before_upgrade"}.paused"
+        File.write(File.join(s.data_dir, shovel_paused), "paused_before_upgrade")
+        shovel_config = %({"src-uri": "amqp://localhost", "src-queue": "q", "dest-uri": "amqp://localhost", "dest-queue": "q2"})
+        s.vhosts["/"].add_parameter(LavinMQ::Parameter.new("shovel", "paused_before_upgrade", JSON.parse(shovel_config)))
+        restart_server(s)
+        s.vhosts["/"].queue("paused_before_upgrade").state.paused?.should be_true
+        wait_for { s.vhosts["/"].shovels["paused_before_upgrade"]?.try &.state.paused? }
+
+        spawn(replicator.listen(tcp_server), name: "repli server spec")
+        client = follower = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
+        spawn(name: "follow spec") { follower.follow("localhost", tcp_server.local_address.port) }
+        wait_for { replicator.followers.first?.try &.synced? }
+
+        File.exists?(File.join(follower_config.data_dir, queue_paused)).should be_true
+        File.exists?(File.join(follower_config.data_dir, shovel_paused)).should be_true
+      end
+    ensure
+      client.try &.close
+      replicator.close
+      tcp_server.close
+      FileUtils.rm_rf follower_config.data_dir
+    end
+  end
+
+  it "replicates a shovel's paused state" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new("paused-shovel", [URI.parse("amqp://localhost")], "paused_shovel_q",
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new("paused-shovel", URI.parse("amqp://localhost"), "paused_shovel_q2",
+          direct_user: s.users.direct_user)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost)
+        relative = shovel.@paused_file_path[(s.data_dir.size + 1)..]
+        follower_paused = File.join(cluster.follower_config.data_dir, relative)
+
+        shovel.pause
+        wait_for { File.exists?(follower_paused) }
+        # A shovel that starts paused has to offer the file in a full sync
+        LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost).state.paused?.should be_true
+        cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
+
+        shovel.resume
+        wait_for { !File.exists?(follower_paused) }
+        shovel.delete
       end
     end
   end

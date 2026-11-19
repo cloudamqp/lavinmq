@@ -51,8 +51,13 @@ module LavinMQ::AMQP
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
-        init_sub_stores(@stores)
-        migrate_from_single_store
+        begin
+          init_sub_stores(@stores)
+          migrate_from_single_store
+        rescue ex
+          @stores.each &.close
+          raise ex
+        end
 
         @empty = BoolChannel.new(empty?)
       end
@@ -81,18 +86,21 @@ module LavinMQ::AMQP
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
-        msg_count = old_store.size
-        @log.info { "Migrating #{msg_count} message" }
-        i = 0u32
-        while env = old_store.shift?
-          push env.message
-          Fiber.yield if ((i &+= 1) % 8096).zero?
+        begin
+          msg_count = old_store.size
+          @log.info { "Migrating #{msg_count} message" }
+          i = 0u32
+          while env = old_store.shift?
+            push env.message
+            Fiber.yield if ((i &+= 1) % 8096).zero?
+          end
+          if size != msg_count
+            raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
+          end
+          @log.info { "Migration complete" }
+        ensure
+          old_store.close # also when the migration fails, before its files are deleted otherwise
         end
-        if size != msg_count
-          raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
-        end
-        @log.info { "Migration complete" }
-        old_store.close
         i = 0u32
         pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
@@ -185,10 +193,17 @@ module LavinMQ::AMQP
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
+        purge(max_count) { }
+      end
+
+      # Yields the position of each purged message
+      def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
         while count < max_count && (env = shift?)
-          delete(env.segment_position)
+          sp = env.segment_position
+          delete(sp)
+          yield sp
           count += 1
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -196,8 +211,13 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def release_idle_pages : Nil
+        return if @closed
+        @stores.each &.release_idle_pages
+      end
+
+      def purge_all(&on_requeued : SegmentPosition ->)
+        @stores.each(&.purge_all(&on_requeued))
         @empty.set true
       end
 

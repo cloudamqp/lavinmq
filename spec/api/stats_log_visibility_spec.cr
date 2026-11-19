@@ -49,4 +49,47 @@ describe "rate-history log visibility" do
       end
     end
   end
+
+  # The stats loop sleeps an hour after its first sweep; the specs wait for that sweep, then drive the rest.
+  describe "log contents" do
+    it "serves a queue's publish rate history in order" do
+      with_stats_interval(3_600_000) do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
+            cq = ch.queue("logq")
+            q = s.vhosts["/"].queue("logq")
+            [5, 5, 10, 0].each do |n|
+              n.times { cq.publish_confirm "m" }
+              q.update_rates(1.0)
+            end
+            details = JSON.parse(http.get("/api/queues/%2f/logq").body)
+            # The first tick spans a partial interval and is no sample
+            details["message_stats"]["publish_details"]["log"].as_a.map(&.as_f).should eq [5.0, 10.0, 0.0]
+          end
+        end
+      end
+    end
+
+    it "logs the messages of all queues in the overview, also of since deleted ones" do
+      with_stats_interval(3_600_000) do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            wait_for { s.stats_ticks > 0 }
+            old = ch.queue("old-q")
+            s.update_stats_rates(1.0)
+            2.times { old.publish_confirm "m"; s.update_stats_rates(1.0) }
+            young = ch.queue("young-q")
+            2.times { young.publish_confirm "m" }
+            s.update_stats_rates(1.0)
+            young.delete
+            s.update_stats_rates(1.0)
+            overview = JSON.parse(http.get("/api/overview").body)
+            # old-q: 0, 1, 2, 2, 2 messages; young-q: 2 until deleted
+            overview["queue_totals"]["messages_ready_log"].as_a.map(&.as_i).last(5).should eq [0, 1, 2, 4, 2]
+          end
+        end
+      end
+    end
+  end
 end
