@@ -1124,6 +1124,22 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "schedules no retention for a stream that failed to load" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+        3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        store.close
+        write_at(File.join(data_dir, "msgs.0000000002"), 0, LavinMQ::Schema::VERSION + 1)
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_true
+        store.max_age = 1.millisecond
+        # Else the max-age loop would wake for a segment it never drops
+        store.next_expiry.should be_nil
+        store.close
+      end
+    end
+
     it "loads as failed when a record in a segment can't be decoded" do
       with_datadir do |data_dir|
         io = IO::Memory.new

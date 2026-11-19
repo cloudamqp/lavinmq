@@ -94,9 +94,14 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
+    # A seek that reaches data it can't read fails the stream, see
+    # #read_next, and the error is raised
     def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
                stored_offset_tag : String? = nil) : StreamCursor
       @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
+    rescue ex : MessageStore::Error
+      pause_on_store_error(ex)
+      raise ex
     end
 
     # The deliver path shifts from the cursor's requeued messages under

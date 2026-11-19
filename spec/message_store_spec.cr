@@ -385,6 +385,40 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "fails at a record it can't decode in a segment another follows, instead of skipping to it" do
+      with_store do |store|
+        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+        3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        store.@segments.size.should be > 1
+        # A body size past the end of the segment
+        write_at(store.@segments.first_value.path, bodysize_pos.call(4), 10_000_000_u64)
+        expect_raises(LavinMQ::MessageStore::UnreadableError) { store.shift? }
+        store.failed?.should be_true
+      end
+    end
+
+    it "fails on stored headers with a field type it doesn't know" do
+      with_store do |store|
+        props = AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"k" => "v"}))
+        store.push(LavinMQ::Message.new("ex", "rk", "body", props))
+        segment = store.@segments.first_value
+        type_pos = segment.to_slice.to_a.each_cons(3).index!(&.==(['\u0001'.ord.to_u8, 'k'.ord.to_u8, 'S'.ord.to_u8])) + 2
+        write_at(segment.path, type_pos, '!'.ord.to_u8)
+        expect_raises(LavinMQ::MessageStore::UnreadableError) { store.shift? }
+        store.failed?.should be_true
+      end
+    end
+
+    it "raises an ack that can't be written from a purge of all the messages" do
+      with_store do |store, dir|
+        2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }
+        # The ack file can't be opened, as when the broker is out of file descriptors
+        Dir.mkdir(File.join(dir, "acks.0000000001"))
+        expect_raises(LavinMQ::MessageStore::Error) { store.purge_all }
+        store.failed?.should be_false
+      end
+    end
+
     it "isn't failed by a read error that isn't from data it can't decode" do
       with_store do |store|
         2.times { |i| store.push(LavinMQ::Message.new("ex", "rk", "body#{i}")) }

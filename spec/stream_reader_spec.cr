@@ -165,4 +165,21 @@ describe "LavinMQ::AMQP::Stream#each_from" do
       end
     end
   end
+
+  it "fails the stream when a seek to an offset reaches data it can't read" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("seek-unreadable", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        3.times { |i| q.publish_confirm "m#{i}" }
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        mfile = iq.stream_msg_store.@segments.first_value
+        # The body size of the first message, past the end of the segment
+        write_at(mfile.path, 4 + 8 + 1 + 1 + q.name.bytesize + AMQ::Protocol::Properties.new.bytesize, 10_000_000_u64)
+        expect_raises(LavinMQ::MessageStore::UnreadableError) do
+          iq.each_from(LavinMQ::AMQP::StreamOffset::Absolute.new(3)) { }
+        end
+        iq.state.failed?.should be_true
+      end
+    end
+  end
 end

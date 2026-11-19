@@ -392,6 +392,34 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "redelivers nothing from a failed queue on a recover, and requeues what was unacked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "m1"
+          q.publish_confirm "m2"
+          deliveries = Channel(String).new(4)
+          q.subscribe(no_ack: false) { |m| deliveries.send m.body_io.to_s }
+          deliveries.receive.should eq "m1"
+          segment = queue.@msg_store.@segments.first_value
+          record_size = (segment.size - 4) // 2
+          write_at(segment.path, unreadable_flags_pos(4 + record_size, q_name), 0x0003u16)
+          queue.basic_get(no_ack: true) { }
+          queue.state.failed?.should be_true
+
+          ch.basic_recover(requeue: false)
+          select
+          when body = deliveries.receive then fail "redelivered #{body} from a failed queue"
+          when timeout 100.milliseconds
+          end
+          should_eventually(eq 0) { queue.unacked_count }
+          ch.closed?.should be_false
+        end
+      end
+    end
+
     it "refuses a purge, and leaves the queue as it is, but takes acks of what was delivered" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -572,6 +600,43 @@ describe LavinMQ::AMQP::Queue do
         queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
         queue.state.failed?.should be_true
         expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
+      end
+    end
+  end
+
+  describe "Ack files that can't be opened" do
+    it "pauses the queue on an ack, without closing the channel" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ack-open", durable: true)
+          queue = s.vhosts["/"].queue("ack-open").as(LavinMQ::AMQP::DurableQueue)
+          2.times { |i| q.publish_confirm "m#{i}" }
+          msg = q.get(no_ack: false).should_not be_nil
+          # The ack file can't be opened, as when the broker is out of file descriptors
+          acks = File.join(queue.@data_dir, "acks.0000000001")
+          Dir.mkdir(acks)
+          msg.ack
+          should_eventually(be_true) { queue.state.paused? }
+          queue.paused_reason.should eq "store_error"
+          ch.closed?.should be_false
+          Dir.delete(acks)
+          queue.resume!
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "m1"
+        end
+      end
+    end
+
+    it "pauses the queue on a purge of all its messages, which isn't reported as done" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ack-open-purge", durable: true)
+          queue = s.vhosts["/"].queue("ack-open-purge").as(LavinMQ::AMQP::DurableQueue)
+          2.times { |i| q.publish_confirm "m#{i}" }
+          Dir.mkdir(File.join(queue.@data_dir, "acks.0000000001"))
+          expect_raises(LavinMQ::MessageStore::Error) { queue.purge }
+          queue.state.paused?.should be_true
+          queue.paused_reason.should eq "store_error"
+        end
       end
     end
   end

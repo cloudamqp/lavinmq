@@ -22,6 +22,10 @@ module LavinMQ::AMQP
       # released before the vhost has loaded the bindings they route through
       @vhost.closed.when_false.receive?
       loop do
+        # Nothing is released from a paused or failed queue. A failed one can
+        # have messages counted that aren't in the delay index, and the loop
+        # below would spin on them.
+        wait_for_resume if @paused.value
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
             expire_messages
