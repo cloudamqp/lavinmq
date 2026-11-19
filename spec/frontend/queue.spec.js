@@ -92,14 +92,14 @@ test.describe('queue', _ => {
       await loadQueue(apimap, page, { state: 'failed' })
       await expect(page.locator('#q-state')).toHaveText('failed')
       await expect(page.locator('#q-state-reason-row')).toBeVisible()
-      await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete the queue")
+      await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete it")
       await expect(page.locator('#pauseQueue')).toBeHidden()
       await expect(page.locator('#resumeQueue')).toBeHidden()
     })
 
     test('says to resume a queue paused by a store error', async ({ apimap, page }) => {
       await loadQueue(apimap, page, { state: 'paused', paused_reason: 'store_error' })
-      await expect(page.locator('#q-state-reason')).toContainText('Resume the queue to try again')
+      await expect(page.locator('#q-state-reason')).toContainText('Resume it to try again')
     })
   })
 

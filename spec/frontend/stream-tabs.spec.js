@@ -224,4 +224,16 @@ test.describe('stream tabs', _ => {
   test('the bindings tab badge mirrors the bindings count', async ({ page }) => {
     await expect(badge(page, 'bindings')).toHaveText(bindingResponse.items.length.toString())
   })
+
+  test('says what to do with a failed stream', async ({ apimap, page }) => {
+    await expect(page.locator('#q-state-reason-row')).toBeHidden()
+    // Registered last, so it takes over from the running stream of beforeEach
+    const loaded = apimap.get(`/api/queues/${vhostParam}/${queueName}`, { ...queueResponse, state: 'failed' })
+    await page.reload()
+    await loaded
+    await expect(page.locator('#q-state')).toHaveText('failed')
+    await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete it")
+    await expect(page.locator('#pauseQueue')).toBeHidden()
+    await expect(page.locator('#resumeQueue')).toBeHidden()
+  })
 })

@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-state-reason-row" class="hide">
+              <th>Reason</th>
+              <td id="q-state-reason"></td>
+            </tr>
             <tr>
               <th>Consumers</th>
               <td id="q-consumers"></td>

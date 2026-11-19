@@ -74,8 +74,11 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state) {
+function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
+  const reason = Helpers.stateReason(state, pausedReason)
+  document.getElementById('q-state-reason').textContent = reason || ''
+  document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
@@ -86,8 +89,8 @@ function handleQueueState (state) {
       resumeQueueForm.classList.add('hide')
       break
     default:
-      pauseQueueForm.disabled = true
-      resumeQueueForm.disabled = true
+      pauseQueueForm.classList.add('hide')
+      resumeQueueForm.classList.add('hide')
   }
 }
 
@@ -98,7 +101,7 @@ function updateQueue (all, signal) {
   return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
       Chart.update(chart, item.message_stats)
-      handleQueueState(item.state)
+      handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
       document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.total_bytes) + 'B'
       const totalAvgBytes = item.messages !== 0 ? (item.message_bytes_unacknowledged + item.message_bytes_ready) / item.messages : 0
@@ -293,7 +296,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue paused!')
-        handleQueueState('paused')
+        handleQueueState('paused', 'operator')
       })
       .catch(() => {})
   }
