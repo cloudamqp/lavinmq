@@ -1,5 +1,13 @@
 require "../spec_helper.cr"
 
+class LavinMQ::MQTT::Session
+  # Called directly, as a delivery through a `next_id` that wrongly returns
+  # nil spins the deliver loop and hangs the spec instead of failing it
+  def next_id_for_spec
+    next_id
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -420,15 +428,9 @@ module MqttSpecs
           held = LavinMQ::SegmentPosition.new(0u32, 0u32, 0u32)
           (1u16..UInt16::MAX).each { |id| session.@unacked[id] = held unless id == free }
 
-          with_client_io(server) do |pub_io|
-            connect(pub_io, client_id: "publisher")
-            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-            disconnect(pub_io)
-          end
-
-          read_publish(io).packet_id.should eq free
+          session.next_id_for_spec.should eq free
           # Nothing to requeue for the planted ids on disconnect
-          session.@unacked.reject! { |id, _| id != free }
+          session.@unacked.clear
           disconnect(io)
         end
       end
@@ -438,15 +440,21 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
-          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}, {"will/t", 0u8}))
 
           with_client_io(server) do |io|
-            connect(io, client_id: "publisher")
+            will = MQTT::Protocol::Will.new(
+              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+            connect(io, client_id: "publisher", will: will)
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8,
               packet_id: 0u16, expect_response: false)
             io.should be_closed
           end
 
+          # The Will, and not the publish with packet id 0
+          pub = read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
+          pub.topic.should eq "will/t"
+          pub.payload.should eq "dead".to_slice
           sub_io.should be_drained
           disconnect(sub_io)
         end
