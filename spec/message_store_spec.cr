@@ -912,12 +912,20 @@ describe LavinMQ::MessageStore do
         seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
         File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
 
-        # The store stays open, to be purged
+        # The store stays open, so that what was delivered can still be acked
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
           store.failed?.should be_true
           store.closed.should be_false
+          # Every segment is registered, also the one that can't be loaded and
+          # the ones after it, so that a follower's full sync keeps them
+          registered = replicator.@file_index.lock { |files, _| files.keys }
+          # Registered relative to the data dir, the way the replicator strips paths
+          strip = LavinMQ::Config.instance.data_dir.bytesize + 1
+          seg_files.each do |f|
+            registered.should contain File.join(dir, f)[strip..]
+          end
         ensure
           replicator.close
         end
