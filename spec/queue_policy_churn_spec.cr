@@ -240,7 +240,7 @@ describe "Queue policy churn" do
     end
   end
 
-  it "enforces the limits again when a queue a store error paused is resumed" do
+  it "enforces the limits before a queue a store error paused is resumed" do
     with_amqp_server do |s|
       queue = FailingDropQueue.create(s.vhosts["/"], "limits_resume")
       s.vhosts["/"].register_queue(queue)
@@ -249,8 +249,15 @@ describe "Queue policy churn" do
       queue.apply_policy(churn_policy({"max-length" => 1}), nil)
       should_eventually(be_true) { queue.state.paused? }
       queue.message_count.should eq 4
+      # The limits fail again: still paused, nothing delivered that they'd drop
+      queue.fail_drop = true
       queue.resume!
-      should_eventually(eq 1) { queue.message_count }
+      queue.state.paused?.should be_true
+      queue.message_count.should eq 4
+      # Enforced before the queue runs again
+      queue.resume!
+      queue.state.running?.should be_true
+      queue.message_count.should eq 1
     ensure
       queue.try &.delete
     end

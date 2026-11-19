@@ -108,6 +108,8 @@ module LavinMQ::AMQP
     # Guards @state, the paused flag and the "paused" file. Taken last: a store
     # error pauses the queue under @msg_store_lock.
     @state_lock = Mutex.new
+    # Counts the store errors that paused the queue, see #enforce_limits
+    @store_errors = Atomic(UInt32).new(0)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
@@ -871,6 +873,7 @@ module LavinMQ::AMQP
     # a restart of the broker, which loads the store again. If the store has
     # data it can't read the queue is failed instead, see #set_failed.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
+      @store_errors.add(1, :release)
       return if closed?
       failed = @msg_store.failed?
       changed = @state_lock.synchronize { failed ? set_failed : set_paused }
@@ -903,15 +906,30 @@ module LavinMQ::AMQP
         if state.failed?
           raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. Delete the queue to remove it, or fail over to a node with a good copy")
         end
+      end
+      # The limits first, which a store error can have stopped: nothing is
+      # delivered that they would drop. A new error keeps it paused.
+      return unless enforce_limits
+      resumed = @state_lock.synchronize do
+        # Not if an operator paused it meanwhile, or it failed or closed
+        next false if !state.paused? || File.exists?(paused_file)
         @state.set(QueueState::Running, :release)
         @paused.set(false)
+        true
       end
+      return unless resumed
       @log.debug { "Resumed" }
       ensure_expire_fiber
-      # A store error can have stopped a pass of the limits, whose request is
-      # already taken, see #apply_policy_limits
-      @policy_limits_pending.set(true, :release)
-      ensure_policy_limits_fiber
+    end
+
+    # Runs a pass of the limits, returns false if it hit a store error
+    private def enforce_limits : Bool
+      errors = @store_errors.get(:acquire)
+      @msg_store_lock.synchronize do
+        drop_overflow
+        drop_redelivered
+      end
+      @store_errors.get(:acquire) == errors
     end
 
     # Why the queue is paused, nil if it isn't: "operator" if it was paused
