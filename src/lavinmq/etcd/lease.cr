@@ -1,5 +1,4 @@
 require "../../stdlib/isolated_wait_for"
-require "sync/exclusive"
 
 module LavinMQ
   class Etcd
@@ -11,8 +10,9 @@ module LavinMQ
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @expired = Channel(Exception?).new
         # When etcd expires the lease at the earliest, its TTL counts from
-        # when it got the last keepalive
-        @deadline = Sync::Exclusive(Time::Instant).new(Time.instant + ttl.seconds)
+        # when it got the last keepalive. Nanoseconds since @started.
+        @started = Time.instant
+        @deadline = Atomic(Int64).new(ttl.seconds.total_nanoseconds.to_i64)
         Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
           keepalive_loop(ttl)
         end
@@ -35,7 +35,7 @@ module LavinMQ
         wait_until = Time.instant + timeout
         loop do
           now = Time.instant
-          deadline = @deadline.get
+          deadline = @started + @deadline.get.nanoseconds
           raise Expired.new("No keepalive succeeded within the lease TTL") if now >= deadline
           return if now >= wait_until
           select
@@ -57,12 +57,12 @@ module LavinMQ
           sent = Time.instant
           begin
             ttl = @etcd.lease_keepalive(@id, request_timeout)
-            @deadline.set(sent + ttl.seconds)
+            @deadline.set((sent + ttl.seconds - @started).total_nanoseconds.to_i64)
           rescue ex
             # Only etcd's word that the lease is gone ends it before the
             # deadline, any other error (e.g. "no leader" during an etcd
             # leader election, or EOF while a member restarts) is retried
-            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired) || Time.instant > @deadline.get
+            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired)
             Log.warn { "Lease #{@id} keepalive failed, retrying: #{ex.message}" }
             ttl = 1
           end
