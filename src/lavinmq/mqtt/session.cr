@@ -65,6 +65,8 @@ module LavinMQ
       # every publish to the session takes, as the paused file is written
       # and replicated under it.
       @state_lock = Mutex.new
+      # Counts the store errors that paused the session, see #resume!
+      @store_errors = Atomic(UInt32).new(0)
       @has_capacity = BoolChannel.new(true)
       # This session's topic filters and their QoS, kept by the MQTT exchange
       # as it binds and unbinds them, so finding a session's subscriptions
@@ -224,6 +226,7 @@ module LavinMQ
       # session has to be deleted. Like a queue's, this pause isn't kept over a
       # restart of the broker.
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
+        @store_errors.add(1, :release)
         paused = @state_lock.synchronize do
           next false if closed?
           @paused.set(true)
@@ -566,10 +569,9 @@ module LavinMQ
         end
       end
 
-      # Returns false if a store error stopped it
-      private def drop_overflow : Bool
-        return true unless (ml = @max_length) || (mlb = @max_length_bytes)
-        return true if @msg_store.failed? # nothing can be read
+      private def drop_overflow : Nil
+        return unless (ml = @max_length) || (mlb = @max_length_bytes)
+        return if @msg_store.failed? # nothing can be read
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -586,11 +588,9 @@ module LavinMQ
             end
           end
         end
-        true
       rescue ex : MessageStore::Error
         # The publish is stored, the limit is enforced again once resumed
         pause_on_store_error(ex)
-        false
       end
 
       private def clear_policy_arguments
@@ -630,11 +630,14 @@ module LavinMQ
         end
         return unless resume
         # The limits first, which a store error can have stopped: nothing is
-        # delivered that they would drop. A new error keeps it paused.
-        return unless drop_overflow
+        # delivered that they would drop
+        errors = @store_errors.get(:acquire)
+        drop_overflow
         resumed = @state_lock.synchronize do
-          # An operator can have paused it meanwhile
-          next false if closed? || File.exists?(@paused_file)
+          # Not if a store error came meanwhile, from the limits or another
+          # path, the store failed, or an operator paused it
+          next false if closed? || @msg_store.failed? || File.exists?(@paused_file)
+          next false unless @store_errors.get(:acquire) == errors
           @paused.set(false)
           true
         end
