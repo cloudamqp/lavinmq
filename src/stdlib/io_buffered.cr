@@ -310,7 +310,7 @@ module IO::Buffered
   # fiber's reader may still use the read buffer, it returns it on its next read.
   def close : Nil
     unless pool = @buffer_pool
-      release_in_buffer(@closed_buffer_pool) if read_fiber?
+      release_in_buffer(@closed_buffer_pool) if filled_by_current_fiber?
       return previous_def
     end
     begin
@@ -318,23 +318,27 @@ module IO::Buffered
     ensure
       @buffer_pool = nil
       @closed_buffer_pool = pool
-      release_in_buffer(pool) if read_fiber?
+      release_in_buffer(pool) if filled_by_current_fiber?
       previous_def
     end
   end
 
   # Only the fiber that last filled the read buffer releases it after a close.
   # Its address is stored inverted, so the GC doesn't see a reference to it.
-  @read_fiber_id = 0_u64
+  @read_fiber_key = 0_u64
   @closed_buffer_pool : IO::BufferPool? = nil
 
-  private def read_fiber? : Bool
-    @read_fiber_id == ~Fiber.current.object_id
+  private def current_fiber_key : UInt64
+    ~Fiber.current.object_id
+  end
+
+  private def filled_by_current_fiber? : Bool
+    @read_fiber_key == current_fiber_key
   end
 
   protected def check_open
     return unless closed?
-    release_in_buffer(@closed_buffer_pool) if read_fiber?
+    release_in_buffer(@closed_buffer_pool) if filled_by_current_fiber?
     raise IO::Error.new "Closed stream"
   end
 
@@ -359,7 +363,7 @@ module IO::Buffered
   private def fill_buffer
     @buffer_fills &+= 1
     return previous_def unless pool = @buffer_pool
-    @read_fiber_id = ~Fiber.current.object_id
+    @read_fiber_key = current_fiber_key
     {% if flag?(:unix) %}
       if socket = self.as?(Socket)
         return fill_socket_buffer(socket, pool)
